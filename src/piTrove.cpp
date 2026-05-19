@@ -4450,8 +4450,7 @@ int _swap_ci = current_index.load();
                 DrawRectangle(0, 0, sw, sh, (Color){0,0,0,black_a});
             }
 
-} // end else-if (current_tex.id != 0) photo render
-} // end else-if (!current_is_video) collage/photo branch
+} // end if (current_tex.id != 0) photo render
 
 // ── CRT loading screen — shown only during initial preload, never for video ──
 if (!current_is_video && current_tex.id == 0) {
