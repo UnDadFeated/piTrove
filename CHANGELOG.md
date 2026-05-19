@@ -1,4 +1,14 @@
 # Changelog
+## v6.0.2 — Correct 24K file count, worker thread join, skip EXIF rotation (May 18, 2026)
+
+### Fixed
+- **Scan count**: Root thread now scans root dir only (non-recursive), workers scan subdirs — eliminates 2x file count bug (was 48K, now 24K)
+- **Worker threads**: Replaced broken `cv.wait_for(600s)` + `pthread_cancel` with direct `join()` — workers no longer hang or timeout
+- **root_thread**: Replaced `detach()` with `join()` — fixes race on `scanned_items` vector
+- **Splash rendering**: Full image centered on screen instead of cropped to top 50% (`src_h = h * overlay_y`)
+- **EXIF rotation**: Skip `read_exif_rotation()` on 23K JPEGs — replaces ~hour of CIFS I/O with instant `rotation=1`
+
+
 ## v5.1.5 - Network-safe scanner and bulk cache (May 18, 2026)
 
 ### Added

@@ -1,4 +1,4 @@
-# piTrove v5.7.0 — fork+execvp probe engine (May 18, 2026)
+# piTrove v6.0.2 — Correct 24K file count, worker thread join, skip EXIF rotation (May 18, 2026)
 
 ## Bugs Fixed in v5.7.0
 
