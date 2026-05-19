@@ -1,6 +1,6 @@
-# piTrove v7.0.7 — Bug fix round 18 (May 19, 2026)
+# piTrove v7.0.8 — Bug fix round 19 (May 19, 2026)
 
-## Status: v7.0.7 built and running on Pi (192.168.4.110)
+## Status: v7.0.8 built and running on Pi (192.168.4.110)
 
 ## Bugs Fixed in Round 3 (continued, 137-146 part 2)
 
@@ -459,6 +459,7 @@ while (it != std::filesystem::recursive_directory_iterator()) {
 - **v7.0.3**: Fixed 3 bugs (229a-c) — Video black screen fix: unconditional MPV polling loop, FBO internal_format=GL_RGBA8, compound literal→named variable lifetimes
 - **v7.0.4**: Fixed 1 bug (229d) — v7.0.3 regression: raw glBindBuffer desynced rlgl VBO cache → black screen. Replaced with rlDisableShader() only (safe via rlgl API).
 - **v7.0.5**: Fixed 4 bugs (229e-a-d) — Complete MPVPlayer::update_frame() rewrite: FBO format GL_RGBA, EOF polling removed, rlBindTexture restored, BLOCK_FOR_TARGET_TIME removed (32-bit→64-bit ARM64 stack corruption).
+- **v7.0.8**: Fixed 3 bugs — (1) Black video: mpv desktop GL shaders fail on Pi GLES2, added `gpu-api="opengl"` + `opengl-es="yes"`; (2) Corrupted files not persisted: added `mark_bad()` to CacheManager, ALTER TABLE migration, bad flag check in `load_cached()`, call `g_cache->mark_bad()` in `advance()`; (3) Missing codecs: added `libavcodec-extra` to install.sh.
 - **v7.0.7**: Fixed 1 bug (231) — Phase 2 caching crashed with "exif rotation timeout" after ~11 min: `read_exif_rotation_timeout()` spawned 22K+ threads over CIFS, UAF on detached thread state. Replaced with `mi.exif_rotation = 1` for all files — rotation handled at display time by `auto_display_rotation = 1` in config.
 - **v7.0.6**: Fixed 1 bug (230) — Scan stuck at 888: removed 1ms sleep_for() from MediaScanner::scan() recursive iterator loop. CIFS I/O already dominates latency; 1ms sleep added 24s pure idle on 24K files.
 

@@ -10,7 +10,7 @@
  *   • Slideshow – raylib, preload, crossfade, Ken Burns
  */
 
-#define VERSION "7.0.7"
+#define VERSION "7.0.8"
 #define APP_NAME "piTrove"
 
 // Global atomics for headless features
@@ -1323,7 +1323,12 @@ bool MPVPlayer::init() {
      // DO NOT set vo= — mpv auto-selects the libmpv pseudo-VO when the
       // render context is created. vo=null starves the render API of frames.
       mpv_set_option_string(ctx, "vo", "libmpv");
-
+    
+    // ── NEW FIX: Force GLES2 Shaders for Raspberry Pi vc4 driver ──
+    mpv_set_option_string(ctx, "gpu-api", "opengl");
+    mpv_set_option_string(ctx, "opengl-es", "yes");
+    // ──────────────────────────────────────────────────────────────
+    
     // Audio: disabled — we render video frames as textures in the photo pipeline
        mpv_set_option_string(ctx, "audio", "no");
 
@@ -2281,9 +2286,14 @@ struct CacheManager {
             return false;
         }
 
-        // Safe migration for existing databases
+       // Safe migration for existing databases
         if (sqlite3_exec(db, "ALTER TABLE cache ADD COLUMN last_shown INTEGER DEFAULT 0",
-                     nullptr, nullptr, &err) != SQLITE_OK) {
+                      nullptr, nullptr, &err) != SQLITE_OK) {
+            // Column may already exist — harmless
+            if (err) sqlite3_free(err);
+        }
+        if (sqlite3_exec(db, "ALTER TABLE cache ADD COLUMN bad INT DEFAULT 0",
+                      nullptr, nullptr, &err) != SQLITE_OK) {
             // Column may already exist — harmless
             if (err) sqlite3_free(err);
         }
@@ -2342,10 +2352,10 @@ struct CacheManager {
             // orientation column (index 2) skipped — always re-apply from file
             mi.duration   = sqlite3_column_double(stmt_load, 3);
             mi.exif_rotation = sqlite3_column_int(stmt_load, 4);
-            // Skip bad column (index 5)
+            int bad = sqlite3_column_int(stmt_load, 5);
             mi.last_shown = sqlite3_column_int64(stmt_load, 6);
             mi.modified_time = sqlite3_column_int64(stmt_load, 7);
-            found = true;
+            if (bad == 0) found = true;
         }
         sqlite3_reset(stmt_load);
         return found;
@@ -2381,6 +2391,19 @@ struct CacheManager {
         }
         sqlite3_reset(stmt_mark);
     }
+
+    // ── NEW FIX: Persist bad files to SQLite so they are skipped permanently ──
+    void mark_bad(const std::string& filepath) {
+        if (!db) return;
+        const char* sql = "UPDATE cache SET bad = 1 WHERE path = ?;";
+        sqlite3_stmt* stmt;
+        if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) == SQLITE_OK) {
+            sqlite3_bind_text(stmt, 1, filepath.c_str(), -1, SQLITE_TRANSIENT);
+            sqlite3_step(stmt);
+            sqlite3_finalize(stmt);
+        }
+    }
+    // ──────────────────────────────────────────────────────────────────────────
 
     // Bulk transaction support — wraps Phase 3 loop in BEGIN/COMMIT for speed
     void begin_transaction() {
@@ -3742,8 +3765,12 @@ preload_thread = std::thread([this, items_ptr]() {
                       if (ci >= 0 && ci < (int)items_ptr->size())
                           corrupted_cache[(*items_ptr)[ci].path] = {1, corrupted_cache_seq};
                   }
+                 // ── NEW FIX: Mark bad=1 in cache DB so Phase 2 skips it forever ──
+                  if (g_cache && ci >= 0 && ci < (int)items_ptr->size())
+                      g_cache->mark_bad((*items_ptr)[ci].path);
+                  // ──────────────────────────────────────────────────────────────
                   if (ci >= 0 && ci < (int)items_ptr->size())
-                      g_logger.warn("ADVANCE_SKIP: corrupted file #%d/%d %s", skipped+1, skip_limit, (*items_ptr)[ci].path.c_str());
+                       g_logger.warn("ADVANCE_SKIP: corrupted file #%d/%d %s", skipped+1, skip_limit, (*items_ptr)[ci].path.c_str());
                   skip_count++;
    int prev = current_index.load();
                    if (shuffle) {

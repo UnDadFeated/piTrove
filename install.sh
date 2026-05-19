@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# install.sh — PiTrove v7.0.7 installer
+# install.sh — PiTrove v7.0.8 installer
 # Target: Debian Trixie (13) 64-bit on Raspberry Pi 5
 # Features: JPEG/TIFF/PNG/WebP/HEIC robust loaders, CRT UI, multi-format support
 
@@ -20,7 +20,7 @@ yesno() {
 
 # ── Pre-flight checks ───────────────────────────────────────────────────────
 echo "============================================"
-  echo "  PiTrove v7.0.7 Installer"
+  echo "  PiTrove v7.0.8 Installer"
 echo "  Target: Raspberry Pi 5 / ARM64"
 echo "============================================"
 echo
@@ -100,7 +100,7 @@ apt-get install -y -qq \
     libasound2-dev libfreetype6-dev libfontconfig1-dev \
     libdrm-dev libgbm-dev libegl1-mesa-dev libgles2-mesa-dev \
     imagemagick exiftool \
-    dav1d ffmpeg \
+    dav1d ffmpeg libavcodec-extra \
     cifs-utils \
     mpv libmpv-dev \
     || fail "apt-get install failed"
@@ -535,7 +535,7 @@ fi
 
 cat > "$PRIMARY_HOME/piTrove/src/config/config.toml" <<EOF
 # ==========================================
-# piTrove Configuration File (v7.0.7)
+# piTrove Configuration File (v7.0.8)
 # ==========================================
 
 [paths]
@@ -679,7 +679,7 @@ info "Service installed: piTrove.service (enabled)"
  # ── Done ─────────────────────────────────────────────────────────────────────
 echo
 echo "============================================"
- echo "  PiTrove v7.0.7 installation complete!"
+ echo "  PiTrove v7.0.8 installation complete!"
 echo "============================================"
 echo
 

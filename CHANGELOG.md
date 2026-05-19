@@ -1,5 +1,15 @@
 # Changelog
 
+## v7.0.8 — Black video + corrupted files persist fixed: GLES2 shaders, DB bad flag (May 19, 2026)
+
+### Fixed
+
+- **CRITICAL · Video playback showed black screen on Pi 5** — mpv defaults to Desktop OpenGL shaders which silently fail to compile on the Pi's GLES2 (`vc4`) driver, leaving the video texture black while Raylib overlays rendered fine. Added `gpu-api="opengl"` and `opengl-es="yes"` to `mpv_set_option_string()` in `MPVPlayer::init()` to force GLES2 shader compilation.
+
+- **MEDIUM · Corrupted images not persisted — retried every restart** — When the slideshow hit a corrupted image at runtime, it skipped it but only remembered the failure in RAM (`corrupted_cache`). On restart, it tried (and failed) to play it again. Added `mark_bad()` to `CacheManager` class, `ALTER TABLE` migration for existing databases, `bad` flag check in `load_cached()` to skip bad files on load, and a call to `g_cache->mark_bad()` in `advance()` when `current_tex.id == 0` to persist the bad state to SQLite.
+
+- **MEDIUM · Debian missing proprietary codecs** — Debian Trixie's default `ffmpeg` package sometimes strips H.264/HEVC patents. Added `libavcodec-extra` to `apt-get install` block in `install.sh` to ensure complete codec support.
+
 ## v7.0.7 — Phase 2 caching crash fixed: removed per-file EXIF rotation thread spawn (May 19, 2026)
 
 ### Fixed
