@@ -1,12 +1,16 @@
-# piTrove v7.0.9 — Added gpu-context=drm for Pi 5 DRM path (May 19, 2026)
+# piTrove v7.0.10 — Hardware decode and rotation fixes (May 19, 2026)
 
-## Status: v7.0.9 ready to build and deploy
+## Status: v7.0.10 ready to deploy
 
 ## Bugs Fixed
 
 | # | Severity | Bug | Fix Applied |
 |---|----------|-----|-------------|
-| 239 | MEDIUM | Video still black — mpv using X11/Wayland context on headless Pi | Added `gpu-context=drm` to MPVPlayer::init() to explicitly bind DRM rendering backend |
+| 239 | MEDIUM | Video still black — mpv using X11/Wayland context on headless Pi | Added `gpu-context=drm` to MPVPlayer::init() |
+| 240 | MEDIUM | Video software fallback on Pi 5 | Forced `hwdec=drmprime` and `drm-device=/dev/dri/renderD128` |
+| 241 | MEDIUM | Photos not rotated correctly | Implemented orientation swap and rotation in `render()` |
+
+## v7.0.9 — Bug fix round 19 (May 19, 2026)
 
 ## v7.0.8 — Bug fix round 19 (May 19, 2026)
 

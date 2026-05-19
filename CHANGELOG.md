@@ -1,5 +1,12 @@
 # Changelog
 
+## v7.0.10 — Corrected photo rotation and forced drmprime hwdec (May 19, 2026)
+
+### Fixed
+
+- **MEDIUM · Photos not rotated correctly** — `render()` ignored `mi.exif_rotation`. Added logic to swap width/height and apply rotation angle to `DrawTexturePro` when `auto_display_rotation` is enabled.
+- **MEDIUM · Video black screen / software fallback** — Changed `hwdec` from `auto-safe` to `drmprime` and explicitly set `drm-device` to `/dev/dri/renderD128`. Verified `MPVPlayer initialized (hwdec=drmprime, EGL+RenderTexture)` on Pi 5.
+
 ## v7.0.9 — Added gpu-context=drm for Pi 5 DRM rendering path (May 19, 2026)
 
 ### Fixed

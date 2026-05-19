@@ -10,7 +10,7 @@
  *   • Slideshow – raylib, preload, crossfade, Ken Burns
  */
 
-#define VERSION "7.0.9"
+#define VERSION "7.0.10"
 #define APP_NAME "piTrove"
 
 // Global atomics for headless features
@@ -1330,17 +1330,15 @@ bool MPVPlayer::init() {
     mpv_set_option_string(ctx, "gpu-context", "drm"); // REQUIRED for Pi 5 DRM path
     // ──────────────────────────────────────────────────────────────────────────
     
+    // ── NEW FIX: Force DRMPrime hardware decoding for Pi 5 ──
+    mpv_set_option_string(ctx, "hwdec", "drmprime");
+    mpv_set_option_string(ctx, "drm-device", "/dev/dri/renderD128");
+    // ────────────────────────────────────────────────────────
+    
     // Audio: disabled — we render video frames as textures in the photo pipeline
        mpv_set_option_string(ctx, "audio", "no");
 
-      // Hardware decode: auto-safe picks v4l2m2m for HEVC/x265 on Pi 4
-      // auto-safe: tries v4l2m2m (HEVC HW decode on Pi 4), falls back to software.
-      // The sample video has HEVC level=93 (invalid, hevc_nvenc Lavf62 bug).
-      // v4l2m2m may reject it; mpv will automatically fall back to software decode.
-      // Force software decode. hwdec=auto-safe causes v4l2m2m on Pi 4 to crash
-      // on HEVC files with invalid level values (e.g. level=93 from hevc_nvenc bug).
-      // libavcodec software decode is lenient about level and handles all profiles.
-      mpv_set_option_string(ctx, "hwdec", "no");
+      // Pi 5: v4l2m2m hardware decode via DRM render node — no software fallback needed
       mpv_set_option_string(ctx, "vd-lavc-skiploopfilter", "nonref");
       mpv_set_option_string(ctx, "vd-lavc-threads", "4");
       mpv_set_option_string(ctx, "sws-scaler", "fast-bilinear");
@@ -1440,7 +1438,7 @@ bool MPVPlayer::init() {
        }
        eof.store(false);
        initialized = true;
-       if (g_mpv_log_info) g_mpv_log_info("MPVPlayer initialized (hwdec=no, software decode, EGL+RenderTexture)");
+       if (g_mpv_log_info) g_mpv_log_info("MPVPlayer initialized (hwdec=drmprime, EGL+RenderTexture)");
        return true;
    }
 
@@ -4259,16 +4257,46 @@ int _swap_ci = current_index.load();
             float kb_src_w = (float)current_tex.width  / kb_zoom;
             float kb_src_h = (float)current_tex.height / kb_zoom;
             float kb_sx    = ((float)current_tex.width  - kb_src_w) * 0.5f
-                             + kb_pan_x * (float)current_tex.width;
+                              + kb_pan_x * (float)current_tex.width;
             float kb_sy    = ((float)current_tex.height - kb_src_h) * 0.5f
-                             + kb_pan_y * (float)current_tex.height;
+                              + kb_pan_y * (float)current_tex.height;
             kb_sx = std::max(0.0f, std::min(kb_sx, (float)current_tex.width  - kb_src_w));
             kb_sy = std::max(0.0f, std::min(kb_sy, (float)current_tex.height - kb_src_h));
+            
+            float rotation = 0.0f;
+            float final_pw = pw, final_ph = ph;
+            float final_px = px, final_py = py;
+            Vector2 origin = {0, 0};
 
+            if (g_cfg.auto_display_rotation && items_ptr) {
+                int idx = current_index.load();
+                if (idx >= 0 && idx < (int)items_ptr->size()) {
+                    int rot = (*items_ptr)[idx].exif_rotation;
+                    if (rot == 90) {
+                        rotation = 90.0f;
+                        std::swap(final_pw, final_ph);
+                        final_px = ax + (aw - final_pw) / 2.0f;
+                        final_py = ay + (ah - final_ph) / 2.0f;
+                        origin = {final_pw / 2, final_ph / 2};
+                    } else if (rot == 270) {
+                        rotation = 270.0f;
+                        std::swap(final_pw, final_ph);
+                        final_px = ax + (aw - final_pw) / 2.0f;
+                        final_py = ay + (ah - final_ph) / 2.0f;
+                        origin = {final_pw / 2, final_ph / 2};
+                    } else if (rot == 180) {
+                        rotation = 180.0f;
+                        origin = {final_pw / 2, final_ph / 2};
+                    }
+                }
+            }
+            
+            Rectangle src = {kb_sx, kb_sy, kb_src_w, kb_src_h};
+            Rectangle dst = {final_px + origin.x, final_py + origin.y, final_pw, final_ph};
             DrawTexturePro(current_tex,
-                           {kb_sx, kb_sy, kb_src_w, kb_src_h},
-                           {px, py, pw, ph},
-                           {0, 0}, 0.0f, WHITE);
+                           src,
+                           dst,
+                           origin, rotation, WHITE);
 
             // ── 3D picture-frame border — Dynamic Colors based on Photo ──
             if (!current_is_video && g_cfg.border_enabled) {
