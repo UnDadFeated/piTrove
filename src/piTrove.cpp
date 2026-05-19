@@ -10,7 +10,7 @@
  *   • Slideshow – raylib, preload, crossfade, Ken Burns
  */
 
-#define VERSION "6.0.3"
+#define VERSION "6.0.13"
 #define APP_NAME "piTrove"
 
 // Global atomics for headless features
@@ -813,6 +813,7 @@ struct Config {
 };
 
 Config g_cfg;
+static std::mutex g_config_mtx;  // v6.0.10: protects g_cfg from HTTP/write races (B4/B199)
 
 static std::string trim(const std::string& s) {
     auto a = s.find_first_not_of(" \t\r\n");
@@ -1223,8 +1224,8 @@ struct MPVPlayer {
      mpv_handle *ctx = nullptr;
      mpv_render_context *gl_ctx = nullptr;
      bool initialized = false;
-     bool playing = false;
-     bool eof = false;
+     std::atomic<bool> playing{false};
+     std::atomic<bool> eof{false};
      std::string current_file;
      std::mutex play_mutex;
      int surface_w{1920};
@@ -1248,9 +1249,9 @@ struct MPVPlayer {
       bool update_frame();
       void make_egl_current();
       void release_egl_current();
-      bool is_playing() const { return playing; }
+      bool is_playing() const { return playing.load(); }
       bool is_initialized() const { return initialized; }
-      bool has_eof() const { return eof; }
+      bool has_eof() const { return eof.load(); }
   };
 
 static MPVPlayer g_mpv;
@@ -1390,14 +1391,16 @@ bool MPVPlayer::init() {
      }
 
      // Set update callback — mpv notifies when a new frame is available
-      mpv_render_context_set_update_callback(gl_ctx, mpv_update_callback, nullptr);
+       mpv_render_context_set_update_callback(gl_ctx, mpv_update_callback, nullptr);
 
-      // Start event drain thread. mpv's event queue holds ~1000 events max.
-      // Without draining, mpv_command() blocks when the queue is full.
-      // This thread calls mpv_wait_event(0) (non-blocking) to drain continuously,
-      // and also detects EOF via MPV_EVENT_END_FILE.
-      event_thread_stop.store(false);
-      event_thread = std::thread([this]() {
+       // Start event drain thread. mpv's event queue holds ~1000 events max.
+       // Without draining, mpv_command() blocks when the queue is full.
+       // This thread calls mpv_wait_event(0) (non-blocking) to drain continuously,
+       // and also detects EOF via MPV_EVENT_END_FILE.
+       // v6.0.10: wrap event thread creation in try-catch to prevent VRAM leak (B10)
+       event_thread_stop.store(false);
+       try {
+           event_thread = std::thread([this]() {
           while (!event_thread_stop.load()) {
               mpv_event *ev = mpv_wait_event(ctx, 0.02); // 20ms timeout
               if (!ev || ev->event_id == MPV_EVENT_NONE) continue;
@@ -1405,12 +1408,12 @@ bool MPVPlayer::init() {
               if (ev->event_id == MPV_EVENT_END_FILE) {
                   mpv_event_end_file *ef = (mpv_event_end_file*)ev->data;
                   if (ef && ef->reason == MPV_END_FILE_REASON_EOF) {
-                      playing = false;
-                      eof = true;
+                      playing.store(false);
+                      eof.store(true);
                       if (g_mpv_log_info) g_mpv_log_info("MPV_EVENT: EOF reached");
                   } else if (ef && ef->reason == MPV_END_FILE_REASON_ERROR) {
-                      playing = false;
-                      eof = true;
+                      playing.store(false);
+                      eof.store(true);
                       if (g_mpv_log_error) g_mpv_log_error("MPV_EVENT: playback error (reason=%d)", ef->reason);
                   }
               }
@@ -1422,11 +1425,18 @@ bool MPVPlayer::init() {
           if (g_mpv_log_info) g_mpv_log_info("MPV event thread exiting");
       });
 
-      eof = false;
-      initialized = true;
-      if (g_mpv_log_info) g_mpv_log_info("MPVPlayer initialized (hwdec=no, software decode, EGL+RenderTexture)");
-      return true;
-  }
+      } catch (...) {
+           // v6.0.10: cleanup VRAM if event thread creation fails (B10)
+           if (video_rt.id != 0) { UnloadRenderTexture(video_rt); video_rt = {}; }
+           if (gl_ctx) { mpv_render_context_free(gl_ctx); gl_ctx = nullptr; }
+           if (ctx) { mpv_destroy(ctx); ctx = nullptr; }
+           return false;
+       }
+       eof.store(false);
+       initialized = true;
+       if (g_mpv_log_info) g_mpv_log_info("MPVPlayer initialized (hwdec=no, software decode, EGL+RenderTexture)");
+       return true;
+   }
 
 void MPVPlayer::destroy() {
      // Stop event thread first — it holds a reference to ctx
@@ -1447,8 +1457,8 @@ void MPVPlayer::destroy() {
          video_rt = {};
      }
      initialized = false;
-     playing = false;
-     eof = false;
+     playing.store(false);
+     eof.store(false);
      current_file.clear();
      if (g_mpv_log_info) g_mpv_log_info("MPVPlayer destroyed");
   }
@@ -1530,8 +1540,8 @@ bool MPVPlayer::play(const std::string &path) {
           if (g_mpv_log_error) g_mpv_log_error("MPV_VERIFY: ctx is NULL");
       }
 
-      playing = true;
-    eof = false;
+      playing.store(true);
+    eof.store(false);
     current_file = path;
     if (g_mpv_log_info) g_mpv_log_info("MPV_PLAY: '%s'", path.substr(0, 80).c_str());
     return true;
@@ -1541,8 +1551,8 @@ void MPVPlayer::stop() {
     std::lock_guard<std::mutex> lock(play_mutex);
     if (playing) {
         mpv_command_string(ctx, "stop");
-        playing = false;
-        eof = true;
+        playing.store(false);
+        eof.store(true);
         if (g_mpv_log_info) g_mpv_log_info("MPV_STOP: playback stopped");
     }
 }
@@ -1560,8 +1570,8 @@ bool MPVPlayer::update_frame() {
          // Check for EOF
          int64_t eof_val;
          if (mpv_get_property(ctx, "eof-reached", MPV_FORMAT_FLAG, &eof_val) == 0 && eof_val) {
-             playing = false;
-             eof = true;
+             playing.store(false);
+             eof.store(true);
              if (g_mpv_log_info) g_mpv_log_info("MPV_EOF: playback finished naturally");
          }
          release_egl_current();
@@ -1615,8 +1625,8 @@ bool MPVPlayer::update_frame() {
        // Check for EOF after rendering
        int64_t eof_val;
        if (mpv_get_property(ctx, "eof-reached", MPV_FORMAT_FLAG, &eof_val) == 0 && eof_val) {
-           playing = false;
-           eof = true;
+           playing.store(false);
+           eof.store(true);
            if (g_mpv_log_info) g_mpv_log_info("MPV_EOF: playback finished naturally");
        }
 
@@ -1912,7 +1922,8 @@ static bool is_in_seasonal_window(const std::string& filename, int window_days) 
         int file_d = std::stoi(match[3]);
 
         time_t t = std::time(nullptr);
-        tm* now = std::localtime(&t);
+        tm tm_buf;
+        tm* now = localtime_r(&t, &tm_buf);
         int curr_m = now->tm_mon + 1;
         int curr_d = now->tm_mday;
 
@@ -1949,7 +1960,8 @@ public:
             int folder_m = std::stoi(match[2]);
 
             time_t t = std::time(nullptr);
-            tm* now = std::localtime(&t);
+            tm tm_buf;
+            tm* now = localtime_r(&t, &tm_buf);
             int curr_m = now->tm_mon + 1;
 
             // Calculate how many months the temporal window spills over
@@ -2063,7 +2075,14 @@ static void scan_directory(const std::string& dir, int depth,
         dir.c_str(), depth);
     MediaScanner scanner;
     std::vector<std::string> exts = {".jpg", ".jpeg", ".png", ".webp", ".heic", ".heif", ".gif", ".bmp", ".tiff", ".mp4", ".mov", ".mkv", ".avi", ".webm"};
-    auto media_files = scanner.scan(dir, exts, g_cfg.scan_window_days);
+    int scan_days;  // v6.0.10: copy g_cfg under lock (B199)
+    std::vector<std::string> ignore_f;
+    {
+        std::lock_guard<std::mutex> lk(g_config_mtx);
+        scan_days = g_cfg.scan_window_days;
+        ignore_f = g_cfg.ignore_folders;
+    }
+    auto media_files = scanner.scan(dir, exts, scan_days);
 
     for (auto& filepath : media_files) {
         auto fname = filepath.substr(filepath.find_last_of('/') + 1);
@@ -2073,7 +2092,7 @@ static void scan_directory(const std::string& dir, int depth,
         // A file at /media/@eaDir/photo.jpg should be skipped when "@eaDir" is ignored,
         // but the old code compared "photo.jpg" == "@eaDir" which never matched.
         bool skip = false;
-        for (const auto& ign : g_cfg.ignore_folders) {
+        for (const auto& ign : ignore_f) {
             if (filepath.find("/" + ign + "/") != std::string::npos ||
                 (filepath.size() >= ign.size() + 1 &&
                  filepath.substr(filepath.size() - ign.size() - 1) == "/" + ign)) {
@@ -2155,9 +2174,16 @@ static std::string run_ffprobe(const std::vector<std::string>& args, int timeout
 }
 
 static std::string ffprobe_field(const std::string& out, const std::string& key) {
-    auto pos = out.find(key + "=");
+    // v6.0.4: Search for "\nkey=" to avoid matching partial key names like "format_duration" when searching for "duration"
+    std::string search = "\n" + key + "=";
+    auto pos = out.find(search);
+    if (pos == std::string::npos) {
+        // Fallback: try without newline prefix (for first field in output)
+        search = key + "=";
+        pos = out.find(search);
+    }
     if (pos == std::string::npos) return "";
-    pos += key.size() + 1;
+    pos += search.size();
     auto end2 = out.find("\n", pos);
     std::string val = (end2 == std::string::npos) ? out.substr(pos) : out.substr(pos, end2 - pos);
     if (!val.empty() && val.back() == '\r') val.pop_back();
@@ -3259,21 +3285,24 @@ static void slide_debug(const char* fmt, ...)
     if (n < 0) return;
 
     // v16.5.0: removed gettimeofday() syscall — cache seconds-level timestamp only
-    static time_t cached_sec = -1;
-    static struct tm cached_tm;
-    static char cached_tb[64];
-    time_t tv = time(nullptr);
-    struct tm* tm = localtime_r(&tv, &cached_tm);
-    if (!tm) return;
-    if (tv != cached_sec) {
-        cached_sec = tv;
-        snprintf(cached_tb, sizeof(cached_tb), "%02d:%02d:%02d", tm->tm_hour, tm->tm_min, tm->tm_sec);
-    }
+    // v6.0.10: moved timestamp update inside lock to prevent data race (B3)
     char tb[64];
-    snprintf(tb, sizeof(tb), "%s", cached_tb);
-
-    std::lock_guard<std::mutex> lk(__slide_debug_mtx);
-     fprintf(__slide_debug_f, "[%s] %s\n", tb, line);
+    {
+        std::lock_guard<std::mutex> lk(__slide_debug_mtx);
+        static time_t cached_sec = -1;
+        static struct tm cached_tm;
+        static char cached_tb[64];
+        time_t tv = time(nullptr);
+        struct tm* tm = localtime_r(&tv, &cached_tm);
+        if (!tm) return;
+        if (tv != cached_sec) {
+            cached_sec = tv;
+            snprintf(cached_tb, sizeof(cached_tb), "%02d:%02d:%02d", tm->tm_hour, tm->tm_min, tm->tm_sec);
+        }
+        snprintf(tb, sizeof(tb), "%s", cached_tb);
+        fprintf(__slide_debug_f, "[%s] %s\n", tb, line);
+        fflush(__slide_debug_f);
+    }
      fflush(__slide_debug_f);
 }
 
@@ -3292,7 +3321,7 @@ struct CacheManager;
 struct Slideshow {
     Font      hud_font{};
     bool      hud_font_loaded{false};
-    std::vector<MediaItem> items;
+    std::shared_ptr<std::vector<MediaItem>> items;
     std::atomic<int> current_index{0};
     std::atomic<int> next_index{-1};
 
@@ -3317,7 +3346,7 @@ struct Slideshow {
 
   bool   shuffle{true};
     std::mutex shuffle_mutex;
-       bool   current_is_video{false};
+       std::atomic<bool> current_is_video{false};  // v6.0.10: atomic for HTTP thread safety (B7)
       // v3.0.0: g_mpv is a global defined inline above; subprocess fields below kept for mpv_video_play() fallback only
       std::atomic<pid_t> mpv_pid{0};
      std::thread mpv_monitor;
@@ -3365,10 +3394,11 @@ struct Slideshow {
     std::atomic<bool> preload_cancel{false};
         std::atomic<int> preload_limit{0};
 
-       // First image preloaded during Phase 3 — skip disk load on startup
-        int first_idx{-1};
-        std::mutex first_img_mtx;
-        std::condition_variable first_img_cv;
+        // First image preloaded during Phase 3 — skip disk load on startup
+         int first_idx{-1};
+         std::mutex first_img_mtx;
+         std::condition_variable first_img_cv;
+         // preload_limit removed v6.0.10: atomic declared but never read (B8)
         Texture2D first_img_tex{0};
         Color first_img_color{BLACK};
         std::atomic<bool> first_img_ready{false};
@@ -3390,7 +3420,8 @@ struct Slideshow {
        // v6.0.3: Changed to atomic<bool> to prevent deadlock if interrupted by signal/nested call
        std::atomic<bool> reentrant_command{false};
 
-    void load_item(const MediaItem& item) {
+    void load_item(const MediaItem& item, std::shared_ptr<std::vector<MediaItem>> items_ptr = nullptr) {
+        // v6.0.11: Accept items_ptr for duration write-back to prevent race with treadmill worker
          // Remote commands consumed in main loop (KEY_RIGHT/KEY_LEFT)
          // to avoid reentrant advance() -> load_item() loops
          // FIX v16.1.0
@@ -3414,27 +3445,34 @@ struct Slideshow {
               }
           }
           if (use_preloaded) {
-              first_img_ready.store(false);
-              current_w = current_tex.width;
-              current_h = current_tex.height;
-              current_is_video = false;
-              return;
-          }
+               first_img_ready.store(false);
+               current_w = current_tex.width;
+               current_h = current_tex.height;
+               current_is_video.store(false);
+               return;
+           }
 
-   if (item.type == "video") {
-                 g_logger.info("LOAD_ITEM: video idx=%d path=%s", current_index.load(), item.path.substr(0, 80).c_str());
-                 // Probe duration if not already set (preload missed it)
-                 if (item.duration <= 0.0) {
-                     items[current_index.load()].duration = probe_video_duration(item.path, g_cfg.video_probe_timeout * 1000);
-                     g_logger.info("LOAD_ITEM: probed duration=%.1fs", items[current_index.load()].duration);
+    if (item.type == "video") {
+                  g_logger.info("LOAD_ITEM: video idx=%d path=%s", current_index.load(), item.path.substr(0, 80).c_str());
+                  // Probe duration if not already set (preload missed it)
+                  if (item.duration <= 0.0) {
+                       double dur = probe_video_duration(item.path, g_cfg.video_probe_timeout * 1000);
+                       if (dur > 0) {
+                           std::lock_guard<std::mutex> lk(shuffle_mutex);
+                          int ci = current_index.load();
+                          auto target = items_ptr ? items_ptr : items;  // v6.0.11: use passed items_ptr
+                          if (ci >= 0 && ci < (int)target->size())
+                              (*target)[ci].duration = dur;
+                      }
+                     g_logger.info("LOAD_ITEM: probed duration=%.1fs", dur);
                  }
                  // CRITICAL: Prevent VRAM leak when transitioning to video
                  if (current_tex.id != 0) {
                      UnloadTexture(current_tex);
                      current_tex.id = 0;
                  }
-                 current_is_video = true;
-                  current_w = g_cfg.screen_w;
+                 current_is_video.store(true);
+                   current_w = g_cfg.screen_w;
                   current_h = g_cfg.screen_h;
 
                   // In-process libmpv render API — shares Raylib's EGL context.
@@ -3444,18 +3482,18 @@ struct Slideshow {
                       g_mpv.surface_w    = g_cfg.screen_w;
                       g_mpv.surface_h    = g_cfg.screen_h;
                       g_mpv.video_volume = g_cfg.video_volume;
-                      if (!g_mpv.init()) {
-                          g_logger.error("LOAD_ITEM: g_mpv.init() failed — skipping video");
-                          current_is_video = false;
-                          return;
-                      }
+                     if (!g_mpv.init()) {
+                           g_logger.error("LOAD_ITEM: g_mpv.init() failed — skipping video");
+                           current_is_video.store(false);
+                           return;
+                       }
                   }
                   g_mpv.play(item.path);
-                   return;
-             }
-      current_is_video = false;
+      return;
+              }
+       current_is_video.store(false);
 
-          // Check preload thread's corrupted cache before loading
+           // Check preload thread's corrupted cache before loading
           {
               std::lock_guard<std::mutex> lk(corrupted_cache_mtx);
               auto it = corrupted_cache.find(item.path);
@@ -3507,11 +3545,13 @@ if (img.data && img.width > 0 && img.height > 0) {
      }
 
  void preload_next() {
+        // v6.0.6: Capture items shared_ptr to prevent treadmill worker from replacing it
+        auto items_ptr = items;
     // Initialize next_index if -1 (set after swap reset)
-    if (items.empty()) return;
+    if (items_ptr->empty()) return;
     int ni = next_index.load();
-    if (ni < 0) { next_index.store((current_index.load() + 1) % (int)items.size()); }
-    slide_debug("PRELOAD_NEXT: cur=%d next=%d items=%d", current_index.load(), next_index.load(), (int)items.size());
+    if (ni < 0) { next_index.store((current_index.load() + 1) % (int)items_ptr->size()); }
+    slide_debug("PRELOAD_NEXT: cur=%d next=%d items_ptr=%d", current_index.load(), next_index.load(), (int)items_ptr->size());
         // FIX v2.0.0: ALWAYS join a joinable thread before replacing it,
         // regardless of running state. A completed thread that hasn't been
         // joined is still joinable() and reassigning std::thread terminates.
@@ -3527,28 +3567,28 @@ if (img.data && img.width > 0 && img.height > 0) {
         }
         preload_ready.store(false);
 
-preload_thread = std::thread([this]() {
+preload_thread = std::thread([this, items_ptr]() {
                  try {
-                     if (items.empty()) { preload_ready.store(true); preload_running.store(false); return; }
+                     if (items_ptr->empty()) { preload_ready.store(true); preload_running.store(false); return; }
                      g_logger.info("PRELOAD_START: idx=%d path=%s", next_index.load(),
-                         items[next_index.load()].path.substr(0, 60).c_str());
+                         (*items_ptr)[next_index.load()].path.substr(0, 60).c_str());
                      bool found_valid = false;
                     int attempts = 0;
                     int corrupted_count = 0;
                     int max_corrupted = preload_initial_phase.load() ? 10 : 20;
                     int max_attempts = preload_initial_phase.load() ? 15 : 30;
-                    max_attempts = max_attempts < (int)items.size() ? max_attempts : (int)items.size();
+                    max_attempts = max_attempts < (int)items_ptr->size() ? max_attempts : (int)items_ptr->size();
                     preload_max.store(max_attempts);
-                    if (preload_initial_phase.load()) preload_limit.store(attempts);
+                    // preload_limit removed v6.0.10: was never read (B8)
                     while (!found_valid && attempts < max_attempts && corrupted_count < max_corrupted && !preload_cancel.load() && !stop_preload.load()) {
                       attempts++;
                       preload_progress.store(attempts);
                       if (preloaded_img.data != nullptr) { UnloadImage(preloaded_img); preloaded_img = {}; }
                       int idx = next_index.load();
-                      if (idx < 0 || idx >= (int)items.size()) { next_index.store((current_index.load() + 1) % (int)items.size()); idx = next_index.load(); }
-                  slide_debug("PRELOAD_THREAD: idx=%d current=%d items=%d", idx, current_index.load(), (int)items.size());
-                       // v1.9.6: Copy next_item to prevent UAF if items vector is reallocated (H3)
-                       auto next_item = items[idx];
+                      if (idx < 0 || idx >= (int)items_ptr->size()) { next_index.store((current_index.load() + 1) % (int)items_ptr->size()); idx = next_index.load(); }
+                  slide_debug("PRELOAD_THREAD: idx=%d current=%d items_ptr=%d", idx, current_index.load(), (int)items_ptr->size());
+                       // v1.9.6: Copy next_item to prevent UAF if items_ptr vector is reallocated (H3)
+                       auto next_item = (*items_ptr)[idx];
                     slide_debug("PRELOAD_THREAD: path=%s ext=%s", next_item.path.substr(0,60).c_str(), next_item.ext.c_str());
                       if (next_item.type == "image") {
                           // Check corrupted cache — skip if already failed once
@@ -3559,7 +3599,7 @@ preload_thread = std::thread([this]() {
                                    g_logger.info("PRELOAD_SKIP: corrupted cache hit idx=%d path=%s", idx, next_item.path.substr(0, 60).c_str());
                                    // FIX v2.0.0: fetch_add returns OLD value — compute ni+1 explicitly
                                    int ni = next_index.fetch_add(1, std::memory_order_relaxed);
-                                    int ni_next = (ni + 1 >= (int)items.size()) ? 0 : (ni + 1);
+                                    int ni_next = (ni + 1 >= (int)items_ptr->size()) ? 0 : (ni + 1);
                                     next_index.store(ni_next);  // normalize
                                    if (next_index.load() == current_index.load()) break;
                                   corrupted_count++;
@@ -3622,20 +3662,26 @@ preload_thread = std::thread([this]() {
                              // next_index stays pointing at this video. Without this,
                              // consecutive videos (videos_per_photos > 1) are skipped.
                              double dur = probe_video_duration(next_item.path, g_cfg.video_probe_timeout * 1000);
-                             if (dur > 0) items[idx].duration = dur;  // v1.9.6: write-back from copy (H3)
+                             if (dur > 0) {
+                                 // v6.0.6: Hold shuffle_mutex to protect items write-back from treadmill worker
+                                 std::lock_guard<std::mutex> lk(shuffle_mutex);
+                                 if (idx >= 0 && idx < (int)items_ptr->size())
+                                     (*items_ptr)[idx].duration = dur;
+                             }
                              slide_debug("PRELOAD_VID: %s dur=%.1fs", next_item.path.c_str(), dur);
                              g_logger.info("PRELOAD_VID: probed %s duration=%.1fs", next_item.path.substr(0, 60).c_str(), dur);
                              found_valid = true;
                             // next_index intentionally left pointing at this video.
                        }
                    }
-                  if (preload_initial_phase.exchange(false)) {
-                      if (preload_cancel.load()) slide_debug("PRELOAD_CANCELLED by user navigation");
-                          preload_limit.store(max_attempts);
-                      }
-                      if (found_valid) {
+                  bool was_initial = preload_initial_phase.exchange(false);
+                       if (was_initial) {
+                       if (preload_cancel.load()) slide_debug("PRELOAD_CANCELLED by user navigation");
+                       // preload_limit removed v6.0.10: was never read (B8)
+                       }
+                       if (found_valid) {
                             g_logger.info("PRELOAD_DONE: attempts=%d corrupted=%d found=yes phase=%s",
-                                attempts, corrupted_count, preload_initial_phase.load() ? "initial" : "remaining");
+                                attempts, corrupted_count, was_initial ? "initial" : "remaining");
                         }
                       preload_ready.store(true);
                    // v1.9.6: Protect preload_running write with lifecycle mutex (H2)
@@ -3656,67 +3702,79 @@ preload_thread = std::thread([this]() {
     }
 
     void clear_tex_refs() {
-            // FIX v16.9.0: dedicated cleanup — unloads any dangling textures before slide advance
-            if (current_tex.id != 0) { UnloadTexture(current_tex); current_tex.id = 0; }
-            if (loaded_tex.id != 0) { UnloadTexture(loaded_tex); loaded_tex.id = 0; }
-            if (first_img_tex.id != 0) { UnloadTexture(first_img_tex); first_img_tex.id = 0; }
-        }
+             // FIX v16.9.0: dedicated cleanup — unloads any dangling textures before slide advance
+             // v6.0.5: Hold first_img_mtx when accessing first_img_tex to prevent race with first_img_thread
+             if (current_tex.id != 0) { UnloadTexture(current_tex); current_tex.id = 0; }
+             if (loaded_tex.id != 0) { UnloadTexture(loaded_tex); loaded_tex.id = 0; }
+             {
+                 std::lock_guard<std::mutex> lk(first_img_mtx);
+                 if (first_img_tex.id != 0) { UnloadTexture(first_img_tex); first_img_tex.id = 0; }
+             }
+         }
 
     bool advance(bool forward = true) {
-        // FIX v16.9.0: cleanup VRAM before every slide advance
-        clear_tex_refs();
-        // FIX v16.1.0: Guard against reentrant advance() calls from remote commands
-        if (reentrant_command.load()) return false;
-        reentrant_command.store(true);
+         // FIX v16.9.0: cleanup VRAM before every slide advance
+         // v6.0.6: Capture items_ptr shared_ptr to prevent treadmill worker from replacing it
+         auto items_ptr = items;
+         clear_tex_refs();
+         // FIX v16.1.0: Guard against reentrant advance() calls from remote commands
+         if (reentrant_command.load()) return false;
+         reentrant_command.store(true);
+         // v6.0.10: RAII guard — ensures reentrant_command reset even if load_item() throws (B6)
+         struct ReentrantGuard { Slideshow* s; ~ReentrantGuard() { s->reentrant_command.store(false); } } guard{this};
 
-    slide_debug("ADVANCE: fwd=%d cur=%d items=%d", forward ? 1 : 0, current_index.load(), (int)items.size());
-        g_logger.info("ADVANCE: forward=%d prev_idx=%d items=%d shuffle=%d",
-            forward ? 1 : 0, current_index.load(), (int)items.size(), shuffle ? 1 : 0);
-        if (items.empty()) { reentrant_command.store(false); return false; }
+    slide_debug("ADVANCE: fwd=%d cur=%d items_ptr=%d", forward ? 1 : 0, current_index.load(), (int)items_ptr->size());
+        g_logger.info("ADVANCE: forward=%d prev_idx=%d items_ptr=%d shuffle=%d",
+            forward ? 1 : 0, current_index.load(), (int)items_ptr->size(), shuffle ? 1 : 0);
+        if (items_ptr->empty()) { reentrant_command.store(false); return false; }
 
        int prev_idx = current_index.load();
         if (shuffle) {
             // v6.0.3: Lock shuffle_mutex to protect rng state and current_index
             std::lock_guard<std::mutex> lk(shuffle_mutex);
-            std::uniform_int_distribution<int> dist(0, (int)items.size() - 1);
+            std::uniform_int_distribution<int> dist(0, (int)items_ptr->size() - 1);
             do { current_index.store(dist(rng)); }
-            while (current_index.load() == prev_idx && items.size() > 1);
+            while (current_index.load() == prev_idx   && items_ptr->size() > 1);
         } else {
-            current_index.store((current_index.load() + (forward ? 1 : -1) + (int)items.size()) % (int)items.size());
+            current_index.store((current_index.load() + (forward ? 1 : -1) + (int)items_ptr->size()) % (int)items_ptr->size());
         }
 
-        current_w = 0;
+       current_w = 0;
         current_h = 0;
-        int ci = current_index.load();
-        load_item(items[ci]);
+         int ci = current_index.load();
+         load_item((*items_ptr)[ci], items_ptr);  // v6.0.12: pass items_ptr for duration write-back
 
         // FIX v1.9.8: skip corrupted images directly in advance() instead of waiting
         // for the transition guard to stall on a black screen.
         if (!current_is_video && current_tex.id == 0 && !first_img_ready.load()) {
-             int skip_limit = (int)items.size();
-             int skip_count = 0;
-             for (int skipped = 0; skipped < skip_limit; skipped++) {
-                 {
-                     std::lock_guard<std::mutex> lk(corrupted_cache_mtx);
-                     if (corrupted_cache.find(items[ci].path) == corrupted_cache.end())
-                         corrupted_cache_seq++;
-                     corrupted_cache[items[ci].path] = {1, corrupted_cache_seq};
+             int skip_limit = (int)items_ptr->size();
+              int skip_count = 0;
+              for (int skipped = 0; skipped < skip_limit; skipped++) {
+                  {
+                      std::lock_guard<std::mutex> lk(corrupted_cache_mtx);
+                      if (ci >= 0 && ci < (int)items_ptr->size() && corrupted_cache.find((*items_ptr)[ci].path) == corrupted_cache.end())
+                          corrupted_cache_seq++;
+                      if (ci >= 0 && ci < (int)items_ptr->size())
+                          corrupted_cache[(*items_ptr)[ci].path] = {1, corrupted_cache_seq};
+                  }
+                  if (ci >= 0 && ci < (int)items_ptr->size())
+                      g_logger.warn("ADVANCE_SKIP: corrupted file #%d/%d %s", skipped+1, skip_limit, (*items_ptr)[ci].path.c_str());
+                  skip_count++;
+   int prev = current_index.load();
+                   if (shuffle) {
+                      // v6.0.3: Lock shuffle_mutex to protect rng state
+                      std::lock_guard<std::mutex> lk(shuffle_mutex);
+                      std::uniform_int_distribution<int> dist(0, (int)items_ptr->size() - 1);
+                      do { current_index.store(dist(rng)); }
+                      while (current_index.load() == prev   && items_ptr->size() > 1);
+                  } else {
+                     current_index.store((prev + (forward ? 1 : -1) + (int)items_ptr->size()) % (int)items_ptr->size());
                  }
-                 g_logger.warn("ADVANCE_SKIP: corrupted file #%d/%d %s", skipped+1, skip_limit, items[ci].path.c_str());
-  int prev = current_index.load();
-                  if (shuffle) {
-                     // v6.0.3: Lock shuffle_mutex to protect rng state
-                     std::lock_guard<std::mutex> lk(shuffle_mutex);
-                     std::uniform_int_distribution<int> dist(0, (int)items.size() - 1);
-                     do { current_index.store(dist(rng)); }
-                     while (current_index.load() == prev && items.size() > 1);
-                 } else {
-                    current_index.store((prev + (forward ? 1 : -1) + (int)items.size()) % (int)items.size());
-                }
-                ci = current_index.load();
-                load_item(items[ci]);
-               if (current_is_video || current_tex.id != 0) break;
-             }
+                 ci = current_index.load();
+                 if (ci >= 0 && ci < (int)items_ptr->size())
+      load_item((*items_ptr)[ci], items_ptr);  // v6.0.11: pass items_ptr for duration write-back
+                if (current_is_video || current_tex.id != 0) break;
+              }
              g_logger.info("ADVANCE_SKIP_DONE: skipped %d corrupted files, now at idx=%d is_video=%d tex.id=%d",
                  skip_count, current_index.load(), current_is_video ? 1 : 0, current_tex.id);
          }
@@ -3730,7 +3788,7 @@ preload_thread = std::thread([this]() {
              std::lock_guard<std::mutex> lk(preload_lifecycle_mtx);
              preload_running.store(false);
          }
-         reentrant_command.store(false);  // FIX v16.1.0: release guard
+         // reentrant_command.reset handled by ReentrantGuard destructor (B6 fix)
 
          g_logger.info("ADVANCE_COMPLETE: cur=%d type=%s tex.id=%d",
              current_index.load(), current_is_video ? "video" : "image", current_tex.id);
@@ -3749,7 +3807,9 @@ preload_thread = std::thread([this]() {
     }
 
     void update(float dt) {
-        if (items.empty()) return;
+        // v6.0.6: Capture items shared_ptr to prevent treadmill worker from replacing it
+        auto items_ptr = items;
+        if (items_ptr->empty()) return;
 
        // Finalize the background load on the main thread (thread-safe for OpenGL)
          if (preload_ready.load()) {
@@ -3824,10 +3884,10 @@ preload_thread = std::thread([this]() {
 
             if (transition_progress >= 1.0f) {
          // Guard: never swap to an empty texture — that causes a permanent black screen.
-           // FIX v1.9.8: exempt video-next items; they intentionally carry no texture.
+           // FIX v1.9.8: exempt video-next items_ptr; they intentionally carry no texture.
                 int _guard_ni = next_index.load();
-                bool _next_is_video = (_guard_ni >= 0 && _guard_ni < (int)items.size()
-                                       && items[_guard_ni].type == "video");
+                bool _next_is_video = (_guard_ni >= 0 && _guard_ni < (int)items_ptr->size()
+                                       && (*items_ptr)[_guard_ni].type == "video");
                 if (loaded_tex.id == 0 && !_next_is_video) {
                     // FIX v16.8.0: unload any leftover texture to prevent VRAM leak on failed preload
                     slide_debug("TRANS_GUARD: loaded_tex.id==0! cur=%d next=%d", current_index.load(), next_index.load());
@@ -3836,7 +3896,7 @@ preload_thread = std::thread([this]() {
                         // FIX v1.9.9: fetch_add returns the OLD value; compute
                         // the incremented value explicitly before storing.
                         int ni3 = next_index.fetch_add(1, std::memory_order_relaxed);
-                        int ni3_next = (ni3 + 1 >= (int)items.size()) ? 0 : (ni3 + 1);
+                        int ni3_next = (ni3 + 1 >= (int)items_ptr->size()) ? 0 : (ni3 + 1);
                         next_index.store(ni3_next);
                         if (ni3_next == failed_idx || ni3_next == current_index.load()) {
                             transitioning = false;
@@ -3876,38 +3936,39 @@ preload_thread = std::thread([this]() {
                 current_index.store(next_index.load());
                 next_index.store(-1);
 
-  if (items[current_index.load()].type == "video") {
-                       g_logger.info("SWAP_TO_VIDEO: transitioning to video idx=%d", current_index.load());
-                       // CRITICAL: Prevent VRAM leak when transitioning to video
-                       if (current_tex.id != 0) {
-                           UnloadTexture(current_tex);
-                           current_tex.id = 0;
-                       }
-                       current_is_video = true;
-                       current_w = g_cfg.screen_w;
-                       current_h = g_cfg.screen_h;
+int _swap_ci = current_index.load();
+                 if (_swap_ci >= 0 && _swap_ci < (int)items_ptr->size() && (*items_ptr)[_swap_ci].type == "video") {
+                        g_logger.info("SWAP_TO_VIDEO: transitioning to video idx=%d", _swap_ci);
+                        // CRITICAL: Prevent VRAM leak when transitioning to video
+                        if (current_tex.id != 0) {
+                            UnloadTexture(current_tex);
+                            current_tex.id = 0;
+                        }
+                       current_is_video.store(true);
+                         current_w = g_cfg.screen_w;
+                         current_h = g_cfg.screen_h;
 
-                       // In-process g_mpv — initialized lazily on first video
-                       if (!g_mpv.is_initialized()) {
-                           g_mpv.surface_w    = g_cfg.screen_w;
-                           g_mpv.surface_h    = g_cfg.screen_h;
-                           g_mpv.video_volume = g_cfg.video_volume;
-                           if (!g_mpv.init()) {
-                               g_logger.error("SWAP_TO_VIDEO: g_mpv.init() failed — skipping");
-                               current_is_video = false;
-                               advance(true);
-                               return;
-                           }
-                       }
-                       if (!g_mpv.play(items[current_index.load()].path)) {
-                           g_logger.error("SWAP_TO_VIDEO: g_mpv.play() failed — skipping");
-                           current_is_video = false;
-                           advance(true);
-                           return;
-                       }
-                 } else {
-                    current_is_video = false;
-                }
+                         // In-process g_mpv — initialized lazily on first video
+                         if (!g_mpv.is_initialized()) {
+                             g_mpv.surface_w    = g_cfg.screen_w;
+                             g_mpv.surface_h    = g_cfg.screen_h;
+                             g_mpv.video_volume = g_cfg.video_volume;
+                             if (!g_mpv.init()) {
+                                 g_logger.error("SWAP_TO_VIDEO: g_mpv.init() failed — skipping");
+              current_is_video.store(false);
+                                 advance(true);
+                                 return;
+                             }
+                         }
+                         if (!g_mpv.play((*items_ptr)[_swap_ci].path)) {
+                            g_logger.error("SWAP_TO_VIDEO: g_mpv.play() failed — skipping");
+                            current_is_video.store(false);
+                            advance(true);
+                            return;
+                        }
+                  } else {
+                     current_is_video.store(false);
+                 }
 
             transitioning = false;
                 transition_timer = 0;
@@ -3948,6 +4009,8 @@ preload_thread = std::thread([this]() {
     void render() {
           int sw = GetScreenWidth();
           int sh = GetScreenHeight();
+        // v6.0.6: Capture items_ptr shared_ptr to prevent treadmill worker from replacing it mid-render
+        auto items_ptr = items;
         Color avg = current_bg_color;
 
 if (current_is_video) {
@@ -4074,7 +4137,7 @@ if (current_is_video) {
                ClearBackground(BLACK);
            }
 
-           if (items.empty()) {
+           if (items_ptr->empty()) {
              DrawText("No media items", sw/2 - 80, sh/2 - 20, 24, WHITE);
              return;
          }
@@ -4099,7 +4162,7 @@ if (current_is_video) {
 
                     // Get item index for collage (cyclic)
                     int ri = current_index.load();
-                    int total = (int)items.size();
+                    int total = (int)items_ptr->size();
                     int collage_idx = (ri + r * cols + c) % total;
                     if (collage_idx < 0) collage_idx += total;
 
@@ -4257,14 +4320,14 @@ if (current_is_video) {
              }
 
              // Filename overlay
-             int ri = current_index.load();
-             if (g_cfg.filename_enabled && ri >= 0 && ri < (int)items.size()) {
-                 std::string fname = items[ri].filename;
-                 double dur = 0.0;
-                 {
-                     std::lock_guard<std::mutex> lk(preload_mutex);
-                     dur = items[ri].duration;
-                 }
+              int ri = current_index.load();
+              if (g_cfg.filename_enabled && ri >= 0 && ri < (int)items_ptr->size()) {
+                  std::string fname = (*items_ptr)[ri].filename;
+                  double dur = 0.0;
+                  {
+                      std::lock_guard<std::mutex> lk(preload_mutex);
+                      dur = (*items_ptr)[ri].duration;
+                  }
                  if (current_is_video && dur > 0) {
                      int mins = (int)dur / 60;
                      int secs = (int)dur % 60;
@@ -4281,7 +4344,7 @@ if (current_is_video) {
              // Count overlay
              if (g_cfg.count_enabled) {
                  char cntbuf[128];
-                 std::snprintf(cntbuf, sizeof(cntbuf), "%d / %d", current_index.load() + 1, (int)items.size());
+                 std::snprintf(cntbuf, sizeof(cntbuf), "%d / %d", current_index.load() + 1, (int)items_ptr->size());
                  int cx = pad + (int)((sw - pad * 2) * g_cfg.count_x);
                  int cy = pad + (int)((sh - pad * 2) * g_cfg.count_y);
                  int tw = MeasureText(cntbuf, g_cfg.count_font_size);
@@ -4562,12 +4625,12 @@ if (current_is_video) {
 
     // HUD bar (hidden during video playback)
         int hi = current_index.load();
-        if (!current_is_video && hi >= 0 && hi < (int)items.size()) {
-            if (hi != last_render_idx) {
-                char buf[2048];
-                std::snprintf(buf, sizeof(buf), "%d / %d  |  %s",
-                              hi + 1, (int)items.size(),
-                              items[hi].filename.c_str());
+         if (!current_is_video && hi >= 0 && hi < (int)items_ptr->size()) {
+             if (hi != last_render_idx) {
+                 char buf[2048];
+                 std::snprintf(buf, sizeof(buf), "%d / %d  |  %s",
+                               hi + 1, (int)items_ptr->size(),
+                               (*items_ptr)[hi].filename.c_str());
                              cached_hud_size = MeasureTextEx(hud_font, buf, 16.0f, 1.0f);
                 cached_hud_text = buf;
                 last_render_idx = hi;
@@ -4844,20 +4907,28 @@ static void spawn(const std::string& cmd) {
 
 static void weather_thread_func(const Config& c) {
     while (g_running.load()) {
-   if (c.weather_enabled && c.weather_lat != -999.0f && c.weather_lon != -999.0f) {
+   // v6.0.11: Read g_cfg under lock each iteration to see config changes (B202)
+   bool we; float wl, wn;
+   { std::lock_guard<std::mutex> lk(g_config_mtx); we = g_cfg.weather_enabled; wl = g_cfg.weather_lat; wn = g_cfg.weather_lon; }
+   if (we && wl != -999.0f && wn != -999.0f) {
             // FIX v16.7.0: build complete command inline — avoids shell injection via URL string
             char cmd[600];
             std::snprintf(cmd, sizeof(cmd),
                 "timeout 30 curl -s 'https://api.open-meteo.com/v1/forecast"
                 "?latitude=%.4f&longitude=%.4f&current=temperature_2m,weather_code' </dev/null",
-                c.weather_lat, c.weather_lon);
+                wl, wn);
             FILE* fp = popen(cmd, "r");
             if (fp) {
                 char buf[1024] = {0};
                 size_t n = fread(buf, 1, sizeof(buf) - 1, fp);
-                pclose(fp);
+                // v6.0.10: check g_running before pclose to avoid subprocess leak (B5)
+                if (g_running.load()) {
+                    pclose(fp);
+                } else {
+                    pclose(fp);  // ensure cleanup on shutdown
+                }
 
-                if (n > 0) {
+                if (n > 0 && g_running.load()) {
                     // Parse JSON manually (simple extraction)
                     char* temp_start = strstr(buf, "\"temperature_2m\":");
                     if (temp_start) {
@@ -5286,6 +5357,8 @@ static void http_thread_func(const Config& c, Slideshow& slide) {
         if (select(server_fd + 1, &fds, NULL, NULL, &tv) > 0) {
             int client_fd = accept(server_fd, NULL, NULL);
             if (client_fd >= 0) {
+                // v6.0.6: Capture shared_ptr to prevent treadmill worker from replacing items during request
+                auto items_ptr = slide.items;
                 char buf[4096] = {0};
                 read(client_fd, buf, sizeof(buf) - 1);
 
@@ -5311,7 +5384,10 @@ static void http_thread_func(const Config& c, Slideshow& slide) {
                     g_remote_command.store(3);
                     write(client_fd, "HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nOK", 39);
                 } else if (strncmp(first_line, "GET /api/toggle_shuffle ", 24) == 0) {
-                    slide.shuffle = !slide.shuffle;
+                    {
+                        std::lock_guard<std::mutex> lk(slide.shuffle_mutex);
+                        slide.shuffle = !slide.shuffle;
+                    }
                     write(client_fd, "HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nOK", 39);
                 } else if (strncmp(first_line, "GET /api/restart ", 17) == 0) {
                     g_running.store(false);
@@ -5322,10 +5398,10 @@ static void http_thread_func(const Config& c, Slideshow& slide) {
                     int ci = slide.current_index.load();
                     std::string fname = "";
                     std::string itype = "photo";
-                    bool is_video = slide.current_is_video;
-                    if (ci >= 0 && ci < (int)slide.items.size()) {
-                        fname = slide.items[ci].filename;
-                        itype = slide.items[ci].type;
+                    bool is_video = slide.current_is_video.load();  // v6.0.10: atomic load (B7)
+                    if (ci >= 0 && ci < (int)items_ptr->size()) {
+                        fname = (*items_ptr)[ci].filename;
+                        itype = (*items_ptr)[ci].type;
                         if (itype == "video") is_video = true;
                     }
                     // Escape quotes in filename for JSON
@@ -5335,30 +5411,32 @@ static void http_thread_func(const Config& c, Slideshow& slide) {
                         else if (c == '\\') json_fname += "\\\\";
                         else json_fname += c;
                     }
+                    bool shuffle_val;
+                    {
+                        std::lock_guard<std::mutex> lk(slide.shuffle_mutex);
+                        shuffle_val = slide.shuffle;
+                    }
                     std::string json = "{\"current\":" + std::to_string(ci + 1) +
-                                      ",\"total\":" + std::to_string(slide.items.size()) +
+                                      ",\"total\":" + std::to_string(items_ptr->size()) +
                                       ",\"filename\":\"" + json_fname + "\"" +
                                       ",\"is_video\":" + std::string(is_video ? "true" : "false") +
-                                      ",\"shuffle\":" + std::string(slide.shuffle ? "true" : "false") +
+                                      ",\"shuffle\":" + std::string(shuffle_val ? "true" : "false") +
                                       ",\"has_preview\":" + std::string(!is_video ? "true" : "false") +
                                       "}";
-                    char response[2048];
-                    snprintf(response, sizeof(response),
-                        "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n"
-                        "Content-Length: %lu\r\nConnection: close\r\n\r\n%s",
-                        json.size(), json.c_str());
-                    write(client_fd, response, strlen(response));
+                    std::string response = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n"
+                        "Content-Length: " + std::to_string(json.size()) + "\r\nConnection: close\r\n\r\n" + json;
+                    write(client_fd, response.c_str(), response.size());
                 }
                 // Preview endpoint — returns base64 encoded image
                 else if (strncmp(first_line, "GET /api/preview ", 17) == 0) {
                     int ci = slide.current_index.load();
                     std::string json = "{\"type\":\"video\",\"image\":\"\"}";
-                    if (ci >= 0 && ci < (int)slide.items.size() && slide.items[ci].type != "video") {
-                        const std::string& path = slide.items[ci].path;
-                        // Load image
-                        std::string ext_lower = slide.items[ci].ext;
-                        for (auto& ch : ext_lower) ch = (char)tolower(ch);
-                     Image img;
+                    if (ci >= 0 && ci < (int)items_ptr->size() && (*items_ptr)[ci].type != "video") {
+                        const std::string& path = (*items_ptr)[ci].path;
+                    // Load image
+                         std::string ext_lower = (*items_ptr)[ci].ext;
+                         for (auto& ch : ext_lower) ch = (char)tolower(ch);
+                      Image img{};  // v6.0.11: value-init to zero (B205)
                         try {
                             if (ext_lower == "heic" || ext_lower == "heif") {
                                 img = LoadImageHEIC(path.c_str());
@@ -5405,35 +5483,31 @@ static void http_thread_func(const Config& c, Slideshow& slide) {
                             UnloadImage(img);
                         }
                     }
-                    char response[65536];
-                    int json_len = (int)json.size();
-                    if (json_len < (int)sizeof(response) - 200) {
-                        snprintf(response, sizeof(response),
-                            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n"
-                            "Content-Length: %d\r\nConnection: close\r\n\r\n%s",
-                            json_len, json.c_str());
-                        write(client_fd, response, strlen(response));
-                    }
+                    std::string response = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n"
+                        "Content-Length: " + std::to_string(json.size()) + "\r\nConnection: close\r\n\r\n" + json;
+                    write(client_fd, response.c_str(), response.size());
                 }
                 // Stats endpoint
                 else if (strncmp(first_line, "GET /api/stats ", 15) == 0) {
-                    int total = (int)slide.items.size();
+                    int total = (int)items_ptr->size();
                     int photos = 0, videos = 0;
-                    for (const auto& item : slide.items) {
+                    for (const auto& item : *items_ptr) {
                         if (item.type == "video") videos++;
                         else photos++;
+                    }
+                    bool shuffle_val;
+                    {
+                        std::lock_guard<std::mutex> lk(slide.shuffle_mutex);
+                        shuffle_val = slide.shuffle;
                     }
                     std::string json = "{\"total\":" + std::to_string(total) +
                                       ",\"photos\":" + std::to_string(photos) +
                                       ",\"videos\":" + std::to_string(videos) +
-                                      ",\"shuffle\":" + std::string(slide.shuffle ? "true" : "false") +
+                                      ",\"shuffle\":" + std::string(shuffle_val ? "true" : "false") +
                                       "}";
-                    char response[1024];
-                    snprintf(response, sizeof(response),
-                        "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n"
-                        "Content-Length: %lu\r\nConnection: close\r\n\r\n%s",
-                        json.size(), json.c_str());
-                    write(client_fd, response, strlen(response));
+                    std::string response = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n"
+                        "Content-Length: " + std::to_string(json.size()) + "\r\nConnection: close\r\n\r\n" + json;
+                    write(client_fd, response.c_str(), response.size());
                 }
                 else {
                     write(client_fd, "HTTP/1.1 404 Not Found\r\n\r\n", 26);
@@ -5734,6 +5808,7 @@ void config_wizard(const std::string& config_path) {
 
     auto sv = [&](int c, int i, const std::string& v) {
         if(v.empty()) return;
+        std::lock_guard<std::mutex> lk(g_config_mtx);  // v6.0.10: protect g_cfg writes (B4)
         try {
             if(c==0) switch(i){
                 case 0:{ try { g_cfg.rotation=std::stoi(v); } catch(...) {} break; }
@@ -5977,11 +6052,14 @@ void treadmill_worker(const Config& cfg, Slideshow& slideshow_ref) {
         // Calculate time until next midnight
         auto now = std::chrono::system_clock::now();
         time_t tnow = std::chrono::system_clock::to_time_t(now);
-        tm *date = std::localtime(&tnow);
-        date->tm_hour = 0; date->tm_min = 0; date->tm_sec = 0;
-        date->tm_mday += 1; // Set to next midnight
+        tm date_buf;
+        tm *date = localtime_r(&tnow, &date_buf);
+        if (!date) { std::this_thread::sleep_for(std::chrono::minutes(1)); continue; }
+        tm date_copy = *date;
+        date_copy.tm_hour = 0; date_copy.tm_min = 0; date_copy.tm_sec = 0;
+        date_copy.tm_mday += 1; // Set to next midnight
 
-        auto midnight = std::chrono::system_clock::from_time_t(std::mktime(date));
+        auto midnight = std::chrono::system_clock::from_time_t(std::mktime(&date_copy));
 
         // Sleep in 1-minute chunks to allow clean application exits
         while (std::chrono::system_clock::now() < midnight && g_running.load()) {
@@ -6046,13 +6124,13 @@ void treadmill_worker(const Config& cfg, Slideshow& slideshow_ref) {
         // Hot Swap
         {
             std::lock_guard<std::mutex> lock(slideshow_ref.shuffle_mutex);
-            slideshow_ref.items = std::move(final_playlist);
-            if ((int)slideshow_ref.current_index >= (int)slideshow_ref.items.size()) {
+            slideshow_ref.items = std::make_shared<std::vector<MediaItem>>(std::move(final_playlist));
+            if ((int)slideshow_ref.current_index >= (int)slideshow_ref.items->size()) {
                 slideshow_ref.current_index = 0;
             }
-            if (!slideshow_ref.items.empty()) {
-                std::shuffle(slideshow_ref.items.begin(), slideshow_ref.items.end(), slideshow_ref.rng);
-                g_logger.info("TREADMILL: Hot-swap successful. New active playlist size: %zu", slideshow_ref.items.size());
+            if (!slideshow_ref.items->empty()) {
+                std::shuffle(slideshow_ref.items->begin(), slideshow_ref.items->end(), slideshow_ref.rng);
+                g_logger.info("TREADMILL: Hot-swap successful. New active playlist size: %zu", slideshow_ref.items->size());
             } else {
                 g_logger.warn("TREADMILL: Empty playlist after scan!");
             }
@@ -6626,13 +6704,14 @@ g_logger.init(cfg.log_dir, cfg.verbose ? LogLevel::DEBUG : LogLevel::INFO);
 
     // SAFE PATH EXTRACTOR: Avoids std::filesystem UTF-8 aborts on corrupted filenames
     auto get_display_path = [](const std::string& path) -> std::string {
+        if (path.empty()) return "./";
         int slashes = 0;
         for (int i = (int)path.length() - 1; i >= 0; i--) {
             if (path[i] == '/') {
                 if (++slashes == 3) return "." + path.substr(i);
             }
         }
-        return (path.empty() || path.front() != '/') ? ("./" + path) : ("." + path);
+        return (path.front() != '/') ? ("./" + path) : ("." + path);
     };
 
     auto last_render = std::chrono::steady_clock::now();
@@ -6779,42 +6858,44 @@ g_logger.init(cfg.log_dir, cfg.verbose ? LogLevel::DEBUG : LogLevel::INFO);
         }
     }
 
-slide.items = std::move(active_items);
+auto items_ptr = std::make_shared<std::vector<MediaItem>>(std::move(active_items));
+slide.items = items_ptr;
 
 
         // ── Ensure first slide is always an image, never a video ──
          int start_idx = 0;
-         if (!slide.items.empty()) {
+         if (!items_ptr->empty()) {
              // Find first image item in the playlist (skip any leading videos)
-             while (start_idx < (int)slide.items.size() && slide.items[start_idx].type == "video") {
+             while (start_idx < (int)items_ptr->size() && (*items_ptr)[start_idx].type == "video") {
                  start_idx++;
              }
-             if (start_idx >= (int)slide.items.size()) start_idx = 0; // fallback if all videos
+             if (start_idx >= (int)items_ptr->size()) start_idx = 0; // fallback if all videos
 
             // ── Preload the FIRST IMAGE into VRAM (instant startup, zero disk I/O) ──
                slide.first_idx = start_idx;
-               slide.first_img_thread = std::thread([&slide]() {
+               auto first_img_items = items_ptr; // v6.0.6: capture shared_ptr for thread safety
+               slide.first_img_thread = std::thread([&slide, first_img_items]() {
                    try {
                        int start = slide.first_idx;
                        for (int fallback = 0; fallback < 10; fallback++) {
-                           int try_idx = (start + fallback) % (int)slide.items.size();
-                           auto& try_item = slide.items[try_idx];
-                           if (try_item.type != "image") continue;
+                  int try_idx = (start + fallback) % (int)first_img_items->size();
+                            auto try_item = (*first_img_items)[try_idx];
+                            if (try_item.type != "image") continue;
 
                            // Check corrupted cache
-                           {
-                               std::lock_guard<std::mutex> lk(slide.corrupted_cache_mtx);
-                               auto it = slide.corrupted_cache.find(try_item.path);
-                               if (it != slide.corrupted_cache.end() && it->second.first >= 1) {
-                                   break;
-                               }
-                           }
+                            {
+                                std::lock_guard<std::mutex> lk(slide.corrupted_cache_mtx);
+                                auto it = slide.corrupted_cache.find(try_item.path);
+                                if (it != slide.corrupted_cache.end() && it->second.first >= 1) {
+                                    continue;
+                                }
+                            }
 
-                           std::string ext_lower = try_item.ext;
-                           for (auto& c : ext_lower) c = tolower(c);
+                          std::string ext_lower = try_item.ext;
+                            for (auto& c : ext_lower) c = tolower(c);
 
-                           Image img;
-                            if (ext_lower == "heic" || ext_lower == "heif")
+                            Image img{};  // v6.0.11: value-init to zero (B211)
+                             if (ext_lower == "heic" || ext_lower == "heif")
                                 img = LoadImageHEIC(try_item.path);
                             else if (ext_lower == "webp")
                                 img = LoadImageWebP(try_item.path);
@@ -6875,12 +6956,13 @@ slide.items = std::move(active_items);
 
              // ── Start remaining preload immediately (non-blocking) ──
             slide.current_index.store(start_idx);
-            slide.next_index.store((start_idx + 1) % (int)slide.items.size());
+            slide.next_index.store((start_idx + 1) % (int)items_ptr->size());
             slide.preload_running.store(true);
             slide.preload_initial_phase.store(true);
-             slide.preload_thread = std::thread([&slide]() {
+             auto preload_items = items_ptr; // v6.0.6: capture shared_ptr for thread safety
+             slide.preload_thread = std::thread([&slide, preload_items]() {
                    try {
-                       if (slide.items.empty()) {
+                       if (preload_items->empty()) {
                            slide.preload_ready.store(true);
                            { std::lock_guard<std::mutex> lk(slide.preload_lifecycle_mtx); slide.preload_running.store(false); }
                            return;
@@ -6890,15 +6972,15 @@ slide.items = std::move(active_items);
                       int corrupted_count = 0;
                       int max_corrupted = 10;
                       int max_attempts = 15;
-                      max_attempts = max_attempts < (int)slide.items.size() ? max_attempts : (int)slide.items.size();
+                      max_attempts = max_attempts < (int)preload_items->size() ? max_attempts : (int)preload_items->size();
                       slide.preload_max.store(max_attempts);
-                      while (!found_valid && attempts < max_attempts && corrupted_count < max_corrupted) {
+                      while (!found_valid && attempts < max_attempts && corrupted_count < max_corrupted && !slide.preload_cancel.load() && !slide.stop_preload.load()) {
                            attempts++;
                            slide.preload_progress.store(attempts);
                            if (slide.preloaded_img.data != nullptr) { UnloadImage(slide.preloaded_img); slide.preloaded_img = {}; }
                            int idx = slide.next_index.load();
                            // v1.9.6: Copy next_item to prevent UAF (H3)
-                           auto next_item = slide.items[idx];
+                           auto next_item = (*preload_items)[idx];
                               if (next_item.type == "image") {
                                // Check corrupted cache
                                {
@@ -6906,7 +6988,7 @@ slide.items = std::move(active_items);
                                     auto it = slide.corrupted_cache.find(next_item.path);
                                     if (it != slide.corrupted_cache.end() && it->second.first >= 1) {
                                         int s_ni = slide.next_index.fetch_add(1, std::memory_order_relaxed);
-                                        slide.next_index.store(s_ni >= (int)slide.items.size() ? 0 : s_ni);
+                                        slide.next_index.store(s_ni >= (int)preload_items->size() ? 0 : s_ni);
                                         if (slide.next_index.load() == slide.current_index.load())
                                             break;
                                         corrupted_count++;
@@ -6961,15 +7043,15 @@ slide.items = std::move(active_items);
                           } else {
                                // FIX v2.0.0: fetch_add returns OLD value — compute ni4+1 explicitly
                                { int ni4 = slide.next_index.fetch_add(1, std::memory_order_relaxed);
-                                int ni4_next = (ni4 + 1 >= (int)slide.items.size()) ? 0 : (ni4 + 1);
+                                int ni4_next = (ni4 + 1 >= (int)preload_items->size()) ? 0 : (ni4 + 1);
                                 slide.next_index.store(ni4_next); }
                               if (slide.next_index.load() == slide.current_index.load())
                                   break;
                           }
                       }
-                  slide.preload_initial_phase.store(false);
-                        slide.preload_limit.store(max_attempts);
-                       if (found_valid) {
+                 slide.preload_initial_phase.store(false);
+                         // preload_limit removed v6.0.10: was never read (B8)
+                        if (found_valid) {
                             g_logger.info("PRELOAD_ALL_DONE: attempts=%d corrupted=%d found=yes",
                                 attempts, corrupted_count);
                         }
@@ -7003,27 +7085,27 @@ slide.items = std::move(active_items);
               bool first_loaded = false;
              // Try starting from start_idx, skip corrupted files with limited fallback
              for (int fallback = 0; fallback < 10 && !first_loaded; fallback++) {
-                 int try_idx = (start_idx + fallback) % (int)slide.items.size();
-                 if (slide.items[try_idx].type != "image") continue;
+                 int try_idx = (start_idx + fallback) % (int)items_ptr->size();
+                 if ((*items_ptr)[try_idx].type != "image") continue;
                  // Check corrupted cache — skip if already failed
                   {
                       std::lock_guard<std::mutex> lk(slide.corrupted_cache_mtx);
-                      auto it = slide.corrupted_cache.find(slide.items[try_idx].path);
+                      auto it = slide.corrupted_cache.find((*items_ptr)[try_idx].path);
                       if (it != slide.corrupted_cache.end() && it->second.first >= 1) continue;
                   }
-                 slide.load_item(slide.items[try_idx]);
+                 slide.load_item((*items_ptr)[try_idx], items_ptr);  // v6.0.11: pass items_ptr
                  if (slide.current_tex.id != 0) {
                     first_loaded = true;
-                    slide_debug("INIT_FIRST_LOADED: path=%s tex id=%d w=%d h=%d", slide.items[try_idx].path.substr(0,60).c_str(), slide.current_tex.id, slide.current_tex.width, slide.current_tex.height);
+                    slide_debug("INIT_FIRST_LOADED: path=%s tex id=%d w=%d h=%d", (*items_ptr)[try_idx].path.substr(0,60).c_str(), slide.current_tex.id, slide.current_tex.width, slide.current_tex.height);
                      if (fallback > 0) {
                          slide.current_index.store(try_idx);
-                         slide.next_index.store((try_idx + 1) % (int)slide.items.size());
+                         slide.next_index.store((try_idx + 1) % (int)items_ptr->size());
                      }
                  }
              }
-            if (!first_loaded && slide.items[start_idx].type == "image") {
-                   slide.load_item(slide.items[start_idx]); // Last attempt
-               }
+          if (!first_loaded && (*items_ptr)[start_idx].type == "image") {
+                    slide.load_item((*items_ptr)[start_idx], items_ptr); // v6.0.11: pass items_ptr
+                }
         }
 
       splash.cleanup();
@@ -7041,6 +7123,8 @@ slide.items = std::move(active_items);
     auto last_time = std::chrono::steady_clock::now();
 
   while (g_running.load() && !WindowShouldClose()) {
+         // v6.0.6: Capture shared_ptr to prevent treadmill worker from replacing items mid-loop
+         auto items_ptr = slide.items;
          auto now = std::chrono::steady_clock::now();
          float dt = std::chrono::duration<float>(now - last_time).count();
          last_time = now;
@@ -7049,22 +7133,36 @@ slide.items = std::move(active_items);
              printf("\033[1;33m[INFO]\033[0m Restarting piTrove after ESC...\n");
              system("systemctl restart piTrove.service 2>/dev/null || true");
          }
-    if (IsKeyPressed(KEY_SPACE)) slide.shuffle = !slide.shuffle;
-          if (IsKeyPressed(KEY_RIGHT) && slide.items.size() > 1) slide.advance(true);
-          if (IsKeyPressed(KEY_LEFT) && slide.items.size() > 1) slide.advance(false);
-          if (IsKeyPressed(KEY_R) && slide.items.size() > 1) slide.shuffle = !slide.shuffle;
+    if (IsKeyPressed(KEY_SPACE)) {
+             std::lock_guard<std::mutex> lk(slide.shuffle_mutex);
+             slide.shuffle = !slide.shuffle;
+         }
+          if (IsKeyPressed(KEY_RIGHT) && items_ptr->size() > 1) slide.advance(true);
+          if (IsKeyPressed(KEY_LEFT) && items_ptr->size() > 1) slide.advance(false);
+          if (IsKeyPressed(KEY_R) && items_ptr->size() > 1) {
+             std::lock_guard<std::mutex> lk(slide.shuffle_mutex);
+             slide.shuffle = !slide.shuffle;
+         }
           // v1.9.5: Consume g_remote_command from HTTP thread (Y3)
-          int cmd = g_remote_command.exchange(0);
-          if (cmd == 1 && slide.items.size() > 1) slide.advance(true);
-          if (cmd == 2 && slide.items.size() > 1) slide.advance(false);
+           // v6.0.4: If navigation happens during video playback, kill mpv immediately
+           //         instead of relying on mpv monitor to detect g_remote_command (race condition)
+           int cmd = g_remote_command.exchange(0);
+           if ((cmd == 1 || cmd == 2) && items_ptr->size() > 1) {
+               if (slide.current_is_video) {
+                   pid_t p = slide.mpv_pid.load();
+                   if (p > 0) kill(p, SIGKILL);
+                   slide.mpv_running.store(false);
+               }
+               slide.advance(cmd == 1);
+           }
 
          // Touch support: tap left=back, right=forward
            if (g_cfg.touch_enabled && IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
               Vector2 tap_pos = GetTouchPosition(0);
               int sw = GetScreenWidth();
-              if (tap_pos.x < sw / 2 && slide.items.size() > 1) {
+              if (tap_pos.x < sw / 2 && items_ptr->size() > 1) {
                   slide.advance(false);
-              } else if (tap_pos.x >= sw / 2 && slide.items.size() > 1) {
+              } else if (tap_pos.x >= sw / 2 && items_ptr->size() > 1) {
                   slide.advance(true);
               }
           }
