@@ -1,6 +1,6 @@
-# piTrove v6.0.4 — Bug fix round 2 (May 18, 2026)
+# piTrove v7.0.0 — Bug fix round 11 (May 18, 2026)
 
-## Status: v6.0.6 deployed and running on Pi (192.168.4.110)
+## Status: v7.0.0 deployed and running on Pi (192.168.4.110)
 
 ## Bugs Fixed in Round 3 (continued, 137-146 part 2)
 
@@ -179,6 +179,7 @@ Three interacting bugs in render() caused video frames to be decoded but never d
 | 223 | CRITICAL | `video_rt` texture never drawn to screen — `update_frame()` decodes mpv frames into `g_mpv.video_rt` but `render()` has zero `DrawTexturePro` call to blit it | Added `if (current_is_video) { DrawTexturePro(g_mpv.video_rt.texture, ...) }` path at top of content chain |
 | 224 | CRITICAL | Video falls through to CRT loading screen — `if (!current_is_video) { collage } else if (current_tex.id != 0) { photo } else { CRT }`. Since `current_tex.id == 0` for videos, it falls to `else { CRT }` | Extended photo block condition to `if ((current_tex.id != 0 && ...) \|\| current_is_video)` so video enters the block, then gated CRT behind `if (!current_is_video && current_tex.id == 0)` |
 | 225 | MEDIUM | Overlays, transitions, and fade-in skipped for video — all live inside `if (current_tex.id != 0)` photo block. No smooth fade when entering/leaving video, no overlays on video | Same fix as 224 — extending block condition lets overlays/transitions/fading run for video too |
+| 226 | CRITICAL | str_replace 2a added extra closing brace `}` that prematurely closed `Slideshow` struct — `init()` and `cleanup()` became unreachable | Removed extra `} // end else-if (!current_is_video)` — original `} else {` only had one `}` closing the photo block, not two |
 
 ### Transition Behaviour After Fix
 All 4 transition cases now work correctly:
@@ -195,7 +196,11 @@ All 4 transition cases now work correctly:
 
 ## Autonomous Fix Loop Summary
 
-### Rounds Completed: 8, 9, 10 (32 bugs fixed: 191-222)
+### Rounds Completed: 8, 9, 10, 11 (33 bugs fixed: 191-226)
+- **v6.0.10**: Fixed 10 bugs (191-200) — first_img continue, preload_initial_phase log, slide_debug race, g_config_mtx, weather pclose, ReentrantGuard, current_is_video atomic, preload_limit dead code, scanner config copy, g_mpv.init VRAM leak
+- **v6.0.11**: Fixed 12 bugs (201-212) — weather thread config lock, items access (*items)→(*items_ptr), Image zero-init, load_item items_ptr parameter
+- **v6.0.13**: Fixed 2 bugs (221-222) — advance() load_item items_ptr pass
+- **v7.0.0**: Fixed 4 bugs (223-226) — video rendering restructure: video_rt DrawTexturePro, photo block condition extended, CRT gating, brace imbalance fix
 - **v6.0.10**: Fixed 10 bugs (191-200) — first_img continue, preload_initial_phase log, slide_debug race, g_config_mtx, weather pclose, ReentrantGuard, current_is_video atomic, preload_limit dead code, scanner config copy, g_mpv.init VRAM leak
 - **v6.0.11**: Fixed 12 bugs (201-212) — weather thread config lock, items access (*items)→(*items_ptr), Image zero-init, load_item items_ptr parameter
 - **v6.0.13**: Fixed 2 bugs (221-222) — advance() load_item items_ptr pass
@@ -209,10 +214,12 @@ All 4 transition cases now work correctly:
 6. **Zero-init**: All local Image objects value-initialized to prevent garbage pointer access
 
 ### Runtime Verification
-- v6.0.13 running on Pi 5 (192.168.4.110)
+- v7.0.0 running on Pi 5 (192.168.4.110)
+- Compiles clean on ARM64 (brace imbalance fixed)
 - Loads 24,141 items (23,200 photos + 941 videos) from cache DB
 - First image loads instantly (idx=0: 1920x1280, tex.id=7)
-- Shuffle enabled, MPV video playback verified
+- Shuffle enabled, video rendering path active (DrawTexturePro on g_mpv.video_rt.texture)
+- CRT loading screen gated to initial preload only (!current_is_video && current_tex.id == 0)
 - Weather thread, HTTP API, preload thread all running
 - No crashes, no hangs, no memory leaks detected
 
