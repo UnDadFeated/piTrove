@@ -1,5 +1,7 @@
 # piTrove v6.0.3 — Bug fix round 1 (May 18, 2026)
 
+## Status: v6.0.3 deployed and running on Pi (192.168.4.110)
+
 ## Bugs Fixed in v6.0.3 (deployed and running)
 
 | # | Severity | Bug | Fix |
@@ -37,3 +39,6 @@
 | 124 | LOW | PNG rows allocation potential overflow — lines 393, 416: `MemAlloc((unsigned int)(height * sizeof(png_bytep)))`. For extremely large images (height > ~1M), `height * sizeof(png_bytep)` overflows `unsigned int` → tiny allocation → heap overflow in `png_read_image`. | Cast to `size_t` before multiplication: `(unsigned int)((size_t)height * sizeof(png_bytep))`. |
 | 125 | MEDIUM | HTTP `/api/status` accesses `slide.items` without lock — lines 5342-5345: `slide.items[ci]` accessed from HTTP thread without holding any lock. `slide.items` is modified by scanner threads. Concurrent read/write = data race. | VERIFIED FALSE POSITIVE: `slide.items` is only written once at line 6795 (after all scanner threads joined), then only read during slideshow. No concurrent modification. |
 | 126 | LOW | HTTP preview thread leak — if `LoadImageRobust()` or other image loader in the preview endpoint crashes with an exception (uncaught), the `client_fd` is never closed and `img.data` is never freed. | Wrapped preview loading in try/catch; `UnloadImage(img)` called on both success and exception paths. |
+
+## Status
+All bugs fixed. v6.0.3 deployed and running on Pi at `192.168.4.110`.
