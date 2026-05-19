@@ -10,7 +10,7 @@
  *   • Slideshow – raylib, preload, crossfade, Ken Burns
  */
 
-#define VERSION "7.0.2"
+#define VERSION "7.0.3"
 #define APP_NAME "piTrove"
 
 // Global atomics for headless features
@@ -1582,17 +1582,20 @@ bool MPVPlayer::update_frame() {
        // update_frame() is called BEFORE BeginDrawing in the main loop,
        // so Raylib's framebuffer state is not active — no GBM/GL conflict.
        // Raylib then blits video_rt.texture inside BeginDrawing/EndDrawing.
-       mpv_opengl_fbo fbo = {0};
+      mpv_opengl_fbo fbo = {0};
        fbo.fbo = (int)video_rt.id;   // write to RenderTexture, not the screen
        fbo.w   = surface_w;
        fbo.h   = surface_h;
+       fbo.internal_format = 0x8058; // GL_RGBA8: Prevents silent rejection on GLES2
 
-    mpv_render_param render_params[] = {
-            {MPV_RENDER_PARAM_OPENGL_FBO,            &fbo},
-            {MPV_RENDER_PARAM_FLIP_Y,                (int[]){1}},
-            {MPV_RENDER_PARAM_BLOCK_FOR_TARGET_TIME, (int[]){0}},
-            {MPV_RENDER_PARAM_INVALID,               nullptr}
-        };
+     int flip_y = 1;
+     int block_time = 0;
+     mpv_render_param render_params[] = {
+             {MPV_RENDER_PARAM_OPENGL_FBO,            &fbo},
+             {MPV_RENDER_PARAM_FLIP_Y,                &flip_y},
+             {MPV_RENDER_PARAM_BLOCK_FOR_TARGET_TIME, &block_time},
+             {MPV_RENDER_PARAM_INVALID,               nullptr}
+         };
 
         int ret = mpv_render_context_render(gl_ctx, render_params);
 
@@ -1618,15 +1621,16 @@ bool MPVPlayer::update_frame() {
        glBindFramebuffer(GL_FRAMEBUFFER, 0);
        rlViewport(0, 0, GetScreenWidth(), GetScreenHeight());
 
-        // ── FIX v7.0.2: Force reset OpenGL and rlgl texture state so DrawText works ──
-        // mpv_render_context_render() leaves raw OpenGL texture state active.
-        // Raylib's rlgl caches texture bindings and doesn't know mpv changed them.
-        // DrawText assumes the font atlas is still bound and skips rebinding,
-        // resulting in solid blocks instead of readable text.
-        glActiveTexture(GL_TEXTURE0);
-        glBindTexture(GL_TEXTURE_2D, 0);
-        rlBindTexture(0);
-        // ──────────────────────────────────────────────────────────────────────────────
+        // ── FIX v7.0.3: Force reset OpenGL and rlgl state so Raylib isn't corrupted ──
+         // mpv alters internal VBOs, shaders, and texture bindings.
+         // rlDisableShader() forces rlgl to drop mpv's shader and use the default.
+         // glBindBuffer resets VBO bindings so Raylib doesn't draw into the void.
+         glActiveTexture(GL_TEXTURE0);
+         glBindTexture(GL_TEXTURE_2D, 0);
+         rlDisableShader();
+         glBindBuffer(GL_ARRAY_BUFFER, 0);
+         glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
+         // ────────────────────────────────────────────────────────────────────────────
 
         release_egl_current();
 
@@ -7244,14 +7248,11 @@ slide.items = items_ptr;
          }
 
              // Decode one mpv video frame into g_mpv.video_rt BEFORE BeginDrawing.
-              // mpv_render_context_render() alters GL state (bound FBO, viewport).
-              // If called inside BeginDrawing/EndDrawing it corrupts Raylib's
-              // framebuffer — everything Raylib draws goes into video_rt instead of
-              // the screen. Decoding here, outside Raylib's frame, avoids that.
-              if (slide.current_is_video && g_mpv.is_initialized() &&
-                  g_mpv.is_playing() && g_mpv_frame_available.load()) {
+               // CRITICAL: Call unconditionally. Relying on g_mpv_frame_available causes
+               // missed edge-triggers if mpv signals OSD updates instead of FRAME updates.
+               if (slide.current_is_video && g_mpv.is_initialized() && g_mpv.is_playing()) {
                   g_mpv.update_frame();
-              }
+               }
 
               // Always render — video frame decoded above, render() blits video_rt.
               // Overlays (borders, date, clock, weather) draw on top inside render().

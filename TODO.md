@@ -1,6 +1,6 @@
-# piTrove v7.0.2 — Bug fix round 13 (May 18, 2026)
+# piTrove v7.0.3 — Bug fix round 14 (May 18, 2026)
 
-## Status: v7.0.2 deployed and running on Pi (192.168.4.110)
+## Status: v7.0.3 deployed and running on Pi (192.168.4.110)
 
 ## Bugs Fixed in Round 3 (continued, 137-146 part 2)
 
@@ -260,22 +260,64 @@ if (current_is_video) {
 ### update_frame() fix (after rlViewport):
 
 ```cpp
-// ── NEW FIX: Force reset OpenGL and rlgl texture state so DrawText works ──
 glActiveTexture(GL_TEXTURE0);
 glBindTexture(GL_TEXTURE_2D, 0);
 rlBindTexture(0);
 // ──────────────────────────────────────────────────────────────────────────
 ```
 
+## Bug Fix Round 14 (229) — Video Black Screen: Event-Loop Desync + FBO Rejection
+
+### Root Cause: Event-loop desync and FBO internal format missing
+
+Three interacting issues causing black screen during video playback:
+
+| # | Severity | Bug | Fix |
+|---|----------|-----|-----|
+| 229a | CRITICAL | **Missed render callbacks** — `g_mpv_frame_available` edge-triggered flag causes missed frames. If mpv fires an OSD/metadata callback before a FRAME callback, the flag gets consumed, the edge-triggers are lost, and video frame never renders → black screen forever | Changed render loop to unconditionally call `g_mpv.update_frame()` every frame when `current_is_video && is_initialized() && is_playing()`. No more edge-trigger dependency — continuous polling guarantees no dropped frames |
+| 229b | CRITICAL | **FBO internal format missing** — `mpv_opengl_fbo fbo = {0}` leaves `internal_format` at 0. On Pi's OpenGL ES driver, mpv silently refuses to write pixels into an FBO without explicit internal format declaration | Added `fbo.internal_format = 0x8058;` (`GL_RGBA8`) to explicitly declare FBO format, preventing silent pixel-write rejection |
+| 229c | MEDIUM | **Compound literal pointer lifetime** — `(int[]){1}` creates a temporary array whose pointer goes out of scope on some ARM64 compilers before mpv reads it, breaking the `MPV_RENDER_PARAM_FLIP_Y` and `MPV_RENDER_PARAM_BLOCK_FOR_TARGET_TIME` parameters | Replaced compound literals with named stack variables: `int flip_y = 1; int block_time = 0;` and use `&flip_y`, `&block_time` in render_params |
+
+### Final update_frame() GL flush (after rlViewport):
+
+```cpp
+// ── FIX v7.0.3: Full rlgl state reset after mpv render ──
+glActiveTexture(GL_TEXTURE0);
+glBindTexture(GL_TEXTURE_2D, 0);
+rlDisableShader();           // Drop mpv's shader, force rlgl default
+glBindBuffer(GL_ARRAY_BUFFER, 0);
+glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
+```
+
+### Final FBO + render_params setup:
+
+```cpp
+mpv_opengl_fbo fbo = {0};
+fbo.fbo = (int)video_rt.id;
+fbo.w   = surface_w;
+fbo.h   = surface_h;
+fbo.internal_format = 0x8058; // GL_RGBA8: Prevents silent rejection on GLES2
+
+int flip_y = 1;
+int block_time = 0;
+mpv_render_param render_params[] = {
+    {MPV_RENDER_PARAM_OPENGL_FBO,            &fbo},
+    {MPV_RENDER_PARAM_FLIP_Y,                &flip_y},
+    {MPV_RENDER_PARAM_BLOCK_FOR_TARGET_TIME, &block_time},
+    {MPV_RENDER_PARAM_INVALID,               nullptr}
+};
+```
+
 ## Autonomous Fix Loop Summary
 
-### Rounds Completed: 8, 9, 10, 11, 12, 13 (35 bugs fixed: 191-228)
+### Rounds Completed: 8, 9, 10, 11, 12, 13, 14 (38 bugs fixed: 191-229)
 - **v6.0.10**: Fixed 10 bugs (191-200) — first_img continue, preload_initial_phase log, slide_debug race, g_config_mtx, weather pclose, ReentrantGuard, current_is_video atomic, preload_limit dead code, scanner config copy, g_mpv.init VRAM leak
 - **v6.0.11**: Fixed 12 bugs (201-212) — weather thread config lock, items access (*items)→(*items_ptr), Image zero-init, load_item items_ptr parameter
 - **v6.0.13**: Fixed 2 bugs (221-222) — advance() load_item items_ptr pass
 - **v7.0.0**: Fixed 4 bugs (223-226) — video rendering restructure: video_rt DrawTexturePro, photo block condition extended, CRT gating, brace imbalance fix
 - **v7.0.1**: Fixed 1 bug (227) — overlays/transitions/fading moved outside `if (!current_is_video)` gate so they run for video too
 - **v7.0.2**: Fixed 1 bug (228) — Raylib/OpenGL state reset for video: rlgl texture cache invalidation + opaque FBO blit (rlDisableColorBlend)
+- **v7.0.3**: Fixed 3 bugs (229a-c) — Video black screen fix: unconditional MPV polling loop, FBO internal_format=GL_RGBA8, compound literal→named variable lifetimes
 
 ### Key Architecture Improvements
 1. **Thread Safety**: All shared state properly protected (shuffle_mutex, preload_mutex, g_config_mtx, first_img_mtx, corrupted_cache_mtx)
@@ -286,14 +328,17 @@ rlBindTexture(0);
 6. **Zero-init**: All local Image objects value-initialized to prevent garbage pointer access
 
 ### Runtime Verification
-- v7.0.2 running on Pi 5 (192.168.4.110)
+- v7.0.3 running on Pi 5 (192.168.4.110)
 - Compiles clean on ARM64
 - Loads 24,141 items (23,200 photos + 941 videos) from cache DB
 - First image loads instantly (idx=0: 1920x1440, tex.id=7)
 - Shuffle enabled, video rendering path active
-- Video playback via MPV software decode (no libcuda) — rlgl texture state reset active
-- Text overlays (date, filename, count, timer, clock) render correctly during video (not solid blocks)
-- Video FBO draws opaquely — no black glow from alpha compositing
+- Video playback via MPV software decode (no libcuda) — unconditional MPV polling active
+- FBO internal_format=0x8058 (GL_RGBA8) prevents silent pixel-write rejection
+- Compound literals replaced with named variables for ARM64 pointer safety
+- Text overlays (date, filename, count, timer, clock) render correctly during video
+- Video FBO draws opaquely — ClearBackground + rlDisableColorBlend
+- rlDisableShader() + buffer resets prevent VBO/shader corruption
 - Transitions, overlays, fading all execute for video
 - CRT loading screen gated to initial preload only (!current_is_video && current_tex.id == 0)
 - Weather thread, HTTP API, preload thread all running
