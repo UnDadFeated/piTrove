@@ -6737,13 +6737,11 @@ g_logger.init(cfg.log_dir, cfg.verbose ? LogLevel::DEBUG : LogLevel::INFO);
             continue;
         }
 
-        // Lazy Evaluation: Extract fast EXIF for JPEGs, but defer stbi/heif decoding to Phase 4
+        // Lazy Evaluation: Defer EXIF rotation to display time (auto_display_rotation=1 handles it)
+        // Phase 2 only needs placeholder values — reading EXIF per-file over CIFS causes
+        // crashes (libexif exif_data_new_from_file hangs, thread churn exhausts resources)
         if (mi.type == "image") {
-            if (has_extension(mi.ext, "jpg") || has_extension(mi.ext, "jpeg")) {
-                mi.exif_rotation = read_exif_rotation_timeout(mi.path, 3000);
-            } else {
-                mi.exif_rotation = 1;
-            }
+            mi.exif_rotation = 1;
             mi.width = 1920; mi.height = 1080; // Placeholder dimensions
         } else if (mi.type == "video") {
             // Probe video metadata via ffprobe
