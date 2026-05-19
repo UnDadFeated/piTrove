@@ -10,7 +10,7 @@
  *   • Slideshow – raylib, preload, crossfade, Ken Burns
  */
 
-#define VERSION "6.0.13"
+#define VERSION "7.0.0"
 #define APP_NAME "piTrove"
 
 // Global atomics for headless features
@@ -4013,10 +4013,17 @@ int _swap_ci = current_index.load();
         auto items_ptr = items;
         Color avg = current_bg_color;
 
-if (current_is_video) {
-                   // v3.2.0: subprocess mpv renders directly to DRM plane.
-                   // Raylib skips rendering while subprocess holds DRM master.
-                   ClearBackground(BLACK);
+       if (current_is_video) {
+                   // ── VIDEO RENDER: blit g_mpv.video_rt.texture to screen ──
+                   // update_frame() decoded the latest mpv frame into video_rt BEFORE BeginDrawing.
+                   if (g_mpv.is_initialized() && g_mpv.video_rt.texture.id != 0) {
+                       DrawTexturePro(g_mpv.video_rt.texture,
+                           {0, 0, (float)g_mpv.video_rt.texture.width, (float)g_mpv.video_rt.texture.height},
+                           {0, 0, (float)sw, (float)sh},
+                           {0, 0}, 0.0f, WHITE);
+                   } else {
+                       ClearBackground(BLACK);
+                   }
           } else if (g_cfg.bias_lighting) {
                 // ── Background: Animated YouTube-Style Ambient Bias Lighting ──
 
@@ -4211,8 +4218,10 @@ if (current_is_video) {
                     }
                 }
             }
-} else // --- PHOTO RENDER ---
-      if (current_tex.id != 0 && current_tex.width > 0 && current_tex.height > 0) {
+} else // --- PHOTO RENDER / VIDEO OVERLAYS ---
+      // Run this block for photos (current_tex.id != 0) AND during video (current_is_video),
+      // so that overlays, transitions, and fading execute for both content types.
+      if ((current_tex.id != 0 && current_tex.width > 0 && current_tex.height > 0) || current_is_video) {
             // ── Matte compensation: photo fits within inset area, full photo visible ──
             // FIX v16.7.0: apply matting_size, clamp Ken Burns to texture bounds,
             //   position 3D border outside photo rect
@@ -4441,7 +4450,11 @@ if (current_is_video) {
                 DrawRectangle(0, 0, sw, sh, (Color){0,0,0,black_a});
             }
 
-} else {
+} // end else-if (current_tex.id != 0) photo render
+} // end else-if (!current_is_video) collage/photo branch
+
+// ── CRT loading screen — shown only during initial preload, never for video ──
+if (!current_is_video && current_tex.id == 0) {
           // ━━ CRT MONOCHROME LOADING SCREEN ━━
               scan_time += GetFrameTime();
               float scan_offset = fmodf(scan_time * 18.0f, 2.0f);

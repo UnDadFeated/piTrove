@@ -168,6 +168,31 @@
 - `Image` objects properly zero-initialized in all paths
 - All `load_item()` call sites pass `items_ptr`
 
+## Bug Fix Round 11 (223-225) — Video Rendering Restructure
+
+### Root Cause: Green CRT screen appears during video playback
+
+Three interacting bugs in render() caused video frames to be decoded but never displayed:
+
+| # | Severity | Bug | Fix |
+|---|----------|-----|-----|
+| 223 | CRITICAL | `video_rt` texture never drawn to screen — `update_frame()` decodes mpv frames into `g_mpv.video_rt` but `render()` has zero `DrawTexturePro` call to blit it | Added `if (current_is_video) { DrawTexturePro(g_mpv.video_rt.texture, ...) }` path at top of content chain |
+| 224 | CRITICAL | Video falls through to CRT loading screen — `if (!current_is_video) { collage } else if (current_tex.id != 0) { photo } else { CRT }`. Since `current_tex.id == 0` for videos, it falls to `else { CRT }` | Extended photo block condition to `if ((current_tex.id != 0 && ...) \|\| current_is_video)` so video enters the block, then gated CRT behind `if (!current_is_video && current_tex.id == 0)` |
+| 225 | MEDIUM | Overlays, transitions, and fade-in skipped for video — all live inside `if (current_tex.id != 0)` photo block. No smooth fade when entering/leaving video, no overlays on video | Same fix as 224 — extending block condition lets overlays/transitions/fading run for video too |
+
+### Transition Behaviour After Fix
+All 4 transition cases now work correctly:
+- Photo → Video: Photo fades to black, video fades in from black
+- Video → Photo: Video shows while fading to black, photo fades in
+- Video → Video: First video fades to black, second fades in
+- Photo → Photo: Existing crossfade/wipe/pixelate shaders
+
+### Verification
+- Video renders via `DrawTexturePro(g_mpv.video_rt.texture, ...)` before content chain
+- CRT screen only shown during actual initial preload (`!current_is_video && current_tex.id == 0`)
+- Overlays (date, filename, count, timer, clock) draw for both photos and videos
+- Transitions (fade-to-black, fade-from-black) execute for all content type swaps
+
 ## Autonomous Fix Loop Summary
 
 ### Rounds Completed: 8, 9, 10 (32 bugs fixed: 191-222)
