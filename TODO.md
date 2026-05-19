@@ -40,5 +40,12 @@
 | 125 | MEDIUM | HTTP `/api/status` accesses `slide.items` without lock — lines 5342-5345: `slide.items[ci]` accessed from HTTP thread without holding any lock. `slide.items` is modified by scanner threads. Concurrent read/write = data race. | VERIFIED FALSE POSITIVE: `slide.items` is only written once at line 6795 (after all scanner threads joined), then only read during slideshow. No concurrent modification. |
 | 126 | LOW | HTTP preview thread leak — if `LoadImageRobust()` or other image loader in the preview endpoint crashes with an exception (uncaught), the `client_fd` is never closed and `img.data` is never freed. | Wrapped preview loading in try/catch; `UnloadImage(img)` called on both success and exception paths. |
 
+## Verification
+- v6.0.3 builds successfully on Pi (ARM64)
+- Loads 24,141 items (23,200 photos + 941 videos) from cache
+- First image loads successfully (idx=0: 1920x1440) — confirms `active_items` fix works
+- Slideshow running with shuffle enabled
+- No crashes or hangs observed
+
 ## Status
-All bugs fixed. v6.0.3 deployed and running on Pi at `192.168.4.110`.
+All identified bugs fixed. v6.0.3 deployed and running on Pi at `192.168.4.110`.
