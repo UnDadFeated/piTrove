@@ -10,7 +10,7 @@
  *   • Slideshow – raylib, preload, crossfade, Ken Burns
  */
 
-#define VERSION "7.0.6"
+#define VERSION "7.0.7"
 #define APP_NAME "piTrove"
 
 // Global atomics for headless features

@@ -1,5 +1,11 @@
 # Changelog
 
+## v7.0.7 — Phase 2 caching crash fixed: removed per-file EXIF rotation thread spawn (May 19, 2026)
+
+### Fixed
+
+- **CRITICAL · Phase 2 caching crashed after ~11 minutes with "exif rotation timeout" warnings** — `read_exif_rotation_timeout()` spawned a **thread per file** for every JPEG (22K+ threads total). Each thread called libexif's `exif_data_new_from_file()` over CIFS, which could hang. On timeout, threads were `pthread_detached` but the `shared_ptr` to `TimeoutState` was destroyed, causing UAF crashes. EXIF rotation is now set to `1` for all files in Phase 2 — actual rotation is handled at display time by `auto_display_rotation = 1` in config.
+
 ## v7.0.6 — Scan stuck at 888 fixed: removed 1ms sleep in directory iterator (May 19, 2026)
 
 ### Fixed
