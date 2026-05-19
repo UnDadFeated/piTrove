@@ -10,7 +10,7 @@
  *   • Slideshow – raylib, preload, crossfade, Ken Burns
  */
 
-#define VERSION "7.0.4"
+#define VERSION "7.0.6"
 #define APP_NAME "piTrove"
 
 // Global atomics for headless features
@@ -1558,95 +1558,68 @@ void MPVPlayer::stop() {
 }
 
 bool MPVPlayer::update_frame() {
-     if (!initialized || !playing) return false;
+      if (!initialized || !playing) return false;
 
-     // Make sure Raylib's EGL context is current before any mpv render API call
-     make_egl_current();
+      // Make sure Raylib's EGL context is current before any mpv render API call
+      make_egl_current();
 
-     // Check if mpv has a new frame ready
-     uint64_t update_flags = mpv_render_context_update(gl_ctx);
-     if (!(update_flags & MPV_RENDER_UPDATE_FRAME)) {
-         g_mpv_frame_available.store(false);
-         // Check for EOF
-         int64_t eof_val;
-         if (mpv_get_property(ctx, "eof-reached", MPV_FORMAT_FLAG, &eof_val) == 0 && eof_val) {
-             playing.store(false);
-             eof.store(true);
-             if (g_mpv_log_info) g_mpv_log_info("MPV_EOF: playback finished naturally");
-         }
-         release_egl_current();
-         return false;
-     }
+      // Check if mpv has a new frame ready
+      uint64_t update_flags = mpv_render_context_update(gl_ctx);
+      if (!(update_flags & MPV_RENDER_UPDATE_FRAME)) {
+          release_egl_current();
+          return false;
+      }
 
-     // Render into video_rt (a RenderTexture2D — FBO != 0).
-       // update_frame() is called BEFORE BeginDrawing in the main loop,
-       // so Raylib's framebuffer state is not active — no GBM/GL conflict.
-       // Raylib then blits video_rt.texture inside BeginDrawing/EndDrawing.
       mpv_opengl_fbo fbo = {0};
-       fbo.fbo = (int)video_rt.id;   // write to RenderTexture, not the screen
-       fbo.w   = surface_w;
-       fbo.h   = surface_h;
-       fbo.internal_format = 0x8058; // GL_RGBA8: Prevents silent rejection on GLES2
+      fbo.fbo = (int)video_rt.id;   // write to RenderTexture, not the screen
+      fbo.w   = surface_w;
+      fbo.h   = surface_h;
+      // FIX: Use 0x1908 (GL_RGBA). 0x8058 (GL_RGBA8) is invalid on GLES2 and causes black screen.
+      fbo.internal_format = 0x1908;
 
-     int flip_y = 1;
-     int block_time = 0;
-     mpv_render_param render_params[] = {
-             {MPV_RENDER_PARAM_OPENGL_FBO,            &fbo},
-             {MPV_RENDER_PARAM_FLIP_Y,                &flip_y},
-             {MPV_RENDER_PARAM_BLOCK_FOR_TARGET_TIME, &block_time},
-             {MPV_RENDER_PARAM_INVALID,               nullptr}
-         };
+      int flip_y = 1;
+      // FIX: Removed BLOCK_FOR_TARGET_TIME — 32-bit int causes stack corruption with mpv's 64-bit uint64_t* on ARM64
+      mpv_render_param render_params[] = {
+              {MPV_RENDER_PARAM_OPENGL_FBO,            &fbo},
+              {MPV_RENDER_PARAM_FLIP_Y,                &flip_y},
+              {MPV_RENDER_PARAM_INVALID,               nullptr}
+      };
 
-        int ret = mpv_render_context_render(gl_ctx, render_params);
+      int ret = mpv_render_context_render(gl_ctx, render_params);
 
-        if (ret < 0) {
-           if (g_mpv_log_error) g_mpv_log_error("MPV_RENDER: mpv_render_context_render failed: %d", ret);
-           release_egl_current();
-           return false;
-       }
+      if (ret < 0) {
+          if (g_mpv_log_error) g_mpv_log_error("MPV_RENDER: mpv_render_context_render failed: %d", ret);
+          release_egl_current();
+          return false;
+      }
 
-       // Report swap — tells mpv the frame was presented, for A/V sync timing
-       mpv_render_context_report_swap(gl_ctx);
+      // Report swap — tells mpv the frame was presented, for A/V sync timing
+      mpv_render_context_report_swap(gl_ctx);
 
-       // CRITICAL: mpv_render_context_render() leaves the bound FBO set to
-       // video_rt.id. Raylib's BeginDrawing() on GLES2/DRM does NOT reset the
-       // bound FBO — it assumes FBO=0 is already bound. Without this reset,
-       // every subsequent Raylib draw call renders INTO video_rt instead of
-       // the screen, making the display show the frozen green caching frame.
-       // Reset GL state after mpv_render_context_render().
-       // mpv leaves the bound FBO set to video_rt.id and viewport at surface size.
-       // Raylib's BeginDrawing on GLES2/DRM assumes FBO=0 is already bound —
-       // without this reset every Raylib draw call writes into video_rt instead of
-       // the screen framebuffer, making the display freeze on the last GBM frame.
-       glBindFramebuffer(GL_FRAMEBUFFER, 0);
-       rlViewport(0, 0, GetScreenWidth(), GetScreenHeight());
+      // CRITICAL: mpv_render_context_render() leaves the bound FBO set to video_rt.id.
+      // Raylib's BeginDrawing() on GLES2/DRM assumes FBO=0 is already bound.
+      // Without this reset, every Raylib draw call renders INTO video_rt instead of the screen.
+      glBindFramebuffer(GL_FRAMEBUFFER, 0);
+      rlViewport(0, 0, GetScreenWidth(), GetScreenHeight());
 
-        // ── FIX v7.0.4: Safe OpenGL state reset via rlgl APIs ──
-         // mpv alters internal VBOs, shaders, and texture bindings.
-         // glActiveTexture + glBindTexture resets OpenGL texture state.
-         // rlDisableShader() safely restores Raylib's default shader via rlgl.
-         // REMOVED: raw glBindBuffer calls — they desynced rlgl's VBO cache,
-         // causing the full black screen and missing overlays (v7.0.3 regression).
-         // REMOVED: rlBindTexture — not available on Pi's Raylib (GLES2) build.
-         glActiveTexture(GL_TEXTURE0);
-         glBindTexture(GL_TEXTURE_2D, 0);
-         rlDisableShader();
-         // ──────────────────────────────────────────────────────────────────────
+      // ── FIX v7.0.5: Safe OpenGL state reset via rlgl APIs ──
+      // mpv alters internal VBOs, shaders, and texture bindings.
+      // glActiveTexture + glBindTexture resets OpenGL texture state.
+      // rlDisableShader() safely restores Raylib's default shader via rlgl.
+      // REMOVED: raw glBindBuffer calls — desynced rlgl's VBO cache (v7.0.3).
+      // REMOVED: rlBindTexture — not available on Pi's Raylib (GLES2) build.
+      glActiveTexture(GL_TEXTURE0);
+      glBindTexture(GL_TEXTURE_2D, 0);
+      rlDisableShader();
+      // ─────────────────────────────────────────────────────────
 
-        release_egl_current();
+      release_egl_current();
 
-       g_mpv_frame_available.store(false);
+      // FIX: Removed mpv_get_property("eof-reached") — 60fps polling floods IPC, causes deadlock/crash.
+      // EOF is already safely handled asynchronously by the event_thread.
 
-       // Check for EOF after rendering
-       int64_t eof_val;
-       if (mpv_get_property(ctx, "eof-reached", MPV_FORMAT_FLAG, &eof_val) == 0 && eof_val) {
-           playing.store(false);
-           eof.store(true);
-           if (g_mpv_log_info) g_mpv_log_info("MPV_EOF: playback finished naturally");
-       }
-
-       return true;
- }
+      return true;
+  }
 
 struct CacheManager;
 CacheManager* g_cache = nullptr;
@@ -2036,9 +2009,6 @@ public:
 
                 while (it != std::filesystem::recursive_directory_iterator()) {
                     try {
-                        // 1ms Network yield: keeps SSH alive while burning through valid months
-                        std::this_thread::sleep_for(std::chrono::milliseconds(1));
-
                         if (it->is_regular_file(ec)) {
                             process_entry(it->path(), exts, window_days, list_mutex, all_files);
                         }
@@ -6770,7 +6740,7 @@ g_logger.init(cfg.log_dir, cfg.verbose ? LogLevel::DEBUG : LogLevel::INFO);
         // Lazy Evaluation: Extract fast EXIF for JPEGs, but defer stbi/heif decoding to Phase 4
         if (mi.type == "image") {
             if (has_extension(mi.ext, "jpg") || has_extension(mi.ext, "jpeg")) {
-                mi.exif_rotation = 1; // FIXED: skip EXIF (CIFS timeouts)
+                mi.exif_rotation = read_exif_rotation_timeout(mi.path, 3000);
             } else {
                 mi.exif_rotation = 1;
             }

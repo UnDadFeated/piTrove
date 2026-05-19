@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# install.sh — PiTrove v7.0.4 installer
+# install.sh — PiTrove v7.0.6 installer
 # Target: Debian Trixie (13) 64-bit on Raspberry Pi 5
 # Features: JPEG/TIFF/PNG/WebP/HEIC robust loaders, CRT UI, multi-format support
 
@@ -20,7 +20,7 @@ yesno() {
 
 # ── Pre-flight checks ───────────────────────────────────────────────────────
 echo "============================================"
-  echo "  PiTrove v7.0.4 Installer"
+  echo "  PiTrove v7.0.6 Installer"
 echo "  Target: Raspberry Pi 5 / ARM64"
 echo "============================================"
 echo
@@ -535,7 +535,7 @@ fi
 
 cat > "$PRIMARY_HOME/piTrove/src/config/config.toml" <<EOF
 # ==========================================
-# piTrove Configuration File (v7.0.4)
+# piTrove Configuration File (v7.0.6)
 # ==========================================
 
 [paths]
@@ -547,6 +547,7 @@ log_dir = $PRIMARY_HOME/piTrove/logs
 rotation = 0
 splash_file = src/splash.png
 splash_overlay_y = 0.5
+auto_display_rotation = 1
 
 [slideshow]
 transition_delay = 120.0
@@ -678,7 +679,7 @@ info "Service installed: piTrove.service (enabled)"
  # ── Done ─────────────────────────────────────────────────────────────────────
 echo
 echo "============================================"
- echo "  PiTrove v7.0.4 installation complete!"
+ echo "  PiTrove v7.0.6 installation complete!"
 echo "============================================"
 echo
 

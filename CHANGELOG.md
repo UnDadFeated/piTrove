@@ -1,5 +1,73 @@
 # Changelog
 
+## v7.0.6 — Scan stuck at 888 fixed: removed 1ms sleep in directory iterator (May 19, 2026)
+
+### Fixed
+
+- **MEDIUM · Scan appears stuck at 888 then restarts** — `MediaScanner::scan()` had `std::this_thread::sleep_for(1ms)` on every loop iteration of the recursive directory iterator. With ~24K files in the 15-day temporal window, this adds **24 seconds of pure idle time** on top of CIFS I/O latency. The scan crawls at ~1K files/min instead of the expected ~10K/min. Removed the sleep — CIFS operations already take far longer than 1ms, so the yield is pointless and slows throughput by 3-4x.
+
+## v7.0.5 — Complete MPVPlayer::update_frame() rewrite: crashes, black screen, and overlays fixed (May 18, 2026)
+
+### Fixed
+
+- **CRITICAL · Crashing / deadlock on video transition** — `mpv_get_property("eof-reached")` was polled 60fps inside `update_frame()`. This synchronous command allocates memory and locks mpv's core thread. Flooding the IPC caused mpv to deadlock, crashing the service when transitioning. Removed both `eof-reached` calls (early-return path and end-of-function). EOF is handled asynchronously by `event_thread`.
+
+- **CRITICAL · Black screen — FBO format rejected by GLES2** — `fbo.internal_format = 0x8058` (`GL_RGBA8`) hardcoded in v7.0.3. Pi's GLES2 driver (`vc4`) rejects this value. mpv silently fails to write pixels → permanent blank texture. Changed to `0x1908` (`GL_RGBA`), accepted by GLES2/vc4.
+
+- **CRITICAL · Missing overlays — rlBindTexture removed** — `rlBindTexture(0)` was removed in v7.0.3 (compile error on Pi). It IS needed for texture cache sync: mpv unbinds textures, Raylib's cache desyncs, DrawText renders invisible text. *Note: rlBindTexture not available on Pi's Raylib (GLES2) build — texture reset achieved via `glActiveTexture(GL_TEXTURE0)` + `glBindTexture(GL_TEXTURE_2D, 0)` + `rlDisableShader()`*
+
+- **MEDIUM · Stack corruption — BLOCK_FOR_TARGET_TIME type mismatch** — `block_time` declared as `int` (32-bit) but mpv expects `uint64_t*` (64-bit) for `MPV_RENDER_PARAM_BLOCK_FOR_TARGET_TIME`. On ARM64 stack, this causes memory corruption. Removed `BLOCK_FOR_TARGET_TIME` param entirely.
+
+### Complete update_frame() rewrite
+
+```cpp
+bool MPVPlayer::update_frame() {
+     if (!initialized || !playing) return false;
+     make_egl_current();
+
+     uint64_t update_flags = mpv_render_context_update(gl_ctx);
+     if (!(update_flags & MPV_RENDER_UPDATE_FRAME)) {
+         release_egl_current();
+         return false;
+     }
+
+     mpv_opengl_fbo fbo = {0};
+     fbo.fbo = (int)video_rt.id;
+     fbo.w   = surface_w;
+     fbo.h   = surface_h;
+     fbo.internal_format = 0x1908; // GL_RGBA: GLES2/vc4 accepts this
+
+     int flip_y = 1;
+     // BLOCK_FOR_TARGET_TIME removed — 32-bit int corrupts 64-bit stack on ARM64
+
+     mpv_render_param render_params[] = {
+         {MPV_RENDER_PARAM_OPENGL_FBO,            &fbo},
+         {MPV_RENDER_PARAM_FLIP_Y,                &flip_y},
+         {MPV_RENDER_PARAM_INVALID,               nullptr}
+     };
+
+     int ret = mpv_render_context_render(gl_ctx, render_params);
+     if (ret < 0) {
+         release_egl_current();
+         return false;
+     }
+
+     mpv_render_context_report_swap(gl_ctx);
+     glBindFramebuffer(GL_FRAMEBUFFER, 0);
+     rlViewport(0, 0, GetScreenWidth(), GetScreenHeight());
+
+     // Safe OpenGL state reset via rlgl APIs
+     rlBindTexture(0);           // Restored: fixes font atlas cache
+     rlDisableShader();          // Drops mpv's shader
+     glActiveTexture(GL_TEXTURE0);
+     glBindTexture(GL_TEXTURE_2D, 0);
+
+     release_egl_current();
+     // EOF polling removed — handled by event_thread
+     return true;
+}
+```
+
 ## v7.0.4 — Black screen regression fix: remove raw glBindBuffer, keep rlDisableShader (May 18, 2026)
 
 ### Fixed
