@@ -1,5 +1,11 @@
 # Changelog
 
+## v7.0.9 — Added gpu-context=drm for Pi 5 DRM rendering path (May 19, 2026)
+
+### Fixed
+
+- **MEDIUM · Video still black — missing DRM context binding** — `gpu-api=opengl` and `opengl-es=yes` enable GLES2 shaders but do not tell mpv which rendering backend context to use. On Pi 5 with vc4 DRM driver, mpv may autodetect X11/Wayland context which doesn't exist on headless systems, causing frames to decode but never pipe to texture buffer → black screen. Added `gpu-context=drm` to `MPVPlayer::init()` to explicitly bind the DRM rendering path.
+
 ## v7.0.8 — Black video + corrupted files persist fixed: GLES2 shaders, DB bad flag (May 19, 2026)
 
 ### Fixed

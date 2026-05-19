@@ -10,7 +10,7 @@
  *   • Slideshow – raylib, preload, crossfade, Ken Burns
  */
 
-#define VERSION "7.0.8"
+#define VERSION "7.0.9"
 #define APP_NAME "piTrove"
 
 // Global atomics for headless features
@@ -1324,10 +1324,11 @@ bool MPVPlayer::init() {
       // render context is created. vo=null starves the render API of frames.
       mpv_set_option_string(ctx, "vo", "libmpv");
     
-    // ── NEW FIX: Force GLES2 Shaders for Raspberry Pi vc4 driver ──
+    // ── FIX: Explicitly bind the DRM rendering backend and GLES2 context ──
     mpv_set_option_string(ctx, "gpu-api", "opengl");
     mpv_set_option_string(ctx, "opengl-es", "yes");
-    // ──────────────────────────────────────────────────────────────
+    mpv_set_option_string(ctx, "gpu-context", "drm"); // REQUIRED for Pi 5 DRM path
+    // ──────────────────────────────────────────────────────────────────────────
     
     // Audio: disabled — we render video frames as textures in the photo pipeline
        mpv_set_option_string(ctx, "audio", "no");

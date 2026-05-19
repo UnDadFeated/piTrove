@@ -1,4 +1,14 @@
-# piTrove v7.0.8 — Bug fix round 19 (May 19, 2026)
+# piTrove v7.0.9 — Added gpu-context=drm for Pi 5 DRM path (May 19, 2026)
+
+## Status: v7.0.9 ready to build and deploy
+
+## Bugs Fixed
+
+| # | Severity | Bug | Fix Applied |
+|---|----------|-----|-------------|
+| 239 | MEDIUM | Video still black — mpv using X11/Wayland context on headless Pi | Added `gpu-context=drm` to MPVPlayer::init() to explicitly bind DRM rendering backend |
+
+## v7.0.8 — Bug fix round 19 (May 19, 2026)
 
 ## Status: v7.0.8 built and running on Pi (192.168.4.110)
 
