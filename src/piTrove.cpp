@@ -10,7 +10,7 @@
  *   • Slideshow – raylib, preload, crossfade, Ken Burns
  */
 
-#define VERSION "7.0.1"
+#define VERSION "7.0.2"
 #define APP_NAME "piTrove"
 
 // Global atomics for headless features
@@ -1618,7 +1618,17 @@ bool MPVPlayer::update_frame() {
        glBindFramebuffer(GL_FRAMEBUFFER, 0);
        rlViewport(0, 0, GetScreenWidth(), GetScreenHeight());
 
-       release_egl_current();
+        // ── FIX v7.0.2: Force reset OpenGL and rlgl texture state so DrawText works ──
+        // mpv_render_context_render() leaves raw OpenGL texture state active.
+        // Raylib's rlgl caches texture bindings and doesn't know mpv changed them.
+        // DrawText assumes the font atlas is still bound and skips rebinding,
+        // resulting in solid blocks instead of readable text.
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D, 0);
+        rlBindTexture(0);
+        // ──────────────────────────────────────────────────────────────────────────────
+
+        release_egl_current();
 
        g_mpv_frame_available.store(false);
 
@@ -4013,18 +4023,25 @@ int _swap_ci = current_index.load();
         auto items_ptr = items;
         Color avg = current_bg_color;
 
-       if (current_is_video) {
-                   // ── VIDEO RENDER: blit g_mpv.video_rt.texture to screen ──
-                   // update_frame() decoded the latest mpv frame into video_rt BEFORE BeginDrawing.
-                   if (g_mpv.is_initialized() && g_mpv.video_rt.texture.id != 0) {
-                       DrawTexturePro(g_mpv.video_rt.texture,
-                           {0, 0, (float)g_mpv.video_rt.texture.width, (float)g_mpv.video_rt.texture.height},
-                           {0, 0, (float)sw, (float)sh},
-                           {0, 0}, 0.0f, WHITE);
-                   } else {
-                       ClearBackground(BLACK);
-                   }
-          } else if (g_cfg.bias_lighting) {
+      if (current_is_video) {
+                    // ── NEW FIX v7.0.2: Clear background so transition fades don't accumulate ──
+                    // Video decoders output RGB into FBO but leave alpha=0.
+                    // Raylib alpha blending draws transparent video over stale frames → infinite black glow.
+                    ClearBackground(BLACK);
+
+                    // ── VIDEO RENDER: blit g_mpv.video_rt.texture to screen ──
+                    // update_frame() decoded the latest mpv frame into video_rt BEFORE BeginDrawing.
+                    if (g_mpv.is_initialized() && g_mpv.video_rt.texture.id != 0) {
+                        // ── FIX v7.0.2: Disable blending so alpha=0 FBOs draw opaquely ──
+                        rlDisableColorBlend();
+                        DrawTexturePro(g_mpv.video_rt.texture,
+                            {0, 0, (float)g_mpv.video_rt.texture.width, (float)g_mpv.video_rt.texture.height},
+                            {0, 0, (float)sw, (float)sh},
+                            {0, 0}, 0.0f, WHITE);
+                        rlEnableColorBlend();
+                        // ─────────────────────────────────────────────────────────────────
+                    }
+           } else if (g_cfg.bias_lighting) {
                 // ── Background: Animated YouTube-Style Ambient Bias Lighting ──
 
                 // Base ambient background (darkened photo color)
