@@ -1,6 +1,6 @@
-# piTrove v7.0.0 — Bug fix round 11 (May 18, 2026)
+# piTrove v7.0.1 — Bug fix round 12 (May 18, 2026)
 
-## Status: v7.0.0 deployed and running on Pi (192.168.4.110)
+## Status: v7.0.1 deployed and running on Pi (192.168.4.110)
 
 ## Bugs Fixed in Round 3 (continued, 137-146 part 2)
 
@@ -194,9 +194,52 @@ All 4 transition cases now work correctly:
 - Overlays (date, filename, count, timer, clock) draw for both photos and videos
 - Transitions (fade-to-black, fade-from-black) execute for all content type swaps
 
+## Bug Fix Round 12 (227) — Overlays/Transitions Now Run for Video
+
+### Root Cause: Overlays, transitions, and fading still dead-code for video
+
+Fix 2 (v7.0.0) extended the photo block condition with `|| current_is_video`, but that block was nested inside `if (!current_is_video)` — the gate made it unreachable. The overlays, transition fade-out, and fade-in were ALL still skipped for video.
+
+| # | Severity | Bug | Fix |
+|---|----------|-----|-----|
+| 227 | CRITICAL | `|| current_is_video` at line 4224 was dead code — nested inside `if (!current_is_video)` collage gate at line 4153. Overlays (date/filename/count/timer/clock), outgoing transition fade, and incoming fade-in all skipped for video | 1) Reverted dead `|| current_is_video` back to original photo-only condition. 2) Moved full overlays + transitions + fading blocks outside the `if (!current_is_video)` gate — now between the collage/photo block and the CRT screen. These blocks run for ALL content types. |
+
+### Final render() structure:
+
+```
+if (current_is_video) {
+    DrawTexturePro(g_mpv.video_rt.texture, ...)  // Bug 223
+} else if (g_cfg.bias_lighting) { ... } else { ClearBackground(BLACK); }
+
+if (!current_is_video) {
+    if (collage) { ... }
+} else {
+    if (photo) { DrawTexturePro(current_tex, ...) ... }
+} // end collage/photo branch
+
+// ── Overlays: BOTH photos AND videos ──          <-- moved outside gate
+// ── Transitions: BOTH photos AND videos ──       <-- moved outside gate
+// ── Fading: BOTH photos AND videos ──            <-- moved outside gate
+
+// CRT loading screen — only during initial preload
+if (!current_is_video && current_tex.id == 0) { ... }
+
+// ── UNCONDITIONAL OVERLAYS (weather, HUD) ──
+```
+
+### Verified
+- v7.0.1 running on Pi 5 — videos playing via MPV with DrawTexturePro
+- Overlays, transitions, and fading now execute for all 4 content swap types
+- MPV software decode (no libcuda) working correctly
+
 ## Autonomous Fix Loop Summary
 
-### Rounds Completed: 8, 9, 10, 11 (33 bugs fixed: 191-226)
+### Rounds Completed: 8, 9, 10, 11, 12 (34 bugs fixed: 191-227)
+- **v6.0.10**: Fixed 10 bugs (191-200) — first_img continue, preload_initial_phase log, slide_debug race, g_config_mtx, weather pclose, ReentrantGuard, current_is_video atomic, preload_limit dead code, scanner config copy, g_mpv.init VRAM leak
+- **v6.0.11**: Fixed 12 bugs (201-212) — weather thread config lock, items access (*items)→(*items_ptr), Image zero-init, load_item items_ptr parameter
+- **v6.0.13**: Fixed 2 bugs (221-222) — advance() load_item items_ptr pass
+- **v7.0.0**: Fixed 4 bugs (223-226) — video rendering restructure: video_rt DrawTexturePro, photo block condition extended, CRT gating, brace imbalance fix
+- **v7.0.1**: Fixed 1 bug (227) — overlays/transitions/fading moved outside `if (!current_is_video)` gate so they run for video too
 - **v6.0.10**: Fixed 10 bugs (191-200) — first_img continue, preload_initial_phase log, slide_debug race, g_config_mtx, weather pclose, ReentrantGuard, current_is_video atomic, preload_limit dead code, scanner config copy, g_mpv.init VRAM leak
 - **v6.0.11**: Fixed 12 bugs (201-212) — weather thread config lock, items access (*items)→(*items_ptr), Image zero-init, load_item items_ptr parameter
 - **v6.0.13**: Fixed 2 bugs (221-222) — advance() load_item items_ptr pass
@@ -214,11 +257,12 @@ All 4 transition cases now work correctly:
 6. **Zero-init**: All local Image objects value-initialized to prevent garbage pointer access
 
 ### Runtime Verification
-- v7.0.0 running on Pi 5 (192.168.4.110)
-- Compiles clean on ARM64 (brace imbalance fixed)
+- v7.0.1 running on Pi 5 (192.168.4.110)
+- Compiles clean on ARM64
 - Loads 24,141 items (23,200 photos + 941 videos) from cache DB
-- First image loads instantly (idx=0: 1920x1280, tex.id=7)
+- First image loads instantly (idx=0: 1920x1440, tex.id=7)
 - Shuffle enabled, video rendering path active (DrawTexturePro on g_mpv.video_rt.texture)
+- Video playback via MPV software decode (no libcuda) — transitions, overlays, fading all execute for video
 - CRT loading screen gated to initial preload only (!current_is_video && current_tex.id == 0)
 - Weather thread, HTTP API, preload thread all running
 - No crashes, no hangs, no memory leaks detected

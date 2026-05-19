@@ -10,7 +10,7 @@
  *   • Slideshow – raylib, preload, crossfade, Ken Burns
  */
 
-#define VERSION "7.0.0"
+#define VERSION "7.0.1"
 #define APP_NAME "piTrove"
 
 // Global atomics for headless features
@@ -4218,10 +4218,8 @@ int _swap_ci = current_index.load();
                     }
                 }
             }
-} else // --- PHOTO RENDER / VIDEO OVERLAYS ---
-      // Run this block for photos (current_tex.id != 0) AND during video (current_is_video),
-      // so that overlays, transitions, and fading execute for both content types.
-      if ((current_tex.id != 0 && current_tex.width > 0 && current_tex.height > 0) || current_is_video) {
+} else // --- PHOTO RENDER ---
+      if (current_tex.id != 0 && current_tex.width > 0 && current_tex.height > 0) {
             // ── Matte compensation: photo fits within inset area, full photo visible ──
             // FIX v16.7.0: apply matting_size, clamp Ken Burns to texture bounds,
             //   position 3D border outside photo rect
@@ -4308,149 +4306,150 @@ int _swap_ci = current_index.load();
                  DrawRectangleLinesEx((Rectangle){(float)(ix1 - 1), (float)(iy1 - 1), (float)(ix2 - ix1 + 2), (float)(iy2 - iy1 + 2)}, 1, (Color){0,0,0,180});
              }
 
-         } // end photo-only block
+} // end photo-only block
 
-         // ── Overlays: drawn for BOTH photos and videos ──
-         {
-             int pad = 15;
-             // Date overlay
-             if (g_cfg.date_overlay_enabled) {
-                 char datebuf[64];
-                 time_t now = time(nullptr);
-                 struct tm tm_buf;
-                 struct tm* tm_info = localtime_r(&now, &tm_buf);
-                 if (tm_info && strftime(datebuf, sizeof(datebuf), g_cfg.date_text.c_str(), tm_info) != 0) {
-                     int dx = pad + (int)((sw - pad * 2) * g_cfg.date_x);
-                     int dy = pad + (int)((sh - pad * 2) * g_cfg.date_y);
-                     Color dcol = overlay_color_from_str(g_cfg.date_color);
-                     DrawText(datebuf, dx + 2, dy + 2, g_cfg.date_font_size, (Color){0,0,0,180});
-                     DrawText(datebuf, dx,     dy,     g_cfg.date_font_size, dcol);
-                 }
-             }
-
-             // Filename overlay
-              int ri = current_index.load();
-              if (g_cfg.filename_enabled && ri >= 0 && ri < (int)items_ptr->size()) {
-                  std::string fname = (*items_ptr)[ri].filename;
-                  double dur = 0.0;
-                  {
-                      std::lock_guard<std::mutex> lk(preload_mutex);
-                      dur = (*items_ptr)[ri].duration;
-                  }
-                 if (current_is_video && dur > 0) {
-                     int mins = (int)dur / 60;
-                     int secs = (int)dur % 60;
-                     char dur_buf[8];
-                     snprintf(dur_buf, sizeof(dur_buf), " (%d:%02d)", mins, secs);
-                     fname += std::string(dur_buf);
-                 }
-                 int fx = pad + (int)((sw - pad * 2) * g_cfg.filename_x);
-                 int fy = pad + (int)((sh - pad * 2) * g_cfg.filename_y);
-                 DrawText(fname.c_str(), fx + 2, fy + 2, g_cfg.filename_font_size, (Color){0,0,0,180});
-                 DrawText(fname.c_str(), fx,     fy,     g_cfg.filename_font_size, WHITE);
-             }
-
-             // Count overlay
-             if (g_cfg.count_enabled) {
-                 char cntbuf[128];
-                 std::snprintf(cntbuf, sizeof(cntbuf), "%d / %d", current_index.load() + 1, (int)items_ptr->size());
-                 int cx = pad + (int)((sw - pad * 2) * g_cfg.count_x);
-                 int cy = pad + (int)((sh - pad * 2) * g_cfg.count_y);
-                 int tw = MeasureText(cntbuf, g_cfg.count_font_size);
-                 cx = cx - tw / 2;
-                 DrawText(cntbuf, cx + 2, cy + 2, g_cfg.count_font_size, (Color){0,0,0,180});
-                 DrawText(cntbuf, cx,     cy,     g_cfg.count_font_size, (Color){200,200,200,220});
-             }
-
-             // Timer overlay
-             if (g_cfg.timer_enabled) {
-                 char tbuf[32];
-                 if (current_is_video) {
-                     std::snprintf(tbuf, sizeof(tbuf), "VIDEO");
-                 } else {
-                     int rem = std::max(0, (int)(g_cfg.transition_delay - item_timer));
-                     std::snprintf(tbuf, sizeof(tbuf), "%ds", rem);
-                 }
-                 int tx = pad + (int)((sw - pad * 2) * g_cfg.timer_x);
-                 int ty = pad + (int)((sh - pad * 2) * g_cfg.timer_y);
-                 Color tcol = overlay_color_from_str(g_cfg.timer_color);
-                 DrawText(tbuf, tx + 2, ty + 2, g_cfg.timer_font_size, (Color){0,0,0,180});
-                 DrawText(tbuf, tx,     ty,     g_cfg.timer_font_size, tcol);
-             }
-
-             // Clock overlay
-             if (g_cfg.clock_enabled) {
-                 char clkbuf[16];
-                 time_t now = time(nullptr);
-                 struct tm tm_buf_clk;
-                 struct tm* tmi = localtime_r(&now, &tm_buf_clk);
-                 if (tmi) {
-                     strftime(clkbuf, sizeof(clkbuf), g_cfg.clock_24h ? "%H:%M" : "%I:%M %p", tmi);
-                     int clkw = MeasureText(clkbuf, g_cfg.clock_font_size);
-                     int clkx = pad + (int)((sw - pad*2) * g_cfg.clock_x) - clkw/2;
-                     int clky = pad + (int)((sh - pad*2) * g_cfg.clock_y);
-                     Color clkcol = overlay_color_from_str(g_cfg.clock_color);
-                     DrawText(clkbuf, clkx+2, clky+2, g_cfg.clock_font_size, (Color){0,0,0,180});
-                     DrawText(clkbuf, clkx,   clky,   g_cfg.clock_font_size, clkcol);
-                 }
-             }
-         }
-
-      // ── Transition overlays — cover all 4 cases (photo↔video) ──
-            float dur = (float)g_cfg.transition_duration;
-
-            // OUTGOING: fade current content to black as transition_progress → 1
-            if (transitioning) {
-                float prog = ease_in_out(transition_progress);
-
-               if (!current_is_video && g_cfg.transition_effect == "wipe" && shaders_loaded) {
-                    int loc0 = GetShaderLocation(wipe_shader, "texture0");
-                    int loc1 = GetShaderLocation(wipe_shader, "texture1");
-                    int locProg = GetShaderLocation(wipe_shader, "progress");
-                    if (loc0 != -1 && loc1 != -1 && locProg != -1) {
-                        SetShaderValueTexture(wipe_shader, loc0, current_tex);
-                        SetShaderValueTexture(wipe_shader, loc1, loaded_tex);
-                        SetShaderValue(wipe_shader, locProg, &transition_progress, SHADER_UNIFORM_FLOAT);
-                        BeginShaderMode(wipe_shader);
-                        Rectangle t_src = {0,0,(float)current_tex.width,(float)current_tex.height};
-                        DrawTexturePro(current_tex, t_src, {0,0,(float)sw,(float)sh}, {0,0}, 0.0f, WHITE);
-                        EndShaderMode();
-                    } else {
-                        unsigned char black_a = (unsigned char)(255.0f * prog);
-                        DrawRectangle(0, 0, sw, sh, (Color){0,0,0,black_a});
-                    }
-                } else if (!current_is_video && g_cfg.transition_effect == "pixelate" && shaders_loaded) {
-                    int loc0 = GetShaderLocation(pixelate_shader, "texture0");
-                    int loc1 = GetShaderLocation(pixelate_shader, "texture1");
-                    int locProg = GetShaderLocation(pixelate_shader, "progress");
-                    if (loc0 != -1 && loc1 != -1 && locProg != -1) {
-                        SetShaderValueTexture(pixelate_shader, loc0, current_tex);
-                        SetShaderValueTexture(pixelate_shader, loc1, loaded_tex);
-                        SetShaderValue(pixelate_shader, locProg, &transition_progress, SHADER_UNIFORM_FLOAT);
-                        BeginShaderMode(pixelate_shader);
-                        Rectangle t_src = {0,0,(float)current_tex.width,(float)current_tex.height};
-                        DrawTexturePro(current_tex, t_src, {0,0,(float)sw,(float)sh}, {0,0}, 0.0f, WHITE);
-                        EndShaderMode();
-                    } else {
-                        unsigned char black_a = (unsigned char)(255.0f * prog);
-                        DrawRectangle(0, 0, sw, sh, (Color){0,0,0,black_a});
-                    }
-                } else {
-                    // Crossfade, unsupported effect, or shaders not loaded: fade to black
-                    unsigned char black_a = (unsigned char)(255.0f * prog);
-                    DrawRectangle(0, 0, sw, sh, (Color){0, 0, 0, black_a});
-                }
-            }
-
-            // INCOMING: fade in from black after every swap (covers video start + photo start)
-            if (fading_in && dur > 0.0f) {
-                float t = std::min(fade_in_timer / dur, 1.0f);
-                float prog = ease_in_out(t);
-                unsigned char black_a = (unsigned char)(255.0f * (1.0f - prog));
-                DrawRectangle(0, 0, sw, sh, (Color){0,0,0,black_a});
-            }
 
 } // end if (current_tex.id != 0) photo render
+
+// ── Overlays: drawn for BOTH photos and videos ──
+{
+    int pad = 15;
+    // Date overlay
+    if (g_cfg.date_overlay_enabled) {
+        char datebuf[64];
+        time_t now = time(nullptr);
+        struct tm tm_buf;
+        struct tm* tm_info = localtime_r(&now, &tm_buf);
+        if (tm_info && strftime(datebuf, sizeof(datebuf), g_cfg.date_text.c_str(), tm_info) != 0) {
+            int dx = pad + (int)((sw - pad * 2) * g_cfg.date_x);
+            int dy = pad + (int)((sh - pad * 2) * g_cfg.date_y);
+            Color dcol = overlay_color_from_str(g_cfg.date_color);
+            DrawText(datebuf, dx + 2, dy + 2, g_cfg.date_font_size, (Color){0,0,0,180});
+            DrawText(datebuf, dx,     dy,     g_cfg.date_font_size, dcol);
+        }
+    }
+
+    // Filename overlay
+    int ri = current_index.load();
+    if (g_cfg.filename_enabled && ri >= 0 && ri < (int)items_ptr->size()) {
+        std::string fname = (*items_ptr)[ri].filename;
+        double dur = 0.0;
+        {
+            std::lock_guard<std::mutex> lk(preload_mutex);
+            dur = (*items_ptr)[ri].duration;
+        }
+        if (current_is_video && dur > 0) {
+            int mins = (int)dur / 60;
+            int secs = (int)dur % 60;
+            char dur_buf[8];
+            snprintf(dur_buf, sizeof(dur_buf), " (%d:%02d)", mins, secs);
+            fname += std::string(dur_buf);
+        }
+        int fx = pad + (int)((sw - pad * 2) * g_cfg.filename_x);
+        int fy = pad + (int)((sh - pad * 2) * g_cfg.filename_y);
+        DrawText(fname.c_str(), fx + 2, fy + 2, g_cfg.filename_font_size, (Color){0,0,0,180});
+        DrawText(fname.c_str(), fx,     fy,     g_cfg.filename_font_size, WHITE);
+    }
+
+    // Count overlay
+    if (g_cfg.count_enabled) {
+        char cntbuf[128];
+        std::snprintf(cntbuf, sizeof(cntbuf), "%d / %d", current_index.load() + 1, (int)items_ptr->size());
+        int cx = pad + (int)((sw - pad * 2) * g_cfg.count_x);
+        int cy = pad + (int)((sh - pad * 2) * g_cfg.count_y);
+        int tw = MeasureText(cntbuf, g_cfg.count_font_size);
+        cx = cx - tw / 2;
+        DrawText(cntbuf, cx + 2, cy + 2, g_cfg.count_font_size, (Color){0,0,0,180});
+        DrawText(cntbuf, cx,     cy,     g_cfg.count_font_size, (Color){200,200,200,220});
+    }
+
+    // Timer overlay
+    if (g_cfg.timer_enabled) {
+        char tbuf[32];
+        if (current_is_video) {
+            std::snprintf(tbuf, sizeof(tbuf), "VIDEO");
+        } else {
+            int rem = std::max(0, (int)(g_cfg.transition_delay - item_timer));
+            std::snprintf(tbuf, sizeof(tbuf), "%ds", rem);
+        }
+        int tx = pad + (int)((sw - pad * 2) * g_cfg.timer_x);
+        int ty = pad + (int)((sh - pad * 2) * g_cfg.timer_y);
+        Color tcol = overlay_color_from_str(g_cfg.timer_color);
+        DrawText(tbuf, tx + 2, ty + 2, g_cfg.timer_font_size, (Color){0,0,0,180});
+        DrawText(tbuf, tx,     ty,     g_cfg.timer_font_size, tcol);
+    }
+
+    // Clock overlay
+    if (g_cfg.clock_enabled) {
+        char clkbuf[16];
+        time_t now = time(nullptr);
+        struct tm tm_buf_clk;
+        struct tm* tmi = localtime_r(&now, &tm_buf_clk);
+        if (tmi) {
+            strftime(clkbuf, sizeof(clkbuf), g_cfg.clock_24h ? "%H:%M" : "%I:%M %p", tmi);
+            int clkw = MeasureText(clkbuf, g_cfg.clock_font_size);
+            int clkx = pad + (int)((sw - pad*2) * g_cfg.clock_x) - clkw/2;
+            int clky = pad + (int)((sh - pad*2) * g_cfg.clock_y);
+            Color clkcol = overlay_color_from_str(g_cfg.clock_color);
+            DrawText(clkbuf, clkx+2, clky+2, g_cfg.clock_font_size, (Color){0,0,0,180});
+            DrawText(clkbuf, clkx,   clky,   g_cfg.clock_font_size, clkcol);
+        }
+    }
+}
+
+// ── Transition overlays — cover all 4 cases (photo↔video) ──
+float dur = (float)g_cfg.transition_duration;
+
+// OUTGOING: fade current content to black as transition_progress → 1
+if (transitioning) {
+    float prog = ease_in_out(transition_progress);
+
+    if (!current_is_video && g_cfg.transition_effect == "wipe" && shaders_loaded) {
+        int loc0 = GetShaderLocation(wipe_shader, "texture0");
+        int loc1 = GetShaderLocation(wipe_shader, "texture1");
+        int locProg = GetShaderLocation(wipe_shader, "progress");
+        if (loc0 != -1 && loc1 != -1 && locProg != -1) {
+            SetShaderValueTexture(wipe_shader, loc0, current_tex);
+            SetShaderValueTexture(wipe_shader, loc1, loaded_tex);
+            SetShaderValue(wipe_shader, locProg, &transition_progress, SHADER_UNIFORM_FLOAT);
+            BeginShaderMode(wipe_shader);
+            Rectangle t_src = {0,0,(float)current_tex.width,(float)current_tex.height};
+            DrawTexturePro(current_tex, t_src, {0,0,(float)sw,(float)sh}, {0,0}, 0.0f, WHITE);
+            EndShaderMode();
+        } else {
+            unsigned char black_a = (unsigned char)(255.0f * prog);
+            DrawRectangle(0, 0, sw, sh, (Color){0,0,0,black_a});
+        }
+    } else if (!current_is_video && g_cfg.transition_effect == "pixelate" && shaders_loaded) {
+        int loc0 = GetShaderLocation(pixelate_shader, "texture0");
+        int loc1 = GetShaderLocation(pixelate_shader, "texture1");
+        int locProg = GetShaderLocation(pixelate_shader, "progress");
+        if (loc0 != -1 && loc1 != -1 && locProg != -1) {
+            SetShaderValueTexture(pixelate_shader, loc0, current_tex);
+            SetShaderValueTexture(pixelate_shader, loc1, loaded_tex);
+            SetShaderValue(pixelate_shader, locProg, &transition_progress, SHADER_UNIFORM_FLOAT);
+            BeginShaderMode(pixelate_shader);
+            Rectangle t_src = {0,0,(float)current_tex.width,(float)current_tex.height};
+            DrawTexturePro(current_tex, t_src, {0,0,(float)sw,(float)sh}, {0,0}, 0.0f, WHITE);
+            EndShaderMode();
+        } else {
+            unsigned char black_a = (unsigned char)(255.0f * prog);
+            DrawRectangle(0, 0, sw, sh, (Color){0,0,0,black_a});
+        }
+    } else {
+        // Crossfade, unsupported effect, or shaders not loaded: fade to black
+        unsigned char black_a = (unsigned char)(255.0f * prog);
+        DrawRectangle(0, 0, sw, sh, (Color){0, 0, 0, black_a});
+    }
+}
+
+// INCOMING: fade in from black after every swap (covers video start + photo start)
+if (fading_in && dur > 0.0f) {
+    float t = std::min(fade_in_timer / dur, 1.0f);
+    float prog = ease_in_out(t);
+    unsigned char black_a = (unsigned char)(255.0f * (1.0f - prog));
+    DrawRectangle(0, 0, sw, sh, (Color){0,0,0,black_a});
+}
 
 // ── CRT loading screen — shown only during initial preload, never for video ──
 if (!current_is_video && current_tex.id == 0) {
