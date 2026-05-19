@@ -1,0 +1,12 @@
+piTrove/
+build/
+*.zip
+src/config/config.toml
+src/build/
+.sudo_as_admin_successful
+AGENTS.md
+
+.vscode/
+logs/
+PLAN.md
+piTrove
