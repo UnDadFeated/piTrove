@@ -1,4 +1,50 @@
 # Changelog
+
+## v7.0.1 — Overlays, transitions, and fading now run for video playback (May 18, 2026)
+
+### Fixed
+
+- **CRITICAL · Overlays, transitions, and fading still dead-code for video** — Fix 2 (v7.0.0) extended the photo block condition with `|| current_is_video`, but that block was nested inside `if (!current_is_video)` at line 4153 — the outer gate made it unreachable. The overlays (date/filename/count/timer/clock), outgoing transition fade, and incoming fade-in were ALL still skipped for video. Fixed by reverting the dead `|| current_is_video` and moving the full overlays + transitions + fading blocks outside the `if (!current_is_video)` gate, between the collage/photo branch and the CRT loading screen. These blocks now run for ALL content types (photos AND videos).
+
+## v7.0.0 — Video rendering restructure: green CRT screen → actual video playback (May 18, 2026)
+
+### Fixed
+
+- **CRITICAL · `video_rt` texture never drawn to screen** — `update_frame()` decodes mpv frames into `g_mpv.video_rt` (RenderTexture2D FBO) but `render()` had zero `DrawTexturePro` call to blit it. Video existed as a GPU texture but was never displayed. Added `if (current_is_video) { DrawTexturePro(g_mpv.video_rt.texture, ...) }` path at top of the content chain, with `ClearBackground(BLACK)` fallback when video_rt is not yet initialized.
+
+- **CRITICAL · Video fell through to CRT loading screen** — The content if/else chain was `if (!current_is_video) { collage } else if (current_tex.id != 0) { photo } else { CRT }`. Since `current_tex.id == 0` for videos (intentionally unloaded in `load_item()` and `SWAP_TO_VIDEO`), the flow fell straight to `else { // CRT }`, showing the green CRT loading screen instead of video. Fixed by extending the photo block condition to `if ((current_tex.id != 0 && current_tex.width > 0 && current_tex.height > 0) || current_is_video)` and gating the CRT behind `if (!current_is_video && current_tex.id == 0)` — shown only during actual initial preload.
+
+- **MEDIUM · Overlays, transitions, and fade-in skipped for video** — The overlays (date, filename, count, timer, clock), the transition fade-out effect, and the post-swap fade-in were all physically inside the `if (current_tex.id != 0)` photo block. When a video was current, none of these executed: no smooth fade when entering/leaving video, no overlays on video.
+
+- **CRITICAL · str_replace 2a added extra closing brace** — The CRT restructure added two closing braces `}` before the CRT block, but the original `} else {` only had one `}` (closing the photo-render block). The extra brace prematurely closed the `Slideshow` struct, making `init()` and `cleanup()` unreachable. Fixed by removing the extra `}`.
+
+### New transition behaviour
+
+All 4 transition cases now work correctly:
+- **Photo → Video**: Photo fades to black, video fades in from black
+- **Video → Photo**: Video shows while fading to black, photo fades in
+- **Video → Video**: First video fades to black, second fades in from black
+- **Photo → Photo**: Existing crossfade / wipe / pixelate shaders unchanged
+
+### Render structure
+
+```
+if (current_is_video) → DrawTexturePro(video_rt.texture)    // Bug 223
+else if (bias_lighting) → ambient background
+else → black
+
+if (!current_is_video) → collage mode
+else → photo render
+
+// ── Overlays: BOTH photos AND videos ──                     // moved out
+// ── Transitions: BOTH photos AND videos ──                  // moved out
+// ── Fading: BOTH photos AND videos ──                       // moved out
+
+if (!current_is_video && current_tex.id == 0) → CRT          // Bug 224
+
+// ── UNCONDITIONAL OVERLAYS (weather, HUD) ──
+```
+
 ## v6.0.2 — Correct 24K file count, worker thread join, skip EXIF rotation (May 18, 2026)
 
 ### Fixed
