@@ -10,7 +10,7 @@
  *   • Slideshow – raylib, preload, crossfade, Ken Burns
  */
 
-#define VERSION "7.0.3"
+#define VERSION "7.0.4"
 #define APP_NAME "piTrove"
 
 // Global atomics for headless features
@@ -1621,16 +1621,17 @@ bool MPVPlayer::update_frame() {
        glBindFramebuffer(GL_FRAMEBUFFER, 0);
        rlViewport(0, 0, GetScreenWidth(), GetScreenHeight());
 
-        // ── FIX v7.0.3: Force reset OpenGL and rlgl state so Raylib isn't corrupted ──
+        // ── FIX v7.0.4: Safe OpenGL state reset via rlgl APIs ──
          // mpv alters internal VBOs, shaders, and texture bindings.
-         // rlDisableShader() forces rlgl to drop mpv's shader and use the default.
-         // glBindBuffer resets VBO bindings so Raylib doesn't draw into the void.
+         // glActiveTexture + glBindTexture resets OpenGL texture state.
+         // rlDisableShader() safely restores Raylib's default shader via rlgl.
+         // REMOVED: raw glBindBuffer calls — they desynced rlgl's VBO cache,
+         // causing the full black screen and missing overlays (v7.0.3 regression).
+         // REMOVED: rlBindTexture — not available on Pi's Raylib (GLES2) build.
          glActiveTexture(GL_TEXTURE0);
          glBindTexture(GL_TEXTURE_2D, 0);
          rlDisableShader();
-         glBindBuffer(GL_ARRAY_BUFFER, 0);
-         glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
-         // ────────────────────────────────────────────────────────────────────────────
+         // ──────────────────────────────────────────────────────────────────────
 
         release_egl_current();
 

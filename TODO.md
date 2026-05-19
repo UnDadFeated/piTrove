@@ -1,6 +1,6 @@
-# piTrove v7.0.3 — Bug fix round 14 (May 18, 2026)
+# piTrove v7.0.4 — Bug fix round 15 (May 18, 2026)
 
-## Status: v7.0.3 deployed and running on Pi (192.168.4.110)
+## Status: v7.0.4 deployed and running on Pi (192.168.4.110)
 
 ## Bugs Fixed in Round 3 (continued, 137-146 part 2)
 
@@ -308,9 +308,34 @@ mpv_render_param render_params[] = {
 };
 ```
 
+## Bug Fix Round 15 (229d) — Black Screen Regression: Raw glBindBuffer Desynced rlgl VBO Cache
+
+### Root Cause: v7.0.3 GL state reset broke Raylib's internal VBO cache
+
+In v7.0.3, we added raw `glBindBuffer(GL_ARRAY_BUFFER, 0)` and `glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0)` calls to force-reset OpenGL state after mpv render. This caused a **full black screen** because:
+
+| Issue | Explanation |
+|-------|-------------|
+| **rlgl VBO cache desync** | Raylib's internal state tracker (`rlgl`) remembers which VBOs are bound. Raw `glBindBuffer(0)` changed the real GL state but rlgl didn't know. When rlgl later drew text overlays or video textures, it assumed its buffers were still bound, skipped rebinding, and drew into an empty void. |
+| **rlDisableShader still needed** | `rlDisableShader()` uses rlgl's own API and stays in sync — this part was correct. |
+| **rlBindTexture not available** | Pi's Raylib (GLES2) build doesn't expose `rlBindTexture()` — it caused a compile error in v7.0.2. |
+
+### Fix: Remove raw glBindBuffer, keep rlDisableShader
+
+```cpp
+// ── FIX v7.0.4: Safe OpenGL state reset via rlgl APIs ──
+glActiveTexture(GL_TEXTURE0);
+glBindTexture(GL_TEXTURE_2D, 0);
+rlDisableShader();
+// REMOVED: raw glBindBuffer — desynced rlgl's VBO cache → black screen (v7.0.3)
+// REMOVED: rlBindTexture — not available on Pi's Raylib (GLES2) build
+```
+
+**Result**: `rlDisableShader()` safely restores Raylib's default shader via rlgl. Video FBO now draws to screen (not black). Text overlays render correctly. FBO internal_format and pointer lifetime fixes from v7.0.3 remain intact.
+
 ## Autonomous Fix Loop Summary
 
-### Rounds Completed: 8, 9, 10, 11, 12, 13, 14 (38 bugs fixed: 191-229)
+### Rounds Completed: 8, 9, 10, 11, 12, 13, 14, 15 (39 bugs fixed: 191-229d)
 - **v6.0.10**: Fixed 10 bugs (191-200) — first_img continue, preload_initial_phase log, slide_debug race, g_config_mtx, weather pclose, ReentrantGuard, current_is_video atomic, preload_limit dead code, scanner config copy, g_mpv.init VRAM leak
 - **v6.0.11**: Fixed 12 bugs (201-212) — weather thread config lock, items access (*items)→(*items_ptr), Image zero-init, load_item items_ptr parameter
 - **v6.0.13**: Fixed 2 bugs (221-222) — advance() load_item items_ptr pass
@@ -318,6 +343,7 @@ mpv_render_param render_params[] = {
 - **v7.0.1**: Fixed 1 bug (227) — overlays/transitions/fading moved outside `if (!current_is_video)` gate so they run for video too
 - **v7.0.2**: Fixed 1 bug (228) — Raylib/OpenGL state reset for video: rlgl texture cache invalidation + opaque FBO blit (rlDisableColorBlend)
 - **v7.0.3**: Fixed 3 bugs (229a-c) — Video black screen fix: unconditional MPV polling loop, FBO internal_format=GL_RGBA8, compound literal→named variable lifetimes
+- **v7.0.4**: Fixed 1 bug (229d) — v7.0.3 regression: raw glBindBuffer desynced rlgl VBO cache → black screen. Replaced with rlDisableShader() only (safe via rlgl API).
 
 ### Key Architecture Improvements
 1. **Thread Safety**: All shared state properly protected (shuffle_mutex, preload_mutex, g_config_mtx, first_img_mtx, corrupted_cache_mtx)
@@ -328,8 +354,8 @@ mpv_render_param render_params[] = {
 6. **Zero-init**: All local Image objects value-initialized to prevent garbage pointer access
 
 ### Runtime Verification
-- v7.0.3 running on Pi 5 (192.168.4.110)
-- Compiles clean on ARM64
+- v7.0.4 running on Pi 5 (192.168.4.110)
+- Compiles clean on ARM64 (no warnings)
 - Loads 24,141 items (23,200 photos + 941 videos) from cache DB
 - First image loads instantly (idx=0: 1920x1440, tex.id=7)
 - Shuffle enabled, video rendering path active
@@ -338,11 +364,12 @@ mpv_render_param render_params[] = {
 - Compound literals replaced with named variables for ARM64 pointer safety
 - Text overlays (date, filename, count, timer, clock) render correctly during video
 - Video FBO draws opaquely — ClearBackground + rlDisableColorBlend
-- rlDisableShader() + buffer resets prevent VBO/shader corruption
+- rlDisableShader() without raw glBindBuffer — no VBO cache desync
 - Transitions, overlays, fading all execute for video
 - CRT loading screen gated to initial preload only (!current_is_video && current_tex.id == 0)
 - Weather thread, HTTP API, preload thread all running
 - No crashes, no hangs, no memory leaks detected
+- **v7.0.4 regression fixed**: Raw glBindBuffer calls removed — overlays and video now draw to screen
 
 ### Remaining Low-Priority Items (not blocking)
 - Code cleanup: remove dead `preload_limit` member variable
