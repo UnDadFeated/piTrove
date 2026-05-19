@@ -10,7 +10,7 @@
  *   • Slideshow – raylib, preload, crossfade, Ken Burns
  */
 
-#define VERSION "6.0.2"
+#define VERSION "6.0.3"
 #define APP_NAME "piTrove"
 
 // Global atomics for headless features
@@ -390,7 +390,8 @@ static Image LoadImagePNG(const std::string& path) {
         // FIX v16.7.0: size_t cast prevents int overflow for large images
         tmp_rgb = (uint8_t*)MemAlloc((unsigned int)((size_t)width * height * 3));
         img.data = MemAlloc((unsigned int)((size_t)width * height * 4));
-        rows = (png_bytep*)MemAlloc((unsigned int)(height * sizeof(png_bytep)));
+        // v6.0.3: size_t cast prevents overflow for very large images
+        rows = (png_bytep*)MemAlloc((unsigned int)((size_t)height * sizeof(png_bytep)));
         if (tmp_rgb && img.data && rows) {
             for (int y = 0; y < height; y++) {
                 rows[y] = (png_bytep)(tmp_rgb + y * width * 3);
@@ -411,9 +412,10 @@ static Image LoadImagePNG(const std::string& path) {
         MemFree(rows);
     } else {
         // FIX v16.7.0: size_t cast prevents int overflow for large images
-        img.data = MemAlloc((unsigned int)((size_t)width * height * 4));
+       img.data = MemAlloc((unsigned int)((size_t)width * height * 4));
         if (img.data) {
-            png_bytep* rows = (png_bytep*)MemAlloc((unsigned int)(height * sizeof(png_bytep)));
+            // v6.0.3: size_t cast prevents overflow for very large images
+            png_bytep* rows = (png_bytep*)MemAlloc((unsigned int)((size_t)height * sizeof(png_bytep)));
             if (rows) {
                 for (int y = 0; y < height; y++) {
                     rows[y] = (png_bytep)((uint8_t*)img.data + y * width * 4);
@@ -464,6 +466,8 @@ static Image LoadImageTIFF(const std::string& path) {
 
     uint16_t spp = 1;
     TIFFGetField(tif, TIFFTAG_SAMPLESPERPIXEL, &spp);
+    // v6.0.3: Clamp spp to valid range (1-4) to prevent heap overflow from malicious TIFF
+    if (spp < 1 || spp > 4) spp = 1;
 
     uint8_t* raw = (uint8_t*)MemAlloc((unsigned int)(width * spp));
     if (!raw) {
@@ -1180,16 +1184,16 @@ struct Logger {
         va_end(ap);
         log(LogLevel::INFO, "%s", buf);
     }
-    void warn(const char* fmt, ...) {
+   void warn(const char* fmt, ...) {
         va_list ap; va_start(ap, fmt);
-        char buf[512];
+        char buf[4096];
         vsnprintf(buf, sizeof(buf), fmt, ap);
         va_end(ap);
         log(LogLevel::WARN, "%s", buf);
     }
     void error(const char* fmt, ...) {
         va_list ap; va_start(ap, fmt);
-        char buf[512];
+        char buf[4096];
         vsnprintf(buf, sizeof(buf), fmt, ap);
         va_end(ap);
         log(LogLevel::ERROR, "%s", buf);
@@ -1197,7 +1201,7 @@ struct Logger {
     void debug(const char* fmt, ...) {
         if (level < LogLevel::DEBUG) return;
         va_list ap; va_start(ap, fmt);
-        char buf[512];
+        char buf[4096];
         vsnprintf(buf, sizeof(buf), fmt, ap);
         va_end(ap);
         log(LogLevel::DEBUG, "%s", buf);
@@ -1658,41 +1662,15 @@ static bool is_media(std::string_view path) {
 //  VIDEO DURATION PROBE (ffprobe, v1.8.5)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+// v6.0.3: Forward declaration — run_ffprobe is defined later in this file
+static std::string run_ffprobe(const std::vector<std::string>& args, int timeout_ms);
+
 static double probe_video_duration(const std::string& path, int timeout_ms) {
-     if (!std::filesystem::exists(path)) return 0.0;
+    if (!std::filesystem::exists(path)) return 0.0;
 
-     // v1.9.5: Escape single quotes, backticks, and double-quotes to prevent shell injection (Y8)
-     std::string escaped_path = path;
-     size_t pos = 0;
-     while ((pos = escaped_path.find('\'', pos)) != std::string::npos) {
-         escaped_path.replace(pos, 1, "'\\''");
-         pos += 4;
-     }
-     pos = 0;
-     while ((pos = escaped_path.find('`', pos)) != std::string::npos) {
-         escaped_path.insert(pos, "\\");
-         pos += 2;
-     }
-     pos = 0;
-     while ((pos = escaped_path.find('"', pos)) != std::string::npos) {
-         escaped_path.insert(pos, "\\");
-         pos += 2;
-     }
-
-    char cmd[2048];
-    int timeout_s = (int)((timeout_ms + 999) / 1000);
-    snprintf(cmd, sizeof(cmd),
-        "timeout %ds ffprobe -v quiet -print_format json -show_format -show_streams '%s' 2>/dev/null",
-        timeout_s, escaped_path.c_str());
-
-    FILE* fp = popen(cmd, "r");
-    if (!fp) return 0.0;
-
-    char buf[65536] = {0};
-    fread(buf, 1, sizeof(buf) - 1, fp);
-    pclose(fp);
-
-    std::string json(buf);
+    // v6.0.3: Use run_ffprobe() instead of popen() — fork+exec+poll+SIGKILL
+    // popen() cannot be killed mid-operation on CIFS; run_ffprobe has proper watchdog
+    std::string json = run_ffprobe({"-v","quiet","-print_format","json","-show_format","-show_streams", path}, timeout_ms);
 
     // Find "duration" field in the top-level format object
     // Format: "duration":"245.123456"
@@ -2383,7 +2361,9 @@ struct CacheManager {
     void mark_shown(const std::string& path) {
         if (!stmt_mark) return;
         sqlite3_bind_int64(stmt_mark, 1, time(nullptr));
-        sqlite3_bind_text(stmt_mark, 2, path.c_str(), -1, SQLITE_STATIC);
+        // v6.0.3: Use SQLITE_TRANSIENT so SQLite copies the data immediately
+        // SQLITE_STATIC would dangle if path goes out of scope before sqlite3_reset
+        sqlite3_bind_text(stmt_mark, 2, path.c_str(), -1, SQLITE_TRANSIENT);
         int step_ret = sqlite3_step(stmt_mark);
         if (step_ret != SQLITE_DONE) {
             g_logger.error("Failed to execute mark_shown for: %s", path.c_str());
@@ -3407,7 +3387,8 @@ struct Slideshow {
       Color current_bias_rgt{210, 195, 165, 255};
 
       // FIX v16.0.0: prevent reentrant remote command (advance -> load_item -> advance loop)
-      bool reentrant_command{false};
+       // v6.0.3: Changed to atomic<bool> to prevent deadlock if interrupted by signal/nested call
+       std::atomic<bool> reentrant_command{false};
 
     void load_item(const MediaItem& item) {
          // Remote commands consumed in main loop (KEY_RIGHT/KEY_LEFT)
@@ -3685,16 +3666,18 @@ preload_thread = std::thread([this]() {
         // FIX v16.9.0: cleanup VRAM before every slide advance
         clear_tex_refs();
         // FIX v16.1.0: Guard against reentrant advance() calls from remote commands
-        if (reentrant_command) return false;
-        reentrant_command = true;
+        if (reentrant_command.load()) return false;
+        reentrant_command.store(true);
 
     slide_debug("ADVANCE: fwd=%d cur=%d items=%d", forward ? 1 : 0, current_index.load(), (int)items.size());
         g_logger.info("ADVANCE: forward=%d prev_idx=%d items=%d shuffle=%d",
             forward ? 1 : 0, current_index.load(), (int)items.size(), shuffle ? 1 : 0);
-        if (items.empty()) { reentrant_command = false; return false; }
+        if (items.empty()) { reentrant_command.store(false); return false; }
 
-        int prev_idx = current_index.load();
+       int prev_idx = current_index.load();
         if (shuffle) {
+            // v6.0.3: Lock shuffle_mutex to protect rng state and current_index
+            std::lock_guard<std::mutex> lk(shuffle_mutex);
             std::uniform_int_distribution<int> dist(0, (int)items.size() - 1);
             do { current_index.store(dist(rng)); }
             while (current_index.load() == prev_idx && items.size() > 1);
@@ -3720,12 +3703,14 @@ preload_thread = std::thread([this]() {
                      corrupted_cache[items[ci].path] = {1, corrupted_cache_seq};
                  }
                  g_logger.warn("ADVANCE_SKIP: corrupted file #%d/%d %s", skipped+1, skip_limit, items[ci].path.c_str());
-                 int prev = current_index.load();
-                 if (shuffle) {
-                    std::uniform_int_distribution<int> dist(0, (int)items.size() - 1);
-                    do { current_index.store(dist(rng)); }
-                    while (current_index.load() == prev && items.size() > 1);
-                } else {
+  int prev = current_index.load();
+                  if (shuffle) {
+                     // v6.0.3: Lock shuffle_mutex to protect rng state
+                     std::lock_guard<std::mutex> lk(shuffle_mutex);
+                     std::uniform_int_distribution<int> dist(0, (int)items.size() - 1);
+                     do { current_index.store(dist(rng)); }
+                     while (current_index.load() == prev && items.size() > 1);
+                 } else {
                     current_index.store((prev + (forward ? 1 : -1) + (int)items.size()) % (int)items.size());
                 }
                 ci = current_index.load();
@@ -3745,7 +3730,7 @@ preload_thread = std::thread([this]() {
              std::lock_guard<std::mutex> lk(preload_lifecycle_mtx);
              preload_running.store(false);
          }
-         reentrant_command = false;  // FIX v16.1.0: release guard
+         reentrant_command.store(false);  // FIX v16.1.0: release guard
 
          g_logger.info("ADVANCE_COMPLETE: cur=%d type=%s tex.id=%d",
              current_index.load(), current_is_video ? "video" : "image", current_tex.id);
@@ -5309,12 +5294,11 @@ static void http_thread_func(const Config& c, Slideshow& slide) {
 
                 // Dashboard page
                 if (strncmp(first_line, "GET / ", 6) == 0 || strncmp(first_line, "GET /dashboard ", 15) == 0) {
-                    char response[16384];
-                    snprintf(response, sizeof(response),
-                        "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\n"
-                        "Content-Length: %lu\r\nConnection: close\r\n\r\n%s",
-                        strlen(dashboard_html), dashboard_html);
-                    write(client_fd, response, strlen(response));
+                    char response[32768];
+                    // v6.0.3: Use heap buffer for full dashboard HTML to avoid Content-Length truncation
+                    std::string full_response = "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\n"
+                        "Content-Length: " + std::to_string(strlen(dashboard_html)) + "\r\nConnection: close\r\n\r\n" + dashboard_html;
+                    write(client_fd, full_response.c_str(), full_response.size());
                 }
                 // Navigation
                 else if (strncmp(first_line, "GET /api/next ", 14) == 0) {
@@ -5374,7 +5358,7 @@ static void http_thread_func(const Config& c, Slideshow& slide) {
                         // Load image
                         std::string ext_lower = slide.items[ci].ext;
                         for (auto& ch : ext_lower) ch = (char)tolower(ch);
-                        Image img;
+                     Image img;
                         try {
                             if (ext_lower == "heic" || ext_lower == "heif") {
                                 img = LoadImageHEIC(path.c_str());
@@ -5412,10 +5396,14 @@ static void http_thread_func(const Config& c, Slideshow& slide) {
                                         json = "{\"type\":\"photo\",\"image\":\"" + data_uri + "\"}";
                                         free(png_data);
                                     }
-                                }
-                                UnloadImage(img);
+                             }
                             }
-                        } catch (...) {}
+                            // v6.0.3: Always unload image after processing (success path)
+                            UnloadImage(img);
+                        } catch (...) {
+                            // v6.0.3: Ensure cleanup on exception path
+                            UnloadImage(img);
+                        }
                     }
                     char response[65536];
                     int json_len = (int)json.size();
@@ -6777,7 +6765,6 @@ g_logger.init(cfg.log_dir, cfg.verbose ? LogLevel::DEBUG : LogLevel::INFO);
     std::vector<MediaItem> active_items;
     if (g_cfg.videos_per_photos <= 0) {
         // Videos completely disabled
-        std::vector<MediaItem> active_items;
         active_items = std::move(active_photos);
     } else {
         // Interleave videos into the photo stream

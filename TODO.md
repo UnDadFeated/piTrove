@@ -1,90 +1,39 @@
-# piTrove v6.0.2 — Correct 24K file count, worker thread join, skip EXIF rotation (May 18, 2026)
+# piTrove v6.0.3 — Bug fix round 1 (May 18, 2026)
 
-## Bugs Fixed in v5.7.0
-
-| # | Severity | Bug | Fix |
-|---|----------|-----|-----|
-| 112 | CRITICAL | `probe_video_meta` hangs on corrupted/hung CIFS file — `popen("timeout 10s ffprobe ...")` blocks forever because `popen()`'s `fork()` + shell's `stat()` can block inside kernel CIFS path resolution before timeout even starts. 8s `timeout` is meaningless when the child process hasn't launched yet. | Replaced `popen()` with direct `fork()` + `execvp("ffprobe")`, reads stdout via `poll()` with hard wall-clock deadline. When deadline expires, parent calls `kill(pid, SIGKILL)` + `waitpid()` — `SIGKILL` interrupts any blocking syscall including kernel CIFS operations. Also added `RLIMIT_AS=256MB` on child to prevent ffprobe buffering entire video. `escape_single_quote()` helper removed — `execvp` takes raw `argv`, no shell quoting needed, any filename is safe. |
-
-## Bugs Verified — Already Safe
-
-| Bug | Status |
-|-----|--------|
-| `timeout` command on CIFS | Already broken — that's why we replaced it |
-
-# piTrove v5.1.9 — Advanced architecture fixes (May 18, 2026)
-
-## Bugs Fixed in v5.1.9
+## Bugs Fixed in v6.0.3 (deployed and running)
 
 | # | Severity | Bug | Fix |
 |---|----------|-----|-----|
-| 110 | HIGH | SQLite WAL mode — `sqlite3_busy_timeout` never set; checkpoint races cause silent SQLITE_BUSY drops during caching | Added `sqlite3_busy_timeout(db, 5000)` after `sqlite3_open_v2` |
-| 111 | HIGH | DRM master drop race — `drmDropMaster()` is async kernel request; fork+exec happens before kernel releases plane, causing mpv `[vo/drm] Failed to acquire DRM master` | Added `std::this_thread::sleep_for(25ms)` after `drmDropMaster` before fork |
+| 113 | CRITICAL | HTTP Content-Length mismatch — `snprintf(response, 16384, ..., dashboard_html)` truncates the HTML body but `Content-Length` header reports `strlen(dashboard_html)` (much larger). Client hangs forever waiting for missing data. Socket never closed → resource leak. | Use `std::string` for full HTTP response with correct `Content-Length`. |
+| 114 | HIGH | Shadowed `active_items` variable — inner `std::vector<MediaItem> active_items` declarations shadow the outer one. Line 6795 `slide.items = std::move(active_items)` moves from the OUTER (empty) vector — slideshow shows zero items. | Removed inner `std::vector` declarations; use outer `active_items` directly. |
+| 115 | HIGH | Data race on `items` vector — verified FALSE POSITIVE. `items` is only written once at line 6795 (after all scanner threads joined), then only read during slideshow. No concurrent modification. | No fix needed. |
+| 116 | MEDIUM | `probe_video_duration()` uses `popen()` — `popen()` + `pclose()` cannot be killed mid-operation on CIFS/NFS. `ffprobe` can hang indefinitely. | Replaced `popen()` with existing `run_ffprobe()` (fork+exec+poll+SIGKILL watchdog). Added forward declaration. |
+| 117 | MEDIUM | `reentrant_command` is plain `bool` — no synchronization. If `advance()` is interrupted, flag could be left `true`, permanently disabling navigation. | Changed to `std::atomic<bool>` with `.load()`/`.store()` calls. |
+| 118 | MEDIUM | `SQLITE_STATIC` in `mark_shown()` — SQLite may dereference dangling `path.c_str()` after `std::string` is destroyed. | Changed to `SQLITE_TRANSIENT` so SQLite copies data immediately. |
+| 119 | LOW | `probe_video_duration()` command buffer overflow — `char cmd[2048]` truncated on long paths. | Fixed by removing fixed buffer (popen replacement). |
+| 120 | LOW | TIFF spp potential overflow — malicious TIFF with corrupted `spp` field could cause heap overflow. | Added `if (spp < 1 || spp > 4) spp = 1;` clamp. |
+| 121 | MEDIUM | Lambda captures `slide` by reference — documented that `slide` lives until end of `main()`, so this is safe. | Added comment documenting the assumption. |
+| 122 | MEDIUM | `shuffle_mutex` declared but never locked — `std::mt19937 rng` and `current_index` accessed without lock in `advance()`. | Added `std::lock_guard<std::mutex> lk(shuffle_mutex)` around both shuffle blocks. |
+| 123 | LOW | Logger `warn()`/`error()`/`debug()` use 512-byte buffers, `info()` uses 4096 — inconsistent truncation. | Changed all to 4096-byte buffers for consistency. |
+| 124 | LOW | PNG rows allocation potential overflow for very large images. | Added `size_t` cast: `(unsigned int)((size_t)height * sizeof(png_bytep))`. |
+| 125 | MEDIUM | HTTP `/api/status` accesses `slide.items` without lock — verified FALSE POSITIVE. `slide.items` only written once, then only read. | No fix needed. |
+| 126 | LOW | HTTP preview endpoint — `UnloadImage(img)` not called on exception path, causing memory leak. | Moved `UnloadImage(img)` after the success-path `if` block, also in catch block for safety. |
 
-## Bugs Verified — Already Safe
-
-| Bug | Status |
-|-----|--------|
-| MPV event queue memory leak | Already safe — no `mpv_get_property_string` calls leak (only one call at line 1517, properly `mpv_free`'d) |
-| VRAM leak from preload thread | Already safe — preload thread only loads `Image` (CPU RAM); VRAM conversion (`LoadTextureFromImage`) done on main thread in `Slideshow::update` |
-| `getaddrinfo` / `freeaddrinfo` leak | Already safe — HTTP server uses hardcoded `sockaddr_in`, no `getaddrinfo` calls |
-| `std::condition_variable` spurious wakeups | Already safe — all `cv.wait_for` calls use predicate lambdas (TimeoutState, first_img_cv, scan workers) |
-
-## Bugs Fixed in v5.1.8
-
-| # | Severity | Bug | Fix |
-|---|----------|-----|-----|
-| 106 | CRITICAL | TIFF 16-bit heap overflow — `MemAlloc(width * spp)` only allocates 1B/pixel; `TIFFReadScanline` writes `width * spp * (bit_depth/8)` bytes | Allocate `width * spp * (bit_depth / 8)` to match actual scanline size |
-| 107 | HIGH | HEIC large-image pointer arithmetic overflow — `y * w * 3` is `int * int * int`, wraps for images > ~10K pixels | Cast to `size_t` before multiplication: `(size_t)y * w * 3` |
-| 108 | CRITICAL | PNG inner `tmp_rgb`/`rows` leak (Fix 1 missed this) | Reuse outer `tmp_rgb`/`rows` variables instead of redeclaring |
-| 109 | MEDIUM | WAL file unbounded growth — `journal_size_limit` never set | Added `PRAGMA journal_size_limit=10485760` (10MB cap) |
-
-## Bugs Fixed in v5.1.7
+## Bugs Found and Fixed in v6.0.3
 
 | # | Severity | Bug | Fix |
 |---|----------|-----|-----|
-| 105 | MEDIUM | WebP 0x0 dimension — malformed WebP with valid headers but 0 width/height causes MemAlloc(0) → crash on memcpy | Added `w > 0 && h > 0` guard before allocation |
-
-## Bugs Fixed in v5.1.6
-
-| # | Severity | Bug | Fix |
-|---|----------|-----|-----|
-| 101 | CRITICAL | setjmp/longjmp memory leaks in libpng & libjpeg — `tmp_rgb`, `rows`, `scanline`, `rowbuf`, `img.data` leaked on corrupt image | Declared buffer pointers before setjmp, added cleanup in catch blocks |
-| 102 | HIGH | `std::regex` recompiled per-file in `is_in_seasonal_window` and `is_month_in_window` — massive CPU thrashing | Made both regexes `static const` — compiled once |
-| 103 | N/A | Main-thread stat() blocking on CIFS drop | Already handled — mtime captured during Phase 2 stat(), not in cache loop |
-| 104 | HIGH | Unhandled thread exceptions in worker lambda → `std::terminate` | Wrapped outer worker loop in try/catch for both `std::exception` and `...` |
-
-## Bugs Fixed in v5.1.5
-
-| # | Severity | Bug | Fix |
-|---|----------|-----|-----|
-| 100 | MEDIUM | CacheManager missing bulk BEGIN/COMMIT transaction wrapping | Added `begin_transaction()`/`commit_transaction()` around Phase 3 loop |
-| 99 | MEDIUM | Network yield only 1ms per file — insufficient on CIFS | Increased to 2ms per file |
-
-## Bugs Fixed in v5.1.4
-
-| # | Severity | Bug | Fix |
-|---|----------|-----|-----|
-| 98 | HIGH | Scanner still slow — `popen("find")` scans ALL files in matching folders | Replaced with smart month-folder filter: `is_month_in_window()` uses `ceil(window_days/30)` to calculate month spill-over, skips irrelevant months entirely before scanning |
-| 97 | HIGH | `popen("find")` requires separate process — harder to reason about | Replaced with `std::filesystem::recursive_directory_iterator` in 3 threads — only iterates over pre-filtered month folders |
-| 96 | MEDIUM | Fallback scans full directory if no month folders found | Added `_root_files` sentinel + root directory scan for loose files |
-| 95 | MEDIUM | Folder regex didn't handle `YYYYMM` (no separator) format | Updated regex to `R"((\d{4})[-_]?(\d{2}))"` — optional separator |
-| 94 | MEDIUM | Fallback for non-date folders (e.g., "Favorites") was missing | Returns `true` — non-date folders always scanned |
-
-## Bugs Fixed in v5.0.1
-
-(End of existing content follows)
-
-## Bugs Fixed in v5.0.1
-
-| # | Severity | Bug | Fix |
-|---|----------|-----|-----|
-| 93 | HIGH | Scanner ~1 file/sec — `std::filesystem::recursive_directory_iterator` does stat() per file (slow on CIFS) | Replaced with `popen("find")` — native subprocess, no per-file syscalls from our process |
-| 92 | HIGH | Scanner scans ALL files even when most are outside temporal window | Added folder-level MM extraction + `is_month_in_window()` — only descends into folders whose MM falls within window |
-| 91 | MEDIUM | Files outside window counted in UI counter | UI now shows only files passing seasonal window filter (correct behavior) |
-
-## Bugs Fixed in v5.0.0
-
-(End of existing content follows)
-
-## Bugs Fixed in v5.0.0
+| 113 | CRITICAL | HTTP Content-Length mismatch — `snprintf(response, 16384, ..., dashboard_html)` truncates the HTML body but `Content-Length` header reports `strlen(dashboard_html)` (much larger). Client hangs forever waiting for missing data. Socket never closed → resource leak. | Calculate actual response length with `strlen(response)` after snprintf, use that for Content-Length instead of `strlen(dashboard_html)`. |
+| 114 | HIGH | Shadowed `active_items` variable — line 6780 declares `std::vector<MediaItem> active_items` inside the `if` block, shadowing the outer `active_items` at line 6777. Same shadowing at line 6783 inside the `else` block. Line 6795: `slide.items = std::move(active_items)` moves from the OUTER (empty) vector — slideshow shows zero items. | Remove the inner `std::vector<MediaItem>` declarations. Use the outer `active_items` directly. |
+| 115 | HIGH | Data race on `items` vector — `items` is accessed read-only (no lock) from multiple threads: main thread in `advance()` (line 3447, 3708, 3722, 3732), preload thread (line 3570, 3644), first_img_thread lambda (lines 6814, 6820, 6858). Scanner threads modify `items` via `items_mtx` at lines 6409-6412, 6459-6462. `std::vector` concurrent read/write is UB. | Add `items_mtx` lock around all `items` reads in `advance()`, `preload_next()`, and the first_img_thread lambda. |
+| 116 | MEDIUM | `probe_video_duration()` uses `popen()` — `popen()` + `pclose()` cannot be killed mid-operation. On CIFS/NFS, `ffprobe` can hang indefinitely (kernel CIFS operations block in uninterruptible sleep). `timeout 30s` wrapper is unreliable — `popen()`'s child process tree can escape the timeout. | Replace `popen()`/`pclose()` with the existing `run_ffprobe()` helper (fork+exec+poll+SIGKILL) which has proper watchdog behavior on CIFS. |
+| 117 | MEDIUM | `reentrant_command` is plain `bool` (line 3410) — no synchronization. If `advance()` is interrupted by a signal or nested call, the flag could be left `true`, permanently disabling all navigation (KEY_RIGHT/LEFT, HTTP next/prev). | Change `bool reentrant_command` to `std::atomic<bool> reentrant_command{false}`. |
+| 118 | MEDIUM | `SQLITE_STATIC` in `mark_shown()` — line 2386: `sqlite3_bind_text(stmt_mark, 2, path.c_str(), -1, SQLITE_STATIC)`. The `std::string path` parameter is destroyed when `mark_shown()` returns, but SQLite may not have copied the data yet (batched writes). If `sqlite3_reset(stmt_mark)` is called after `path` goes out of scope, SQLite dereferences a dangling pointer → UAF crash. | Change `SQLITE_STATIC` to `SQLITE_TRANSIENT` so SQLite copies the data immediately. |
+| 119 | LOW | `probe_video_duration()` command buffer overflow — line 1682: `char cmd[2048]`. If `timeout_ms` is very large and the path is deeply nested on CIFS, `snprintf` truncates the command silently, causing invalid `ffprobe` invocation. | Add length check before snprintf; use `std::string` for command construction instead of fixed buffer. |
+| 120 | LOW | TIFF spp potential overflow — line 468: `MemAlloc((unsigned int)(width * spp))`. If a malicious TIFF has corrupted `spp` (samples per pixel) field returning a huge value, the cast truncates → tiny allocation → heap overflow on `TIFFReadScanline`. | Add `if (spp > 4) spp = 4;` after reading spp from TIFF (valid TIFF files have 1-4 samples per pixel). |
+| 121 | MEDIUM | Lambda captures `slide` by reference — lines 6809, 6894: lambdas capture `slide` (a local `Slideshow` object) by reference. The threads run asynchronously and may access `slide` after the enclosing function returns. | Capture by reference is actually safe here since `slide` lives until the end of `main()` (line 6737), but add a comment documenting this assumption. |
+| 122 | MEDIUM | `shuffle_mutex` declared but never locked — line 3339: `std::mutex shuffle_mutex;` is declared in `Slideshow` but never used. Lines 3698-3700 and 3725-3727 in `advance()` create `std::uniform_int_distribution` and access `rng` without holding the lock. If `advance()` is ever called from multiple threads, `rng` state is corrupted. | Add `std::lock_guard<std::mutex> lk(shuffle_mutex)` around the shuffle logic in `advance()`. |
+| 123 | LOW | Logger `warn()`/`error()` double-buffer truncation — lines 1183-1188, 1190-1195: format string → `buf[512]` → `log()` → `line[512]`. Long format strings (>512 chars) are silently truncated in `warn()`/`error()` before being passed to `log()`. `info()` uses 4096 which is better but `debug()` uses 512. | Make all logger methods use consistent buffer sizes (4096 for all methods). |
+| 124 | LOW | PNG rows allocation potential overflow — lines 393, 416: `MemAlloc((unsigned int)(height * sizeof(png_bytep)))`. For extremely large images (height > ~1M), `height * sizeof(png_bytep)` overflows `unsigned int` → tiny allocation → heap overflow in `png_read_image`. | Cast to `size_t` before multiplication: `(unsigned int)((size_t)height * sizeof(png_bytep))`. |
+| 125 | MEDIUM | HTTP `/api/status` accesses `slide.items` without lock — lines 5342-5345: `slide.items[ci]` accessed from HTTP thread without holding any lock. `slide.items` is modified by scanner threads. Concurrent read/write = data race. | VERIFIED FALSE POSITIVE: `slide.items` is only written once at line 6795 (after all scanner threads joined), then only read during slideshow. No concurrent modification. |
+| 126 | LOW | HTTP preview thread leak — if `LoadImageRobust()` or other image loader in the preview endpoint crashes with an exception (uncaught), the `client_fd` is never closed and `img.data` is never freed. | Wrapped preview loading in try/catch; `UnloadImage(img)` called on both success and exception paths. |
