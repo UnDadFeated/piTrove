@@ -1,0 +1,187 @@
+struct CacheManager {
+    sqlite3* db{nullptr};
+    std::mutex db_mutex;
+    sqlite3_stmt* stmt_upsert{nullptr};
+    sqlite3_stmt* stmt_load{nullptr};
+    sqlite3_stmt* stmt_mark{nullptr};
+
+    bool open(const std::string& dir) {
+        // FIX: Ensure cache directory exists before SQLite tries to write
+        // v16.2.0: use std::filesystem instead of blocking system("mkdir -p")
+         if (!std::filesystem::create_directories(dir) && !std::filesystem::exists(dir)) {
+            g_logger.error("Failed to create cache directory: %s", dir.c_str());
+            return false;
+        }
+ 
+        std::string path = dir + "/cache.db";
+        int flags = SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_FULLMUTEX;
+         if (sqlite3_open_v2(path.c_str(), &db, flags, nullptr) != SQLITE_OK) {
+            if (db) { sqlite3_close(db); db = nullptr; }
+            return false;
+         }
+           sqlite3_busy_timeout(db, 5000);
+
+           // v16.2.0: log PRAGMA results for easier debugging
+        char* err = nullptr;
+        if (sqlite3_exec(db, "PRAGMA journal_mode=WAL;", nullptr, nullptr, &err) != SQLITE_OK) {
+            g_logger.warn("Failed to set WAL mode: %s", err ? err : "unknown");
+            if (err) sqlite3_free(err);
+        }
+        if (sqlite3_exec(db, "PRAGMA synchronous=NORMAL;", nullptr, nullptr, &err) != SQLITE_OK) {
+            g_logger.warn("Failed to set synchronous=NORMAL: %s", err ? err : "unknown");
+            if (err) sqlite3_free(err);
+        }
+        char mmap_sql[64];
+        snprintf(mmap_sql, sizeof(mmap_sql), "PRAGMA mmap_size=%ld", g_cfg.cache_mmap_size);
+        if (sqlite3_exec(db, mmap_sql, nullptr, nullptr, &err) != SQLITE_OK) {
+            g_logger.warn("Failed to set mmap_size=%d: %s", g_cfg.cache_mmap_size, err ? err : "unknown");
+            if (err) sqlite3_free(err);
+        }
+
+        // v16.2.0: log DDL errors
+         if (sqlite3_exec(db,
+            "CREATE TABLE IF NOT EXISTS cache ("
+            "path TEXT PRIMARY KEY, type TEXT, w INT, h INT, duration REAL, "
+            "exif INT, bad INT DEFAULT 0, last_shown INTEGER DEFAULT 0, timestamp INTEGER DEFAULT 0"
+            ")", nullptr, nullptr, &err) != SQLITE_OK) {
+            g_logger.error("Failed to create cache table: %s", err ? err : "unknown");
+            if (err) sqlite3_free(err);
+            close();
+            return false;
+        }
+
+ 
+       // Safe migration for existing databases
+        if (sqlite3_exec(db, "ALTER TABLE cache ADD COLUMN last_shown INTEGER DEFAULT 0",
+                      nullptr, nullptr, &err) != SQLITE_OK) {
+            // Column may already exist — harmless
+            if (err) sqlite3_free(err);
+        }
+        if (sqlite3_exec(db, "ALTER TABLE cache ADD COLUMN bad INT DEFAULT 0",
+                      nullptr, nullptr, &err) != SQLITE_OK) {
+            // Column may already exist — harmless
+            if (err) sqlite3_free(err);
+        }
+
+        // Ensure we don't leak on earlier failures: reset any partially prepared statements
+        sqlite3_finalize(stmt_upsert); stmt_upsert = nullptr;
+        sqlite3_finalize(stmt_load); stmt_load = nullptr;
+        sqlite3_finalize(stmt_mark); stmt_mark = nullptr;
+
+        // Pre-compile statements for efficiency
+         if (sqlite3_prepare_v2(db,
+            "INSERT INTO cache (path, type, w, h, exif, duration, bad, last_shown, timestamp) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) "
+            "ON CONFLICT(path) DO UPDATE SET "
+            "w=excluded.w, h=excluded.h, exif=excluded.exif, "
+            "duration=excluded.duration, bad=excluded.bad, "
+            "last_shown=excluded.last_shown, timestamp=excluded.timestamp",
+            -1, &stmt_upsert, nullptr) != SQLITE_OK) {
+            g_logger.error("Failed to prepare upsert statement.");
+            close();
+            return false;
+        }
+ 
+          if (sqlite3_prepare_v2(db,
+            "SELECT w, h, duration, exif, bad, last_shown, timestamp FROM cache WHERE path = ?",
+            -1, &stmt_load, nullptr) != SQLITE_OK) {
+            g_logger.error("Failed to prepare load statement.");
+            close();
+            return false;
+        }
+ 
+          if (sqlite3_prepare_v2(db,
+            "UPDATE cache SET last_shown = ? WHERE path = ?",
+            -1, &stmt_mark, nullptr) != SQLITE_OK) {
+            g_logger.error("Failed to prepare mark statement.");
+            close();
+            return false;
+        }
+
+        return true;
+    }
+
+    ~CacheManager() { close(); }
+
+    void close() {
+        if (stmt_upsert) sqlite3_finalize(stmt_upsert);
+        if (stmt_load) sqlite3_finalize(stmt_load);
+        if (stmt_mark) sqlite3_finalize(stmt_mark);
+        if (db) sqlite3_close(db);
+    }
+
+    bool load_cached(MediaItem& mi) {
+        if (!stmt_load) return false;
+        std::lock_guard<std::mutex> lk(db_mutex);
+        bool found = false;
+        sqlite3_bind_text(stmt_load, 1, mi.path.c_str(), -1, SQLITE_STATIC);
+        if (sqlite3_step(stmt_load) == SQLITE_ROW) {
+            mi.width      = sqlite3_column_int64(stmt_load, 0);
+            mi.height     = sqlite3_column_int64(stmt_load, 1);
+            mi.duration   = sqlite3_column_double(stmt_load, 2);
+            mi.exif_rotation = sqlite3_column_int(stmt_load, 3);
+            int bad = sqlite3_column_int(stmt_load, 4);
+            mi.last_shown = sqlite3_column_int64(stmt_load, 5);
+            mi.modified_time = sqlite3_column_int64(stmt_load, 6);
+            if (bad == 0) found = true;
+        }
+        sqlite3_reset(stmt_load);
+        return found;
+    }
+
+    void upsert(const MediaItem& mi, int bad) {
+        if (!stmt_upsert) return;
+        std::lock_guard<std::mutex> lk(db_mutex);
+        sqlite3_bind_text(stmt_upsert, 1, mi.path.c_str(), -1, SQLITE_STATIC);
+        sqlite3_bind_text(stmt_upsert, 2, mi.type.c_str(), -1, SQLITE_STATIC);
+        sqlite3_bind_int64(stmt_upsert, 3, mi.width);
+        sqlite3_bind_int64(stmt_upsert, 4, mi.height);
+        sqlite3_bind_int(stmt_upsert, 5, mi.exif_rotation);
+        sqlite3_bind_double(stmt_upsert, 6, mi.duration);
+        sqlite3_bind_int(stmt_upsert, 7, bad);
+        sqlite3_bind_int64(stmt_upsert, 8, mi.last_shown);
+        sqlite3_bind_int64(stmt_upsert, 9, mi.modified_time);
+        int step_ret = sqlite3_step(stmt_upsert);
+        if (step_ret != SQLITE_DONE) {
+            g_logger.error("Failed to execute upsert for: %s", mi.path.c_str());
+        }
+        sqlite3_reset(stmt_upsert);
+    }
+
+    void mark_shown(const std::string& path) {
+        if (!stmt_mark) return;
+        std::lock_guard<std::mutex> lk(db_mutex);
+        sqlite3_bind_int64(stmt_mark, 1, time(nullptr));
+        // v6.0.3: Use SQLITE_TRANSIENT so SQLite copies the data immediately
+        // SQLITE_STATIC would dangle if path goes out of scope before sqlite3_reset
+        sqlite3_bind_text(stmt_mark, 2, path.c_str(), -1, SQLITE_TRANSIENT);
+        int step_ret = sqlite3_step(stmt_mark);
+        if (step_ret != SQLITE_DONE) {
+            g_logger.error("Failed to execute mark_shown for: %s", path.c_str());
+        }
+        sqlite3_reset(stmt_mark);
+    }
+
+    // ── NEW FIX: Persist bad files to SQLite so they are skipped permanently ──
+    void mark_bad(const std::string& filepath) {
+        if (!db) return;
+        std::lock_guard<std::mutex> lk(db_mutex);
+        const char* sql = "UPDATE cache SET bad = 1 WHERE path = ?;";
+        sqlite3_stmt* stmt;
+        if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) == SQLITE_OK) {
+            sqlite3_bind_text(stmt, 1, filepath.c_str(), -1, SQLITE_TRANSIENT);
+            sqlite3_step(stmt);
+            sqlite3_finalize(stmt);
+        }
+    }
+    // ──────────────────────────────────────────────────────────────────────────
+
+    // Bulk transaction support — wraps Phase 3 loop in BEGIN/COMMIT for speed
+    void begin_transaction() {
+        if (db) sqlite3_exec(db, "BEGIN TRANSACTION;", nullptr, nullptr, nullptr);
+    }
+
+    void commit_transaction() {
+        if (db) sqlite3_exec(db, "COMMIT;", nullptr, nullptr, nullptr);
+    }
+};
