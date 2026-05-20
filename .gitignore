@@ -1,6 +1,7 @@
 piTrove/
 build/
 cache/
+config/
 *.zip
 *.bak
 src/config/config.toml
