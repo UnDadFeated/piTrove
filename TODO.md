@@ -262,6 +262,12 @@ All bugs in Rounds 20-25 have been resolved (v7.1.7). See git history for detail
 | B306 | CRITICAL | CacheManager close() leaves dangling pointers — sqlite3_finalize/close without nullptr leaves stale pointers; double-close in destructor (open failure → close() → delete → ~CacheManager → close()) → heap corruption crash | Nullify all pointers after freeing in close() |
 | B307 | HIGH | Transaction methods missing mutex guard — begin_transaction()/commit_transaction() execute raw SQLite without db_mutex while all other CacheManager methods are protected; concurrent HTTP/cache requests interleave → SQLITE_BUSY | Added std::lock_guard<std::mutex> lk(db_mutex) to both methods |
 
+## Bug Fix Round 36 (B308) — Preload Thread Explosion (v7.8.0)
+
+| # | Severity | Bug | Fix Applied |
+|---|----------|-----|-------------|
+| B308 | CRITICAL | Preload thread explosion — preload_running flag raced between update()/advance()/preload thread, causing ~30 threads/sec spawned for same image → SIGKILL in ~30s | (1) preload_next() atomically check-and-sets preload_running=true under preload_lifecycle_mtx before spawn (2) Thread keeps preload_running=true on success — prevents update() from restarting preload loop (3) Swap path resets preload_running=false — allows guard block to trigger next preload (4) advance() joins in-flight thread then resets preload_running=false |
+
 ## Next Steps
 - Run `make` on Pi to verify Round 26-33 fixes compile cleanly
 - Test each fix individually before committing
