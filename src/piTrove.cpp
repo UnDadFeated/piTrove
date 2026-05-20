@@ -3628,13 +3628,17 @@ if (img.data && img.width > 0 && img.height > 0) {
         if (ni < 0) { next_index.store((current_index.load() + 1) % (int)items_ptr->size()); }
         slide_debug("PRELOAD_NEXT: cur=%d next=%d items_ptr=%d", current_index.load(), next_index.load(), (int)items_ptr->size());
 
-        if (preload_thread.joinable()) {
-            preload_cancel.store(true);
-            preload_thread.detach();
+        {
+            std::lock_guard<std::mutex> lk(preload_lifecycle_mtx);
+            if (preload_running.load(std::memory_order_relaxed)) return; // v7.8.0: Already running
+            if (preload_thread.joinable()) {
+                preload_cancel.store(true);
+                preload_thread.detach();
+            }
+            preload_cancel.store(false);
+            preload_ready.store(false); // v7.8.0: Reset BEFORE setting running=true to prevent race
+            preload_running.store(true, std::memory_order_relaxed);
         }
-        preload_cancel.store(false);
-        preload_ready.store(false);
-        preload_running.store(false);
 
         preload_thread = std::thread([this, items_ptr]() {
             try {
@@ -3730,11 +3734,14 @@ if (img.data && img.width > 0 && img.height > 0) {
                 if (found_valid) {
                     g_logger.info("PRELOAD_DONE: attempts=%d corrupted=%d found=yes phase=%s",
                         attempts, corrupted_count, was_initial ? "initial" : "remaining");
-                }
-                preload_ready.store(true);
-                {
-                    std::lock_guard<std::mutex> lk(preload_lifecycle_mtx);
-                    preload_running.store(false);
+                    preload_ready.store(true);
+                    // v7.8.0: Do NOT reset preload_running on success — only advance() resets it
+                } else {
+                    preload_ready.store(true);
+                    {
+                        std::lock_guard<std::mutex> lk(preload_lifecycle_mtx);
+                        preload_running.store(false);
+                    }
                 }
             } catch (const std::exception& e) {
                 g_logger.error("preload_next crashed: %s", e.what());
@@ -3833,19 +3840,21 @@ slide_debug("ADVANCE: fwd=%d cur=%d items_ptr=%d", forward ? 1 : 0, current_inde
          }
 
         kb_timer = 0;
-        kb_zoom = 1.0f;
-        kb_pan_x = 0;
-        kb_pan_y = 0;
-       // v1.9.6: Protect preload_running write with lifecycle mutex (H2)
+         kb_zoom = 1.0f;
+         kb_pan_x = 0;
+         kb_pan_y = 0;
+         // v7.8.0: Wait for in-flight preload thread, then reset flag (prevents race with advance())
+         if (preload_thread.joinable()) {
+             preload_thread.join();
+         }
          {
              std::lock_guard<std::mutex> lk(preload_lifecycle_mtx);
-             preload_running.store(false);
+             preload_running.store(false, std::memory_order_relaxed);
          }
-         // reentrant_command.reset handled by ReentrantGuard destructor (B6 fix)
+          // reentrant_command.reset handled by ReentrantGuard destructor (B6 fix)
 
-         g_logger.info("ADVANCE_COMPLETE: cur=%d type=%s tex.id=%d",
-             current_index.load(), current_is_video ? "video" : "image", current_tex.id);
-         preload_next();
+          g_logger.info("ADVANCE_COMPLETE: cur=%d type=%s tex.id=%d",
+              current_index.load(), current_is_video ? "video" : "image", current_tex.id);
         item_timer = 0;
         transitioning = false;
         transition_timer = 0;
@@ -3993,11 +4002,12 @@ slide_debug("ADVANCE: fwd=%d cur=%d items_ptr=%d", forward ? 1 : 0, current_inde
 
 
                  UnloadTexture(current_tex);
-                  current_tex = loaded_tex;
-                  slide_debug("SWAP: tex id=%d w=%d h=%d idx=%d", current_tex.id, current_tex.width, current_tex.height, frame_current_index);
-                  g_logger.info("SWAP: loaded tex id=%d w=%d h=%d idx=%d -> idx=%d",
-                      current_tex.id, current_tex.width, current_tex.height, frame_current_index, frame_current_index + 1);
-                  loaded_tex.id = 0;
+                   current_tex = loaded_tex;
+                   slide_debug("SWAP: tex id=%d w=%d h=%d idx=%d", current_tex.id, current_tex.width, current_tex.height, frame_current_index);
+                   g_logger.info("SWAP: loaded tex id=%d w=%d h=%d idx=%d -> idx=%d",
+                       current_tex.id, current_tex.width, current_tex.height, frame_current_index, frame_current_index + 1);
+                   loaded_tex.id = 0;
+                   { std::lock_guard<std::mutex> lk(preload_lifecycle_mtx); preload_running.store(false, std::memory_order_relaxed); } // v7.8.0: Reset after swap so guard block can trigger next preload
 
 
                  current_w = current_tex.width;
@@ -6368,7 +6378,7 @@ g_logger.init(cfg.log_dir, cfg.verbose ? LogLevel::DEBUG : LogLevel::INFO);
                 // Do NOT close(fd) — closing releases the lock
                 // OS cleans up automatically on process exit
             } else {
-                // Another instance holds the lock
+                // Another instance holds the lock — read PID and check liveness
                 char buf[64] = {0};
                 ssize_t len = read(fd, buf, sizeof(buf) - 1);
                 std::string existing_pid = "UNKNOWN";
@@ -6377,35 +6387,51 @@ g_logger.init(cfg.log_dir, cfg.verbose ? LogLevel::DEBUG : LogLevel::INFO);
                     existing_pid = buf;
                     try {
                         pid_t old_pid = std::stoi(existing_pid);
-                        if (kill(old_pid, 0) != -1 || errno != ESRCH) {
+                        if (old_pid == getpid()) {
+                            // Our own stale lock — reclaim it
+                            flock(fd, LOCK_UN);
+                            if (flock(fd, LOCK_EX | LOCK_NB) == 0) {
+                                g_logger.info("Reclaimed stale lock (own PID %s)", existing_pid.c_str());
+                                ftruncate(fd, 0);
+                                std::string pid_str = std::to_string(getpid()) + "\n";
+                                write(fd, pid_str.c_str(), pid_str.size());
+                            }
+                        } else if (kill(old_pid, 0) == 0) {
+                            // Different process alive — truly running
                             fprintf(stderr, "[CRITICAL] piTrove already running (PID %s). Exiting.\n", existing_pid.c_str());
                             close(fd);
                             exit(1);
+                        } else {
+                            // Dead process — stale lock, try to reclaim
+                            flock(fd, LOCK_UN);
+                            if (flock(fd, LOCK_EX | LOCK_NB) == 0) {
+                                g_logger.info("Reclaimed stale lock (dead PID %s)", existing_pid.c_str());
+                                ftruncate(fd, 0);
+                                std::string pid_str = std::to_string(getpid()) + "\n";
+                                write(fd, pid_str.c_str(), pid_str.size());
+                            }
                         }
-                        // Dead process — stale lock, try to reclaim
+                    } catch (...) {
+                        // Unparseable PID — try to reclaim
                         flock(fd, LOCK_UN);
                         if (flock(fd, LOCK_EX | LOCK_NB) == 0) {
-                            g_logger.info("Reclaimed stale lock (dead PID %s)", existing_pid.c_str());
                             ftruncate(fd, 0);
                             std::string pid_str = std::to_string(getpid()) + "\n";
                             write(fd, pid_str.c_str(), pid_str.size());
                         }
-                    } catch (...) {
-                        fprintf(stderr, "[CRITICAL] Cannot acquire lock. Another instance may be running.\n");
-                        close(fd);
-                        exit(1);
                     }
                 } else {
                     // Empty file — try to relock
                     flock(fd, LOCK_UN);
-                    if (flock(fd, LOCK_EX | LOCK_NB) != 0) {
+                    if (flock(fd, LOCK_EX | LOCK_NB) == 0) {
+                        ftruncate(fd, 0);
+                        std::string pid_str = std::to_string(getpid()) + "\n";
+                        write(fd, pid_str.c_str(), pid_str.size());
+                    } else {
                         fprintf(stderr, "[CRITICAL] Cannot acquire lock. Another instance may be running.\n");
                         close(fd);
                         exit(1);
                     }
-                    ftruncate(fd, 0);
-                    std::string pid_str = std::to_string(getpid()) + "\n";
-                    write(fd, pid_str.c_str(), pid_str.size());
                 }
             }
         }
