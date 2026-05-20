@@ -1,5 +1,10 @@
 # Changelog
 
+## v8.0.3 — Immediate Skip Integration and Robust Subprocess Control (May 20, 2026)
+
+### Fixed
+- Fixed skip responsiveness during video playback by integrating `stop_video_subprocess()` directly inside the core `advance()` pipeline, ensuring touch, remote, and physical skips reliably release DRM and terminate mpv immediately.
+
 ## v8.0.2 — Slideshow transitions, config filters, and ratio updates (May 20, 2026)
 
 ### Added

@@ -304,4 +304,10 @@ All bugs in Rounds 20-25 have been resolved (v7.1.7). See git history for detail
 | B324 | MEDIUM | Missing ability to filter slideshow to single media types | Added `play_just_photos` and `play_just_videos` to configuration, accessor mappings (`gv`/`sv`), and TUI settings screen |
 | B325 | MEDIUM | Shuffling ratio bias rule doesn't follow the video/10 photos interleave rule | Dynamic shuffling ratio forced video every `10 / videos_per_photos` photos; default videos_per_photos set to 3, min 1, max 9 |
 
+## Bug Fix Round 40 (B326-B330) — Subprocess Robustness & Immediate Skip (v8.0.3)
+
+| # | Severity | Bug | Fix Applied |
+|---|----------|-----|-------------|
+| B326 | HIGH | Incomplete skip coverage for video subprocesses — touch skip and edge-cases bypass `stop_video_subprocess()` | Integrated `stop_video_subprocess()` directly into `Slideshow::advance()`, ensuring all skipped videos are immediately and safely terminated |
+
 
