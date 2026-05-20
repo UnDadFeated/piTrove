@@ -1731,14 +1731,14 @@ public:
         std::function<void(const std::string&, int)> scan_rec = [&](const std::string& current_dir, int depth) {
             if (depth > max_depth) return;
 
-            // 1. Scan files in this directory
-            std::vector<std::string> entries = read_dir(current_dir);
+            // 1. Scan files in this directory (with timeout to prevent CIFS hangs)
+            std::vector<std::string> entries = read_dir_timeout(current_dir, 15000);
             for (const auto& name : entries) {
                 std::string full_path = current_dir + "/" + name;
                 
-                // Check if it's a directory
+                // Check if it's a directory (with timeout to prevent CIFS hangs)
                 struct stat st;
-                if (stat(full_path.c_str(), &st) != 0) continue;
+                if (!stat_timeout(full_path, st, 5000)) continue;
                 if (S_ISDIR(st.st_mode)) {
                     // Skip hidden dirs or apply month filter if it's not the root
                     if (name[0] == '.') continue;
@@ -1775,14 +1775,14 @@ public:
             try {
                 for (size_t i = start_idx; i < subdirs.size(); i += step) {
                     std::string target_dir = subdirs[i];
-                    // Use manual recursion with depth limit and read_dir
+                    // Use manual recursion with depth limit and read_dir (with timeouts)
                     std::function<void(const std::string&, int)> rec = [&](const std::string& dir, int d) {
                         if (d > max_depth) return;
-                        std::vector<std::string> entries = read_dir(dir);
+                        std::vector<std::string> entries = read_dir_timeout(dir, 15000);
                         for (const auto& name : entries) {
                             std::string p = dir + "/" + name;
                             struct stat st;
-                            if (stat(p.c_str(), &st) != 0) continue;
+                            if (!stat_timeout(p, st, 5000)) continue;
                             if (S_ISDIR(st.st_mode)) {
                                 if (name[0] == '.') continue;
                                 rec(p, d + 1);
@@ -2085,7 +2085,7 @@ static void scan_directory(const std::string& dir, int depth,
         if (!is_image(ext) && !is_video(ext)) continue;
 
         struct stat st;
-        if (stat(filepath.c_str(), &st) != 0) continue;
+        if (!stat_timeout(filepath, st, 5000)) continue;
 
         MediaItem mi;
         mi.path = filepath;
