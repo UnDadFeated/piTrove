@@ -1,5 +1,13 @@
 # Changelog
 
+## v7.10.1 — Concurrency and timeout fixes, mmap scale increase (May 20, 2026)
+
+### Fixed
+- **CIFS Mount Hangs in Media Scanner** — Replaced raw `directory_iterator` in root scanner with safe `read_dir_timeout` and `stat_timeout` to protect the main scanning threads.
+- **Racy Timeout Handling** — Fixed critical data races in `read_dir_timeout` and `read_exif_rotation_timeout` by returning safe fallback/empty values immediately without reading worker-owned pointers upon a thread detach.
+- **HTTP Playlist Data Race** — Changed `http_thread_func` to retrieve `slide.items` via the thread-safe `slide.get_items()` helper instead of an unprotected direct read.
+- **mmap_size Overflow** — Changed `cache_mmap_size` from signed `int` to `long long` to prevent overflows/truncation on larger databases (e.g. >= 2GB) and replaced `std::stoi` with `std::stoll`.
+
 ## v7.10.0 — Restore vo=libmpv, explicit FBO internal_format, render logging (May 20, 2026)
 
 ### Fixed

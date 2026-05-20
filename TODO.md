@@ -268,7 +268,18 @@ All bugs in Rounds 20-25 have been resolved (v7.1.7). See git history for detail
 |---|----------|-----|-------------|
 | B308 | CRITICAL | Preload thread explosion — preload_running flag raced between update()/advance()/preload thread, causing ~30 threads/sec spawned for same image → SIGKILL in ~30s | (1) preload_next() atomically check-and-sets preload_running=true under preload_lifecycle_mtx before spawn (2) Thread keeps preload_running=true on success — prevents update() from restarting preload loop (3) Swap path resets preload_running=false — allows guard block to trigger next preload (4) advance() joins in-flight thread then resets preload_running=false |
 
+## Bug Fix Round 37 (B309-B313) — Concurrency & Timeout Safety (v7.10.1)
+
+| # | Severity | Bug | Fix Applied |
+|---|----------|-----|-------------|
+| B309 | HIGH | Stale Mount Hang in Scanner root discovery — `MediaScanner::scan` uses raw `std::filesystem::directory_iterator` directly on the media root, blocking indefinitely if the CIFS mount hangs | Replace `directory_iterator` with a unified `read_dir_timeout` and `stat_timeout` scan |
+| B310 | HIGH | Data Race on Timeout in `read_dir_timeout` — Workers detach on timeout but the main thread immediately copies/returns `*entries` (vector) while the worker concurrently writes to it | Return empty vector `{}` immediately on timeout, avoiding reading/copying a racy vector |
+| B311 | HIGH | Data Race on Timeout in `read_exif_rotation_timeout` — Worker detaches on timeout but main thread concurrently returns `*result` while worker writes to it | Return default `1` immediately on timeout, avoiding reading/copying the racy result |
+| B312 | HIGH | Unsafe Shared Pointer Access in HTTP thread — `http_thread_func` copies `slide.items` without locking the `shuffle_mutex` (creating a data race with the treadmill thread playlist swap) | Capture `items_ptr` using the thread-safe `slide.get_items()` helper |
+| B313 | LOW | `cache_mmap_size` Configuration Integer Truncation — Struct uses `int` and parsed via `std::stoi(v)` which overflows/truncates on configs >= 2GB | Change variable type to `long long`, use `std::stoll`, and fix format specifiers to `%lld` |
+
 ## Next Steps
 - Run `make` on Pi to verify Round 26-33 fixes compile cleanly
 - Test each fix individually before committing
 - Update CHANGELOG.md for each release
+
