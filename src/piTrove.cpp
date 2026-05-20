@@ -10,7 +10,7 @@
  *   • Slideshow – raylib, preload, crossfade, Ken Burns
  */
 
-#define VERSION "8.0.2"
+#define VERSION "8.0.3"
 #define APP_NAME "piTrove"
 
 // Global atomics for headless features
@@ -3565,6 +3565,10 @@ if (img.data && img.width > 0 && img.height > 0) {
          auto items_ptr = get_items();
          if (items_ptr->empty()) return false;
          reentrant_command.store(true);
+         // Stop any active video playback immediately before advancing
+         if (current_is_video.load()) {
+             stop_video_subprocess();
+         }
          // Now safe to clear active references since guards have passed
          clear_tex_refs();
          // v6.0.10: RAII guard — ensures reentrant_command reset even if load_item() throws (B6)
