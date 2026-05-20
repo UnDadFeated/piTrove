@@ -3945,33 +3945,33 @@ if (img.data && img.width > 0 && img.height > 0) {
             }
         }
 
-     if (fading_in) {
-        slide_debug("FADE_CHECK: fading=%d timer=%f dur=%f", fading_in, fade_in_timer, g_cfg.transition_duration);
-         fade_in_timer += dt;
-         if (fade_in_timer >= (float)g_cfg.transition_duration)
-             fading_in = false;
-        slide_debug("FADE_IN_DONE: timer=%f", fade_in_timer);
-     } else {
-         item_timer += dt;  // only count display time after fade-in completes
-        slide_debug("ITEM_TIMER: t=%f delay=%f", item_timer, g_cfg.transition_delay);
-     }
+    if (fading_in) {
+        slide_debug("FADE_CHECK: fading=%d timer=%f dur=%f", fading_in, fade_in_timer, cfg.transition_duration);
+          fade_in_timer += dt;
+          if (fade_in_timer >= (float)cfg.transition_duration)
+              fading_in = false;
+         slide_debug("FADE_IN_DONE: timer=%f", fade_in_timer);
+      } else {
+          item_timer += dt;  // only count display time after fade-in completes
+         slide_debug("ITEM_TIMER: t=%f delay=%f", item_timer, cfg.transition_delay);
+      }
 
-   bool video_playing = false;
-             if (current_is_video && g_mpv.is_playing()) {
-                 video_playing = true;
+    bool video_playing = false;
+              if (current_is_video && g_mpv.is_playing()) {
+                  video_playing = true;
+              }
+              g_logger.debug("UPDATE_STATE: is_video=%d mpv_playing=%d video_playing=%d transitioning=%d",
+                  current_is_video ? 1 : 0, g_mpv.is_playing() ? 1 : 0, video_playing ? 1 : 0, transitioning ? 1 : 0);
+
+             if (!transitioning) {
+                bool time_up = false;
+                if (current_is_video) {
+                      // time_up when in-process mpv finished (EOF) or stalled >2s without starting
+                      time_up = (g_mpv.has_eof() || (!video_playing && item_timer > 2.0));
+              } else {
+                 time_up = (item_timer >= cfg.transition_delay);
+             slide_debug("TIME_UP: t=%f del=%f up=%d", item_timer, cfg.transition_delay, item_timer >= cfg.transition_delay);
              }
-             g_logger.debug("UPDATE_STATE: is_video=%d mpv_playing=%d video_playing=%d transitioning=%d",
-                 current_is_video ? 1 : 0, g_mpv.is_playing() ? 1 : 0, video_playing ? 1 : 0, transitioning ? 1 : 0);
-
-            if (!transitioning) {
-               bool time_up = false;
-               if (current_is_video) {
-                     // time_up when in-process mpv finished (EOF) or stalled >2s without starting
-                     time_up = (g_mpv.has_eof() || (!video_playing && item_timer > 2.0));
-             } else {
-                time_up = (item_timer >= g_cfg.transition_delay);
-            slide_debug("TIME_UP: t=%f del=%f up=%d", item_timer, g_cfg.transition_delay, item_timer >= g_cfg.transition_delay);
-            }
 
             if (time_up) {
                 transitioning = true;
@@ -3982,7 +3982,7 @@ if (img.data && img.width > 0 && img.height > 0) {
 
         if (transitioning) {
             transition_timer += dt;
-            double safe_dur = std::max(g_cfg.transition_duration, 0.001);
+            double safe_dur = std::max(cfg.transition_duration, 0.001);
             transition_progress = ease_in_out(
                 (float)std::min(transition_timer / safe_dur, 1.0));
 
@@ -4051,15 +4051,15 @@ if (img.data && img.width > 0 && img.height > 0) {
                             UnloadTexture(current_tex);
                             current_tex.id = 0;
                         }
-                       current_is_video.store(true);
-                         current_w = g_cfg.screen_w;
-                         current_h = g_cfg.screen_h;
+                      current_is_video.store(true);
+                          current_w = cfg.screen_w;
+                          current_h = cfg.screen_h;
 
-                         // In-process g_mpv — initialized lazily on first video
-                         if (!g_mpv.is_initialized()) {
-                             g_mpv.surface_w    = g_cfg.screen_w;
-                             g_mpv.surface_h    = g_cfg.screen_h;
-                             g_mpv.video_volume = g_cfg.video_volume;
+                          // In-process g_mpv — initialized lazily on first video
+                          if (!g_mpv.is_initialized()) {
+                              g_mpv.surface_w    = cfg.screen_w;
+                              g_mpv.surface_h    = cfg.screen_h;
+                              g_mpv.video_volume = cfg.video_volume;
                              if (!g_mpv.init()) {
                                  g_logger.error("SWAP_TO_VIDEO: g_mpv.init() failed — skipping");
               current_is_video.store(false);
@@ -4098,33 +4098,37 @@ if (img.data && img.width > 0 && img.height > 0) {
 
         }
 
-        if (g_cfg.ken_burns && !transitioning) {
-            kb_timer += dt * g_cfg.ken_burns_speed;
+        if (cfg.ken_burns && !transitioning) {
+            kb_timer += dt * cfg.ken_burns_speed;
             float phase = fmod(kb_timer, 2.0f);
           if (phase < 1.0f) {
-                    kb_zoom = 1.0f + phase * g_cfg.ken_burns_zoom;
+                    kb_zoom = 1.0f + phase * cfg.ken_burns_zoom;
                     kb_pan_x = sin(kb_timer * 0.5f) * 0.03f;
                     kb_pan_y = cos(kb_timer * 0.7f) * 0.02f;
                 } else {
                     float t = phase - 1.0f;
-                    kb_zoom = (1.0f + g_cfg.ken_burns_zoom) - t * g_cfg.ken_burns_zoom;
+                    kb_zoom = (1.0f + cfg.ken_burns_zoom) - t * cfg.ken_burns_zoom;
                 kb_pan_x = sin(kb_timer * 0.5f + 1.0f) * 0.03f * (1.0f - t);
                 kb_pan_y = cos(kb_timer * 0.7f + 1.0f) * 0.02f * (1.0f - t);
             }
         }
     }
 
-    void render() {
+   void render() {
           int sw = GetScreenWidth();
           int sh = GetScreenHeight();
         // v6.0.6: Capture items_ptr and indices to prevent treadmill worker from replacing them mid-render (B276)
+        // v6.0.12: Capture g_cfg under lock to prevent data races during render (B154)
         std::shared_ptr<std::vector<MediaItem>> items_ptr;
         int frame_ci, frame_ni;
+        Config render_cfg;
         {
             std::lock_guard<std::mutex> lk(shuffle_mutex);
             items_ptr = items;
             frame_ci = current_index.load();
             frame_ni = next_index.load();
+            std::lock_guard<std::mutex> lk2(g_config_mtx);
+            render_cfg = g_cfg;
         }
         Color avg = current_bg_color;
 
@@ -4146,7 +4150,7 @@ if (img.data && img.width > 0 && img.height > 0) {
                         rlEnableColorBlend();
                         // ─────────────────────────────────────────────────────────────────
                     }
-           } else if (g_cfg.bias_lighting) {
+             } else if (render_cfg.bias_lighting) {
                 // ── Background: Animated YouTube-Style Ambient Bias Lighting ──
 
                 // Base ambient background (darkened photo color)
@@ -4158,15 +4162,15 @@ if (img.data && img.width > 0 && img.height > 0) {
                 ClearBackground(ambientBase);
 
                 Color transparent = { avg.r, avg.g, avg.b, 0 };
-                float time_val = (float)GetTime() * g_cfg.bias_anim_speed;
+                float time_val = (float)GetTime() * render_cfg.bias_anim_speed;
 
                 // Pre-calculate image dimensions for accurate edge-hugging glow
                 float scale = 1.0f;
                 float bpw = sw, bph = sh; // Background photo width/height
                 if (current_w > 0 && current_h > 0) {
                     scale = std::min((float)sw / current_w, (float)sh / current_h);
-                    if (g_cfg.matting && !current_is_video) {
-                        int matting_total = g_cfg.matting_size * 2;
+                    if (render_cfg.matting && !current_is_video) {
+                        int matting_total = render_cfg.matting_size * 2;
                         scale = std::min((float)(sw - matting_total) / current_w, (float)(sh - matting_total) / current_h);
                     }
                     bpw = current_w * scale;
@@ -4176,7 +4180,7 @@ if (img.data && img.width > 0 && img.height > 0) {
                 float bpy = (sh - bph) / 2.0f;
                 
                 // ── RADIATING / ABSORBING: Slow, Soft Blend Ambient Light ──
-                if (g_cfg.bias_anim_speed > 0.001f && (g_cfg.bias_anim_style == "radiating" || g_cfg.bias_anim_style == "absorbing")) {
+                if (render_cfg.bias_anim_speed > 0.001f && (render_cfg.bias_anim_style == "radiating" || render_cfg.bias_anim_style == "absorbing")) {
                     
                     float slow_time = time_val * 0.15f;
 
@@ -4184,7 +4188,7 @@ if (img.data && img.width > 0 && img.height > 0) {
 
                     for (int i = 0; i < 2; i++) {
                         float phase = fmodf(slow_time + (i * 0.5f), 1.0f); 
-                        if (g_cfg.bias_anim_style == "absorbing") phase = 1.0f - phase;
+                        if (render_cfg.bias_anim_style == "absorbing") phase = 1.0f - phase;
                         
                         float radius = sw * 0.1f + (sw * 1.3f * phase);
                         float alpha_curve = sinf(phase * PI); 
@@ -4193,13 +4197,13 @@ if (img.data && img.width > 0 && img.height > 0) {
                         DrawCircleGradient({(float)(sw/2), (float)(sh/2)}, radius, {avg.r, avg.g, avg.b, orbAlpha}, transparent);
                     }
 
-                } else if (g_cfg.bias_anim_style == "edge_glow" && g_cfg.bias_anim_speed > 0.001f) {
+                } else if (render_cfg.bias_anim_style == "edge_glow" && render_cfg.bias_anim_speed > 0.001f) {
                     // ── EDGE GLOW: Seamless 360 corona hugging the photo bounds ──
                     float slow_time = time_val * 0.15f; 
                     
                     Color cGlow = avg;
-                    if (g_cfg.bias_color_mode == "rainbow") {
-                        float hueBase = fmodf((float)GetTime() * 40.0f * g_cfg.bias_anim_speed, 360.0f);
+                    if (render_cfg.bias_color_mode == "rainbow") {
+                        float hueBase = fmodf((float)GetTime() * 40.0f * render_cfg.bias_anim_speed, 360.0f);
                         cGlow = ColorFromHSV(hueBase, 0.85f, 0.9f);
                     }
 
@@ -4219,7 +4223,7 @@ if (img.data && img.width > 0 && img.height > 0) {
                         alpha_curve = alpha_curve * alpha_curve; 
                         
                         // Peak alpha is very low (25) because 40 layers overlap
-                       unsigned char a = (unsigned char)((g_cfg.bias_strength / 10.0f) * alpha_curve); 
+                       unsigned char a = (unsigned char)((render_cfg.bias_strength / 10.0f) * alpha_curve); 
                         if (a == 0) continue;
 
                         // Add 10px buffer to account for the thickness of the 3D frame border
@@ -4241,11 +4245,11 @@ if (img.data && img.width > 0 && img.height > 0) {
                 } else {
                     // ── PULSING (or Frozen if speed is 0) ──
                     float pulse = 0.5f;
-                    if (g_cfg.bias_anim_speed > 0.001f) {
+                    if (render_cfg.bias_anim_speed > 0.001f) {
                         pulse = (sinf(time_val) + 1.0f) * 0.5f; 
                     }
                     
-                    unsigned char glowAlpha = (unsigned char)(g_cfg.bias_strength * 0.8f + g_cfg.bias_strength * 0.4f * pulse);
+                    unsigned char glowAlpha = (unsigned char)(render_cfg.bias_strength * 0.8f + render_cfg.bias_strength * 0.4f * pulse);
                     
                     // Replaced crosshair rectangles with a single clean background orb
                     DrawCircleGradient({(float)sw/2, (float)sh/2}, sw, {avg.r, avg.g, avg.b, (unsigned char)(glowAlpha/2)}, transparent);
@@ -4256,7 +4260,7 @@ if (img.data && img.width > 0 && img.height > 0) {
                 }
 
           // Vignette to darken outer corners and draw focus to the center
-                if (g_cfg.vignette_enabled) {
+                if (render_cfg.vignette_enabled) {
                     DrawRectangleGradientH(0,       0, sw/4,   sh, (Color){0,0,0,120}, (Color){0,0,0,0});
                     DrawRectangleGradientH(sw*3/4,  0, sw/4,   sh, (Color){0,0,0,0},   (Color){0,0,0,120});
                     DrawRectangleGradientV(0,       0, sw,     sh/4, (Color){0,0,0,100}, (Color){0,0,0,0});
@@ -4274,10 +4278,10 @@ if (img.data && img.width > 0 && img.height > 0) {
 
          if (!current_is_video) {
               // --- COLLAGE MODE ---
-             if (g_cfg.collage_enabled && current_tex.id != 0 && current_tex.width > 0 && current_tex.height > 0) {
-             int matte = g_cfg.matting ? g_cfg.matting_size : 0;
-             int cols = std::max(1, g_cfg.collage_cols);
-             int rows = std::max(1, g_cfg.collage_rows);
+           if (render_cfg.collage_enabled && current_tex.id != 0 && current_tex.width > 0 && current_tex.height > 0) {
+              int matte = render_cfg.matting ? render_cfg.matting_size : 0;
+              int cols = std::max(1, render_cfg.collage_cols);
+              int rows = std::max(1, render_cfg.collage_rows);
              int cell_w = (sw - matte * 2) / cols;
              int cell_h = (sh - matte * 2) / rows;
             int gap = 4;
@@ -4346,7 +4350,7 @@ if (img.data && img.width > 0 && img.height > 0) {
             // ── Matte compensation: photo fits within inset area, full photo visible ──
             // FIX v16.7.0: apply matting_size, clamp Ken Burns to texture bounds,
             //   position 3D border outside photo rect
-            int matte = (g_cfg.matting && g_cfg.matting_size > 0) ? g_cfg.matting_size : 0;
+            int matte = (render_cfg.matting && render_cfg.matting_size > 0) ? render_cfg.matting_size : 0;
             float ax = (float)matte, ay = (float)matte;
             float aw = (float)(sw - matte * 2), ah = (float)(sh - matte * 2);
 
@@ -4373,7 +4377,7 @@ if (img.data && img.width > 0 && img.height > 0) {
             float final_px = px, final_py = py;
             Vector2 origin = {0, 0};
 
-             if (g_cfg.auto_display_rotation && items_ptr) {
+             if (render_cfg.auto_display_rotation && items_ptr) {
                  int idx = frame_ci;
                  if (idx >= 0 && idx < (int)items_ptr->size()) {
                      int rot = (*items_ptr)[idx].exif_rotation;
@@ -4405,8 +4409,8 @@ if (img.data && img.width > 0 && img.height > 0) {
                            origin, rotation, WHITE);
 
             // ── 3D picture-frame border — Dynamic Colors based on Photo ──
-            if (!current_is_video && g_cfg.border_enabled) {
-                int bdr = g_cfg.border_width;
+            if (!current_is_video && render_cfg.border_enabled) {
+                int bdr = render_cfg.border_width;
                 float x1 = px,      y1 = py;
                 float x2 = px + pw, y2 = py + ph;
                 int ix1 = (int)x1, iy1 = (int)y1;
@@ -4469,23 +4473,23 @@ if (img.data && img.width > 0 && img.height > 0) {
 {
     int pad = 15;
     // Date overlay
-    if (g_cfg.date_overlay_enabled) {
+    if (render_cfg.date_overlay_enabled) {
         char datebuf[64];
         time_t now = time(nullptr);
         struct tm tm_buf;
         struct tm* tm_info = localtime_r(&now, &tm_buf);
-        if (tm_info && strftime(datebuf, sizeof(datebuf), g_cfg.date_text.c_str(), tm_info) != 0) {
-            int dx = pad + (int)((sw - pad * 2) * g_cfg.date_x);
-            int dy = pad + (int)((sh - pad * 2) * g_cfg.date_y);
-            Color dcol = overlay_color_from_str(g_cfg.date_color);
-            DrawText(datebuf, dx + 2, dy + 2, g_cfg.date_font_size, (Color){0,0,0,180});
-            DrawText(datebuf, dx,     dy,     g_cfg.date_font_size, dcol);
+        if (tm_info && strftime(datebuf, sizeof(datebuf), render_cfg.date_text.c_str(), tm_info) != 0) {
+            int dx = pad + (int)((sw - pad * 2) * render_cfg.date_x);
+            int dy = pad + (int)((sh - pad * 2) * render_cfg.date_y);
+            Color dcol = overlay_color_from_str(render_cfg.date_color);
+            DrawText(datebuf, dx + 2, dy + 2, render_cfg.date_font_size, (Color){0,0,0,180});
+            DrawText(datebuf, dx,     dy,     render_cfg.date_font_size, dcol);
         }
     }
 
     // Filename overlay
     int ri = current_index.load();
-    if (g_cfg.filename_enabled && ri >= 0 && ri < (int)items_ptr->size()) {
+    if (render_cfg.filename_enabled && ri >= 0 && ri < (int)items_ptr->size()) {
         std::string fname = (*items_ptr)[ri].filename;
         double dur = 0.0;
         {
@@ -4499,66 +4503,66 @@ if (img.data && img.width > 0 && img.height > 0) {
             snprintf(dur_buf, sizeof(dur_buf), " (%d:%02d)", mins, secs);
             fname += std::string(dur_buf);
         }
-        int fx = pad + (int)((sw - pad * 2) * g_cfg.filename_x);
-        int fy = pad + (int)((sh - pad * 2) * g_cfg.filename_y);
-        DrawText(fname.c_str(), fx + 2, fy + 2, g_cfg.filename_font_size, (Color){0,0,0,180});
-        DrawText(fname.c_str(), fx,     fy,     g_cfg.filename_font_size, WHITE);
+        int fx = pad + (int)((sw - pad * 2) * render_cfg.filename_x);
+        int fy = pad + (int)((sh - pad * 2) * render_cfg.filename_y);
+        DrawText(fname.c_str(), fx + 2, fy + 2, render_cfg.filename_font_size, (Color){0,0,0,180});
+        DrawText(fname.c_str(), fx,     fy,     render_cfg.filename_font_size, WHITE);
     }
 
     // Count overlay
-    if (g_cfg.count_enabled) {
+    if (render_cfg.count_enabled) {
         char cntbuf[128];
         std::snprintf(cntbuf, sizeof(cntbuf), "%d / %d", current_index.load() + 1, (int)items_ptr->size());
-        int cx = pad + (int)((sw - pad * 2) * g_cfg.count_x);
-        int cy = pad + (int)((sh - pad * 2) * g_cfg.count_y);
-        int tw = MeasureText(cntbuf, g_cfg.count_font_size);
+        int cx = pad + (int)((sw - pad * 2) * render_cfg.count_x);
+        int cy = pad + (int)((sh - pad * 2) * render_cfg.count_y);
+        int tw = MeasureText(cntbuf, render_cfg.count_font_size);
         cx = cx - tw / 2;
-        DrawText(cntbuf, cx + 2, cy + 2, g_cfg.count_font_size, (Color){0,0,0,180});
-        DrawText(cntbuf, cx,     cy,     g_cfg.count_font_size, (Color){200,200,200,220});
+        DrawText(cntbuf, cx + 2, cy + 2, render_cfg.count_font_size, (Color){0,0,0,180});
+        DrawText(cntbuf, cx,     cy,     render_cfg.count_font_size, (Color){200,200,200,220});
     }
 
     // Timer overlay
-    if (g_cfg.timer_enabled) {
+    if (render_cfg.timer_enabled) {
         char tbuf[32];
         if (current_is_video) {
             std::snprintf(tbuf, sizeof(tbuf), "VIDEO");
         } else {
-            int rem = std::max(0, (int)(g_cfg.transition_delay - item_timer));
+            int rem = std::max(0, (int)(render_cfg.transition_delay - item_timer));
             std::snprintf(tbuf, sizeof(tbuf), "%ds", rem);
         }
-        int tx = pad + (int)((sw - pad * 2) * g_cfg.timer_x);
-        int ty = pad + (int)((sh - pad * 2) * g_cfg.timer_y);
-        Color tcol = overlay_color_from_str(g_cfg.timer_color);
-        DrawText(tbuf, tx + 2, ty + 2, g_cfg.timer_font_size, (Color){0,0,0,180});
-        DrawText(tbuf, tx,     ty,     g_cfg.timer_font_size, tcol);
+        int tx = pad + (int)((sw - pad * 2) * render_cfg.timer_x);
+        int ty = pad + (int)((sh - pad * 2) * render_cfg.timer_y);
+        Color tcol = overlay_color_from_str(render_cfg.timer_color);
+        DrawText(tbuf, tx + 2, ty + 2, render_cfg.timer_font_size, (Color){0,0,0,180});
+        DrawText(tbuf, tx,     ty,     render_cfg.timer_font_size, tcol);
     }
 
     // Clock overlay
-    if (g_cfg.clock_enabled) {
+    if (render_cfg.clock_enabled) {
         char clkbuf[16];
         time_t now = time(nullptr);
         struct tm tm_buf_clk;
         struct tm* tmi = localtime_r(&now, &tm_buf_clk);
         if (tmi) {
-            strftime(clkbuf, sizeof(clkbuf), g_cfg.clock_24h ? "%H:%M" : "%I:%M %p", tmi);
-            int clkw = MeasureText(clkbuf, g_cfg.clock_font_size);
-            int clkx = pad + (int)((sw - pad*2) * g_cfg.clock_x) - clkw/2;
-            int clky = pad + (int)((sh - pad*2) * g_cfg.clock_y);
-            Color clkcol = overlay_color_from_str(g_cfg.clock_color);
-            DrawText(clkbuf, clkx+2, clky+2, g_cfg.clock_font_size, (Color){0,0,0,180});
-            DrawText(clkbuf, clkx,   clky,   g_cfg.clock_font_size, clkcol);
+            strftime(clkbuf, sizeof(clkbuf), render_cfg.clock_24h ? "%H:%M" : "%I:%M %p", tmi);
+            int clkw = MeasureText(clkbuf, render_cfg.clock_font_size);
+            int clkx = pad + (int)((sw - pad*2) * render_cfg.clock_x) - clkw/2;
+            int clky = pad + (int)((sh - pad*2) * render_cfg.clock_y);
+            Color clkcol = overlay_color_from_str(render_cfg.clock_color);
+            DrawText(clkbuf, clkx+2, clky+2, render_cfg.clock_font_size, (Color){0,0,0,180});
+            DrawText(clkbuf, clkx,   clky,   render_cfg.clock_font_size, clkcol);
         }
     }
 }
 
 // ── Transition overlays — cover all 4 cases (photo↔video) ──
-float dur = (float)g_cfg.transition_duration;
+float dur = (float)render_cfg.transition_duration;
 
 // OUTGOING: fade current content to black as transition_progress → 1
 if (transitioning) {
     float prog = ease_in_out(transition_progress);
 
-    if (!current_is_video && g_cfg.transition_effect == "wipe" && shaders_loaded) {
+    if (!current_is_video && render_cfg.transition_effect == "wipe" && shaders_loaded) {
         int loc0 = GetShaderLocation(wipe_shader, "texture0");
         int loc1 = GetShaderLocation(wipe_shader, "texture1");
         int locProg = GetShaderLocation(wipe_shader, "progress");
@@ -4574,7 +4578,7 @@ if (transitioning) {
             unsigned char black_a = (unsigned char)(255.0f * prog);
             DrawRectangle(0, 0, sw, sh, (Color){0,0,0,black_a});
         }
-    } else if (!current_is_video && g_cfg.transition_effect == "pixelate" && shaders_loaded) {
+    } else if (!current_is_video && render_cfg.transition_effect == "pixelate" && shaders_loaded) {
         int loc0 = GetShaderLocation(pixelate_shader, "texture0");
         int loc1 = GetShaderLocation(pixelate_shader, "texture1");
         int locProg = GetShaderLocation(pixelate_shader, "progress");
@@ -4779,7 +4783,7 @@ if (!current_is_video && current_tex.id == 0) {
          // --- UNCONDITIONAL OVERLAYS ---
 
         // Weather
-        if (!current_is_video && g_cfg.weather_enabled && g_weather_temp.load() > -999.0f) {
+        if (!current_is_video && render_cfg.weather_enabled && g_weather_temp.load() > -999.0f) {
             char wbuf[64];
             std::snprintf(wbuf, sizeof(wbuf), "%.1f%cC", g_weather_temp.load(), (char)176);
             int wfs = 20;
@@ -5072,46 +5076,46 @@ static void spawn(const std::string& cmd) {
 
 static void weather_thread_func(const Config& c) {
     while (g_running.load()) {
-   // v6.0.11: Read g_cfg under lock each iteration to see config changes (B202)
-   bool we; float wl, wn;
-   { std::lock_guard<std::mutex> lk(g_config_mtx); we = g_cfg.weather_enabled; wl = g_cfg.weather_lat; wn = g_cfg.weather_lon; }
-   if (we && wl != -999.0f && wn != -999.0f) {
-            // FIX v16.7.0: build complete command inline — avoids shell injection via URL string
-            char cmd[600];
-            std::snprintf(cmd, sizeof(cmd),
-                "timeout 30 curl -s 'https://api.open-meteo.com/v1/forecast"
-                "?latitude=%.4f&longitude=%.4f&current=temperature_2m,weather_code' </dev/null",
-                wl, wn);
-            FILE* fp = popen(cmd, "r");
-            if (fp) {
-                char buf[1024] = {0};
-                size_t n = fread(buf, 1, sizeof(buf) - 1, fp);
-                // v6.0.10: check g_running before pclose to avoid subprocess leak (B5)
-                if (g_running.load()) {
-                    pclose(fp);
-                } else {
-                    pclose(fp);  // ensure cleanup on shutdown
-                }
+    // v6.0.11: Read g_cfg under lock each iteration to see config changes (B202)
+    bool we; float wl, wn;
+    { std::lock_guard<std::mutex> lk(g_config_mtx); we = g_cfg.weather_enabled; wl = g_cfg.weather_lat; wn = g_cfg.weather_lon; }
+    if (we && wl != -999.0f && wn != -999.0f) {
+             // FIX v6.0.12: Validate latitude/longitude ranges to prevent shell injection via popen
+             if (wl < -90.0f || wl > 90.0f || wn < -180.0f || wn > 180.0f) {
+                 g_logger.warn("WEATHER: Invalid coordinates lat=%.4f lon=%.4f, skipping", wl, wn);
+             } else {
+                 // FIX v6.0.12: Use curl with --globoff to disable URL globbing, preventing shell injection
+                 char cmd[600];
+                 std::snprintf(cmd, sizeof(cmd),
+                     "timeout 30 curl -s --globoff 'https://api.open-meteo.com/v1/forecast"
+                     "?latitude=%.4f&longitude=%.4f&current=temperature_2m,weather_code' </dev/null",
+                     wl, wn);
+                 FILE* fp = popen(cmd, "r");
+                 if (fp) {
+                     char buf[1024] = {0};
+                     size_t n = fread(buf, 1, sizeof(buf) - 1, fp);
+                     pclose(fp);
 
-                if (n > 0 && g_running.load()) {
-                    // Parse JSON manually (simple extraction)
-                    char* temp_start = strstr(buf, "\"temperature_2m\":");
-                    if (temp_start) {
-                        float temp = 0.0f;
-                        if (std::sscanf(temp_start, "\"temperature_2m\":%f", &temp) == 1) {
-                            g_weather_temp.store(temp);
-                        }
-                    }
-                    char* code_start = strstr(buf, "\"weather_code\":");
-                    if (code_start) {
-                        int code = 0;
-                        if (std::sscanf(code_start, "\"weather_code\":%d", &code) == 1) {
-                            g_weather_code.store(code);
-                        }
-                    }
-                }
-            }
-        }
+                     if (n > 0 && g_running.load()) {
+                         // Parse JSON manually (simple extraction)
+                         char* temp_start = strstr(buf, "\"temperature_2m\":");
+                         if (temp_start) {
+                             float temp = 0.0f;
+                             if (std::sscanf(temp_start, "\"temperature_2m\":%f", &temp) == 1) {
+                                 g_weather_temp.store(temp);
+                             }
+                         }
+                         char* code_start = strstr(buf, "\"weather_code\":");
+                         if (code_start) {
+                             int code = 0;
+                             if (std::sscanf(code_start, "\"weather_code\":%d", &code) == 1) {
+                                 g_weather_code.store(code);
+                             }
+                         }
+                     }
+                 }
+             }
+         }
         // Sleep for 10 minutes before next update
         for (int i = 0; i < 600 && g_running.load(); i++) {
             std::this_thread::sleep_for(std::chrono::seconds(1));
@@ -5905,10 +5909,9 @@ void config_wizard(const std::string& config_path) {
 
     // ── DATA ACCESSORS ──
     auto gv = [&](int c, int i) -> std::string {
-        char b[64];
         if (c == 0) switch(i) {
             case 0: return std::to_string(g_cfg.rotation);
-            case 1: snprintf(b,64,"%.2f",g_cfg.ken_burns_zoom); return b;
+            case 1: return std::to_string(g_cfg.ken_burns_zoom);
             case 2: return g_cfg.auto_display_rotation?"[ON]":"[OFF]";
             case 3: return g_cfg.brightness_auto?"[ON]":"[OFF]";
         }
@@ -5916,17 +5919,17 @@ void config_wizard(const std::string& config_path) {
             case 0: return g_cfg.media_dir; case 1: return g_cfg.cache_dir; case 2: return g_cfg.log_dir;
             case 3: return g_cfg.sleep_time; case 4: return g_cfg.wake_time;
             case 5: return g_cfg.http_enabled?"[ON]":"[OFF]";
-            case 6: snprintf(b,64,"%.2f",g_cfg.splash_overlay_y); return b;
+            case 6: return std::to_string(g_cfg.splash_overlay_y);
         }
         if (c == 2) switch(i) {
             case 0: return g_cfg.timer_enabled?"[ON]":"[OFF]";
-            case 1: snprintf(b,64,"%.2f",g_cfg.timer_x); return b;
-            case 2: snprintf(b,64,"%.2f",g_cfg.timer_y); return b;
+            case 1: return std::to_string(g_cfg.timer_x);
+            case 2: return std::to_string(g_cfg.timer_y);
             case 3: return std::to_string(g_cfg.timer_font_size);
             case 4: return g_cfg.timer_color;
             case 5: return g_cfg.clock_enabled?"[ON]":"[OFF]";
-            case 6: snprintf(b,64,"%.2f",g_cfg.clock_x); return b;
-            case 7: snprintf(b,64,"%.2f",g_cfg.clock_y); return b;
+            case 6: return std::to_string(g_cfg.clock_x);
+            case 7: return std::to_string(g_cfg.clock_y);
             case 8: return std::to_string(g_cfg.clock_font_size);
             case 9: return g_cfg.clock_color;
             case 10: return g_cfg.clock_24h?"[ON]":"[OFF]";
@@ -5938,13 +5941,13 @@ void config_wizard(const std::string& config_path) {
              case 2: return std::to_string(g_cfg.video_probe_timeout);
          }
         if (c == 4) switch(i) {
-            case 0: snprintf(b,64,"%.1f",g_cfg.transition_delay); return b;
-            case 1: snprintf(b,64,"%.1f",g_cfg.transition_duration); return b;
+            case 0: return std::to_string(g_cfg.transition_delay);
+            case 1: return std::to_string(g_cfg.transition_duration);
             case 2: return g_cfg.transition_effect;
             case 3: return g_cfg.ken_burns?"[ON]":"[OFF]";
-            case 4: snprintf(b,64,"%.2f",g_cfg.ken_burns_speed); return b;
+            case 4: return std::to_string(g_cfg.ken_burns_speed);
             case 5: return g_cfg.bias_lighting?"[ON]":"[OFF]";
-            case 6: snprintf(b,64,"%.2f",g_cfg.bias_anim_speed); return b;
+            case 6: return std::to_string(g_cfg.bias_anim_speed);
             case 7: return g_cfg.bias_anim_style; case 8: return g_cfg.bias_color_mode;
             case 9: return g_cfg.matting?"[ON]":"[OFF]";
             case 10: return std::to_string(g_cfg.matting_size);
@@ -5960,8 +5963,8 @@ void config_wizard(const std::string& config_path) {
         }
         if (c == 6) switch(i) {
             case 0: return g_cfg.weather_enabled?"[ON]":"[OFF]";
-            case 1: snprintf(b,64,"%.4f",g_cfg.weather_lat); return b;
-            case 2: snprintf(b,64,"%.4f",g_cfg.weather_lon); return b;
+            case 1: return std::to_string(g_cfg.weather_lat);
+            case 2: return std::to_string(g_cfg.weather_lon);
         }
         if (c == 7) switch(i) {
             case 0: return g_cfg.verbose?"debug":"info";
@@ -6044,7 +6047,8 @@ void config_wizard(const std::string& config_path) {
             }
             else if(c==6) switch(i){
                 case 0:g_cfg.weather_enabled=(v=="1"||v=="ON"||v=="true"||v=="[ON]");break;
-                case 1:{ try { g_cfg.weather_lat=std::stof(v); } catch(...) {} break; } case 2:{ try { g_cfg.weather_lon=std::stof(v); } catch(...) {} break; }
+                case 1:{ try { float vl=std::stof(v); if(vl>=-90.0f&&vl<=90.0f) g_cfg.weather_lat=vl; } catch(...) {} break; }
+                case 2:{ try { float vn=std::stof(v); if(vn>=-180.0f&&vn<=180.0f) g_cfg.weather_lon=vn; } catch(...) {} break; }
             }
             else if(c==7) switch(i){
                 case 0:{ if(v=="debug") g_cfg.verbose=true; else g_cfg.verbose=false; }break;
