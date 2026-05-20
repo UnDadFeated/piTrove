@@ -3307,18 +3307,12 @@ std::atomic<int> preload_progress{0};
                    current_w = g_cfg.screen_w;
                   current_h = g_cfg.screen_h;
 
-                  // In-process libmpv render API — shares Raylib's EGL context.
-                   if (!g_mpv.is_initialized()) {
-                      g_mpv.surface_w    = g_cfg.screen_w;
-                      g_mpv.surface_h    = g_cfg.screen_h;
-                      g_mpv.video_volume = g_cfg.video_volume;
-                     if (!g_mpv.init()) {
-                           g_logger.error("LOAD_ITEM: g_mpv.init() failed — skipping video");
-                           current_is_video.store(false);
-                           return;
-                       }
-                  }
-                  g_mpv.play(item.path);
+                 // v8.0.0: Subprocess mpv --vo=drm
+                   if (!play_video_subprocess(item.path, g_cfg.video_volume)) {
+                            g_logger.error("LOAD_ITEM: play_video_subprocess failed — skipping video");
+                            current_is_video.store(false);
+                            return;
+                        }
       return;
               }
        current_is_video.store(false);
