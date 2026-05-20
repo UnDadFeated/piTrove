@@ -1343,16 +1343,11 @@ bool MPVPlayer::init() {
       // render context is created. vo=null starves the render API of frames.
       mpv_set_option_string(ctx, "vo", "libmpv");
     
-    // ── FIX: Explicitly bind the DRM rendering backend and GLES2 context ──
+    // ── FIX: Share EGL context with Raylib — do NOT hijack DRM master ──
     mpv_set_option_string(ctx, "gpu-api", "opengl");
     mpv_set_option_string(ctx, "opengl-es", "yes");
-    mpv_set_option_string(ctx, "gpu-context", "drm"); // REQUIRED for Pi 5 DRM path
-    // ──────────────────────────────────────────────────────────────────────────
-    
-    // ── NEW FIX: Force DRMPrime hardware decoding for Pi 5 ──
-    mpv_set_option_string(ctx, "hwdec", "drmprime");
-    mpv_set_option_string(ctx, "drm-device", "/dev/dri/renderD128");
-    // ────────────────────────────────────────────────────────
+    // REMOVED: gpu-context=drm — collides with Raylib's DRM/KMS lock
+    mpv_set_option_string(ctx, "hwdec", "auto-safe"); // auto-fallback on Pi 5
     
     // Audio: disabled — we render video frames as textures in the photo pipeline
        mpv_set_option_string(ctx, "audio", "no");
@@ -1536,7 +1531,7 @@ bool MPVPlayer::play(const std::string &path) {
                 if (g_mpv_log_error) g_mpv_log_error("MPV_PLAY: mpv_command loadfile failed: %d ctx=%p", rc, (void*)ctx);
             } else {
                 if (g_mpv_log_info) g_mpv_log_info("MPV_PLAY: loadfile succeeded, loading='%s'", path_buf.c_str());
-                mpv_command_string(ctx, "set pause no");
+                mpv_set_property_string(ctx, "pause", "no");
             }
         } else {
             if (g_mpv_log_error) g_mpv_log_error("MPV_PLAY: mpv_command ctx is NULL");
@@ -4140,13 +4135,20 @@ if (img.data && img.width > 0 && img.height > 0) {
 
                     // ── VIDEO RENDER: blit g_mpv.video_rt.texture to screen ──
                     // update_frame() decoded the latest mpv frame into video_rt BEFORE BeginDrawing.
+                    // Raylib FBO source height is inverted (-h) for correct coordinate orientation.
                     if (g_mpv.is_initialized() && g_mpv.video_rt.texture.id != 0) {
                         // ── FIX v7.0.2: Disable blending so alpha=0 FBOs draw opaquely ──
                         rlDisableColorBlend();
-                        DrawTexturePro(g_mpv.video_rt.texture,
-                            {0, 0, (float)g_mpv.video_rt.texture.width, (float)g_mpv.video_rt.texture.height},
-                            {0, 0, (float)sw, (float)sh},
-                            {0, 0}, 0.0f, WHITE);
+                        Rectangle srcRec = {
+                            0.0f, 0.0f,
+                            (float)g_mpv.video_rt.texture.width,
+                            -(float)g_mpv.video_rt.texture.height
+                        };
+                        Rectangle dstRec = {
+                            0.0f, 0.0f,
+                            (float)sw, (float)sh
+                        };
+                        DrawTexturePro(g_mpv.video_rt.texture, srcRec, dstRec, {0.0f, 0.0f}, 0.0f, WHITE);
                         rlEnableColorBlend();
                         // ─────────────────────────────────────────────────────────────────
                     }
