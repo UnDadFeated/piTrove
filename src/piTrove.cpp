@@ -10,7 +10,7 @@
  *   • Slideshow – raylib, preload, crossfade, Ken Burns
  */
 
-#define VERSION "8.0.3"
+#define VERSION "8.0.1"
 #define APP_NAME "piTrove"
 
 // Global atomics for headless features
@@ -801,7 +801,7 @@ struct Config {
     bool    count_enabled{false};
     float   count_x{0.5f}, count_y{0.02f};
     int     videos_per_photos{0};
-      int     video_volume{20};
+      int     video_volume{0};
       int     video_probe_timeout{3};
 
      // [slideshow] advanced
@@ -3184,6 +3184,7 @@ struct Slideshow {
     }
 std::atomic<bool> current_is_video{false};  // v6.0.10: atomic for HTTP thread safety (B7)
       // v8.0.0: Video playback uses subprocess mpv --vo=drm (see play_video_subprocess above)
+      std::atomic<int> photos_since_video{0};  // v8.0.1: ratio tracker for shuffle bias
       std::mt19937 rng{std::random_device{}() ^ static_cast<unsigned int>(time(nullptr))};
         std::thread treadmill_thread;
 
@@ -3248,12 +3249,9 @@ std::atomic<int> preload_progress{0};
       Color current_bias_lft{210, 195, 165, 255};
       Color current_bias_rgt{210, 195, 165, 255};
 
-     // FIX v16.0.0: prevent reentrant remote command (advance -> load_item -> advance loop)
-        // v6.0.3: Changed to atomic<bool> to prevent deadlock if interrupted by signal/nested call
-        std::atomic<bool> reentrant_command{false};
-
-        // v8.0.3: Dynamic ratio tracker — shuffle first, then bias toward underrepresented type
-        std::atomic<int> photos_since_video{0};
+      // FIX v16.0.0: prevent reentrant remote command (advance -> load_item -> advance loop)
+       // v6.0.3: Changed to atomic<bool> to prevent deadlock if interrupted by signal/nested call
+       std::atomic<bool> reentrant_command{false};
 
     void load_item(const MediaItem& item, std::shared_ptr<std::vector<MediaItem>> items_ptr = nullptr) {
         // v6.0.11: Accept items_ptr for duration write-back to prevent race with treadmill worker
@@ -3287,9 +3285,9 @@ std::atomic<int> preload_progress{0};
                return;
            }
 
-    if (item.type == "video") {
+   if (item.type == "video") {
                    g_logger.info("LOAD_ITEM: video idx=%d path=%s", current_index.load(), item.path.substr(0, 80).c_str());
-                   photos_since_video.store(0);  // v8.0.3: Reset ratio counter on video
+                   photos_since_video.store(0);  // v8.0.1: reset ratio counter on video
                   // Probe duration if not already set (preload missed it)
                   if (item.duration <= 0.0) {
                        double dur = probe_video_duration(item.path, g_cfg.video_probe_timeout * 1000);
@@ -3320,7 +3318,7 @@ std::atomic<int> preload_progress{0};
       return;
               }
         current_is_video.store(false);
-        photos_since_video.fetch_add(1);  // v8.0.3: Track photo count for dynamic ratio
+        photos_since_video.fetch_add(1);  // v8.0.1: track photo count for ratio
 
             // Check preload thread's corrupted cache before loading
           {
@@ -3478,7 +3476,6 @@ if (img.data && img.width > 0 && img.height > 0) {
                             corrupted_count++;
                         }
                     } else {
-                        // v8.0.0: Preload videos — probe duration, advance index (no texture needed for subprocess mpv)
                         double dur = probe_video_duration(next_item.path, g_cfg.video_probe_timeout * 1000);
                         if (dur > 0) {
                             std::lock_guard<std::mutex> lk(shuffle_mutex);
@@ -3486,10 +3483,14 @@ if (img.data && img.width > 0 && img.height > 0) {
                                 (*items_ptr)[idx].duration = dur;
                         }
                         g_logger.info("PRELOAD_VID: probed %s duration=%.1fs", next_item.path.substr(0, 60).c_str(), dur);
-                        int ni_curr = next_index.fetch_add(1, std::memory_order_relaxed);
-                        int ni_next = (ni_curr + 1 >= (int)items_ptr->size()) ? 0 : (ni_curr + 1);
-                        next_index.store(ni_next);
-                        if (next_index.load() == current_index.load()) break;
+                        // v8.0.1: Advance next_index for videos (preload should skip past them)
+                        {
+                            std::lock_guard<std::mutex> lk(shuffle_mutex);
+                            int ni_curr = next_index.fetch_add(1, std::memory_order_relaxed);
+                            int ni_next = (ni_curr + 1 >= (int)items_ptr->size()) ? 0 : (ni_curr + 1);
+                            next_index.store(ni_next);
+                            if (next_index.load() == current_index.load()) break;
+                        }
                         found_valid = true;
                     }
                 }
@@ -3552,33 +3553,37 @@ slide_debug("ADVANCE: fwd=%d cur=%d items_ptr=%d", forward ? 1 : 0, current_inde
              // v6.0.3: Lock shuffle_mutex to protect rng state and current_index
              std::lock_guard<std::mutex> lk(shuffle_mutex);
              std::uniform_int_distribution<int> dist(0, (int)items_ptr->size() - 1);
-             
-             // v8.0.3: Dynamic ratio tracking — force video when ratio is off-balance
-             if (photos_since_video.load() >= g_cfg.videos_per_photos) {
-                 // Find next video (wrap around if needed)
-                 int ni = (current_index.load() + 1) % (int)items_ptr->size();
-                 int safety = 0;
-                 while (safety < (int)items_ptr->size() && (*items_ptr)[ni].type != "video") {
-                     ni = (ni + 1) % (int)items_ptr->size();
-                     safety++;
+
+             // v8.0.1: Force video when ratio is off-balance
+             int ratio_threshold;
+             {
+                 std::lock_guard<std::mutex> cfg_lk(g_config_mtx);
+                 ratio_threshold = g_cfg.videos_per_photos;
+             }
+             if (ratio_threshold > 0 && photos_since_video.load() >= ratio_threshold) {
+                 // Scan forward for next video
+                 int vi = (prev_idx + 1) % (int)items_ptr->size();
+                 int scans = 0;
+                 while (scans < (int)items_ptr->size()) {
+                     if ((*items_ptr)[vi].type == "video") {
+                         current_index.store(vi);
+                         break;
+                     }
+                     vi = (vi + 1) % (int)items_ptr->size();
+                     scans++;
+                     if (vi == prev_idx) break;
                  }
-                 if (safety < (int)items_ptr->size()) {
-                     current_index.store(ni);
-                     g_logger.info("ADVANCE_RATIO: forced video (photos_since_video=%d >= %d)",
-                         photos_since_video.load(), g_cfg.videos_per_photos);
-                 } else {
-                     // No videos available, random fallback
+                 if (vi == prev_idx) {
                      do { current_index.store(dist(rng)); }
                      while (current_index.load() == prev_idx && items_ptr->size() > 1);
                  }
              } else {
-                 // Normal random selection
                  do { current_index.store(dist(rng)); }
                  while (current_index.load() == prev_idx && items_ptr->size() > 1);
              }
          } else {
-            current_index.store((current_index.load() + (forward ? 1 : -1) + (int)items_ptr->size()) % (int)items_ptr->size());
-        }
+             current_index.store((current_index.load() + (forward ? 1 : -1) + (int)items_ptr->size()) % (int)items_ptr->size());
+         }
 
        current_w = 0;
         current_h = 0;
@@ -3606,30 +3611,13 @@ slide_debug("ADVANCE: fwd=%d cur=%d items_ptr=%d", forward ? 1 : 0, current_inde
                        g_logger.warn("ADVANCE_SKIP: corrupted file #%d/%d %s", skipped+1, skip_limit, (*items_ptr)[ci].path.c_str());
                   skip_count++;
    int prev = current_index.load();
-                    if (shuffle) {
-                       // v6.0.3: Lock shuffle_mutex to protect rng state
-                       std::lock_guard<std::mutex> lk(shuffle_mutex);
-                       std::uniform_int_distribution<int> dist(0, (int)items_ptr->size() - 1);
-                       
-                       // v8.0.3: Dynamic ratio tracking in skip path
-                       if (photos_since_video.load() >= g_cfg.videos_per_photos) {
-                           int ni = (prev + 1) % (int)items_ptr->size();
-                           int safety = 0;
-                           while (safety < (int)items_ptr->size() && (*items_ptr)[ni].type != "video") {
-                               ni = (ni + 1) % (int)items_ptr->size();
-                               safety++;
-                           }
-                           if (safety < (int)items_ptr->size()) {
-                               current_index.store(ni);
-                           } else {
-                               do { current_index.store(dist(rng)); }
-                               while (current_index.load() == prev && items_ptr->size() > 1);
-                           }
-                       } else {
-                           do { current_index.store(dist(rng)); }
-                           while (current_index.load() == prev && items_ptr->size() > 1);
-                       }
-                   } else {
+                   if (shuffle) {
+                      // v6.0.3: Lock shuffle_mutex to protect rng state
+                      std::lock_guard<std::mutex> lk(shuffle_mutex);
+                      std::uniform_int_distribution<int> dist(0, (int)items_ptr->size() - 1);
+                      do { current_index.store(dist(rng)); }
+                      while (current_index.load() == prev   && items_ptr->size() > 1);
+                  } else {
                      current_index.store((prev + (forward ? 1 : -1) + (int)items_ptr->size()) % (int)items_ptr->size());
                  }
                  ci = current_index.load();
@@ -3730,7 +3718,6 @@ slide_debug("ADVANCE: fwd=%d cur=%d items_ptr=%d", forward ? 1 : 0, current_inde
                     slide_debug("PRELOAD_FREED: tex id=%d", loaded_tex.id);
                 }
                 preload_ready.store(false);
-                { std::lock_guard<std::mutex> lk(preload_lifecycle_mtx); preload_running.store(false, std::memory_order_relaxed); }
             }
         }
 
@@ -5871,23 +5858,30 @@ void treadmill_worker(const Config& cfg, Slideshow& slideshow_ref) {
             }
         }
 
-        // v8.0.3: Shuffle all items together — ratio tracked dynamically in advance()
-        std::vector<MediaItem> final_playlist;
-        if (!active_videos.empty()) {
-            final_playlist = std::move(active_videos);
-        }
-        final_playlist.insert(final_playlist.end(), std::make_move_iterator(active_photos.begin()), std::make_move_iterator(active_photos.end()));
-        
-        if (!final_playlist.empty()) {
+        // Randomize photo order
+        if (!active_photos.empty()) {
             std::random_device rd;
-            std::mt19937 local_rng(rd());
-            std::shuffle(final_playlist.begin(), final_playlist.end(), local_rng);
+            std::mt19937 g(rd());
+            std::shuffle(active_photos.begin(), active_photos.end(), g);
         }
+
+        // v8.0.1: Shuffle all items into single list — ratio enforced by advance()
+        std::vector<MediaItem> final_playlist = std::move(active_photos);
+        final_playlist.insert(final_playlist.end(), active_videos.begin(), active_videos.end());
+
+         // Hot Swap
+         if (!final_playlist.empty()) {
+             // Use local RNG to shuffle outside the lock to prevent main-loop stutter
+             std::random_device rd;
+             std::mt19937 local_rng(rd());
+             std::shuffle(final_playlist.begin(), final_playlist.end(), local_rng);
+         }
          {
              std::lock_guard<std::mutex> lock(slideshow_ref.shuffle_mutex);
              // B263, B268: Reset indices and preloads before swapping items to prevent OOB/state inconsistency
              slideshow_ref.current_index = 0;
              slideshow_ref.next_index = -1;
+              slideshow_ref.photos_since_video.store(0);  // v8.0.1: reset ratio counter on playlist swap
              if (slideshow_ref.loaded_tex.id != 0) {
                  UnloadTexture(slideshow_ref.loaded_tex);
                  slideshow_ref.loaded_tex = {};

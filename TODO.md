@@ -278,8 +278,22 @@ All bugs in Rounds 20-25 have been resolved (v7.1.7). See git history for detail
 | B312 | HIGH | Unsafe Shared Pointer Access in HTTP thread — `http_thread_func` copies `slide.items` without locking the `shuffle_mutex` (creating a data race with the treadmill thread playlist swap) | Capture `items_ptr` using the thread-safe `slide.get_items()` helper |
 | B313 | LOW | `cache_mmap_size` Configuration Integer Truncation — Struct uses `int` and parsed via `std::stoi(v)` which overflows/truncates on configs >= 2GB | Change variable type to `long long`, use `std::stoll`, and fix format specifiers to `%lld` |
 
+## Bug Fix Round 38 (B314-B320) — Dynamic Ratio Tracking (v8.0.1)
+
+| # | Severity | Bug | Fix Applied |
+|---|----------|-----|-------------|
+| B314 | HIGH | Videos never play with shuffle=1 — Random index selection from full playlist makes videos statistically impossible to hit among 45K photos | `photos_since_video` atomic counter resets on video, increments on photo; advance() scans forward for video when counter >= `videos_per_photos` |
+| B315 | HIGH | Rigid interleaving broken by shuffle — `treadmill_worker` interleaves 10 photos then N videos into playlist, then shuffles the entire playlist, destroying the ratio | Shuffle all items (photos + videos) into single list; ratio enforced dynamically by `advance()` instead of rigid pattern |
+| B316 | MEDIUM | Preload skips videos without advancing index — Preload probes video duration but doesn't advance `next_index`, so video stays as next item and gets displayed instead of skipped | Preload now advances `next_index` past video items (same as photo preload) so next advance lands on the following item |
+| B317 | MEDIUM | Ratio counter not reset on hot-swap — `treadmill_worker` replaces playlist at midnight but `photos_since_video` carries stale value from old playlist | Reset `photos_since_video.store(0)` in hot-swap block after playlist replacement |
+| B318 | MEDIUM | Config read without lock in advance() — `g_cfg.videos_per_photos` read in advance() without `g_config_mtx` lock | Capture `ratio_threshold` inside `g_config_mtx` lock before ratio check |
+| B319 | MEDIUM | No fallback if no video found during ratio scan — If `advance()` scans forward for a video but none exist, it should fall back to random selection | Added fallback: if scan wraps around without finding video, perform normal random shuffle |
+| B320 | LOW | Version mismatch between CMakeLists.txt and piTrove.cpp — VERSION defined in two places, easy to drift | Both set to 8.0.1 in this commit |
+
 ## Next Steps
-- Run `make` on Pi to verify Round 26-33 fixes compile cleanly
-- Test each fix individually before committing
-- Update CHANGELOG.md for each release
+- Build and deploy v8.0.1 to Pi
+- Test with `videos_per_photos=1` (photo, video, photo, video...)
+- Test with `videos_per_photos=8` (production ratio)
+- Monitor for 24h to verify video playback consistency
+- Update CHANGELOG.md for v8.0.1
 
