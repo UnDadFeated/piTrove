@@ -37,10 +37,18 @@ fi
 PRIMARY_HOME="/home/$PRIMARY_USER"
 info "Primary user: $PRIMARY_USER ($PRIMARY_HOME)"
 
+# Create user directories before any sudo calls to ensure correct ownership
+info "Creating user directories..."
+mkdir -p "$PRIMARY_HOME/.cache/piTrove"
+mkdir -p "$PRIMARY_HOME/piTrove/src/config"
+mkdir -p "$PRIMARY_HOME/piTrove/logs"
+mkdir -p "$PRIMARY_HOME/piTrove/src/fonts"
+ok "User directories created"
+
 # 2. Bootstrap packages (git, lsb_release, pkg-config, curl needed below)
 info "Installing bootstrap packages..."
-apt-get update -qq || fail "apt-get update failed"
-apt-get install -y -qq git curl lsb-release pkg-config || fail "Bootstrap install failed"
+sudo apt-get update -qq || fail "apt-get update failed"
+sudo apt-get install -y -qq git curl lsb-release pkg-config || fail "Bootstrap install failed"
 ok "Bootstrap packages ready"
 
 # 3. OS check
@@ -56,9 +64,8 @@ fi
 ok "Debian Trixie 64-bit confirmed"
 
 # 4. Root check
-if [[ "$(id -u)" -ne 0 ]]; then
-    fail "This script must be run as root (sudo)"
-fi
+info "Installation will prompt for sudo password when needed for system packages and configuration."
+echo
 
 # 5. Kill any conflicting display servers (NEVER disable ssh)
 info "Checking for conflicting display servers..."
@@ -93,7 +100,7 @@ ok "Disk space OK: ${AVAIL}KB available"
 # ── Install packages ─────────────────────────────────────────────────────────
 info "Installing dependencies (this may take a few minutes)..."
 
-apt-get install -y -qq \
+sudo apt-get install -y -qq \
     build-essential cmake git curl pkg-config \
     libsqlite3-dev libexif-dev libjpeg-dev libpng-dev libtiff-dev libheif-dev libwebp-dev \
     libjpeg62-turbo-dev libopenjp2-7-dev libraw-dev \
@@ -109,7 +116,7 @@ ok "Dependencies installed"
 
 # ── DRM group membership ──────────────────────────────────────────────────────
 info "Adding $PRIMARY_USER to DRM/video groups..."
-usermod -aG video,render "$PRIMARY_USER"
+sudo usermod -aG video,render "$PRIMARY_USER"
 ok "$PRIMARY_USER added to video and render groups (DRM access)"
 
 # ── DRM/KMS configuration (Pi 5) ────────────────────────────────────────────
@@ -117,13 +124,13 @@ info "Configuring DRM/KMS for Pi 5..."
 
 BOOT_CFG="/boot/firmware/config.txt"
 if [[ -f "$BOOT_CFG" ]]; then
-    if ! grep -q "dtoverlay=vc4-kms-v3d" "$BOOT_CFG"; then
-        echo "" >> "$BOOT_CFG"
-        echo "# PiTrove DRM/KMS" >> "$BOOT_CFG"
-        echo "dtoverlay=vc4-kms-v3d,cma-256" >> "$BOOT_CFG"
-        echo "gpu_mem=128" >> "$BOOT_CFG"
-        ok "Added vc4-kms-v3d overlay to $BOOT_CFG"
-    else
+        if ! grep -q "dtoverlay=vc4-kms-v3d" "$BOOT_CFG"; then
+            echo "" | sudo tee -a "$BOOT_CFG" > /dev/null
+            echo "# PiTrove DRM/KMS" | sudo tee -a "$BOOT_CFG" > /dev/null
+            echo "dtoverlay=vc4-kms-v3d,cma-256" | sudo tee -a "$BOOT_CFG" > /dev/null
+            echo "gpu_mem=128" | sudo tee -a "$BOOT_CFG" > /dev/null
+            ok "Added vc4-kms-v3d overlay to $BOOT_CFG"
+        else
         info "vc4-kms-v3d already in $BOOT_CFG"
     fi
 else
@@ -161,7 +168,7 @@ case "$storage_choice" in
         info "Local drive mode — no NAS mount will be created."
         info "Set your local drive mount path in config.toml after installation."
         SHARE_MOUNT="/mnt/media"
-        mkdir -p "$SHARE_MOUNT"
+        sudo mkdir -p "$SHARE_MOUNT"
         ok "Local mount point created: $SHARE_MOUNT"
         ;;
     3)
@@ -256,21 +263,20 @@ $SHARE_IP:$SHARE_PATH $SHARE_MOUNT $SHARE_PROTOCOL defaults,_netdev,timeo=10,ret
 
     # --- CLEAN OLD ENTRIES ---
     # Always remove old cifs/nfs entries for this share before adding new one
-    # This prevents duplicate/old entries with deprecated options (e.g. intr, x-systemd.device-timeout)
-    sed -i '/# PiTrove /d' /etc/fstab
+    sudo sed -i '/# PiTrove /d' /etc/fstab
     # Safely remove only our specific share path, not all entries from same IP
     if [[ "$SHARE_PROTOCOL" == "cifs" ]]; then
         ESCAPED_PATH=$(echo "${SHARE_PATH#/}" | sed 's/[\/]/\\&/g')
-        sed -i "/^\/\/${SHARE_IP}\/${ESCAPED_PATH}/d" /etc/fstab 2>/dev/null || true
+        sudo sed -i "/^\/\/${SHARE_IP}\/${ESCAPED_PATH}/d" /etc/fstab 2>/dev/null || true
     else
-        sed -i "/^${SHARE_IP}:${SHARE_PATH}/d" /etc/fstab 2>/dev/null || true
+        sudo sed -i "/^${SHARE_IP}:${SHARE_PATH}/d" /etc/fstab 2>/dev/null || true
     fi
     # Add to fstab (always overwrite)
-    mkdir -p "$SHARE_MOUNT"
+    sudo mkdir -p "$SHARE_MOUNT"
     echo "fstab entry to add:"
     echo "  $FSTAB_LINE"
-    echo "$FSTAB_LINE" >> /etc/fstab
-    systemctl daemon-reload 2>/dev/null || true
+    echo "$FSTAB_LINE" | sudo tee -a /etc/fstab > /dev/null
+    sudo systemctl daemon-reload 2>/dev/null || true
     info "Added $SHARE_PROTOCOL mount to /etc/fstab"
 
     # Mount with retry loop
@@ -341,15 +347,15 @@ $SHARE_IP:$SHARE_PATH $SHARE_MOUNT $SHARE_PROTOCOL defaults,_netdev,timeo=10,ret
 $SHARE_IP:$SHARE_PATH $SHARE_MOUNT $SHARE_PROTOCOL defaults,_netdev,timeo=10,retrans=3,nofail 0 0"
                         fi
                         # Clean and rewrite fstab
-                        sed -i '/# PiTrove /d' /etc/fstab
+                        sudo sed -i '/# PiTrove /d' /etc/fstab
                         if [[ "$SHARE_PROTOCOL" == "cifs" ]]; then
                             ESCAPED_PATH=$(echo "${SHARE_PATH#/}" | sed 's/[\/]/\\&/g')
-                            sed -i "/^\/\/${SHARE_IP}\/${ESCAPED_PATH}/d" /etc/fstab 2>/dev/null || true
+                            sudo sed -i "/^\/\/${SHARE_IP}\/${ESCAPED_PATH}/d" /etc/fstab 2>/dev/null || true
                         else
-                            sed -i "/^${SHARE_IP}:${SHARE_PATH}/d" /etc/fstab 2>/dev/null || true
+                            sudo sed -i "/^${SHARE_IP}:${SHARE_PATH}/d" /etc/fstab 2>/dev/null || true
                         fi
-                        echo "$FSTAB_LINE" >> /etc/fstab
-                        systemctl daemon-reload 2>/dev/null || true
+                        echo "$FSTAB_LINE" | sudo tee -a /etc/fstab > /dev/null
+                        sudo systemctl daemon-reload 2>/dev/null || true
                         info "Updated fstab, retrying..."
                         continue
                         ;;
@@ -452,11 +458,12 @@ chown -R $PRIMARY_USER:$PRIMARY_USER "$PRIMARY_HOME/raylib-src"
 # ── Install fonts ────────────────────────────────────────────────────────────
 info "Installing CRT overlay fonts..."
 
-   if [[ -d "$PRIMARY_HOME/piTrove/src/fonts" ]]; then
-        mkdir -p /usr/share/fonts/truetype/dejavu
+    if [[ -d "$PRIMARY_HOME/piTrove/src/fonts" ]]; then
+        sudo mkdir -p /usr/share/fonts/truetype/dejavu
         if [[ ! -f /usr/share/fonts/truetype/dejavu/DejaVuSansMono-Bold.ttf ]]; then
-            cp "$PRIMARY_HOME/piTrove/src/fonts/DejaVuSansMono-Bold.ttf" /usr/share/fonts/truetype/dejavu/
+            sudo cp "$PRIMARY_HOME/piTrove/src/fonts/DejaVuSansMono-Bold.ttf" /usr/share/fonts/truetype/dejavu/
             ok "Installed DejaVu Sans Mono Bold"
+
     else
         info "Font already installed (skipping)"
     fi
@@ -477,10 +484,11 @@ cmake -B build \
     -DCMAKE_C_FLAGS="-O3 -march=native -mtune=native"
 cmake --build build -j3 || fail "raylib build failed"
 
-cp build/raylib/libraylib.a /usr/local/lib/libraylib.a
-cp src/raylib.h  /usr/local/include/raylib.h
-cp src/rlgl.h    /usr/local/include/rlgl.h
-cp src/raymath.h /usr/local/include/raymath.h
+cp build/raylib/libraylib.a /tmp/libraylib.a
+sudo cp /tmp/libraylib.a /usr/local/lib/libraylib.a
+sudo cp src/raylib.h  /usr/local/include/raylib.h
+sudo cp src/rlgl.h    /usr/local/include/rlgl.h
+sudo cp src/raymath.h /usr/local/include/raymath.h
 ok "Installed raylib to /usr/local/lib/ + /usr/local/include/"
 
 # ── Build piTrove ────────────────────────────────────────────────────────────
@@ -503,12 +511,8 @@ info "Splash image is in src/splash.png"
 
 # ── Directory structure ──────────────────────────────────────────────────────
 info "Creating directory structure..."
-
-sudo -u "$PRIMARY_USER" mkdir -p "$PRIMARY_HOME/.cache/piTrove"
-sudo -u "$PRIMARY_USER" mkdir -p "$PRIMARY_HOME/piTrove/src/config"
-sudo -u "$PRIMARY_USER" mkdir -p "$PRIMARY_HOME/piTrove/logs"
-sudo -u "$PRIMARY_USER" mkdir -p "$PRIMARY_HOME/piTrove/src/fonts"
-mkdir -p "$SHARE_MOUNT"
+# User directories created at start of script
+# System mount points created during storage config
 
 # ── Scan window selection ────────────────────────────────────────────────────
 read -r -p "Temporal window (=/- days from today, year agnostic, 0=disable) [default: 15]: " scan_input < /dev/tty
@@ -626,16 +630,10 @@ http_enabled = 0
 http_port = 8080
 EOF
 
-chown -R $PRIMARY_USER:$PRIMARY_USER "$PRIMARY_HOME/piTrove/src/config"
 ok "Config written to $PRIMARY_HOME/piTrove/src/config/config.toml"
 
 # ── Ensure all directories have correct ownership ──
-mkdir -p "$PRIMARY_HOME/.cache/piTrove"
-chown -R $PRIMARY_USER:$PRIMARY_USER "$PRIMARY_HOME/.cache/piTrove"
-mkdir -p "$PRIMARY_HOME/piTrove/logs"
-chown -R $PRIMARY_USER:$PRIMARY_USER "$PRIMARY_HOME/piTrove/logs"
-mkdir -p "$PRIMARY_HOME/piTrove/src/fonts"
-chown -R $PRIMARY_USER:$PRIMARY_USER "$PRIMARY_HOME/piTrove/src/fonts"
+# Handled by creating user dirs before sudo and using sudo for system dirs
 
 # Warn if media_dir points to unmounted path
 if [[ "$USE_NAS" -eq 1 || "$storage_choice" == "3" ]]; then
@@ -648,7 +646,7 @@ fi
 # ── systemd service ──────────────────────────────────────────────────────────
 info "Installing systemd service..."
 
-cat > /etc/systemd/system/piTrove.service <<EOF
+cat > piTrove.service <<EOF
 [Unit]
 Description=PiTrove Digital Picture Frame
 After=multi-user.target network-online.target
@@ -672,8 +670,9 @@ Environment=HOME=$PRIMARY_HOME
 WantedBy=multi-user.target
 EOF
 
-systemctl daemon-reload
-systemctl enable piTrove.service
+sudo mv piTrove.service /etc/systemd/system/piTrove.service
+sudo systemctl daemon-reload
+sudo systemctl enable piTrove.service
 info "Service installed: piTrove.service (enabled)"
 
  # ── Done ─────────────────────────────────────────────────────────────────────
