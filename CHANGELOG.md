@@ -8,6 +8,12 @@
 - **HTTP Playlist Data Race** — Changed `http_thread_func` to retrieve `slide.items` via the thread-safe `slide.get_items()` helper instead of an unprotected direct read.
 - **mmap_size Overflow** — Changed `cache_mmap_size` from signed `int` to `long long` to prevent overflows/truncation on larger databases (e.g. >= 2GB) and replaced `std::stoi` with `std::stoll`.
 
+## v7.10.1 — Restore install.sh (711 lines), version bump, raylib-src cleanup (May 20, 2026)
+
+### Fixed
+- **install.sh corrupted** — Was truncated to 35 lines (only echo statements) since v7.1.0. Restored from v6.0.13 (711 lines), updated version refs to v7.10.1.
+- **raylib-src cleanup** — After install, `~/raylib-src` (~500MB+) is removed since only `libraylib.a` + `raylib.h` are needed on Pi.
+
 ## v7.10.0 — Restore vo=libmpv, explicit FBO internal_format, render logging (May 20, 2026)
 
 ### Fixed
