@@ -10,7 +10,7 @@
  *   • Slideshow – raylib, preload, crossfade, Ken Burns
  */
 
-#define VERSION "7.1.7"
+#define VERSION "7.2.0"
 #define APP_NAME "piTrove"
 
 // Global atomics for headless features
@@ -124,6 +124,43 @@ int g_http_server_fd = -1;
 #include <array>
 #include <stdexcept>
 #include <iostream>
+#include <signal.h>
+#include <unistd.h>
+#include <fcntl.h>
+#include <poll.h>
+#include <errno.h>
+#include <sys/resource.h>
+
+// Crash-safety tracking variables
+std::string g_crash_cache_dir = "";
+std::atomic<bool> g_database_complete{false};
+
+static void crash_handler(int sig) {
+    const char* msg = "\n[CRITICAL ERROR] piTrove intercepted a terminal fault / crash signal.\n";
+    write(STDERR_FILENO, msg, strlen(msg));
+    if (!g_database_complete.load() && !g_crash_cache_dir.empty()) {
+        const char* purge_msg = "[CRITICAL] Database compilation was incomplete. Purging partial database records to protect state integrity...\n";
+        write(STDERR_FILENO, purge_msg, strlen(purge_msg));
+        std::string db_file = g_crash_cache_dir + "/cache.db";
+        std::remove(db_file.c_str());
+        std::remove((db_file + "-wal").c_str());
+        std::remove((db_file + "-shm").c_str());
+    }
+    signal(sig, SIG_DFL);
+    raise(sig);
+}
+
+static void terminate_handler() {
+    fprintf(stderr, "\n[CRITICAL ERROR] piTrove exited due to an unhandled C++ runtime exception.\n");
+    if (!g_database_complete.load() && !g_crash_cache_dir.empty()) {
+        fprintf(stderr, "[CRITICAL] Database compilation incomplete. Purging partial database records...\n");
+        std::string db_file = g_crash_cache_dir + "/cache.db";
+        std::remove(db_file.c_str());
+        std::remove((db_file + "-wal").c_str());
+        std::remove((db_file + "-shm").c_str());
+    }
+    std::abort();
+}
 
 // ── stb_image (raylib static lib already bundles these) ────────────────
 // NOTE: Do NOT define STB_IMAGE_IMPLEMENTATION — raylib.a already includes it
@@ -2395,27 +2432,35 @@ static std::string run_ffprobe(const std::vector<std::string>& args, int timeout
         struct rlimit rl{ 256u*1024*1024, 256u*1024*1024 };
         setrlimit(RLIMIT_AS, &rl);
         execvp("ffprobe", const_cast<char* const*>(argv.data()));
-        _exit(1);
+        _exit(127);
     }
     close(pipefd[1]);
     std::string out; out.reserve(512);
     char buf[4096];
     auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeout_ms);
+    bool eof_reached = false;
     while (true) {
         auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(
             deadline - std::chrono::steady_clock::now()).count();
-        if (remaining <= 0) { kill(pid, SIGKILL); waitpid(pid, nullptr, 0); close(pipefd[0]); return ""; }
+        if (remaining <= 0) { break; }
         struct pollfd pfd{ pipefd[0], POLLIN, 0 };
         int ret = poll(&pfd, 1, (int)std::min<long>(remaining, 500));
         if (ret < 0) { if (errno == EINTR) continue; break; }
         if (ret == 0) continue;
         if (pfd.revents & (POLLIN|POLLHUP)) {
             ssize_t n = read(pipefd[0], buf, sizeof(buf));
-            if (n > 0) { out.append(buf, n); if (out.size() > 65536) break; }
-            else break;
+            if (n > 0) {
+                out.append(buf, n);
+                if (out.size() > 65536) break;
+            }
+            else { eof_reached = true; break; }
         }
     }
-    close(pipefd[0]); waitpid(pid, nullptr, 0);
+    if (!eof_reached) {
+        kill(pid, SIGKILL);
+    }
+    close(pipefd[0]);
+    waitpid(pid, nullptr, 0);
     return out;
 }
 
@@ -6318,10 +6363,20 @@ void treadmill_worker(const Config& cfg, Slideshow& slideshow_ref) {
 
 
 int main(int argc, char** argv) {
+    // Wire global handlers for hardware faults and terminations
+    signal(SIGSEGV, crash_handler);
+    signal(SIGABRT, crash_handler);
+    signal(SIGFPE,  crash_handler);
+    signal(SIGILL,  crash_handler);
+    std::set_terminate(terminate_handler);
+
     std::string home_dir = getenv("HOME") ? getenv("HOME") : "/home/pi";
     std::string config_path = home_dir + "/piTrove/src/config/config.toml";
     bool run_config = false;
     bool run_restart = false;
+    
+    // Cache configuration context for path references during crash events
+    g_crash_cache_dir = home_dir + "/.cache/piTrove";
     
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "--config") == 0) {
@@ -6618,7 +6673,10 @@ g_logger.init(cfg.log_dir, cfg.verbose ? LogLevel::DEBUG : LogLevel::INFO);
             g_logger.info("Items: photos=%d videos=%d", photos, videos);
             if (photos == 0 && videos == 0) {
                 g_logger.error("Cache DB loaded 0 valid items — will re-scan");
-            } else { goto slideshow_start; }
+            } else {
+                g_database_complete.store(true);
+                goto slideshow_start;
+            }
         } else {
             // Fast-path open failed — fall through to full scan
             delete fast_cache;
@@ -6771,6 +6829,8 @@ g_logger.init(cfg.log_dir, cfg.verbose ? LogLevel::DEBUG : LogLevel::INFO);
         // Join old threads before destroying them (prevent std::terminate)
         for (auto& t : threads) { if (t.joinable()) t.join(); }
         threads.clear();
+        // FIX: Synchronize thread bounds cleanly before initialization mapping
+        total_threads = cfg.max_concurrent + 1;
         threads_remaining.store(total_threads, std::memory_order_release);
 
         threads.emplace_back([&]() {
@@ -6941,6 +7001,7 @@ g_logger.init(cfg.log_dir, cfg.verbose ? LogLevel::DEBUG : LogLevel::INFO);
         }
     }
     cache_instance->commit_transaction();
+    g_database_complete.store(true); // Database transaction fully flushed and valid
 
     auto cache_end = std::chrono::steady_clock::now();
     auto cache_ms = std::chrono::duration_cast<std::chrono::milliseconds>(cache_end - cache_start).count();
