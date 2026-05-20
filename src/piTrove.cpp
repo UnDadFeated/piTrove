@@ -6129,7 +6129,7 @@ int main(int argc, char** argv) {
     bool run_restart = false;
     
     // Cache configuration context for path references during crash events
-    g_crash_cache_dir = home_dir + "/.cache/piTrove";
+    g_crash_cache_dir = home_dir + "/piTrove/cache";
     
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "--config") == 0) {
@@ -6145,7 +6145,7 @@ int main(int argc, char** argv) {
     }
 
     // ── DEFINE CACHE DIR & PID PATH ──
-    std::string cache_dir = home_dir + "/.cache/piTrove";
+    std::string cache_dir = home_dir + "/piTrove/cache";
     std::string pid_path = cache_dir + "/piTrove.pid";
     
     // FIX 2: Silence Raylib's massive INFO and WARNING log spam

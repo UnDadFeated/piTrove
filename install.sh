@@ -504,10 +504,10 @@ info "Splash image is in src/splash.png"
 # ── Directory structure ──────────────────────────────────────────────────────
 info "Creating directory structure..."
 
-sudo -u "$PRIMARY_USER" mkdir -p "$PRIMARY_HOME/.cache/piTrove"
-sudo -u "$PRIMARY_USER" mkdir -p "$PRIMARY_HOME/piTrove/src/config"
-sudo -u "$PRIMARY_USER" mkdir -p "$PRIMARY_HOME/piTrove/logs"
-sudo -u "$PRIMARY_USER" mkdir -p "$PRIMARY_HOME/piTrove/src/fonts"
+mkdir -p "$PRIMARY_HOME/piTrove/cache" "$PRIMARY_HOME/piTrove/config"
+mkdir -p "$PRIMARY_HOME/piTrove/src/config"
+mkdir -p "$PRIMARY_HOME/piTrove/logs"
+mkdir -p "$PRIMARY_HOME/piTrove/src/fonts"
 mkdir -p "$SHARE_MOUNT"
 
 # ── Scan window selection ────────────────────────────────────────────────────
@@ -540,7 +540,7 @@ cat > "$PRIMARY_HOME/piTrove/src/config/config.toml" <<EOF
 
 [paths]
 media_dir = $SHARE_MOUNT
-cache_dir = $PRIMARY_HOME/.cache/piTrove
+cache_dir = $PRIMARY_HOME/piTrove/cache
 log_dir = $PRIMARY_HOME/piTrove/logs
 
 [display]
@@ -629,12 +629,8 @@ chown -R $PRIMARY_USER:$PRIMARY_USER "$PRIMARY_HOME/piTrove/src/config"
 ok "Config written to $PRIMARY_HOME/piTrove/src/config/config.toml"
 
 # ── Ensure all directories have correct ownership ──
-mkdir -p "$PRIMARY_HOME/.cache/piTrove"
-chown -R $PRIMARY_USER:$PRIMARY_USER "$PRIMARY_HOME/.cache/piTrove"
-mkdir -p "$PRIMARY_HOME/piTrove/logs"
-chown -R $PRIMARY_USER:$PRIMARY_USER "$PRIMARY_HOME/piTrove/logs"
-mkdir -p "$PRIMARY_HOME/piTrove/src/fonts"
-chown -R $PRIMARY_USER:$PRIMARY_USER "$PRIMARY_HOME/piTrove/src/fonts"
+mkdir -p "$PRIMARY_HOME/piTrove/cache" "$PRIMARY_HOME/piTrove/config"
+chown -R $PRIMARY_USER:$PRIMARY_USER "$PRIMARY_HOME/piTrove"
 
 # Warn if media_dir points to unmounted path
 if [[ "$USE_NAS" -eq 1 || "$storage_choice" == "3" ]]; then
@@ -706,7 +702,7 @@ echo
 echo "  Directories:"
 echo "  Config:       $PRIMARY_HOME/piTrove/src/config/config.toml"
 echo "  Source:       $PRIMARY_HOME/piTrove/src/"
-echo "  Cache:        $PRIMARY_HOME/.cache/piTrove/"
+echo "  Cache:        $PRIMARY_HOME/piTrove/cache/"
 echo "  Logs:         $PRIMARY_HOME/piTrove/logs/"
 echo
 
