@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# install.sh — PiTrove v7.10.1 installer
+# install.sh — PiTrove v7.10.2 installer
 # Target: Debian Trixie (13) 64-bit on Raspberry Pi 5
 # Features: JPEG/TIFF/PNG/WebP/HEIC robust loaders, CRT UI, multi-format support
 
@@ -711,6 +711,15 @@ echo
 if [[ -d "$PRIMARY_HOME/raylib-src/.git" ]]; then
     rm -rf "$PRIMARY_HOME/raylib-src"
     info "Cleaned up raylib-src ($PRIMARY_HOME/raylib-src) — freed ~500MB+"
+fi
+
+# ── Self-cleanup: remove ~/install.sh (one-time bootstrap copy) ──────────────
+# After install, the canonical copy lives in ~/piTrove/install.sh (from git clone).
+# Remove the one-off ~/install.sh so install.sh only exists in ~/piTrove.
+BOOTSTRAP="$PRIMARY_HOME/install.sh"
+if [[ -f "$BOOTSTRAP" ]]; then
+    rm -f "$BOOTSTRAP"
+    info "Removed bootstrap copy ($BOOTSTRAP)"
 fi
 
 echo "============================================"
