@@ -3,6 +3,7 @@ build/
 *.zip
 src/config/config.toml
 src/build/
+src/build_new/
 .sudo_as_admin_successful
 AGENTS.md
 
