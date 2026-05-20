@@ -5,6 +5,12 @@
 ### Fixed
 - **CRITICAL · Preload thread explosion** — `preload_running` flag raced between `update()`, `advance()`, and the preload thread, causing ~30 threads/sec spawned for the same image → SIGKILL by systemd in ~30s. Fixed with 4-part atomic lifecycle: (1) `preload_next()` atomically check-and-sets `preload_running=true` under `preload_lifecycle_mtx` before spawning, (2) preload thread keeps `preload_running=true` on success (prevents `update()` from restarting loop), (3) swap path resets `preload_running=false` so guard block can trigger next preload, (4) `advance()` joins in-flight thread then resets flag.
 
+## v7.8.1 — EXIF rotation at display time, skip video probing in Phase 2 (May 20, 2026)
+
+### Fixed
+- **EXIF rotation now read at display time** — Phase 2 cache only stored placeholder value of 1. Now `preload_next()` and `load_item()` call `read_exif_rotation_timeout()` at preload/load time (3s timeout) so EXIF orientation is applied to every image.
+- **Phase 2 caching skip video probing** — `probe_video_meta()` had 8s timeout per video × 905 videos = hours of blocking on CIFS. Phase 2 now skips video probing entirely; duration is probed lazily during preload at display time (3s timeout).
+
 ## v7.7.0 — CacheManager double-close fix, transaction mutex (May 20, 2026)
 
 ### Fixed
