@@ -10,7 +10,7 @@
  *   • Slideshow – raylib, preload, crossfade, Ken Burns
  */
 
-#define VERSION "7.10.3"
+#define VERSION "8.0.0"
 #define APP_NAME "piTrove"
 
 // Global atomics for headless features
@@ -33,13 +33,10 @@ int g_http_server_fd = -1;
 #include <rlgl.h>
 
 // OpenGL ES — for glReadPixels in fb_flip()
-// ── DRM master management ─────────────────────────────────────────────
+// ── DRM master management (v8.0.0: drop/set master for subprocess mpv) ──
 #include <xf86drm.h>
 
-// ── mpv render API (v3.0.0: in-process video) ─────────────────────────
-#include <mpv/client.h>
-#include <mpv/render_gl.h>
-// ── EGL — for mpv render API context sharing ──
+// ── EGL / GLES2 ───────────────────────────────────────────────────────
 #include <EGL/egl.h>
 #include <GLES2/gl2.h>   // glBindFramebuffer, GL_FRAMEBUFFER
 // ── dlopen/dlsym for fresh GL function resolution ──
@@ -1208,371 +1205,164 @@ struct Logger {
 Logger g_logger;
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-//  v3.0.0: MPVPlayer — in-process mpv render API (merged from MPVPlayer.h/.cpp)
+//  v8.0.0: Subprocess Video Player — replaces in-process libmpv render API
+//  The libmpv FBO approach produced black screens on Pi 5 (GLES2/DRM FBO
+//  incompatibilities). Subprocess mpv --vo=drm renders directly via DRM/KMS.
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-// Logging interface — implemented via _mpv_log_error/_mpv_log_info below
-typedef void (*mpv_log_fn)(const char* fmt, ...);
 
 extern Config g_cfg;
 
-struct MPVPlayer {
-     mpv_handle *ctx = nullptr;
-     mpv_render_context *gl_ctx = nullptr;
-     bool initialized = false;
-     std::atomic<bool> playing{false};
-     std::atomic<bool> eof{false};
-     std::string current_file;
-     std::mutex play_mutex;
-     int surface_w{1920};
-     int surface_h{1080};
-     int video_volume{0};
-     RenderTexture2D video_rt{};
-     
-     // Smooth EGL tracking
-     EGLDisplay egl_dpy = EGL_NO_DISPLAY;
-     EGLContext egl_ctx = EGL_NO_CONTEXT;
-     EGLSurface egl_surf_draw = EGL_NO_SURFACE;
-     EGLSurface egl_surf_read = EGL_NO_SURFACE;
+// Global subprocess state
+static pid_t g_video_pid = -1;
+static int g_drm_fd = -1;
+static std::atomic<bool> g_video_subprocess_active{false};
+static std::mutex g_video_mtx;
 
-     // Asynchronous property state counters
-     std::atomic<double> video_time_remaining{0.0};
-     std::atomic<double> video_duration{0.0};
-
-     // Event drain thread — keeps mpv's event queue empty so commands don't block.
-      // Without this, mpv_command() blocks when the queue fills (~1000 events) →
-      // main thread freezes → process killed → green screen on restart.
-      std::thread event_thread;
-      std::atomic<bool> event_thread_stop{false};
-
-      bool init();
-      void destroy();
-      bool play(const std::string &path);
-      void stop();
-      bool update_frame();
-      void make_egl_current();
-      void release_egl_current();
-      bool is_playing() const { return playing.load(); }
-      bool is_initialized() const { return initialized; }
-      bool has_eof() const { return eof.load(); }
-  };
-
-static MPVPlayer g_mpv;
-std::atomic<bool> g_mpv_frame_available{false};
-
-
-// Update callback — called from mpv's internal thread when a frame is available
-// Must be fast — just set an atomic flag (no libmpv API calls)
-static void mpv_update_callback(void *ctx) {
-    (void)ctx;
-    g_mpv_frame_available.store(true);
-}
-
-// v3.0.0: mpv logging function pointers — bridge to g_logger
-static void _mpv_log_error(const char* fmt, ...) {
-    char buf[512]; va_list ap; va_start(ap, fmt); vsnprintf(buf, sizeof(buf), fmt, ap); va_end(ap);
-    g_logger.error("%s", buf);
-}
-static void _mpv_log_info(const char* fmt, ...) {
-    char buf[512]; va_list ap; va_start(ap, fmt); vsnprintf(buf, sizeof(buf), fmt, ap); va_end(ap);
-    g_logger.info("%s", buf);
-}
-mpv_log_fn g_mpv_log_error = _mpv_log_error;
-mpv_log_fn g_mpv_log_info = _mpv_log_info;
-
-// Resolve GL function pointers via eglGetProcAddress.
-// dlsym(RTLD_DEFAULT) misses GLES2 extension functions that are only exposed
-// through EGL — mpv gets NULL pointers and crashes on first use.
-// eglGetProcAddress is safe here because init() guards on eglGetCurrentContext()
-// succeeding before this callback is ever registered.
-static void* mpv_get_proc_address(void* ctx, const char* name) {
-    (void)ctx;
-    void* ptr = (void*)eglGetProcAddress(name);
-    if (!ptr) ptr = dlsym(RTLD_DEFAULT, name);  // fallback for core symbols
-    return ptr;
-}
-
-// ── MPVPlayer method implementations ──
-
-bool MPVPlayer::init() {
-    if (initialized) return true;
-
-    egl_dpy = eglGetCurrentDisplay();
-    egl_ctx = eglGetCurrentContext();
-    egl_surf_draw = eglGetCurrentSurface(EGL_DRAW);
-    egl_surf_read = eglGetCurrentSurface(EGL_READ);
-
-    if (egl_dpy == EGL_NO_DISPLAY || egl_ctx == EGL_NO_CONTEXT) {
-        g_logger.error("MPV_INIT: No current EGL context available.");
-        return false;
-    }
-
-    ctx = mpv_create();
-    if (!ctx) return false;
-
-    mpv_set_option_string(ctx, "msg-level", "all=warn");
-    mpv_set_option_string(ctx, "gpu-api", "opengl");
-    mpv_set_option_string(ctx, "opengl-es", "yes");
-    mpv_set_option_string(ctx, "vo", "libmpv"); // Required for mpv_render_context API
-    
-    // Pi 5 FBO Compatibility Optimization
-    mpv_set_option_string(ctx, "hwdec", "v4l2m2m-copy"); 
-    mpv_set_option_string(ctx, "audio", "no");
-    mpv_set_option_string(ctx, "vd-lavc-skiploopfilter", "nonref");
-    mpv_set_option_string(ctx, "vd-lavc-threads", "4");
-    mpv_set_option_string(ctx, "sws-scaler", "fast-bilinear");
-    mpv_set_option_string(ctx, "video-output-levels", "full");
-
-    char vol[16];
-    snprintf(vol, sizeof(vol), "%d", video_volume);
-    mpv_set_option_string(ctx, "volume", vol);
-
-    if (mpv_initialize(ctx) < 0) {
-        mpv_destroy(ctx);
-        ctx = nullptr;
-        return false;
-    }
-
-    // Register async property listeners before spinning loop up
-    mpv_observe_property(ctx, 0, "time-remaining", MPV_FORMAT_DOUBLE);
-    mpv_observe_property(ctx, 0, "duration", MPV_FORMAT_DOUBLE);
-
-    mpv_opengl_init_params gl_init = { mpv_get_proc_address, nullptr };
-    mpv_render_param mpv_params[] = {
-        {MPV_RENDER_PARAM_API_TYPE,           (void*)MPV_RENDER_API_TYPE_OPENGL},
-        {MPV_RENDER_PARAM_OPENGL_INIT_PARAMS, &gl_init},
-        {MPV_RENDER_PARAM_ADVANCED_CONTROL,   (int[]){1}},
-        {MPV_RENDER_PARAM_INVALID,            nullptr}
-    };
-
-    if (mpv_render_context_create(&gl_ctx, ctx, mpv_params) < 0) {
-        mpv_destroy(ctx);
-        ctx = nullptr;
-        return false;
-    }
-
-    video_rt = LoadRenderTexture(surface_w, surface_h);
-    mpv_render_context_set_update_callback(gl_ctx, mpv_update_callback, nullptr);
-
-    event_thread_stop.store(false);
-    try {
-        event_thread = std::thread([this]() {
-            while (!event_thread_stop.load()) {
-                mpv_event *ev = mpv_wait_event(ctx, 0.02);
-                if (!ev || ev->event_id == MPV_EVENT_NONE) continue;
-                if (ev->event_id == MPV_EVENT_SHUTDOWN) break;
-                
-                // Track streaming properties asynchronously
-                if (ev->event_id == MPV_EVENT_PROPERTY_CHANGE) {
-                    mpv_event_property *prop = (mpv_event_property*)ev->data;
-                    if (prop && prop->name) {
-                        if (strcmp(prop->name, "time-remaining") == 0 && prop->format == MPV_FORMAT_DOUBLE) {
-                            double *val = (double*)prop->data;
-                            if (val) video_time_remaining.store(*val);
-                        } else if (strcmp(prop->name, "duration") == 0 && prop->format == MPV_FORMAT_DOUBLE) {
-                            double *val = (double*)prop->data;
-                            if (val) video_duration.store(*val);
-                        }
-                    }
-                }
-
-                if (ev->event_id == MPV_EVENT_END_FILE) {
-                    playing.store(false);
-                    eof.store(true);
-                }
+// Find Raylib's DRM fd by scanning /proc/self/fd for /dev/dri/card*
+static int find_drm_fd() {
+    DIR *dir = opendir("/proc/self/fd");
+    if (!dir) return -1;
+    struct dirent *entry;
+    while ((entry = readdir(dir)) != nullptr) {
+        if (entry->d_name[0] == '.') continue;
+        char link[256], target[256];
+        snprintf(link, sizeof(link), "/proc/self/fd/%s", entry->d_name);
+        ssize_t len = readlink(link, target, sizeof(target) - 1);
+        if (len > 0) {
+            target[len] = '\0';
+            if (strstr(target, "/dev/dri/card")) {
+                int fd = atoi(entry->d_name);
+                closedir(dir);
+                g_logger.info("VIDEO_DRM: Found DRM fd=%d → %s", fd, target);
+                return fd;
             }
-        });
-    } catch (...) {
-        if (video_rt.id != 0) { UnloadRenderTexture(video_rt); video_rt = {}; }
-        return false;
-    }
-
-    initialized = true;
-    return true;
-}
-
-void MPVPlayer::destroy() {
-     // Stop event thread first — it holds a reference to ctx
-     event_thread_stop.store(true);
-     if (ctx) mpv_wakeup(ctx); // unblock mpv_wait_event immediately
-     if (event_thread.joinable()) event_thread.join();
-
-     if (gl_ctx) {
-         mpv_render_context_free(gl_ctx);
-         gl_ctx = nullptr;
-     }
-     if (ctx) {
-         mpv_destroy(ctx);
-         ctx = nullptr;
-     }
-     if (video_rt.id != 0) {
-         UnloadRenderTexture(video_rt);
-         video_rt = {};
-     }
-      initialized = false;
-      playing.store(false);
-      eof.store(false);
-      {
-          std::lock_guard<std::mutex> lock(play_mutex);
-          current_file.clear();
-      }
-      if (g_mpv_log_info) g_mpv_log_info("MPVPlayer destroyed");
-
-  }
-
-// Make Raylib's EGL context current before mpv render.
-// mpv's render context creates its own internal EGL context in mpv_render_context_create().
-// When mpv_render_context_render() is called, it internally calls eglMakeCurrent() with
-// its own EGL context. On GLES2/DRM this conflicts with Raylib's active EGL context,
-// causing a segfault. By explicitly making Raylib's context current first, we ensure
-// the EGL state is consistent before mpv does its internal context switching.
-void MPVPlayer::make_egl_current() {
-    if (egl_dpy != EGL_NO_DISPLAY && egl_ctx != EGL_NO_CONTEXT) {
-        eglMakeCurrent(egl_dpy, egl_surf_draw, egl_surf_read, egl_ctx);
-    }
-}
-
-void MPVPlayer::release_egl_current() {
-    if (egl_dpy != EGL_NO_DISPLAY && egl_ctx != EGL_NO_CONTEXT) {
-        eglMakeCurrent(egl_dpy, egl_surf_draw, egl_surf_read, egl_ctx);
-    }
-}
-
-bool MPVPlayer::play(const std::string &path) {
-     if (!initialized) return false;
-
-     // CRITICAL: Force Raylib's EGL context current before ANY mpv command.
-     // mpv_command_string("loadfile ... play-now") synchronously spins up
-     // mpv's playback pipeline which probes GL/EGL state to allocate textures,
-     // compile shaders, and configure FBOs. Without Raylib's EGL context current,
-     // mpv's internal EGL calls dereference stale/null function pointers → SEGV.
-     make_egl_current();
-
-     // Use mpv_command() (array form) — more robust than mpv_command_string()
-     // when mpv's GL state is being queried synchronously.
-        // Use the path directly; mpv_command (array form) does not require shell escaping
-        std::string path_buf = path;
-        
-        int rc = -1;
-        if (ctx) {
-            const char *args[] = {"loadfile", path.c_str(), nullptr};
-            rc = mpv_command(ctx, args);
-            if (rc < 0) {
-                if (g_mpv_log_error) g_mpv_log_error("MPV_PLAY: mpv_command loadfile failed: %d ctx=%p", rc, (void*)ctx);
-            } else {
-                if (g_mpv_log_info) g_mpv_log_info("MPV_PLAY: loadfile succeeded, loading='%s'", path_buf.c_str());
-                mpv_set_property_string(ctx, "pause", "no");
-            }
-        } else {
-            if (g_mpv_log_error) g_mpv_log_error("MPV_PLAY: mpv_command ctx is NULL");
         }
-
-
-        // Restore Raylib's EGL context after mpv's synchronous command.
-        release_egl_current();
-
-      // Verify mpv loaded the file
-      if (ctx) {
-          const char *fname = mpv_get_property_string(ctx, "filename");
-          if (fname) {
-              if (g_mpv_log_info) g_mpv_log_info("MPV_VERIFY: filename='%s'", fname);
-              mpv_free((void*)fname);
-          } else {
-              if (g_mpv_log_info) g_mpv_log_info("MPV_VERIFY: filename property returned null (ctx=%p)", (void*)ctx);
-          }
-      } else {
-          if (g_mpv_log_error) g_mpv_log_error("MPV_VERIFY: ctx is NULL");
-      }
-
-      playing.store(true);
-      eof.store(false);
-      {
-          std::lock_guard<std::mutex> lock(play_mutex);
-          current_file = path;
-      }
-      if (g_mpv_log_info) g_mpv_log_info("MPV_PLAY: '%s'", path.substr(0, 80).c_str());
-
-    return (rc >= 0);
+    }
+    closedir(dir);
+    return -1;
 }
 
-void MPVPlayer::stop() {
-    std::lock_guard<std::mutex> lock(play_mutex);
-    if (playing) {
-        mpv_command_string(ctx, "stop");
-        playing.store(false);
-        eof.store(true);
-        if (g_mpv_log_info) g_mpv_log_info("MPV_STOP: playback stopped");
+// Play video via subprocess mpv --vo=drm
+// Drops DRM master so mpv can acquire the display, forks mpv, returns immediately.
+// The main loop polls check_video_subprocess() to detect when playback ends.
+static bool play_video_subprocess(const std::string &path, int volume) {
+    std::lock_guard<std::mutex> lk(g_video_mtx);
+
+    // Kill any existing video subprocess
+    if (g_video_pid > 0) {
+        kill(g_video_pid, SIGTERM);
+        int status;
+        waitpid(g_video_pid, &status, 0);
+        g_video_pid = -1;
+    }
+
+    // Find Raylib's DRM fd (cached after first lookup)
+    if (g_drm_fd < 0) g_drm_fd = find_drm_fd();
+
+    // Drop DRM master so mpv can acquire it for --vo=drm
+    if (g_drm_fd >= 0) {
+        int rc = drmDropMaster(g_drm_fd);
+        g_logger.info("VIDEO_DRM: drmDropMaster(fd=%d) = %d", g_drm_fd, rc);
+    } else {
+        g_logger.error("VIDEO_DRM: No DRM fd found — mpv may fail to acquire display");
+    }
+
+    pid_t pid = fork();
+    if (pid == 0) {
+        // Child process — exec mpv
+        // Close inherited fds to avoid holding DRM/EGL resources
+        for (int i = 3; i < 1024; ++i) close(i);
+
+        char vol_str[16];
+        snprintf(vol_str, sizeof(vol_str), "%d", volume);
+
+        if (volume > 0) {
+            execlp("mpv", "mpv",
+                "--vo=drm",
+                "--drm-connector=HDMI-A-1",
+                "--hwdec=no",
+                "--msg-level=all=error",
+                "--no-terminal",
+                "--no-osc",
+                "--volume", vol_str,
+                path.c_str(),
+                nullptr);
+            execlp("mpv", "mpv",
+                "--vo=drm",
+                "--drm-connector=HDMI-A-1",
+                "--hwdec=no",
+                "--msg-level=all=error",
+                "--no-terminal",
+                "--no-osc",
+                "--no-audio",
+                path.c_str(),
+                nullptr);
+        }
+        _exit(1);  // exec failed
+    } else if (pid > 0) {
+        g_video_pid = pid;
+        g_video_subprocess_active.store(true);
+        g_logger.info("VIDEO_PLAY: forked mpv pid=%d path=%s", pid, path.substr(0, 80).c_str());
+        return true;
+    }
+
+    // Fork failed — re-acquire DRM
+    g_logger.error("VIDEO_PLAY: fork() failed: %s", strerror(errno));
+    if (g_drm_fd >= 0) drmSetMaster(g_drm_fd);
+    return false;
+}
+
+// Stop video subprocess immediately (for skip/next/prev)
+static void stop_video_subprocess() {
+    std::lock_guard<std::mutex> lk(g_video_mtx);
+    if (g_video_pid > 0) {
+        kill(g_video_pid, SIGTERM);
+        // Give it 200ms to exit gracefully, then SIGKILL
+        usleep(200000);
+        int status;
+        pid_t result = waitpid(g_video_pid, &status, WNOHANG);
+        if (result == 0) {
+            kill(g_video_pid, SIGKILL);
+            waitpid(g_video_pid, &status, 0);
+        }
+        g_logger.info("VIDEO_STOP: killed mpv pid=%d", g_video_pid);
+        g_video_pid = -1;
+    }
+    g_video_subprocess_active.store(false);
+
+    // Re-acquire DRM master for Raylib
+    if (g_drm_fd >= 0) {
+        int rc = drmSetMaster(g_drm_fd);
+        g_logger.info("VIDEO_DRM: drmSetMaster(fd=%d) = %d", g_drm_fd, rc);
+        // Clear any EGL error state from lost DRM master period
+        eglGetError();
     }
 }
 
-bool MPVPlayer::update_frame() {
-      if (!initialized || !playing) return false;
+// Non-blocking check: is the video subprocess still running?
+// Returns true if still playing, false if finished (auto re-acquires DRM).
+static bool check_video_subprocess() {
+    if (g_video_pid <= 0) return false;
 
-      // Make sure Raylib's EGL context is current before any mpv render API call
-      make_egl_current();
+    int status;
+    pid_t result = waitpid(g_video_pid, &status, WNOHANG);
+    if (result > 0) {
+        // Process has exited
+        g_logger.info("VIDEO_EOF: mpv pid=%d exited status=%d", g_video_pid,
+                      WIFEXITED(status) ? WEXITSTATUS(status) : -1);
+        g_video_pid = -1;
+        g_video_subprocess_active.store(false);
 
-      // Check if mpv has a new frame ready
-      uint64_t update_flags = mpv_render_context_update(gl_ctx);
-      if (!(update_flags & MPV_RENDER_UPDATE_FRAME)) {
-          release_egl_current();
-          return false;
-      }
-
-      mpv_opengl_fbo fbo = {0};
-      fbo.fbo = (int)video_rt.id;   
-      fbo.w   = surface_w;
-      fbo.h   = surface_h;
-      fbo.internal_format = 0x1908; // GLES2: explicit GL_RGBA (0 = auto-detect fails silently on DRM)
-
-      int flip_y = 1;
-      // FIX: Removed BLOCK_FOR_TARGET_TIME — 32-bit int causes stack corruption with mpv's 64-bit uint64_t* on ARM64
-      mpv_render_param render_params[] = {
-              {MPV_RENDER_PARAM_OPENGL_FBO,            &fbo},
-              {MPV_RENDER_PARAM_FLIP_Y,                &flip_y},
-              {MPV_RENDER_PARAM_INVALID,               nullptr}
-      };
-
-       int ret = mpv_render_context_render(gl_ctx, render_params);
-       if (ret < 0) {
-           g_logger.error("MPV_RENDER: render failed ret=%d fbo=%d w=%d h=%d", ret, (int)video_rt.id, surface_w, surface_h);
-       } else {
-           // Verify texture was written by checking for non-zero pixels (best-effort)
-           g_logger.info("MPV_RENDER: frame written fbo=%d w=%d h=%d", (int)video_rt.id, surface_w, surface_h);
-       }
-       
-       // CRITICAL: Always reset FBO and Viewport before checking return value,
-       // as mpv_render_context_render leaves the FBO bound regardless of success.
-       glBindFramebuffer(GL_FRAMEBUFFER, 0);
-       rlViewport(0, 0, GetScreenWidth(), GetScreenHeight());
-       
-       if (ret < 0) {
-           if (g_mpv_log_error) g_mpv_log_error("MPV_RENDER: mpv_render_context_render failed: %d", ret);
-           release_egl_current();
-           return false;
-       }
-       
-       // Report swap — tells mpv the frame was presented, for A/V sync timing
-       mpv_render_context_report_swap(gl_ctx);
-       
-       // ── FIX v7.0.5: Safe OpenGL state reset via rlgl APIs ──
-
-      // mpv alters internal VBOs, shaders, and texture bindings.
-      // glActiveTexture + glBindTexture resets OpenGL texture state.
-      // rlDisableShader() safely restores Raylib's default shader via rlgl.
-      // REMOVED: raw glBindBuffer calls — desynced rlgl's VBO cache (v7.0.3).
-      // REMOVED: rlBindTexture — not available on Pi's Raylib (GLES2) build.
-      glActiveTexture(GL_TEXTURE0);
-      glBindTexture(GL_TEXTURE_2D, 0);
-      rlDisableShader();
-      // ─────────────────────────────────────────────────────────
-
-      release_egl_current();
-
-      // FIX: Removed mpv_get_property("eof-reached") — 60fps polling floods IPC, causes deadlock/crash.
-      // EOF is already safely handled asynchronously by the event_thread.
-
-      return true;
-  }
+        // Re-acquire DRM master for Raylib
+        if (g_drm_fd >= 0) {
+            int rc = drmSetMaster(g_drm_fd);
+            g_logger.info("VIDEO_DRM: drmSetMaster(fd=%d) = %d", g_drm_fd, rc);
+            eglGetError();  // Clear stale EGL errors
+        }
+        return false;  // No longer running
+    }
+    return true;  // Still running
+}
 
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -3393,7 +3183,7 @@ struct Slideshow {
         return items;
     }
 std::atomic<bool> current_is_video{false};  // v6.0.10: atomic for HTTP thread safety (B7)
-      // v3.0.0: g_mpv is a global defined inline above; subprocess fields below kept for mpv_video_play() fallback only
+      // v8.0.0: Video playback uses subprocess mpv --vo=drm (see play_video_subprocess above)
       std::mt19937 rng{std::random_device{}() ^ static_cast<unsigned int>(time(nullptr))};
         std::thread treadmill_thread;
 
@@ -3912,17 +3702,17 @@ slide_debug("ADVANCE: fwd=%d cur=%d items_ptr=%d", forward ? 1 : 0, current_inde
       }
 
     bool video_playing = false;
-              if (current_is_video && g_mpv.is_playing()) {
-                  video_playing = true;
+              if (current_is_video && g_video_subprocess_active.load()) {
+                  video_playing = check_video_subprocess();  // polls waitpid, re-acquires DRM on exit
               }
-              g_logger.debug("UPDATE_STATE: is_video=%d mpv_playing=%d video_playing=%d transitioning=%d",
-                  current_is_video ? 1 : 0, g_mpv.is_playing() ? 1 : 0, video_playing ? 1 : 0, transitioning ? 1 : 0);
+              g_logger.debug("UPDATE_STATE: is_video=%d subprocess_active=%d video_playing=%d transitioning=%d",
+                  current_is_video ? 1 : 0, g_video_subprocess_active.load() ? 1 : 0, video_playing ? 1 : 0, transitioning ? 1 : 0);
 
              if (!transitioning) {
                 bool time_up = false;
                 if (current_is_video) {
-                      // time_up when in-process mpv finished (EOF) or stalled >2s without starting
-                      time_up = (g_mpv.has_eof() || (!video_playing && item_timer > 2.0));
+                      // v8.0.0: time_up when subprocess mpv exited or stalled >2s without starting
+                      time_up = (!video_playing && item_timer > 2.0);
               } else {
                  time_up = (item_timer >= cfg.transition_delay);
              slide_debug("TIME_UP: t=%f del=%f up=%d", item_timer, cfg.transition_delay, item_timer >= cfg.transition_delay);
@@ -4011,20 +3801,9 @@ slide_debug("ADVANCE: fwd=%d cur=%d items_ptr=%d", forward ? 1 : 0, current_inde
                           current_w = cfg.screen_w;
                           current_h = cfg.screen_h;
 
-                          // In-process g_mpv — initialized lazily on first video
-                          if (!g_mpv.is_initialized()) {
-                              g_mpv.surface_w    = cfg.screen_w;
-                              g_mpv.surface_h    = cfg.screen_h;
-                              g_mpv.video_volume = cfg.video_volume;
-                             if (!g_mpv.init()) {
-                                 g_logger.error("SWAP_TO_VIDEO: g_mpv.init() failed — skipping");
-              current_is_video.store(false);
-                                 advance(true);
-                                 return;
-                             }
-                         }
-                         if (!g_mpv.play((*items_ptr)[_swap_ci].path)) {
-                            g_logger.error("SWAP_TO_VIDEO: g_mpv.play() failed — skipping");
+                          // v8.0.0: Subprocess mpv --vo=drm
+                         if (!play_video_subprocess((*items_ptr)[_swap_ci].path, cfg.video_volume)) {
+                            g_logger.error("SWAP_TO_VIDEO: play_video_subprocess failed — skipping");
                             current_is_video.store(false);
                             advance(true);
                             return;
@@ -4089,30 +3868,10 @@ slide_debug("ADVANCE: fwd=%d cur=%d items_ptr=%d", forward ? 1 : 0, current_inde
         Color avg = current_bg_color;
 
       if (current_is_video) {
-                    // ── NEW FIX v7.0.2: Clear background so transition fades don't accumulate ──
-                    // Video decoders output RGB into FBO but leave alpha=0.
-                    // Raylib alpha blending draws transparent video over stale frames → infinite black glow.
+                    // v8.0.0: Video is rendered by subprocess mpv --vo=drm directly to display.
+                    // During video playback, mpv controls the DRM display — Raylib's framebuffer
+                    // is not visible. Just clear to black in case DRM master is re-acquired.
                     ClearBackground(BLACK);
-
-                    // ── VIDEO RENDER: blit g_mpv.video_rt.texture to screen ──
-                    // update_frame() decoded the latest mpv frame into video_rt BEFORE BeginDrawing.
-                    // Raylib FBO source height is inverted (-h) for correct coordinate orientation.
-                    if (g_mpv.is_initialized() && g_mpv.video_rt.texture.id != 0) {
-                        // ── FIX v7.0.2: Disable blending so alpha=0 FBOs draw opaquely ──
-                        rlDisableColorBlend();
-                        Rectangle srcRec = {
-                            0.0f, 0.0f,
-                            (float)g_mpv.video_rt.texture.width,
-                            -(float)g_mpv.video_rt.texture.height
-                        };
-                        Rectangle dstRec = {
-                            0.0f, 0.0f,
-                            (float)sw, (float)sh
-                        };
-                        DrawTexturePro(g_mpv.video_rt.texture, srcRec, dstRec, {0.0f, 0.0f}, 0.0f, WHITE);
-                        rlEnableColorBlend();
-                        // ─────────────────────────────────────────────────────────────────
-                    }
              } else if (render_cfg.bias_lighting) {
                 // ── Background: Animated YouTube-Style Ambient Bias Lighting ──
 
@@ -4461,7 +4220,7 @@ slide_debug("ADVANCE: fwd=%d cur=%d items_ptr=%d", forward ? 1 : 0, current_inde
         }
         
         if (current_is_video) {
-            double rem = g_mpv.video_time_remaining.load();
+            double rem = 0.0;  // v8.0.0: subprocess mpv — no in-process time tracking
             if (rem > 0.0) {
                 int r_mins = (int)rem / 60;
                 int r_secs = (int)rem % 60;
@@ -4498,7 +4257,7 @@ slide_debug("ADVANCE: fwd=%d cur=%d items_ptr=%d", forward ? 1 : 0, current_inde
     if (render_cfg.timer_enabled) {
         char tbuf[32];
         if (current_is_video) {
-            double rem = g_mpv.video_time_remaining.load();
+            double rem = 0.0;  // v8.0.0: subprocess mpv — no in-process time tracking
             int r_mins = (int)rem / 60;
             int r_secs = (int)rem % 60;
             std::snprintf(tbuf, sizeof(tbuf), "%02d:%02d", r_mins, r_secs);
@@ -6968,8 +6727,8 @@ auto items_ptr = std::make_shared<std::vector<MediaItem>>(std::move(active_items
              std::lock_guard<std::mutex> lk(slide.shuffle_mutex);
              slide.shuffle = !slide.shuffle;
          }
-          if (IsKeyPressed(KEY_RIGHT) && items_ptr->size() > 1) slide.advance(true);
-          if (IsKeyPressed(KEY_LEFT) && items_ptr->size() > 1) slide.advance(false);
+          if (IsKeyPressed(KEY_RIGHT) && items_ptr->size() > 1) { if (slide.current_is_video) stop_video_subprocess(); slide.advance(true); }
+          if (IsKeyPressed(KEY_LEFT) && items_ptr->size() > 1) { if (slide.current_is_video) stop_video_subprocess(); slide.advance(false); }
           if (IsKeyPressed(KEY_R) && items_ptr->size() > 1) {
              std::lock_guard<std::mutex> lk(slide.shuffle_mutex);
              slide.shuffle = !slide.shuffle;
@@ -6980,7 +6739,8 @@ auto items_ptr = std::make_shared<std::vector<MediaItem>>(std::move(active_items
            int cmd = g_remote_command.exchange(0);
            if ((cmd == 1 || cmd == 2) && items_ptr->size() > 1) {
 if (slide.current_is_video) {
-                    // mpv_video_play() fallback removed — mpv_render_context handles lifecycle
+                    // v8.0.0: Kill subprocess mpv immediately on skip
+                    stop_video_subprocess();
                 }
                slide.advance(cmd == 1);
            }
@@ -7044,11 +6804,9 @@ if (slide.current_is_video) {
               }
          }
 
-             // Decode one mpv video frame into g_mpv.video_rt BEFORE BeginDrawing.
-               // CRITICAL: Call unconditionally. Relying on g_mpv_frame_available causes
-               // missed edge-triggers if mpv signals OSD updates instead of FRAME updates.
-               if (slide.current_is_video && g_mpv.is_initialized() && g_mpv.is_playing()) {
-                  g_mpv.update_frame();
+               // v8.0.0: Video subprocess — poll for completion
+               if (slide.current_is_video && g_video_subprocess_active.load()) {
+                   check_video_subprocess();
                }
 
               // Always render — video frame decoded above, render() blits video_rt.
@@ -7089,7 +6847,8 @@ if (slide.current_is_video) {
     if (weather_thread.joinable()) weather_thread.join();
     if (http_thread.joinable()) http_thread.join();
 
-    // v3.1.1: mpv cleanup done in slide.cleanup() via in-process g_mpv + subprocess safety net
+    // v8.0.0: Kill any running video subprocess on exit
+    stop_video_subprocess();
 
     // Clean up PID file on exit
     std::string pidfile = cfg.cache_dir + "/piTrove.pid";
