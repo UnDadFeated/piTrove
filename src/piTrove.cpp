@@ -1141,7 +1141,7 @@ struct Logger {
             }
         }
         std::sort(files.begin(), files.end());
-        while ((int)files.size() > keep) {
+        while ((int)files.size() >= keep) {
             std::filesystem::remove(files.front());
             files.erase(files.begin());
         }
