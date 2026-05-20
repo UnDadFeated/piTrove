@@ -14,8 +14,8 @@ splash_overlay_y = 0.5
 auto_display_rotation = 1
 
 [slideshow]
-shuffle = 0
-transition_delay = 30.0
+shuffle = 1
+transition_delay = 120.0
 transition_duration = 1.5
 slideshow_fps = 30
 transition_effect = "crossfade"
