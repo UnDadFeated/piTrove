@@ -2281,10 +2281,12 @@ struct CacheManager {
         std::filesystem::create_directories(dir);
  
         std::string path = dir + "/cache.db";
-         if (sqlite3_open(path.c_str(), &db) != SQLITE_OK) {
-             if (db) { sqlite3_close(db); db = nullptr; }
-             return false;
-         }
+          if (sqlite3_open(path.c_str(), &db) != SQLITE_OK) {
+              if (db) { sqlite3_close(db); db = nullptr; }
+              return false;
+          }
+          sqlite3_busy_timeout(db, 5000);
+
  
          // v3.0.4: Proactive SQLite integrity check (F4)
          sqlite3_stmt* stmt = nullptr;
