@@ -801,7 +801,7 @@ struct Config {
     bool    count_enabled{false};
     float   count_x{0.5f}, count_y{0.02f};
     int     videos_per_photos{0};
-      int     video_volume{0};
+      int     video_volume{20};
       int     video_probe_timeout{3};
 
      // [slideshow] advanced
@@ -3686,6 +3686,7 @@ slide_debug("ADVANCE: fwd=%d cur=%d items_ptr=%d", forward ? 1 : 0, current_inde
                     slide_debug("PRELOAD_FREED: tex id=%d", loaded_tex.id);
                 }
                 preload_ready.store(false);
+                { std::lock_guard<std::mutex> lk(preload_lifecycle_mtx); preload_running.store(false, std::memory_order_relaxed); }
             }
         }
 
