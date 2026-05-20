@@ -1,5 +1,20 @@
 # Changelog
 
+## v8.0.2 — Slideshow transitions, config filters, and ratio updates (May 20, 2026)
+
+### Added
+- Config options `play_just_photos` and `play_just_videos` to easily filter slideshow to single media types.
+- TUI interactive settings toggles under the **Videos** settings block.
+
+### Changed
+- Default `videos_per_photos` set to `3`. Clamped between `1` and `9`.
+- Shuffling ratio bias rule adjusted: force video every `10 / videos_per_photos` photos.
+
+### Fixed
+- Fixed transition lockout bug when preload gets an empty texture: reset `preload_running` to false and trigger recovery `preload_next()`.
+- Fixed `preload_next()` video index-advance bug: keep `next_index` pointing to the probed video, allowing correct transitions.
+- Fixed keyboard, mouse, and touch skips to kill active subprocess mpv immediately on skipped videos.
+
 ## v8.0.1 — Dynamic ratio tracking, shuffle all items, ratio-biased advance (May 20, 2026)
 
 ### Changed
