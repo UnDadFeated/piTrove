@@ -10,7 +10,7 @@
  *   • Slideshow – raylib, preload, crossfade, Ken Burns
  */
 
-#define VERSION "7.2.0"
+#define VERSION "7.3.0"
 #define APP_NAME "piTrove"
 
 // Global atomics for headless features
@@ -3484,12 +3484,12 @@ struct Slideshow {
         std::lock_guard<std::mutex> lk(shuffle_mutex);
         return items;
     }
-    std::atomic<bool> current_is_video{false};  // v6.0.10: atomic for HTTP thread safety (B7)
+std::atomic<bool> current_is_video{false};  // v6.0.10: atomic for HTTP thread safety (B7)
       // v3.0.0: g_mpv is a global defined inline above; subprocess fields below kept for mpv_video_play() fallback only
       std::atomic<pid_t> mpv_pid{0};
-     std::thread mpv_monitor;
-     std::atomic<bool> mpv_running{false};
-     std::mt19937 rng{std::random_device{}() ^ static_cast<unsigned int>(time(nullptr))};
+      std::thread mpv_monitor;
+      std::atomic<bool> mpv_running{false};
+      std::mt19937 rng{std::random_device{}() ^ static_cast<unsigned int>(time(nullptr))};
         std::thread treadmill_thread;
 
     // Async preload
@@ -3526,11 +3526,10 @@ struct Slideshow {
       Vector2 cached_hud_size{};
       int last_render_idx{-1};
 
-      std::atomic<int> preload_progress{0};
-       std::atomic<int> preload_max{0};
-     std::atomic<bool> preload_initial_phase{true};
-    std::atomic<bool> preload_cancel{false};
-        std::atomic<int> preload_limit{0};
+std::atomic<int> preload_progress{0};
+        std::atomic<int> preload_max{0};
+      std::atomic<bool> preload_initial_phase{true};
+     std::atomic<bool> preload_cancel{false};
 
         // First image preloaded during Phase 3 — skip disk load on startup
          int first_idx{-1};
@@ -3762,7 +3761,6 @@ if (img.data && img.width > 0 && img.height > 0) {
                             next_bias_rgt_hex.store(pack(GetEdgeAvgColor(preloaded_img, depth, 3)));
                             preloaded_img_valid.store(true);
                             found_valid = true;
-                            UnloadImage(local_img);
                         } else {
                             g_logger.info("PRELOAD_FAIL: image load failed idx=%d ext=%s %s", idx, next_item.ext.c_str(), next_item.path.substr(0, 60).c_str());
                             {
@@ -3825,20 +3823,21 @@ if (img.data && img.width > 0 && img.height > 0) {
          }
 
     bool advance(bool forward = true) {
-          // FIX v16.9.0: cleanup VRAM before every slide advance
-          // v6.0.6: Capture items_ptr shared_ptr to prevent treadmill worker from replacing it
-          auto items_ptr = get_items();
-          clear_tex_refs();
          // FIX v16.1.0: Guard against reentrant advance() calls from remote commands
+         // Check BEFORE clearing references to prevent permanent black screen on double-advance
          if (reentrant_command.load()) return false;
+         // v6.0.6: Capture items_ptr shared_ptr to prevent treadmill worker from replacing it
+         auto items_ptr = get_items();
+         if (items_ptr->empty()) return false;
          reentrant_command.store(true);
+         // Now safe to clear active references since guards have passed
+         clear_tex_refs();
          // v6.0.10: RAII guard — ensures reentrant_command reset even if load_item() throws (B6)
          struct ReentrantGuard { Slideshow* s; ~ReentrantGuard() { s->reentrant_command.store(false); } } guard{this};
 
-    slide_debug("ADVANCE: fwd=%d cur=%d items_ptr=%d", forward ? 1 : 0, current_index.load(), (int)items_ptr->size());
-        g_logger.info("ADVANCE: forward=%d prev_idx=%d items_ptr=%d shuffle=%d",
-            forward ? 1 : 0, current_index.load(), (int)items_ptr->size(), shuffle ? 1 : 0);
-        if (items_ptr->empty()) { reentrant_command.store(false); return false; }
+slide_debug("ADVANCE: fwd=%d cur=%d items_ptr=%d", forward ? 1 : 0, current_index.load(), (int)items_ptr->size());
+         g_logger.info("ADVANCE: forward=%d prev_idx=%d items_ptr=%d shuffle=%d",
+             forward ? 1 : 0, current_index.load(), (int)items_ptr->size(), shuffle ? 1 : 0);
 
        int prev_idx = current_index.load();
         if (shuffle) {
@@ -4032,27 +4031,27 @@ if (img.data && img.width > 0 && img.height > 0) {
                  int _guard_ni = frame_next_index;
                  bool _next_is_video = (_guard_ni >= 0 && _guard_ni < (int)items_ptr->size()
                                         && (*items_ptr)[_guard_ni].type == "video");
-                 if (loaded_tex.id == 0 && !_next_is_video) {
-                     // FIX v16.8.0: unload any leftover texture to prevent VRAM leak on failed preload
-                     slide_debug("TRANS_GUARD: loaded_tex.id==0! cur=%d next=%d", frame_current_index, frame_next_index);
-                     if (!preload_running.load()) {
-                         int failed_idx = frame_next_index;
-                         // FIX v1.9.9: fetch_add returns the OLD value; compute
-                         // the incremented value explicitly before storing.
-                         int ni3 = next_index.fetch_add(1, std::memory_order_relaxed);
-                         int ni3_next = (ni3 + 1 >= (int)items_ptr->size()) ? 0 : (ni3 + 1);
-                         next_index.store(ni3_next);
-                         if (ni3_next == failed_idx || ni3_next == frame_current_index) {
-                             transitioning = false;
-                             transition_timer = 0;
-                             transition_progress = 0.0;
-                             item_timer = 0;
-                         } else {
-                             preload_next();
-                         }
-                     }
-                     return;
-                 }
+             if (loaded_tex.id == 0 && !_next_is_video) {
+                      // FIX v16.8.0: unload any leftover texture to prevent VRAM leak on failed preload
+                      slide_debug("TRANS_GUARD: loaded_tex.id==0! cur=%d next=%d", frame_current_index, frame_next_index);
+                      if (!preload_running.load()) {
+                          int failed_idx = frame_next_index;
+                          // FIX v1.9.9: fetch_add returns the OLD value; compute
+                          // the incremented value explicitly before storing.
+                          int ni3 = next_index.fetch_add(1, std::memory_order_relaxed);
+                          int ni3_next = (ni3 + 1 >= (int)items_ptr->size()) ? 0 : (ni3 + 1);
+                          next_index.store(ni3_next);
+                          // CRITICAL FIX: Break state out of active transition immediately to halt frame-by-frame thread spawning
+                          transitioning = false;
+                          transition_timer = 0;
+                          transition_progress = 0.0;
+                          item_timer = 0;
+                          if (ni3_next != failed_idx && ni3_next != frame_current_index) {
+                              preload_next();
+                          }
+                      }
+                      return;
+                  }
 
 
                  UnloadTexture(current_tex);
@@ -5007,14 +5006,13 @@ if (!current_is_video && current_tex.id == 0) {
                             exit_code == 0 ? "success" : "exit code");
                         break;
                     }
-                    if (g_remote_command.load() != 0) {
-                        timeout_counter++;
-                        if (timeout_counter > 25) {
-                            if (p > 0) kill(p, SIGKILL);
-                            mpv_running.store(false);
-                            break;
+if (g_remote_command.load() != 0) {
+                            timeout_counter++;
+                            if (timeout_counter > 25) {
+                                if (p > 0) kill(p, SIGKILL);
+                                break;
+                            }
                         }
-                    }
                    std::this_thread::sleep_for(std::chrono::milliseconds(100));
                  }
                  // Reclaim DRM master so Raylib can resume rendering
@@ -5063,16 +5061,7 @@ if (!current_is_video && current_tex.id == 0) {
             preload_cancel.store(true);
             if (preload_thread.joinable()) preload_thread.join();
             if (first_img_thread.joinable()) first_img_thread.join();
-        // v3.2.0: cleanup subprocess mpv (safety net)
-            {
-               pid_t p = mpv_pid.load();
-               if (p > 0) {
-                   kill(p, SIGKILL);
-                   waitpid(p, nullptr, WNOHANG);
-               }
-               mpv_running.store(false);
-               if (mpv_monitor.joinable()) mpv_monitor.join();
-           }
+// v3.2.0: cleanup subprocess mpv (safety net) — removed dead mpv_pid/mpv_running/mpv_monitor
         std::lock_guard<std::mutex> lk(first_img_mtx);
         if (first_img_tex.id) UnloadTexture(first_img_tex);
         first_img_tex.id = 0;
@@ -7383,11 +7372,9 @@ slide.items = items_ptr;
            //         instead of relying on mpv monitor to detect g_remote_command (race condition)
            int cmd = g_remote_command.exchange(0);
            if ((cmd == 1 || cmd == 2) && items_ptr->size() > 1) {
-               if (slide.current_is_video) {
-                   pid_t p = slide.mpv_pid.load();
-                   if (p > 0) kill(p, SIGKILL);
-                   slide.mpv_running.store(false);
-               }
+if (slide.current_is_video) {
+                    // mpv_video_play() fallback removed — mpv_render_context handles lifecycle
+                }
                slide.advance(cmd == 1);
            }
 
