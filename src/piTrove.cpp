@@ -10,7 +10,7 @@
  *   • Slideshow – raylib, preload, crossfade, Ken Burns
  */
 
-#define VERSION "7.7.0"
+#define VERSION "7.8.1"
 #define APP_NAME "piTrove"
 
 // Global atomics for headless features
@@ -3593,7 +3593,9 @@ std::atomic<int> preload_progress{0};
              }
 
 if (img.data && img.width > 0 && img.height > 0) {
-                         bool rotated = apply_exif_rotation(img, item.exif_rotation);
+                          // v7.8.1: Read EXIF at load time (cache only has placeholder=1)
+                          int exif_rot = read_exif_rotation_timeout(item.path, 3000);
+                          bool rotated = apply_exif_rotation(img, exif_rot);
                           current_bg_color = GetAverageColor(img);
 
                         current_tex = LoadTextureVRAMSafe(img);
@@ -3689,7 +3691,9 @@ if (img.data && img.width > 0 && img.height > 0) {
 
                         if (local_img.data && local_img.width > 0 && local_img.height > 0) {
                             std::lock_guard<std::mutex> lk(preload_mutex);
-                            apply_exif_rotation(local_img, next_item.exif_rotation);
+                            // v7.8.1: Read EXIF at preload time (cache only has placeholder=1)
+                            int exif_rot = read_exif_rotation_timeout(next_item.path, 3000);
+                            apply_exif_rotation(local_img, exif_rot);
                             preloaded_img = local_img;
                             next_w.store(preloaded_img.width);
                             next_h.store(preloaded_img.height);
@@ -6788,27 +6792,17 @@ g_logger.init(cfg.log_dir, cfg.verbose ? LogLevel::DEBUG : LogLevel::INFO);
             continue;
         }
 
-        // Lazy Evaluation: Defer EXIF rotation to display time (auto_display_rotation=1 handles it)
-        // Phase 2 only needs placeholder values — reading EXIF per-file over CIFS causes
-        // crashes (libexif exif_data_new_from_file hangs, thread churn exhausts resources)
         if (mi.type == "image") {
+            // Phase 2: Defer EXIF rotation to display time — reading EXIF per-file over CIFS hangs
+            // auto_display_rotation=1 in preload_next/load_item handles rotation at display time
             mi.exif_rotation = 1;
             mi.width = 1920; mi.height = 1080; // Placeholder dimensions
         } else if (mi.type == "video") {
-            // Probe video metadata via ffprobe
-            int w = 0, h = 0;
-            float dur = 0.0f;
-            time_t ts = 0;
-            if (probe_video_meta(mi.path, w, h, dur, ts)) {
-                mi.width = w;
-                mi.height = h;
-                mi.duration = dur;
-            } else {
-                mi.width = g_cfg.screen_w;
-                mi.height = g_cfg.screen_h;
-                mi.duration = 0.0;
-            }
-            if (ts > 0) mi.modified_time = ts;
+            // Phase 2: Skip video probing — ffprobe 8s timeout × 905 videos = hours on CIFS
+            // Duration/probe deferred to display time (preload_next handles lazy probe)
+            mi.width = g_cfg.screen_w;
+            mi.height = g_cfg.screen_h;
+            mi.duration = 0.0;
         }
 
         // ALWAYS insert into SQLite. 0 means "not a bad file"
