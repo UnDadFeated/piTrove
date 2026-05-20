@@ -1,5 +1,15 @@
 # Changelog
 
+## v8.0.0 — Replace in-process libmpv with subprocess mpv --vo=drm (May 20, 2026)
+
+### Changed
+- **Video playback architecture** — Replaced in-process `libmpv` render API with subprocess `mpv --vo=drm`. The in-process approach (v3.0.0–v7.10.3) required sharing Raylib's EGL context, explicit FBO binding, and an event drain thread — all of which produced black screens on Pi 5 (GLES2/DRM FBO incompatibilities). Subprocess mpv renders directly to the DRM display via `drmDropMaster`/`drmSetMaster`.
+- **EGL context management removed** — No more `make_egl_current()`, `release_egl_current()`, `mpv_render_context`, FBO params, or `eglGetProcAddress` for mpv. DRM master is dropped before `fork()` and re-acquired on subprocess exit.
+- **Countdown timer** — Removed because subprocess mpv provides no in-process time tracking. Timer overlay shows `--:--` during video playback.
+
+### Fixed
+- **Video black screen on Pi 5** — Fundamental architecture fix: mpv now controls the DRM display directly (`--vo=drm`), bypassing all GLES2/FBO/texture pipeline issues.
+
 ## v7.10.1 — Concurrency and timeout fixes, mmap scale increase (May 20, 2026)
 
 ### Fixed
