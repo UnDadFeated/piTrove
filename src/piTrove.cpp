@@ -10,7 +10,7 @@
  *   • Slideshow – raylib, preload, crossfade, Ken Burns
  */
 
-#define VERSION "7.10.0"
+#define VERSION "7.10.1"
 #define APP_NAME "piTrove"
 
 // Global atomics for headless features
@@ -789,7 +789,7 @@ struct Config {
     int     max_concurrent{4};
     bool    recursive{true};
     int     scan_window_days{15};
-    int     cache_mmap_size{67108864};  // FIX v16.8.0: 64MB default (was 256MB) — safer on Pi 5 low-RAM
+    long long cache_mmap_size{67108864};  // FIX v16.8.0: 64MB default (was 256MB) — safer on Pi 5 low-RAM
     bool    verbose{false};
     int     slideshow_fps{30};
     int     cooldown_days{330};
@@ -892,6 +892,9 @@ static double safe_stod(const std::string& s, double def) {
 static long safe_stol(const std::string& s, long def) {
     try { return std::stol(s); } catch(...) { fprintf(stderr, "[WARN] Invalid long in config: '%s' (default %ld)\n", s.c_str(), (long)def); return def; }
 }
+static long long safe_stoll(const std::string& s, long long def) {
+    try { return std::stoll(s); } catch(...) { fprintf(stderr, "[WARN] Invalid long long in config: '%s' (default %lld)\n", s.c_str(), def); return def; }
+}
 
 Config load_config(const char* config_path) {
     Config c;
@@ -916,6 +919,9 @@ Config load_config(const char* config_path) {
     };
     auto safe_stol = [](const std::string& v, long def) -> long {
         try { return std::stol(v); } catch (...) { return def; }
+    };
+    auto safe_stoll = [](const std::string& v, long long def) -> long long {
+        try { return std::stoll(v); } catch (...) { return def; }
     };
 
     std::string section;
@@ -1012,7 +1018,7 @@ Config load_config(const char* config_path) {
         else if (key == "depth")             c.scan_depth = safe_stoi(val, c.scan_depth);
         else if (key == "max_concurrent")    c.max_concurrent = safe_stoi(val, c.max_concurrent);
         else if (key == "window_days")       c.scan_window_days = safe_stoi(val, c.scan_window_days);
-        else if (key == "mmap_size")         c.cache_mmap_size = (int)safe_stol(val, c.cache_mmap_size);
+        else if (key == "mmap_size")         c.cache_mmap_size = safe_stoll(val, c.cache_mmap_size);
         else if (key == "level")             c.verbose = (val == "debug");
         else if (key == "resolution") {
             auto comma = val.find(',');
@@ -1763,10 +1769,11 @@ static int read_exif_rotation_timeout(const std::string& path, int timeout_ms = 
         std::string msg="exif rotation timeout for: "+path;
         g_logger.warn(msg.c_str());
         t.detach();
+        return 1; // Return default safe fallback directly, avoiding racy read on result
     } else {
         t.join();
+        return *result;
     }
-    return *result;
 }
 
 static std::vector<std::string> read_dir_timeout(const std::string& path, int timeout_ms = 15000) {
@@ -1787,12 +1794,12 @@ static std::vector<std::string> read_dir_timeout(const std::string& path, int ti
 
      if (!state->done) {
          g_logger.warn("read_dir timeout after %dms for '%s'", timeout_ms, path.c_str());
-        t.detach();
-
+         t.detach();
+         return {}; // Return empty vector directly, avoiding racy read/copy on entries
      } else {
          t.join();
+         return *entries;
      }
-     return *entries;
  }
 
 // Timeout wrapper for stat() — prevents CIFS hangs on individual files
@@ -1958,12 +1965,18 @@ public:
         // Instead, we'll use the "smart folder" approach but replace the recursive iterator.
         
         std::vector<std::string> subdirs;
-        std::error_code ec;
-        for (auto const& entry : std::filesystem::directory_iterator(directory, ec)) {
-            if (entry.is_directory(ec)) {
-                std::string dir_name = entry.path().filename().string();
-                if (is_month_in_window(dir_name, window_days)) {
-                    subdirs.push_back(entry.path().string());
+        std::vector<std::string> root_files;
+        std::vector<std::string> root_entries = read_dir_timeout(directory, 15000);
+        for (const auto& name : root_entries) {
+            std::string p = directory + "/" + name;
+            struct stat st;
+            if (stat_timeout(p, st, 5000)) {
+                if (S_ISDIR(st.st_mode)) {
+                    if (is_month_in_window(name, window_days)) {
+                        subdirs.push_back(p);
+                    }
+                } else if (S_ISREG(st.st_mode)) {
+                    root_files.push_back(p);
                 }
             }
         }
@@ -1994,14 +2007,8 @@ public:
         };
 
         // Scan root files once before starting workers
-        std::vector<std::string> root_entries = read_dir(directory);
-        for (const auto& name : root_entries) {
-            std::string p = directory + "/" + name;
-            struct stat st;
-            if (stat(p.c_str(), &st) != 0) continue;
-            if (S_ISREG(st.st_mode)) {
-                process_entry(p, exts, window_days, list_mutex, all_files);
-            }
+        for (const auto& p : root_files) {
+            process_entry(p, exts, window_days, list_mutex, all_files);
         }
 
         std::thread t1(worker, 0, 3);
@@ -2090,9 +2097,9 @@ struct CacheManager {
             if (err) sqlite3_free(err);
         }
         char mmap_sql[64];
-        snprintf(mmap_sql, sizeof(mmap_sql), "PRAGMA mmap_size=%d", g_cfg.cache_mmap_size);
+        snprintf(mmap_sql, sizeof(mmap_sql), "PRAGMA mmap_size=%lld", g_cfg.cache_mmap_size);
         if (sqlite3_exec(db, mmap_sql, nullptr, nullptr, &err) != SQLITE_OK) {
-            g_logger.warn("Failed to set mmap_size=%d: %s", g_cfg.cache_mmap_size, err ? err : "unknown");
+            g_logger.warn("Failed to set mmap_size=%lld: %s", g_cfg.cache_mmap_size, err ? err : "unknown");
             if (err) sqlite3_free(err);
         }
 
@@ -4711,7 +4718,7 @@ if (!current_is_video && current_tex.id == 0) {
                static int fps_frame = 0;
                fps_frame++;
                if (fps_frame % 10 == 1) cached_fps = GetFPS();
-               std::snprintf(footer_buf, sizeof(footer_buf), "SYS: MEMORY=%dMB  CPU=ARMv8  FPS=%d", g_cfg.cache_mmap_size / (1024 * 1024), cached_fps);
+               std::snprintf(footer_buf, sizeof(footer_buf), "SYS: MEMORY=%lldMB  CPU=ARMv8  FPS=%d", g_cfg.cache_mmap_size / (1024 * 1024), cached_fps);
               int footer_w = MeasureTextEx(console_font, footer_buf, 12, 0.0f).x;
               DrawTextEx(console_font, footer_buf, {(float)(sw / 2 - footer_w / 2), (float)footer_y}, 12, 0.0f, dim_green);
 
@@ -5318,7 +5325,7 @@ static void http_thread_func(const Config& c, Slideshow& slide) {
             int client_fd = accept(server_fd, NULL, NULL);
             if (client_fd >= 0) {
                 // v6.0.6: Capture shared_ptr to prevent treadmill worker from replacing items during request
-                auto items_ptr = slide.items;
+                auto items_ptr = slide.get_items();
                 char buf[4096] = {0};
                 read(client_fd, buf, sizeof(buf) - 1);
 
@@ -5844,7 +5851,7 @@ void config_wizard(const std::string& config_path) {
             else if(c==7) switch(i){
                 case 0:{ if(v=="debug") g_cfg.verbose=true; else g_cfg.verbose=false; }break;
                 case 1:{ try { g_cfg.brightness_auto_min=std::stoi(v); } catch(...) {} break; }
-                case 2:{ try { g_cfg.cache_mmap_size=std::stoi(v); } catch(...) {} break; }
+                case 2:{ try { g_cfg.cache_mmap_size=std::stoll(v); } catch(...) {} break; }
             }
         } catch(...) {}
     };
