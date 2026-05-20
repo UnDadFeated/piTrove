@@ -10,7 +10,7 @@
  *   • Slideshow – raylib, preload, crossfade, Ken Burns
  */
 
-#define VERSION "7.4.0"
+#define VERSION "7.5.0"
 #define APP_NAME "piTrove"
 
 // Global atomics for headless features
@@ -3606,11 +3606,11 @@ if (img.data && img.width > 0 && img.height > 0) {
 
         if (preload_thread.joinable()) {
             preload_cancel.store(true);
-            if (preload_running.load()) return; 
             preload_thread.detach();
         }
         preload_cancel.store(false);
         preload_ready.store(false);
+        preload_running.store(false);
 
         preload_thread = std::thread([this, items_ptr]() {
             try {

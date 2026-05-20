@@ -1,5 +1,18 @@
 # Changelog
 
+## v7.5.0 — Preload tight-loop fix (May 20, 2026)
+
+### Fixed
+- **CRITICAL · Preload tight-loop CPU exhaustion** — `preload_next()` called `preload_running.store(true)` *before* thread spawn, then `advance()` reset it to false before the thread started, creating a race where `update()` saw both flags false and forked a new thread every frame. Fixed by setting `preload_running=false` and resetting state atomically before thread spawn, eliminating the race window.
+
+## v7.4.0 — Preload logic trap, config consolidation, subprocess removal (May 20, 2026)
+
+### Fixed
+- **CRITICAL · Preload logic trap in main()** — Removed ~250 lines of inline thread spawning (first image preload thread + remaining preload thread + wait loop) that duplicated `Slideshow::preload_next()`. Replaced with single `preload_next()` call — fixes nested null-check structuring bug where the success pipeline was nested inside the null pointer verification block, and eliminates thread explosion from failed preload recovery.
+- **HIGH · Config duplication in load_config()** — Replaced section-aware config parser with flat key=value parser that handles both sectioned `[paths]` and flat config files uniformly — eliminates maintenance risk of key drift between sections.
+- **HIGH · Orphaned mpv subprocess layer** — Removed `mpv_video_play()` method (170 lines), `mpv_pid`/`mpv_monitor`/`mpv_running` members, and related DRM master drop/reclaim code — legacy fork/exec architecture fully replaced by in-process `g_mpv` render API.
+- **MEDIUM · Month bounds validation** — Added `1-12` range check in `is_month_in_window()` to prevent signed arithmetic overflow on non-standard folder names like `2026-99`.
+
 ## v7.1.7 — Structural Build Fixes (May 19, 2026)
 ### Fixed
 - **CRITICAL · Duplicate code blocks causing build failure** — Removed massive orphaned duplicate of `preload_next()` (~260 lines) that caused Slideshow methods (`init`, `render`, `advance`, `update`, `cleanup`) to be unreachable.
