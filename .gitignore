@@ -1,6 +1,7 @@
 piTrove/
 build/
 *.zip
+*.bak
 src/config/config.toml
 src/build/
 src/build_new/
@@ -11,3 +12,5 @@ AGENTS.md
 logs/
 PLAN.md
 piTrove
+*_tmp*
+CMakeLists.txt
