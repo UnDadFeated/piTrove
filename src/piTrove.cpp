@@ -1108,8 +1108,20 @@ struct Logger {
         std::strftime(fname, sizeof(fname), "piTrove_%Y%m%d_%H%M%S.log", localtime_r(&t, &tm_buf));
         log_file_path = path + "/" + fname;
 
-        // Rotate: keep only last 3 log files
-        rotate_logs(path, 3);
+        // Rotate: keep only last 5 log files
+        rotate_logs(path, 5);
+
+        // Write version header to new log file
+        {
+            FILE* f = fopen(log_file_path.c_str(), "w");
+            if (f) {
+                char timebuf[64];
+                struct tm htm = *localtime_r(&t, &tm_buf);
+                std::strftime(timebuf, sizeof(timebuf), "%Y-%m-%d %H:%M:%S", &htm);
+                fprintf(f, "=== piTrove v%s started %s ===\n", VERSION, timebuf);
+                fclose(f);
+            }
+        }
 
         flush_thread = std::thread(&Logger::flush_loop, this);
     }
@@ -1152,7 +1164,7 @@ struct Logger {
         std::strftime(header, sizeof(header), "%Y-%m-%d %H:%M:%S", localtime_r(&t, &tm_buf2));
 
         char line[512];
-        int n = std::snprintf(line, sizeof(line), "%s.%03ld [%s] ", header, (long)ms.count(), tag);
+         int n = std::snprintf(line, sizeof(line), "v%s %s.%03ld [%s] ", VERSION, header, (long)ms.count(), tag);
 
         va_list ap;
         va_start(ap, fmt);
@@ -1639,36 +1651,51 @@ static std::string file_name(const std::string& path) {
 static bool is_in_seasonal_window(const std::string& filename, int window_days) {
     if (window_days <= 0) return true;
 
-    // Extract MM-DD from formats like YYYY-MM-DD_ or YYYYMMDD_
-    static const std::regex date_regex(R"((\d{4})[-_]?(\d{2})[-_]?(\d{2})_)");
-    std::smatch match;
-
-    if (std::regex_search(filename, match, date_regex)) {
-        try {
-            int file_m = std::stoi(match[2]);
-            int file_d = std::stoi(match[3]);
- 
-            time_t t = std::time(nullptr);
-            tm tm_buf;
-            tm* now = localtime_r(&t, &tm_buf);
-            int curr_m = now->tm_mon + 1;
-            int curr_d = now->tm_mday;
- 
-            // Approximate day-of-year (works well enough for seasonal window)
-            int file_doy = file_m * 30 + file_d;
-            int curr_doy = curr_m * 30 + curr_d;
- 
-            int diff = std::abs(curr_doy - file_doy);
-            // Handle wrap-around (e.g., Dec 31 to Jan 1)
-            if (diff > 365 / 2) diff = 365 - diff;
- 
-            return diff <= window_days;
-        } catch (...) {
-            return false;
+    // Fast date extraction from filenames like 2026-05-20_123456.jpg or 20260520_123456.jpg
+    // Skip regex entirely — just scan for digit groups
+    int digit_groups[3] = {0, 0, 0};
+    int group_count = 0;
+    int i = 0;
+    while (i < (int)filename.size() && group_count < 3) {
+        // Skip non-digit characters
+        while (i < (int)filename.size() && !isdigit(filename[i])) i++;
+        if (i >= (int)filename.size()) break;
+        // Read digit group
+        int val = 0;
+        while (i < (int)filename.size() && isdigit(filename[i])) {
+            val = val * 10 + (filename[i] - '0');
+            i++;
         }
+        digit_groups[group_count++] = val;
     }
 
-    return false;
+    // We need at least 3 groups (YYYY, MM, DD) followed by underscore
+    if (group_count < 3) return false;
+
+    // Verify underscore follows the date pattern (e.g., 2026-05-20_ or 20260520_)
+    // The underscore should be at position i (right after the last digit group)
+    if (i >= (int)filename.size() || filename[i] != '_') return false;
+
+    // Validate ranges
+    int file_y = digit_groups[0];
+    int file_m = digit_groups[1];
+    int file_d = digit_groups[2];
+    if (file_m < 1 || file_m > 12 || file_d < 1 || file_d > 31) return false;
+    if (file_y < 1900 || file_y > 2100) return false;
+
+    time_t t = std::time(nullptr);
+    tm tm_buf;
+    tm* now = localtime_r(&t, &tm_buf);
+    int curr_m = now->tm_mon + 1;
+    int curr_d = now->tm_mday;
+
+    int file_doy = file_m * 30 + file_d;
+    int curr_doy = curr_m * 30 + curr_d;
+
+    int diff = std::abs(curr_doy - file_doy);
+    if (diff > 365 / 2) diff = 365 - diff;
+
+    return diff <= window_days;
 }
 
 // v16.4.0: deleted get_video_duration() — dead code + unbounded popen (H2, H3)
@@ -1679,44 +1706,42 @@ class MediaScanner {
 public:
     std::atomic<int> live_found_count{0};
 
-    // SMART FOLDER FILTER: Drastically reduces disk I/O by skipping irrelevant months
+    // SMART FOLDER FILTER: Year-agnostic month match, only scan folders with current month ± spread
     bool is_month_in_window(const std::string& dirname, int window_days) {
-        if (window_days <= 0) return true; // 0 means show all
+        if (window_days <= 0) return true;
 
-        // Match YYYY-MM or YYYYMM in the folder name
-        static const std::regex folder_regex(R"((\d{4})[-_]?(\d{2}))");
-        std::smatch match;
-
-        if (std::regex_search(dirname, match, folder_regex)) {
-            int folder_m = 0;
-            try {
-                folder_m = std::stoi(match[2]);
-            } catch (...) {
-                return true; // Fallback to scan if parsing fails
+        // Fast extraction: find first digit group (year) then second (month)
+        // Format: YYYY-MM, YYYY_MM, or YYYYMM
+        int groups[2] = {0, 0};
+        int gc = 0;
+        size_t i = 0;
+        while (i < dirname.size() && gc < 2) {
+            while (i < dirname.size() && !isdigit(dirname[i])) i++;
+            if (i >= dirname.size()) break;
+            int val = 0;
+            while (i < dirname.size() && isdigit(dirname[i])) {
+                val = val * 10 + (dirname[i] - '0');
+                i++;
             }
-
-            // SAFE GUARD RANGE BOUNDS: Discard garbage month tokens cleanly
-            if (folder_m < 1 || folder_m > 12) {
-                return true; // Treat as un-dated custom folder and scan safely
-            }
-
-            time_t t = std::time(nullptr);
-            tm tm_buf;
-            tm* now = localtime_r(&t, &tm_buf);
-            int curr_m = now->tm_mon + 1;
-
-            // Calculate how many months the temporal window spills over
-            // e.g., 45 days / 30.0 = 1.5 -> spills into 2 months
-            int max_month_spread = std::ceil(window_days / 30.0);
-
-            int diff = std::abs(curr_m - folder_m);
-            if (diff > 6) diff = 12 - diff; // Safe wrap-around for Dec/Jan
-
-            return diff <= max_month_spread;
+            groups[gc++] = val;
+            if (gc == 1 && i < dirname.size() && (dirname[i] == '-' || dirname[i] == '_')) i++;
         }
 
-        // If the folder has no date format (e.g. "Favorites"), scan it anyway
-        return true;
+        if (gc < 2) return true; // no date -> scan safely
+
+        int folder_m = groups[1];
+        if (folder_m < 1 || folder_m > 12) return true; // malformed -> scan
+
+        time_t t = std::time(nullptr);
+        tm tm_buf;
+        tm* now = localtime_r(&t, &tm_buf);
+        int curr_m = now->tm_mon + 1;
+
+        int max_month_spread = std::ceil(window_days / 30.0);
+        int diff = std::abs(curr_m - folder_m);
+        if (diff > 6) diff = 12 - diff;
+
+        return diff <= max_month_spread;
     }
 
     std::vector<std::string> scan(const std::string& directory,
@@ -1776,7 +1801,8 @@ public:
                 for (size_t i = start_idx; i < subdirs.size(); i += step) {
                     std::string target_dir = subdirs[i];
                     // Use manual recursion with depth limit and read_dir (with timeouts)
-                    std::function<void(const std::string&, int)> rec = [&](const std::string& dir, int d) {
+                    std::function<void(const std::string&, int)> rec;
+                    rec = [&](const std::string& dir, int d) {
                         if (d > max_depth) return;
                         std::vector<std::string> entries = read_dir_timeout(dir, 15000);
                         for (const auto& name : entries) {
