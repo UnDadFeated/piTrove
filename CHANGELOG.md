@@ -1,5 +1,17 @@
 # Changelog
 
+## v7.10.0 — Restore vo=libmpv, explicit FBO internal_format, render logging (May 20, 2026)
+
+### Fixed
+- **Video black screen persisted** — `vo=libmpv` was accidentally removed in v7.9.0, which is required for `mpv_render_context` to receive frames. Re-added. Explicit `fbo.internal_format=0x1908` (GL_RGBA) restored — `fbo.internal_format=0` (auto-detect) fails silently on DRM/GLES2. Added render success/failure logging for diagnostics.
+
+## v7.9.0 — MPV black screen fix, countdown timer overlay (May 20, 2026)
+
+### Fixed
+- **Video black screen on Pi 5** — `hwdec=auto-safe` defaulted to `drmprime` which bypasses the Raylib FBO texture pipeline. Changed to `hwdec=v4l2m2m-copy` which brings decoded frames into shared GPU memory. Set `fbo.internal_format=0` (auto-detect) instead of `0x1908` which chokes GLES2 layout allocations.
+- **EGL surface asymmetry** — `make_egl_current()` and `release_egl_current()` now map both `EGL_DRAW` and `EGL_READ` surfaces instead of a single surface, preventing context flip draw validation failures.
+- **Countdown timer missing** — Replaced synchronous 60fps `mpv_get_property("time-remaining")` polling (which flooded IPC and caused thread locks) with `mpv_observe_property()` async listeners on the event thread. Timer overlay now shows `MM:SS` countdown during video playback.
+
 ## v7.8.0 — Preload thread explosion fix (May 20, 2026)
 
 ### Fixed
