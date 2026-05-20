@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# install.sh — PiTrove v7.1.0 installer
-  echo "  PiTrove v7.1.0 Installer"
-# piTrove Configuration File (v7.1.0)
- echo "  PiTrove v7.1.0 installation complete!"
+# install.sh — PiTrove v7.1.1 installer
+  echo "  PiTrove v7.1.1 Installer"
+# piTrove Configuration File (v7.1.1)
+ echo "  PiTrove v7.1.1 installation complete!"
 echo "============================================"
 echo
 
