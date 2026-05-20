@@ -10,7 +10,7 @@
  *   • Slideshow – raylib, preload, crossfade, Ken Burns
  */
 
-#define VERSION "8.0.1"
+#define VERSION "8.0.2"
 #define APP_NAME "piTrove"
 
 // Global atomics for headless features
@@ -800,9 +800,11 @@ struct Config {
     float   filename_x{0.04f}, filename_y{0.966f};
     bool    count_enabled{false};
     float   count_x{0.5f}, count_y{0.02f};
-    int     videos_per_photos{0};
+    int     videos_per_photos{3};
       int     video_volume{0};
       int     video_probe_timeout{3};
+    bool    play_just_photos{false};
+    bool    play_just_videos{false};
 
      // [slideshow] advanced
      std::string sleep_time{""};      // e.g., "22:00"
@@ -958,7 +960,12 @@ Config load_config(const char* config_path) {
         else if (key == "count_enabled")     c.count_enabled = (val == "1" || val == "true");
         else if (key == "count_x")           c.count_x = safe_stof(val, c.count_x);
         else if (key == "count_y")           c.count_y = safe_stof(val, c.count_y);
-        else if (key == "videos_per_photos") c.videos_per_photos = safe_stoi(val, c.videos_per_photos);
+        else if (key == "videos_per_photos") {
+            int parsed = safe_stoi(val, 3);
+            c.videos_per_photos = std::max(1, std::min(9, parsed));
+        }
+        else if (key == "play_just_photos")  c.play_just_photos = (val == "1" || val == "true");
+        else if (key == "play_just_videos")  c.play_just_videos = (val == "1" || val == "true");
         else if (key == "sleep_time")        c.sleep_time = val;
         else if (key == "wake_time")         c.wake_time = val;
         else if (key == "weather_enabled")   c.weather_enabled = (val == "1" || val == "true");
@@ -3509,14 +3516,7 @@ if (img.data && img.width > 0 && img.height > 0) {
                                 (*items_ptr)[idx].duration = dur;
                         }
                         g_logger.info("PRELOAD_VID: probed %s duration=%.1fs", next_item.path.substr(0, 60).c_str(), dur);
-                        // v8.0.1: Advance next_index for videos (preload should skip past them)
-                        {
-                            std::lock_guard<std::mutex> lk(shuffle_mutex);
-                            int ni_curr = next_index.fetch_add(1, std::memory_order_relaxed);
-                            int ni_next = (ni_curr + 1 >= (int)items_ptr->size()) ? 0 : (ni_curr + 1);
-                            next_index.store(ni_next);
-                            if (next_index.load() == current_index.load()) break;
-                        }
+                        // Probing is done, next_index stays pointing to the video so the slideshow transitions to it next.
                         found_valid = true;
                     }
                 }
@@ -3580,13 +3580,20 @@ slide_debug("ADVANCE: fwd=%d cur=%d items_ptr=%d", forward ? 1 : 0, current_inde
              std::lock_guard<std::mutex> lk(shuffle_mutex);
              std::uniform_int_distribution<int> dist(0, (int)items_ptr->size() - 1);
 
-             // v8.0.1: Force video when ratio is off-balance
-             int ratio_threshold;
+             // Force video when ratio is off-balance (1 video per 10/videos_per_photos photos)
+             int photo_threshold = 3;
+             bool force_video = false;
              {
                  std::lock_guard<std::mutex> cfg_lk(g_config_mtx);
-                 ratio_threshold = g_cfg.videos_per_photos;
+                 if (!g_cfg.play_just_photos && !g_cfg.play_just_videos) {
+                     int v_per_p = std::max(1, std::min(9, g_cfg.videos_per_photos));
+                     photo_threshold = 10 / v_per_p;
+                     if (photos_since_video.load() >= photo_threshold) {
+                         force_video = true;
+                     }
+                 }
              }
-             if (ratio_threshold > 0 && photos_since_video.load() >= ratio_threshold) {
+             if (force_video) {
                  // Scan forward for next video
                  int vi = (prev_idx + 1) % (int)items_ptr->size();
                  int scans = 0;
@@ -3797,21 +3804,23 @@ slide_debug("ADVANCE: fwd=%d cur=%d items_ptr=%d", forward ? 1 : 0, current_inde
              if (loaded_tex.id == 0 && !_next_is_video) {
                       // FIX v16.8.0: unload any leftover texture to prevent VRAM leak on failed preload
                       slide_debug("TRANS_GUARD: loaded_tex.id==0! cur=%d next=%d", frame_current_index, frame_next_index);
-                      if (!preload_running.load()) {
-                          int failed_idx = frame_next_index;
-                          // FIX v1.9.9: fetch_add returns the OLD value; compute
-                          // the incremented value explicitly before storing.
-                          int ni3 = next_index.fetch_add(1, std::memory_order_relaxed);
-                          int ni3_next = (ni3 + 1 >= (int)items_ptr->size()) ? 0 : (ni3 + 1);
-                          next_index.store(ni3_next);
-                          // CRITICAL FIX: Break state out of active transition immediately to halt frame-by-frame thread spawning
-                          transitioning = false;
-                          transition_timer = 0;
-                          transition_progress = 0.0;
-                          item_timer = 0;
-                          if (ni3_next != failed_idx && ni3_next != frame_current_index) {
-                              preload_next();
-                          }
+                      {
+                          std::lock_guard<std::mutex> lk(preload_lifecycle_mtx);
+                          preload_running.store(false, std::memory_order_relaxed);
+                      }
+                      int failed_idx = frame_next_index;
+                      // FIX
+                      // the incremented value explicitly before storing.
+                      int ni3 = next_index.fetch_add(1, std::memory_order_relaxed);
+                      int ni3_next = (ni3 + 1 >= (int)items_ptr->size()) ? 0 : (ni3 + 1);
+                      next_index.store(ni3_next);
+                      // CRITICAL FIX: Break state out of active transition immediately to halt frame-by-frame thread spawning
+                      transitioning = false;
+                      transition_timer = 0;
+                      transition_progress = 0.0;
+                      item_timer = 0;
+                      if (ni3_next != failed_idx && ni3_next != frame_current_index) {
+                          preload_next();
                       }
                       return;
                   }
@@ -5384,6 +5393,8 @@ void config_wizard(const std::string& config_path) {
         f<<"count_x = "<<g_cfg.count_x<<"\n";
         f<<"count_y = "<<g_cfg.count_y<<"\n";
         f<<"videos_per_photos = "<<g_cfg.videos_per_photos<<"\n";
+        f<<"play_just_photos = "<<(g_cfg.play_just_photos?"1":"0")<<"\n";
+        f<<"play_just_videos = "<<(g_cfg.play_just_videos?"1":"0")<<"\n";
         f<<"sleep_time = "<<(g_cfg.sleep_time.empty()?"\"\"":"\""+g_cfg.sleep_time+"\"")<<"\n";
         f<<"wake_time = "<<(g_cfg.wake_time.empty()?"\"\"":"\""+g_cfg.wake_time+"\"")<<"\n";
         f<<"filename_font_size = "<<g_cfg.filename_font_size<<"\n";
@@ -5474,7 +5485,9 @@ void config_wizard(const std::string& config_path) {
     static const CI CD[] = {
         {"Video Volume", INT, "Volume level for video playback (0=muted)"},
         {"Videos per Photos", INT, "Interleave ratio. E.g., '2' plays 2 vids per 10 pics"},
-        {"Probe Timeout", INT, "Max seconds for ffprobe duration extraction (0=disabled)"}
+        {"Probe Timeout", INT, "Max seconds for ffprobe duration extraction (0=disabled)"},
+        {"Play Just Photos", TGL, "Completely exclude videos from playback"},
+        {"Play Just Videos", TGL, "Completely exclude photos from playback"}
     };
     static const CI CE[] = {
         {"Transition Delay", FLT, "Seconds to display photo before transitioning"},
@@ -5514,7 +5527,7 @@ void config_wizard(const std::string& config_path) {
         {"Display", CA, 4},
         {"System", CB, 7},
         {"Overlays", CC, 12},
-        {"Videos", CD, 3},
+        {"Videos", CD, 5},
         {"Slideshow", CE, 13},
         {"Scanning", CG, 5},
         {"Weather", CH, 3},
@@ -5553,6 +5566,8 @@ void config_wizard(const std::string& config_path) {
              case 0: return std::to_string(g_cfg.video_volume);
              case 1: return std::to_string(g_cfg.videos_per_photos);
              case 2: return std::to_string(g_cfg.video_probe_timeout);
+             case 3: return g_cfg.play_just_photos?"[ON]":"[OFF]";
+             case 4: return g_cfg.play_just_videos?"[ON]":"[OFF]";
          }
         if (c == 4) switch(i) {
             case 0: return std::to_string(g_cfg.transition_delay);
@@ -5616,8 +5631,10 @@ void config_wizard(const std::string& config_path) {
             }
    else if(c==3) switch(i){
                   case 0:{ try { g_cfg.video_volume=std::stoi(v); } catch(...) {} break; }
-                  case 1:{ try { g_cfg.videos_per_photos=std::stoi(v); } catch(...) {} break; }
+                  case 1:{ try { int val = std::stoi(v); g_cfg.videos_per_photos=std::max(1, std::min(9, val)); } catch(...) {} break; }
                   case 2:{ try { g_cfg.video_probe_timeout=std::stoi(v); } catch(...) {} break; }
+                  case 3:g_cfg.play_just_photos=(v=="1"||v=="ON"||v=="true"||v=="[ON]");break;
+                  case 4:g_cfg.play_just_videos=(v=="1"||v=="ON"||v=="true"||v=="[ON]");break;
               }
              else if(c==4) switch(i){
                 case 0:{ try { g_cfg.transition_delay=std::stof(v); } catch(...) {} break; } case 1:{ try { g_cfg.transition_duration=std::stof(v); } catch(...) {} break; }
@@ -5872,15 +5889,21 @@ void treadmill_worker(const Config& cfg, Slideshow& slideshow_ref) {
         for (auto& mi : new_playlist) {
             long long days_since = (now_ts - mi.last_shown) / 86400LL;
             if (mi.last_shown == 0 || days_since >= cfg.cooldown_days) {
-                if (mi.type == "video") active_videos.push_back(mi);
-                else active_photos.push_back(mi);
+                if (mi.type == "video") {
+                    if (!cfg.play_just_photos) active_videos.push_back(mi);
+                } else {
+                    if (!cfg.play_just_videos) active_photos.push_back(mi);
+                }
             }
         }
 
         if (active_photos.empty() && active_videos.empty() && !new_playlist.empty()) {
             for (auto& mi : new_playlist) {
-                if (mi.type == "video") active_videos.push_back(mi);
-                else active_photos.push_back(mi);
+                if (mi.type == "video") {
+                    if (!cfg.play_just_photos) active_videos.push_back(mi);
+                } else {
+                    if (!cfg.play_just_videos) active_photos.push_back(mi);
+                }
             }
         }
 
@@ -6651,16 +6674,22 @@ g_logger.init(cfg.log_dir, cfg.verbose ? LogLevel::DEBUG : LogLevel::INFO);
     for (auto& mi : scanned_items) {
         long long days_since = (now_ts - mi.last_shown) / 86400LL;
         if (mi.last_shown == 0 || days_since >= g_cfg.cooldown_days) {
-            if (mi.type == "video") active_videos.push_back(mi);
-            else active_photos.push_back(mi);
+            if (mi.type == "video") {
+                if (!g_cfg.play_just_photos) active_videos.push_back(mi);
+            } else {
+                if (!g_cfg.play_just_videos) active_photos.push_back(mi);
+            }
         }
     }
 
     if (active_photos.empty() && active_videos.empty() && !scanned_items.empty()) {
         g_logger.info("All files on cooldown — showing full set");
         for (auto& mi : scanned_items) {
-            if (mi.type == "video") active_videos.push_back(mi);
-            else active_photos.push_back(mi);
+            if (mi.type == "video") {
+                if (!g_cfg.play_just_photos) active_videos.push_back(mi);
+            } else {
+                if (!g_cfg.play_just_videos) active_photos.push_back(mi);
+            }
         }
     }
 
@@ -6672,9 +6701,12 @@ g_logger.init(cfg.log_dir, cfg.verbose ? LogLevel::DEBUG : LogLevel::INFO);
     }
 
     std::vector<MediaItem> active_items;
-    if (g_cfg.videos_per_photos <= 0) {
+    if (g_cfg.videos_per_photos <= 0 || g_cfg.play_just_photos) {
         // Videos completely disabled
         active_items = std::move(active_photos);
+    } else if (g_cfg.play_just_videos) {
+        // Only videos
+        active_items = std::move(active_videos);
     } else {
         // Interleave videos into the photo stream
         size_t p_idx = 0, v_idx = 0;
@@ -6688,16 +6720,20 @@ g_logger.init(cfg.log_dir, cfg.verbose ? LogLevel::DEBUG : LogLevel::INFO);
         }
     }
 
-auto items_ptr = std::make_shared<std::vector<MediaItem>>(std::move(active_items));
-   slide.items = items_ptr;
+    auto items_ptr = std::make_shared<std::vector<MediaItem>>(std::move(active_items));
+    slide.items = items_ptr;
 
-    // ── Ensure first slide is always an image, never a video ──
+    // ── Determine startup slide and load it cleanly ──
     int start_idx = 0;
     if (!items_ptr->empty()) {
-        for (size_t i = 0; i < items_ptr->size(); i++) {
-            if ((*items_ptr)[i].type == "image") {
-                start_idx = (int)i;
-                break;
+        bool start_with_image = false;
+        if (!g_cfg.play_just_videos) {
+            for (size_t i = 0; i < items_ptr->size(); i++) {
+                if ((*items_ptr)[i].type == "image") {
+                    start_idx = (int)i;
+                    start_with_image = true;
+                    break;
+                }
             }
         }
 
@@ -6711,28 +6747,34 @@ auto items_ptr = std::make_shared<std::vector<MediaItem>>(std::move(active_items
         slide.current_tex.id = 0;
 
         bool first_loaded = false;
-        // Try starting from start_idx, skip corrupted files with limited fallback
-        for (int fallback = 0; fallback < 10 && !first_loaded; fallback++) {
-            int try_idx = (start_idx + fallback) % (int)items_ptr->size();
-            if ((*items_ptr)[try_idx].type != "image") continue;
-            // Check corrupted cache — skip if already failed
-            {
-                std::lock_guard<std::mutex> lk(slide.corrupted_cache_mtx);
-                auto it = slide.corrupted_cache.find((*items_ptr)[try_idx].path);
-                if (it != slide.corrupted_cache.end() && it->second.first >= 1) continue;
-            }
-            slide.load_item((*items_ptr)[try_idx], items_ptr);
-            if (slide.current_tex.id != 0) {
-                first_loaded = true;
-                slide_debug("INIT_FIRST_LOADED: path=%s tex id=%d w=%d h=%d", (*items_ptr)[try_idx].path.substr(0,60).c_str(), slide.current_tex.id, slide.current_tex.width, slide.current_tex.height);
-                if (fallback > 0) {
-                    slide.current_index.store(try_idx);
-                    slide.next_index.store((try_idx + 1) % (int)items_ptr->size());
+        if (start_with_image) {
+            // Try starting from start_idx, skip corrupted files with limited fallback
+            for (int fallback = 0; fallback < 10 && !first_loaded; fallback++) {
+                int try_idx = (start_idx + fallback) % (int)items_ptr->size();
+                if ((*items_ptr)[try_idx].type != "image") continue;
+                // Check corrupted cache — skip if already failed
+                {
+                    std::lock_guard<std::mutex> lk(slide.corrupted_cache_mtx);
+                    auto it = slide.corrupted_cache.find((*items_ptr)[try_idx].path);
+                    if (it != slide.corrupted_cache.end() && it->second.first >= 1) continue;
+                }
+                slide.load_item((*items_ptr)[try_idx], items_ptr);
+                if (slide.current_tex.id != 0) {
+                    first_loaded = true;
+                    slide_debug("INIT_FIRST_LOADED: path=%s tex id=%d w=%d h=%d", (*items_ptr)[try_idx].path.substr(0,60).c_str(), slide.current_tex.id, slide.current_tex.width, slide.current_tex.height);
+                    if (fallback > 0) {
+                        slide.current_index.store(try_idx);
+                        slide.next_index.store((try_idx + 1) % (int)items_ptr->size());
+                    }
                 }
             }
-        }
-        if (!first_loaded && (*items_ptr)[start_idx].type == "image") {
+            if (!first_loaded && (*items_ptr)[start_idx].type == "image") {
+                slide.load_item((*items_ptr)[start_idx], items_ptr);
+            }
+        } else {
+            // Startup item is a video or no images found, load it directly
             slide.load_item((*items_ptr)[start_idx], items_ptr);
+            first_loaded = true;
         }
     }
 

@@ -291,9 +291,17 @@ All bugs in Rounds 20-25 have been resolved (v7.1.7). See git history for detail
 | B320 | LOW | Version mismatch between CMakeLists.txt and piTrove.cpp — VERSION defined in two places, easy to drift | Both set to 8.0.1 in this commit |
 
 ## Next Steps
-- Build and deploy v8.0.1 to Pi
-- Test with `videos_per_photos=1` (photo, video, photo, video...)
-- Test with `videos_per_photos=8` (production ratio)
-- Monitor for 24h to verify video playback consistency
-- Update CHANGELOG.md for v8.0.1
+- Verify TUI option toggles and settings persistent serialization
+- Monitor video/photo transitions and check for seamless skips
+
+## Bug Fix Round 39 (B321-B325) — Transitions, Filters, and Ratio Updates (v8.0.2)
+
+| # | Severity | Bug | Fix Applied |
+|---|----------|-----|-------------|
+| B321 | HIGH | Transition guard lockout on empty texture preloads — main loop stalls in transition loop if texture fails to load | Reset `preload_running` to false and trigger recovery `preload_next()` inside the guard before returning early |
+| B322 | HIGH | Video skips inside preload loop — `preload_next()` video index-advance bug | Keep `next_index` pointing to probed video, allowing the slideshow to correctly transition to it next |
+| B323 | MEDIUM | Keyboard/mouse/touch skips don't kill subprocess mpv immediately | Added `stop_video_subprocess()` to all skip handling control paths in `main()` |
+| B324 | MEDIUM | Missing ability to filter slideshow to single media types | Added `play_just_photos` and `play_just_videos` to configuration, accessor mappings (`gv`/`sv`), and TUI settings screen |
+| B325 | MEDIUM | Shuffling ratio bias rule doesn't follow the video/10 photos interleave rule | Dynamic shuffling ratio forced video every `10 / videos_per_photos` photos; default videos_per_photos set to 3, min 1, max 9 |
+
 
