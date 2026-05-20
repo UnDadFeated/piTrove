@@ -10,7 +10,7 @@
  *   • Slideshow – raylib, preload, crossfade, Ken Burns
  */
 
-#define VERSION "7.3.0"
+#define VERSION "7.4.0"
 #define APP_NAME "piTrove"
 
 // Global atomics for headless features
@@ -893,10 +893,30 @@ static long safe_stol(const std::string& s, long def) {
     try { return std::stol(s); } catch(...) { fprintf(stderr, "[WARN] Invalid long in config: '%s' (default %ld)\n", s.c_str(), (long)def); return def; }
 }
 
-static Config load_config(const char* path) {
-    Config c{};
+Config load_config(const char* config_path) {
+    Config c;
+    std::string path = std::string(config_path);
     std::ifstream f(path);
     if (!f.is_open()) return c;
+
+    auto trim = [](std::string s) -> std::string {
+        s.erase(0, s.find_first_not_of(" \t\r\n"));
+        if (s.empty()) return s;
+        s.erase(s.find_last_not_of(" \t\r\n") + 1);
+        return s;
+    };
+    auto safe_stoi = [](const std::string& v, int def) -> int {
+        try { return std::stoi(v); } catch (...) { return def; }
+    };
+    auto safe_stof = [](const std::string& v, float def) -> float {
+        try { return std::stof(v); } catch (...) { return def; }
+    };
+    auto safe_stod = [](const std::string& v, double def) -> double {
+        try { return std::stod(v); } catch (...) { return def; }
+    };
+    auto safe_stol = [](const std::string& v, long def) -> long {
+        try { return std::stol(v); } catch (...) { return def; }
+    };
 
     std::string section;
     std::string line;
@@ -913,200 +933,94 @@ static Config load_config(const char* path) {
         std::string key = trim(line.substr(0, eq));
         std::string val = trim(line.substr(eq + 1));
 
-        // ── Strip quotes from strings so "radiating" matches "radiating" ──
         if (val.size() >= 2 && val.front() == '"' && val.back() == '"') {
             val = val.substr(1, val.size() - 2);
         }
-        // ─────────────────────────────────────────────────────────────────
 
-        if (section == "paths") {
-            if (key == "media_dir")             c.media_dir = val;
-            if (key == "cache_dir")            c.cache_dir = val;
-            if (key == "log_dir")              c.log_dir = val;
-            if (key == "splash_file")         c.splash_file = val;
-        } else if (section == "display") {
-            if (key == "resolution") {
-                auto comma = val.find(',');
-                if (comma != std::string::npos) {
-                    c.screen_w = safe_stoi(val.substr(0, comma), c.screen_w);
-                    c.screen_h = safe_stoi(val.substr(comma + 1), c.screen_h);
-                }
-            }
-            if (key == "fullscreen")          c.fullscreen = (val == "1" || val == "true");
-            if (key == "rotation")           c.rotation = safe_stoi(val, c.rotation);
-            if (key == "splash_overlay_y")   c.splash_overlay_y = safe_stof(val, c.splash_overlay_y);
-        } else if (section == "overlay") {
-            if (key == "timer_enabled")        c.timer_enabled = (val == "1" || val == "true");
-            if (key == "timer_x")             c.timer_x = safe_stof(val, c.timer_x);
-            if (key == "timer_y")             c.timer_y = safe_stof(val, c.timer_y);
-            if (key == "timer_font_size")      c.timer_font_size = safe_stoi(val, c.timer_font_size);
-            if (key == "timer_color")         c.timer_color = val;
-            if (key == "filename_enabled")    c.filename_enabled = (val == "1" || val == "true");
-            if (key == "filename_x")          c.filename_x = safe_stof(val, c.filename_x);
-            if (key == "filename_y")          c.filename_y = safe_stof(val, c.filename_y);
-            if (key == "count_enabled")       c.count_enabled = (val == "1" || val == "true");
-            if (key == "count_x")             c.count_x = safe_stof(val, c.count_x);
-            if (key == "count_y")             c.count_y = safe_stof(val, c.count_y);
-            if (key == "videos_per_photos")   c.videos_per_photos = safe_stoi(val, c.videos_per_photos);
-            if (key == "sleep_time")           c.sleep_time = val;
-            if (key == "wake_time")            c.wake_time = val;
-        } else if (section == "dashboard") {
-            if (key == "weather_enabled")      c.weather_enabled = (val == "1" || val == "true");
-            if (key == "weather_lat")          c.weather_lat = safe_stof(val, c.weather_lat);
-            if (key == "weather_lon")          c.weather_lon = safe_stof(val, c.weather_lon);
-  } else if (section == "remote") {
-             if (key == "http_enabled")         c.http_enabled = (val == "1" || val == "true");
-             if (key == "http_port") {
-                 int p = safe_stoi(val, c.http_port);
-                 c.http_port = (p >= 1 && p <= 65535) ? p : 8080;  // v1.9.5: validate port range (Y7)
-             }
-        } else if (section == "video") {
-            if (key == "volume")                c.video_volume = safe_stoi(val, c.video_volume);
-            if (key == "probe_timeout")         c.video_probe_timeout = safe_stoi(val, c.video_probe_timeout);
-        } else if (section == "date_overlay") {
-            if (key == "enabled")              c.date_overlay_enabled = (val == "1" || val == "true");
-            if (key == "text")                 c.date_text = val;
-            if (key == "x")                    c.date_x = safe_stof(val, c.date_x);
-            if (key == "y")                    c.date_y = safe_stof(val, c.date_y);
-            if (key == "font_size")            c.date_font_size = safe_stoi(val, c.date_font_size);
-            if (key == "color")                c.date_color = val;
-        } else if (section == "touch") {
-            if (key == "enabled")              c.touch_enabled = (val == "1" || val == "true");
-        } else if (section == "collage") {
-            if (key == "enabled")              c.collage_enabled = (val == "1" || val == "true");
-            if (key == "cols")                c.collage_cols = safe_stoi(val, c.collage_cols);
-            if (key == "rows")                c.collage_rows = safe_stoi(val, c.collage_rows);
-        } else if (section == "slideshow") {
-            if (key == "transition_delay")      c.transition_delay = safe_stod(val, c.transition_delay);
-            if (key == "transition_duration")   c.transition_duration = safe_stod(val, c.transition_duration);
-            if (key == "slideshow_fps")         c.slideshow_fps = safe_stoi(val, c.slideshow_fps);
-            if (key == "transition_effect")     c.transition_effect = val;
-            if (key == "ken_burns_speed")       c.ken_burns_speed = safe_stod(val, c.ken_burns_speed);
-            if (key == "ken_burns")             c.ken_burns = (val == "1" || val == "true");
-            if (key == "matting")              c.matting = (val == "1" || val == "true");
-            if (key == "matting_size")         c.matting_size = safe_stoi(val, c.matting_size);
-            if (key == "bias_lighting")       c.bias_lighting = (val == "1" || val == "true");
-            if (key == "bias_anim_speed")     c.bias_anim_speed = safe_stof(val, c.bias_anim_speed);
-            if (key == "bias_anim_style")     c.bias_anim_style = val;
-            if (key == "bias_color_mode")   c.bias_color_mode = val;
-            if (key == "splash_overlay_y")    c.splash_overlay_y = safe_stof(val, c.splash_overlay_y);
-if (key == "cooldown_days")       c.cooldown_days = safe_stoi(val, c.cooldown_days);
-             if (key == "brightness_auto")      c.brightness_auto = (val == "1" || val == "true");
-             if (key == "brightness_auto_min")  c.brightness_auto_min = safe_stoi(val, c.brightness_auto_min);
-             if (key == "brightness_auto_max")  c.brightness_auto_max = safe_stoi(val, c.brightness_auto_max);
-             if (key == "border_enabled")      c.border_enabled     = (val=="1"||val=="true");
-             if (key == "border_width")        c.border_width       = safe_stoi(val, c.border_width);
-             if (key == "vignette_enabled")    c.vignette_enabled   = (val=="1"||val=="true");
-             if (key == "shuffle")             c.shuffle            = (val=="0"||val=="false") ? false : true;
-             if (key == "ken_burns_zoom")      c.ken_burns_zoom     = safe_stof(val, c.ken_burns_zoom);
-            if (key == "bias_strength")       c.bias_strength      = safe_stoi(val, c.bias_strength);
-            if (key == "clock_enabled")       c.clock_enabled      = (val=="1"||val=="true");
-            if (key == "clock_x")             c.clock_x            = safe_stof(val, c.clock_x);
-            if (key == "clock_y")             c.clock_y            = safe_stof(val, c.clock_y);
-            if (key == "clock_font_size")     c.clock_font_size    = safe_stoi(val, c.clock_font_size);
-            if (key == "clock_color")         c.clock_color        = val;
-            if (key == "clock_24h")           c.clock_24h          = (val=="1"||val=="true");
-            if (key == "filename_font_size")  c.filename_font_size = safe_stoi(val, c.filename_font_size);
-            if (key == "count_font_size")     c.count_font_size    = safe_stoi(val, c.count_font_size);
-        } else if (section == "brightness") {
-            if (key == "auto")                c.brightness_auto = (val == "1" || val == "true");
-            if (key == "auto_min")            c.brightness_auto_min = safe_stoi(val, c.brightness_auto_min);
-            if (key == "auto_max")            c.brightness_auto_max = safe_stoi(val, c.brightness_auto_max);
-        } else if (section == "scan") {
-            if (key == "recursive")             c.recursive = (val == "1" || val == "true");
-            if (key == "depth")                c.scan_depth = safe_stoi(val, c.scan_depth);
-            if (key == "max_concurrent")       c.max_concurrent = safe_stoi(val, c.max_concurrent);
-            if (key == "window_days")         c.scan_window_days = safe_stoi(val, c.scan_window_days);
-            if (key == "ignore_folders") {
-                std::string stripped = val;
-                if (!stripped.empty() && stripped.front() == '[') {
-                    stripped = stripped.substr(1);
-                    if (!stripped.empty() && stripped.back() == ']') stripped.pop_back();
-                }
-                stripped = trim(stripped);
-                if (!stripped.empty()) {
-                    std::stringstream ss(stripped); std::string folder;
-                    while (std::getline(ss, folder, ',')) {
-                        std::string f = trim(folder);
-                        if (!f.empty()) c.ignore_folders.push_back(f);
-                    }
-                }
-            }
-        } else if (section == "sqlite") {
-            if (key == "mmap_size")           c.cache_mmap_size = (int)safe_stol(val, c.cache_mmap_size);
-        } else if (section == "log") {
-            if (key == "level")               c.verbose = (val == "debug");
-     } else {
-            // fallback flat key=value
-            if (key == "media_dir")             c.media_dir = val;
-            if (key == "cache_dir")            c.cache_dir = val;
-            if (key == "log_dir")              c.log_dir = val;
-            if (key == "splash_file")         c.splash_file = val;
-            if (key == "resolution") {
-                auto comma = val.find(',');
-                if (comma != std::string::npos) {
-                    c.screen_w = safe_stoi(val.substr(0, comma), c.screen_w);
-                    c.screen_h = safe_stoi(val.substr(comma + 1), c.screen_h);
-                }
-            }
-            if (key == "fullscreen")          c.fullscreen = (val == "1" || val == "true");
-            if (key == "rotation")           c.rotation = safe_stoi(val, c.rotation);
-            if (key == "transition_delay")   c.transition_delay = safe_stod(val, c.transition_delay);
-            if (key == "transition_duration") c.transition_duration = safe_stod(val, c.transition_duration);
-            if (key == "slideshow_fps")      c.slideshow_fps = safe_stoi(val, c.slideshow_fps);
-            if (key == "transition_effect")  c.transition_effect = val;
-            if (key == "ken_burns_speed")    c.ken_burns_speed = safe_stod(val, c.ken_burns_speed);
-            if (key == "ken_burns")         c.ken_burns = (val == "1" || val == "true");
-            if (key == "matting")           c.matting = (val == "1" || val == "true");
-            if (key == "matting_size")      c.matting_size = safe_stoi(val, c.matting_size);
-            if (key == "bias_lighting")     c.bias_lighting = (val == "1" || val == "true");
-            if (key == "bias_anim_speed")   c.bias_anim_speed = safe_stof(val, c.bias_anim_speed);
-            if (key == "bias_anim_style")   c.bias_anim_style = val;
-            if (key == "bias_color_mode")   c.bias_color_mode = val;
-            if (key == "splash_overlay_y")  c.splash_overlay_y = safe_stof(val, c.splash_overlay_y);
-            if (key == "recursive")         c.recursive = (val == "1" || val == "true");
-            if (key == "depth")             c.scan_depth = safe_stoi(val, c.scan_depth);
-            if (key == "max_concurrent")    c.max_concurrent = safe_stoi(val, c.max_concurrent);
-            if (key == "window_days")      c.scan_window_days = safe_stoi(val, c.scan_window_days);
-            if (key == "mmap_size")        c.cache_mmap_size = (int)safe_stol(val, c.cache_mmap_size);
-            if (key == "verbose")          c.verbose = (val == "debug");
-            // brightness_auto/brightness_auto_min/max handled in [slideshow] + [brightness] sections
-            // date_overlay_* handled in [date_overlay] section
-            if (key == "touch_enabled")         c.touch_enabled = (val == "1" || val == "true");
-            if (key == "collage_enabled")       c.collage_enabled = (val == "1" || val == "true");
-            if (key == "collage_cols")          c.collage_cols = safe_stoi(val, c.collage_cols);
-            if (key == "collage_rows")          c.collage_rows = safe_stoi(val, c.collage_rows);
-          if (key == "auto_display_rotation") c.auto_display_rotation = (val == "1" || val == "true");
-             if (key == "border_enabled")      c.border_enabled     = (val=="1"||val=="true");
-             if (key == "border_width")        c.border_width       = safe_stoi(val, c.border_width);
-             if (key == "vignette_enabled")    c.vignette_enabled   = (val=="1"||val=="true");
-             if (key == "shuffle")             c.shuffle            = (val=="0"||val=="false") ? false : true;
-             if (key == "ken_burns_zoom")      c.ken_burns_zoom     = safe_stof(val, c.ken_burns_zoom);
-            if (key == "bias_strength")       c.bias_strength      = safe_stoi(val, c.bias_strength);
-            if (key == "clock_enabled")       c.clock_enabled      = (val=="1"||val=="true");
-            if (key == "clock_x")             c.clock_x            = safe_stof(val, c.clock_x);
-            if (key == "clock_y")             c.clock_y            = safe_stof(val, c.clock_y);
-            if (key == "clock_font_size")     c.clock_font_size    = safe_stoi(val, c.clock_font_size);
-            if (key == "clock_color")         c.clock_color        = val;
-            if (key == "clock_24h")           c.clock_24h          = (val=="1"||val=="true");
-            if (key == "filename_font_size")  c.filename_font_size = safe_stoi(val, c.filename_font_size);
-            if (key == "count_font_size")     c.count_font_size    = safe_stoi(val, c.count_font_size);
+        if (key == "media_dir")              c.media_dir = val;
+        else if (key == "cache_dir")         c.cache_dir = val;
+        else if (key == "log_dir")           c.log_dir = val;
+        else if (key == "splash_file")       c.splash_file = val;
+        else if (key == "fullscreen")        c.fullscreen = (val == "1" || val == "true");
+        else if (key == "rotation")          c.rotation = safe_stoi(val, c.rotation);
+        else if (key == "splash_overlay_y")  c.splash_overlay_y = safe_stof(val, c.splash_overlay_y);
+        else if (key == "timer_enabled")     c.timer_enabled = (val == "1" || val == "true");
+        else if (key == "timer_x")           c.timer_x = safe_stof(val, c.timer_x);
+        else if (key == "timer_y")           c.timer_y = safe_stof(val, c.timer_y);
+        else if (key == "timer_font_size")   c.timer_font_size = safe_stoi(val, c.timer_font_size);
+        else if (key == "timer_color")        c.timer_color = val;
+        else if (key == "filename_enabled")  c.filename_enabled = (val == "1" || val == "true");
+        else if (key == "filename_x")        c.filename_x = safe_stof(val, c.filename_x);
+        else if (key == "filename_y")        c.filename_y = safe_stof(val, c.filename_y);
+        else if (key == "count_enabled")     c.count_enabled = (val == "1" || val == "true");
+        else if (key == "count_x")           c.count_x = safe_stof(val, c.count_x);
+        else if (key == "count_y")           c.count_y = safe_stof(val, c.count_y);
+        else if (key == "videos_per_photos") c.videos_per_photos = safe_stoi(val, c.videos_per_photos);
+        else if (key == "sleep_time")        c.sleep_time = val;
+        else if (key == "wake_time")         c.wake_time = val;
+        else if (key == "weather_enabled")   c.weather_enabled = (val == "1" || val == "true");
+        else if (key == "weather_lat")       c.weather_lat = safe_stof(val, c.weather_lat);
+        else if (key == "weather_lon")       c.weather_lon = safe_stof(val, c.weather_lon);
+        else if (key == "http_enabled")      c.http_enabled = (val == "1" || val == "true");
+        else if (key == "http_port") {
+            int p = safe_stoi(val, c.http_port);
+            c.http_port = (p >= 1 && p <= 65535) ? p : 8080;
         }
-    }
-
-    if (c.media_dir.empty()) c.media_dir = "/mnt/Archive";
-    { std::string h = getenv("HOME") ? getenv("HOME") : "/home/pi";
-      if (c.cache_dir.empty()) c.cache_dir = h + "/.cache/piTrove";
-      if (c.log_dir.empty())   c.log_dir = h + "/piTrove/logs"; }
-    if (c.splash_file.empty()) c.splash_file = "src/splash.png";
-
-    // v1.8.4: resolution always hardcoded to 1920x1080 — no user override
-    c.screen_w = 1920;
-    c.screen_h = 1080;
-
-    // Warn if the configured splash file does not exist
-    if (!std::filesystem::exists(c.splash_file)) {
-        fprintf(stderr, "[WARN] Splash file not found: %s (splash screen will use generated fallback)\n", c.splash_file.c_str());
+        else if (key == "volume")            c.video_volume = safe_stoi(val, c.video_volume);
+        else if (key == "probe_timeout")     c.video_probe_timeout = safe_stoi(val, c.video_probe_timeout);
+        else if (key == "enabled" && section == "date_overlay") c.date_overlay_enabled = (val == "1" || val == "true");
+        else if (key == "text" && section == "date_overlay")    c.date_text = val;
+        else if (key == "x" && section == "date_overlay")       c.date_x = safe_stof(val, c.date_x);
+        else if (key == "y" && section == "date_overlay")       c.date_y = safe_stof(val, c.date_y);
+        else if (key == "font_size" && section == "date_overlay") c.date_font_size = safe_stoi(val, c.date_font_size);
+        else if (key == "color" && section == "date_overlay")   c.date_color = val;
+        else if (key == "enabled" && section == "touch")        c.touch_enabled = (val == "1" || val == "true");
+        else if (key == "enabled" && section == "collage")      c.collage_enabled = (val == "1" || val == "true");
+        else if (key == "cols")              c.collage_cols = safe_stoi(val, c.collage_cols);
+        else if (key == "rows")              c.collage_rows = safe_stoi(val, c.collage_rows);
+        else if (key == "transition_delay")  c.transition_delay = safe_stod(val, c.transition_delay);
+        else if (key == "transition_duration") c.transition_duration = safe_stod(val, c.transition_duration);
+        else if (key == "slideshow_fps")     c.slideshow_fps = safe_stoi(val, c.slideshow_fps);
+        else if (key == "transition_effect") c.transition_effect = val;
+        else if (key == "ken_burns_speed")   c.ken_burns_speed = safe_stod(val, c.ken_burns_speed);
+        else if (key == "ken_burns")         c.ken_burns = (val == "1" || val == "true");
+        else if (key == "matting")           c.matting = (val == "1" || val == "true");
+        else if (key == "matting_size")      c.matting_size = safe_stoi(val, c.matting_size);
+        else if (key == "bias_lighting")     c.bias_lighting = (val == "1" || val == "true");
+        else if (key == "bias_anim_speed")   c.bias_anim_speed = safe_stof(val, c.bias_anim_speed);
+        else if (key == "bias_anim_style")   c.bias_anim_style = val;
+        else if (key == "bias_color_mode")   c.bias_color_mode = val;
+        else if (key == "cooldown_days")     c.cooldown_days = safe_stoi(val, c.cooldown_days);
+        else if (key == "auto" || key == "brightness_auto") c.brightness_auto = (val == "1" || val == "true");
+        else if (key == "auto_min" || key == "brightness_auto_min") c.brightness_auto_min = safe_stoi(val, c.brightness_auto_min);
+        else if (key == "auto_max" || key == "brightness_auto_max") c.brightness_auto_max = safe_stoi(val, c.brightness_auto_max);
+        else if (key == "border_enabled")    c.border_enabled = (val == "1" || val == "true");
+        else if (key == "border_width")      c.border_width = safe_stoi(val, c.border_width);
+        else if (key == "vignette_enabled")  c.vignette_enabled = (val == "1" || val == "true");
+        else if (key == "shuffle")           c.shuffle = !(val == "0" || val == "false");
+        else if (key == "ken_burns_zoom")    c.ken_burns_zoom = safe_stof(val, c.ken_burns_zoom);
+        else if (key == "bias_strength")     c.bias_strength = safe_stoi(val, c.bias_strength);
+        else if (key == "clock_enabled")     c.clock_enabled = (val == "1" || val == "true");
+        else if (key == "clock_x")           c.clock_x = safe_stof(val, c.clock_x);
+        else if (key == "clock_y")           c.clock_y = safe_stof(val, c.clock_y);
+        else if (key == "clock_font_size")   c.clock_font_size = safe_stoi(val, c.clock_font_size);
+        else if (key == "clock_color")       c.clock_color = val;
+        else if (key == "clock_24h")         c.clock_24h = (val == "1" || val == "true");
+        else if (key == "filename_font_size") c.filename_font_size = safe_stoi(val, c.filename_font_size);
+        else if (key == "count_font_size")    c.count_font_size = safe_stoi(val, c.count_font_size);
+        else if (key == "recursive")         c.recursive = (val == "1" || val == "true");
+        else if (key == "depth")             c.scan_depth = safe_stoi(val, c.scan_depth);
+        else if (key == "max_concurrent")    c.max_concurrent = safe_stoi(val, c.max_concurrent);
+        else if (key == "window_days")       c.scan_window_days = safe_stoi(val, c.scan_window_days);
+        else if (key == "mmap_size")         c.cache_mmap_size = (int)safe_stol(val, c.cache_mmap_size);
+        else if (key == "level")             c.verbose = (val == "debug");
+        else if (key == "resolution") {
+            auto comma = val.find(',');
+            if (comma != std::string::npos) {
+                c.screen_w = safe_stoi(val.substr(0, comma), c.screen_w);
+                c.screen_h = safe_stoi(val.substr(comma + 1), c.screen_h);
+            }
+        }
     }
 
     return c;
@@ -2004,6 +1918,11 @@ public:
                 folder_m = std::stoi(match[2]);
             } catch (...) {
                 return true; // Fallback to scan if parsing fails
+            }
+
+            // SAFE GUARD RANGE BOUNDS: Discard garbage month tokens cleanly
+            if (folder_m < 1 || folder_m > 12) {
+                return true; // Treat as un-dated custom folder and scan safely
             }
 
             time_t t = std::time(nullptr);
@@ -3486,9 +3405,6 @@ struct Slideshow {
     }
 std::atomic<bool> current_is_video{false};  // v6.0.10: atomic for HTTP thread safety (B7)
       // v3.0.0: g_mpv is a global defined inline above; subprocess fields below kept for mpv_video_play() fallback only
-      std::atomic<pid_t> mpv_pid{0};
-      std::thread mpv_monitor;
-      std::atomic<bool> mpv_running{false};
       std::mt19937 rng{std::random_device{}() ^ static_cast<unsigned int>(time(nullptr))};
         std::thread treadmill_thread;
 
@@ -3613,9 +3529,7 @@ std::atomic<int> preload_progress{0};
                   current_h = g_cfg.screen_h;
 
                   // In-process libmpv render API — shares Raylib's EGL context.
-                  // Subprocess mpv_video_play() cannot acquire DRM master — Raylib
-                  // owns it for the process lifetime.
-                  if (!g_mpv.is_initialized()) {
+                   if (!g_mpv.is_initialized()) {
                       g_mpv.surface_w    = g_cfg.screen_w;
                       g_mpv.surface_h    = g_cfg.screen_h;
                       g_mpv.video_volume = g_cfg.video_volume;
@@ -4860,177 +4774,9 @@ if (!current_is_video && current_tex.id == 0) {
                        {(float)(sw/2 - (int)hs.x/2), 8.0f},
                        14, 1.0f, (Color){200, 200, 200, 180});
         }
-    }
+   }
 
- // ── Subprocess mpv player (v3.1.1: safety net only — primary path is in-process g_mpv) ──
-  // Kept as safety net for edge cases. Primary video playback uses in-process
-  // g_mpv render API which shares Raylib's EGL context directly.
-  void mpv_video_play(const std::string& path) {
-          // Stop existing mpv process if running
-          if (mpv_running.load()) {
-               pid_t old_pid = mpv_pid.load();
-               if (old_pid > 0) {
-                   g_logger.info("MPV_STOP: killing existing mpv pid=%d", old_pid);
-                   kill(old_pid, SIGKILL);
-                   waitpid(old_pid, nullptr, WNOHANG);
-               }
-               mpv_pid.store(0);
-               mpv_running.store(false);
-           }
-
-          g_logger.info("MPV_PLAY: starting '%s'", path.substr(0, 80).c_str());
-
-         // FIX v2.1.0: ALWAYS join the monitor thread before reassigning it,
-         // even if the video finished naturally and mpv_running is false.
-         // Assigning a new std::thread to a still-joinable object invokes
-         // std::terminate() per the C++ standard.
-         if (mpv_monitor.joinable()) {
-             mpv_monitor.join();
-         }
-
-        // Escape single quotes, backslashes, backticks, and double-quotes for the shell
-         std::string safe_path = path;
-         size_t pos = 0;
-         while ((pos = safe_path.find('\'', pos)) != std::string::npos) {
-             safe_path.replace(pos, 1, "'\\''");
-             pos += 4;
-         }
-         pos = 0;
-         while ((pos = safe_path.find('\\', pos)) != std::string::npos) {
-             safe_path.replace(pos, 1, "\\\\");
-             pos += 2;
-         }
-         pos = 0;
-         while ((pos = safe_path.find('`', pos)) != std::string::npos) {
-             safe_path.insert(pos, "\\");
-             pos += 2;
-         }
-         pos = 0;
-         while ((pos = safe_path.find('"', pos)) != std::string::npos) {
-             safe_path.insert(pos, "\\");
-             pos += 2;
-         }
-
-        // Build argv for execvp
-        std::vector<const char*> args;
-        std::string mpv_path = "/usr/bin/mpv";
-       // FIX v1.9.8: removed format=yuv420p — incompatible with 10-bit HEVC/x265 under hwdec.
-        // mpv selects the correct output format automatically.
-        std::string scale_filter = "scale=-1:1080";
-        std::string vf_arg = "--vf=" + scale_filter;  // v16.4.0: named local to avoid dangling c_str() (L5, L6)
-
-       std::string vol_str = "--volume=" + std::to_string(g_cfg.video_volume);
-
-        args.push_back("mpv");
-        args.push_back("--no-terminal");
-        args.push_back("--really-quiet");
-        args.push_back(vol_str.c_str());
-        args.push_back("--fullscreen");
-        args.push_back("--no-osd");
-        args.push_back("--no-sub");
-        args.push_back("--loop=no");
-        args.push_back("--vo=gpu");
-        args.push_back("--gpu-context=drm");
-        args.push_back("--hwdec=auto-safe");
-        args.push_back("--vd-lavc-threads=4");
-        args.push_back("--sws-scaler=fast-bilinear");
-        args.push_back("--sws-allow-zimg=no");
-        args.push_back(vf_arg.c_str());
-        args.push_back("--");
-        args.push_back(safe_path.c_str());
-        args.push_back(nullptr);
-
-          // Drop DRM master so mpv can acquire it (Raylib owns DRM master; mpv cannot take over without it)
-          // Lock drm_mutex to prevent race with preload VRAM operations
-          int drm_fd = -1;
-          {
-              std::lock_guard<std::mutex> lock(drm_mutex);
-              drm_fd = open("/dev/dri/card0", O_RDWR | O_CLOEXEC);
-              if (drm_fd >= 0) {
-                  if (drmDropMaster(drm_fd) == 0) {
-                      g_logger.info("MPV_DRM: dropped master on /dev/dri/card0 (fd=%d)", drm_fd);
-                  } else {
-                      g_logger.error("MPV_DRM: drmDropMaster failed errno=%d", errno);
-                  }
-              } else {
-                  g_logger.error("MPV_DRM: failed to open /dev/dri/card0 errno=%d", errno);
-                  drm_fd = -1;
-              }
-          }
-
-          pid_t pid = fork();
-          if (pid == 0) {
-             // Set PDEATHSIG so mpv is killed if parent dies
-             prctl(PR_SET_PDEATHSIG, SIGTERM);
-             // Close all inherited FDs > 2
-             for (int i = 3; i < 1024; i++) close(i);
-             // Child: redirect stdin/stdout/stderr
-            int devnull = open("/dev/null", O_RDWR);
-            if (devnull >= 0) {
-                dup2(devnull, STDIN_FILENO);
-                dup2(devnull, STDOUT_FILENO);
-                dup2(devnull, STDERR_FILENO);
-                if (devnull > 2) close(devnull);
-            }
-            execv("/usr/bin/mpv", const_cast<char**>(args.data()));
-            _exit(127);
-        } else if (pid > 0) {
-             mpv_pid.store(pid);
-             mpv_running.store(true);
-             g_logger.info("MPV_FORK: child pid=%d", pid);
-            // Start monitor thread
-             mpv_monitor = std::thread([this, drm_fd]() {
-                 int timeout_counter = 0;
-                 while (mpv_running.load()) {
-                    int status;
-                    pid_t p = mpv_pid.load();
-                    pid_t res = waitpid(p, &status, WNOHANG);
-                    if (res == -1) {
-                        mpv_running.store(false);
-                        if (errno == ECHILD) {
-                            // Reaped by SIGCHLD handler (reap_children) before monitor
-                            // could wait — playback finished normally
-                            slide_debug("MPV_EXIT: already reaped by SIGCHLD handler");
-                            g_logger.info("mpv playback finished (reaped by SIGCHLD handler)");
-                        } else {
-                            slide_debug("MPV_EXIT: waitpid error errno=%d", errno);
-                            g_logger.error("mpv exited (code=%d) — %s", -1, strerror(errno));
-                        }
-                        break;
-                    }
-                    if (res > 0) {
-                        mpv_running.store(false);
-                        int exit_code = WIFEXITED(status) ? WEXITSTATUS(status) : -1;
-                        slide_debug("MPV_EXIT: code=%d status=%d", exit_code, status);
-                        g_logger.info("mpv playback finished — %s",
-                            exit_code == 0 ? "success" : "exit code");
-                        break;
-                    }
-if (g_remote_command.load() != 0) {
-                            timeout_counter++;
-                            if (timeout_counter > 25) {
-                                if (p > 0) kill(p, SIGKILL);
-                                break;
-                            }
-                        }
-                   std::this_thread::sleep_for(std::chrono::milliseconds(100));
-                 }
-                 // Reclaim DRM master so Raylib can resume rendering
-                 if (drm_fd >= 0) {
-                     drmSetMaster(drm_fd);
-                     g_logger.info("MPV_DRM: reclaimed master on /dev/dri/card0 (fd=%d)", drm_fd);
-                     close(drm_fd);
-                 }
-             });
-             // Close parent's copy of drm_fd — the thread holds its own copy via lambda capture
-             if (drm_fd >= 0) close(drm_fd);
-         } else {
-             g_logger.error("fork() failed to spawn mpv: %s", strerror(errno));
-             if (drm_fd >= 0) close(drm_fd);
-         }
-     }
-
-    void init() {
+     void init() {
          hud_font = LoadFontEx("/usr/share/fonts/truetype/dejavu/DejaVuSansMono-Bold.ttf", 20, nullptr, 0);
         if (hud_font.texture.id == 0) {
             hud_font = GetFontDefault();
@@ -7077,256 +6823,54 @@ g_logger.init(cfg.log_dir, cfg.verbose ? LogLevel::DEBUG : LogLevel::INFO);
     }
 
 auto items_ptr = std::make_shared<std::vector<MediaItem>>(std::move(active_items));
-slide.items = items_ptr;
+   slide.items = items_ptr;
 
-
-        // ── Ensure first slide is always an image, never a video ──
-         int start_idx = 0;
-         if (!items_ptr->empty()) {
-             // Find first image item in the playlist (skip any leading videos)
-             while (start_idx < (int)items_ptr->size() && (*items_ptr)[start_idx].type == "video") {
-                 start_idx++;
-             }
-             if (start_idx >= (int)items_ptr->size()) start_idx = 0; // fallback if all videos
-
-            // ── Preload the FIRST IMAGE into VRAM (instant startup, zero disk I/O) ──
-               slide.first_idx = start_idx;
-               auto first_img_items = items_ptr; // v6.0.6: capture shared_ptr for thread safety
-               slide.first_img_thread = std::thread([&slide, first_img_items]() {
-                   try {
-                       int start = slide.first_idx;
-                       for (int fallback = 0; fallback < 10; fallback++) {
-                  int try_idx = (start + fallback) % (int)first_img_items->size();
-                            auto try_item = (*first_img_items)[try_idx];
-                            if (try_item.type != "image") continue;
-
-                           // Check corrupted cache
-                            {
-                                std::lock_guard<std::mutex> lk(slide.corrupted_cache_mtx);
-                                auto it = slide.corrupted_cache.find(try_item.path);
-                                if (it != slide.corrupted_cache.end() && it->second.first >= 1) {
-                                    continue;
-                                }
-                            }
-
-                          std::string ext_lower = try_item.ext;
-                            for (auto& c : ext_lower) c = tolower(c);
-
-                            Image img{};  // v6.0.11: value-init to zero (B211)
-                             if (ext_lower == "heic" || ext_lower == "heif")
-                                img = LoadImageHEIC(try_item.path);
-                            else if (ext_lower == "webp")
-                                img = LoadImageWebP(try_item.path);
-                            else
-                                img = LoadImageRobust(try_item.path);
-
-                            if (img.data && img.width > 0 && img.height > 0) {
-                                 apply_exif_rotation(img, try_item.exif_rotation);
-                                 Color avgColor = GetAverageColor(img);
-
-                                Texture2D tex = LoadTextureVRAMSafe(img);
-                                if (tex.id != 0) {
-                                    {
-                                        std::lock_guard<std::mutex> lk(slide.first_img_mtx);
-                                        slide.first_img_tex = tex;
-                                        slide.first_img_color = avgColor;
-                                        slide.first_idx = try_idx;
-                                        int depth = std::max(1, std::min(img.width, img.height) / 6);
-                                        auto pack = [](Color c) -> unsigned int {
-                                            return ((unsigned int)c.r<<24)|((unsigned int)c.g<<16)|((unsigned int)c.b<<8)|(unsigned int)c.a;
-                                        };
-                                        slide.next_bias_top_hex.store(pack(GetEdgeAvgColor(img, depth, 0)));
-                                        slide.next_bias_bot_hex.store(pack(GetEdgeAvgColor(img, depth, 1)));
-                                        slide.next_bias_lft_hex.store(pack(GetEdgeAvgColor(img, depth, 2)));
-                                        slide.next_bias_rgt_hex.store(pack(GetEdgeAvgColor(img, depth, 3)));
-                                    }
-                                    slide.first_img_ready.store(true);
-                                    g_logger.info("FIRST_IMG_OK: preloaded idx=%d %dx%d tex.id=%d",
-                                        try_idx, slide.first_img_tex.width, slide.first_img_tex.height, slide.first_img_tex.id);
-                                 }
-                                 UnloadImage(img);
-                                 slide.first_img_thread_done.store(true);
-                                 slide.first_img_cv.notify_all();
-                                return;
-                            } else {
-                                // Cache as corrupted
-                                {
-                                    std::lock_guard<std::mutex> lk(slide.corrupted_cache_mtx);
-                                    if (slide.corrupted_cache.find(try_item.path) == slide.corrupted_cache.end()) slide.corrupted_cache_seq++;
-                                    slide.corrupted_cache[try_item.path] = {1, slide.corrupted_cache_seq};
-                                }
-                            }
-                        }
-                      // All 10 attempts failed
-                       slide.first_img_thread_done.store(true);
-                       g_logger.error("FIRST_IMG_FAIL: all 10 attempts failed, no valid image to display first");
-                        slide.first_img_cv.notify_all();
-                   } catch (const std::exception& e) {
-                       g_logger.error("First image preload thread crashed: %s", e.what());
-                       slide.first_img_thread_done.store(true);
-                       slide.first_img_cv.notify_all();
-                   } catch (...) {
-                       g_logger.error("First image preload thread crashed (unknown)");
-                       slide.first_img_thread_done.store(true);
-                       slide.first_img_cv.notify_all();
-                   }
-               });
-
-             // ── Start remaining preload immediately (non-blocking) ──
-            slide.current_index.store(start_idx);
-            slide.next_index.store((start_idx + 1) % (int)items_ptr->size());
-            slide.preload_running.store(true);
-            slide.preload_initial_phase.store(true);
-             auto preload_items = items_ptr; // v6.0.6: capture shared_ptr for thread safety
-             slide.preload_thread = std::thread([&slide, preload_items]() {
-                   try {
-                       if (preload_items->empty()) {
-                           slide.preload_ready.store(true);
-                           { std::lock_guard<std::mutex> lk(slide.preload_lifecycle_mtx); slide.preload_running.store(false); }
-                           return;
-                       }
-                      bool found_valid = false;
-                      int attempts = 0;
-                      int corrupted_count = 0;
-                      int max_corrupted = 10;
-                      int max_attempts = 15;
-                      max_attempts = max_attempts < (int)preload_items->size() ? max_attempts : (int)preload_items->size();
-                      slide.preload_max.store(max_attempts);
-                      while (!found_valid && attempts < max_attempts && corrupted_count < max_corrupted && !slide.preload_cancel.load() && !slide.stop_preload.load()) {
-                           attempts++;
-                           slide.preload_progress.store(attempts);
-                           if (slide.preloaded_img.data != nullptr) { UnloadImage(slide.preloaded_img); slide.preloaded_img = {}; }
-                           int idx = slide.next_index.load();
-                           // v1.9.6: Copy next_item to prevent UAF (H3)
-                           auto next_item = (*preload_items)[idx];
-                              if (next_item.type == "image") {
-                               // Check corrupted cache
-                               {
-                                    std::lock_guard<std::mutex> lk(slide.corrupted_cache_mtx);
-                                    auto it = slide.corrupted_cache.find(next_item.path);
-                                    if (it != slide.corrupted_cache.end() && it->second.first >= 1) {
-                                        int s_ni = slide.next_index.fetch_add(1, std::memory_order_relaxed);
-                                        slide.next_index.store(s_ni >= (int)preload_items->size() ? 0 : s_ni);
-                                        if (slide.next_index.load() == slide.current_index.load())
-                                            break;
-                                        corrupted_count++;
-                                        continue;
-                                    }
-                                }
-                             std::string ext_lower = next_item.ext;
-                               for (auto& c : ext_lower) c = tolower(c);
-                               if (ext_lower == "heic" || ext_lower == "heif") slide.preloaded_img = LoadImageHEIC(next_item.path);
-                               else if (ext_lower == "webp") slide.preloaded_img = LoadImageWebP(next_item.path);
-                               else slide.preloaded_img = LoadImageRobust(next_item.path);
-                              if (slide.preloaded_img.data == nullptr) {
-                                   // Cache corrupted file
-                                   {
-                                       std::lock_guard<std::mutex> lk(slide.corrupted_cache_mtx);
-                                       if (slide.corrupted_cache.find(next_item.path) == slide.corrupted_cache.end())
-                                           slide.corrupted_cache_seq++;
-                                       slide.corrupted_cache[next_item.path] = {1, slide.corrupted_cache_seq};
-                                       if ((int)slide.corrupted_cache.size() > 50) {
-                                           // Remove oldest entry by sequence number
-                                           auto oldest = slide.corrupted_cache.begin();
-                                           for (auto it = slide.corrupted_cache.begin(); it != slide.corrupted_cache.end(); ++it)
-                                               if (it->second.second < oldest->second.second) oldest = it;
-                                           slide.corrupted_cache.erase(oldest);
-                                       }
-                                    if (slide.next_index.load() == slide.current_index.load())
-                                       break;
-                                   corrupted_count++;
-                                   continue;
-                               }
-                              {
-                                    std::lock_guard<std::mutex> lk(slide.preload_mutex);
-                                    apply_exif_rotation(slide.preloaded_img, next_item.exif_rotation);
-                                   Color c = GetAverageColor(slide.preloaded_img);
-                                   slide.next_w.store(slide.preloaded_img.width);
-                                    slide.next_h.store(slide.preloaded_img.height);
-                                    slide.next_bg_color_hex.store(((unsigned int)c.r << 24) | ((unsigned int)c.g << 16) | ((unsigned int)c.b << 8) | (unsigned int)c.a);
-                                    {
-                                        int depth = std::max(1, std::min(slide.preloaded_img.width, slide.preloaded_img.height) / 6);
-                                        auto pack = [](Color c) -> unsigned int {
-                                            return ((unsigned int)c.r<<24)|((unsigned int)c.g<<16)|((unsigned int)c.b<<8)|(unsigned int)c.a;
-                                        };
-                                        slide.next_bias_top_hex.store(pack(GetEdgeAvgColor(slide.preloaded_img, depth, 0)));
-                                        slide.next_bias_bot_hex.store(pack(GetEdgeAvgColor(slide.preloaded_img, depth, 1)));
-                                        slide.next_bias_lft_hex.store(pack(GetEdgeAvgColor(slide.preloaded_img, depth, 2)));
-                                        slide.next_bias_rgt_hex.store(pack(GetEdgeAvgColor(slide.preloaded_img, depth, 3)));
-                                    }
-                                     slide.preloaded_img_valid.store(true);
-                               }
-                              found_valid = true;
-                    slide_debug("PRELOAD_THREAD: OK sz=%dx%d", slide.preloaded_img.width, slide.preloaded_img.height);
-                          } else {
-                               // FIX v2.0.0: fetch_add returns OLD value — compute ni4+1 explicitly
-                               { int ni4 = slide.next_index.fetch_add(1, std::memory_order_relaxed);
-                                int ni4_next = (ni4 + 1 >= (int)preload_items->size()) ? 0 : (ni4 + 1);
-                                slide.next_index.store(ni4_next); }
-                              if (slide.next_index.load() == slide.current_index.load())
-                                  break;
-                          }
-                      }
-                 slide.preload_initial_phase.store(false);
-                         // preload_limit removed v6.0.10: was never read (B8)
-                        if (found_valid) {
-                            g_logger.info("PRELOAD_ALL_DONE: attempts=%d corrupted=%d found=yes",
-                                attempts, corrupted_count);
-                        }
-                        slide.preload_ready.store(true);
-                   // v1.9.6: Protect preload_running write with lifecycle mutex (H2)
-                   { std::lock_guard<std::mutex> lk(slide.preload_lifecycle_mtx); slide.preload_running.store(false); }
-                       // Stop background remaining preload — prevents constant NFS I/O
-                   }
-                   } catch (const std::exception& e) {
-                       g_logger.error("Remaining preload thread crashed: %s", e.what());
-                       slide.preload_ready.store(true);
-                   { std::lock_guard<std::mutex> lk(slide.preload_lifecycle_mtx); slide.preload_running.store(false); }
-                   } catch (...) {
-                       g_logger.error("Remaining preload thread crashed (unknown)");
-                       slide.preload_ready.store(true);
-                      slide.preload_running.store(false);
-                  }
-              });
-
-            // ── Wait for first image preload to finish (max 10s, then fallback) ──
-              if (slide.first_img_thread.joinable()) {
-                  std::unique_lock<std::mutex> lk(slide.first_img_mtx);
-                  slide.first_img_cv.wait_for(lk, std::chrono::seconds(10), [&]() {
-                      return slide.first_img_ready.load() || slide.first_img_thread_done.load();
-                  });
-              }
-
-            // ── Load first image — uses preloaded texture if ready, else loads from disk ──
-              slide.current_tex.id = 0;
-
-              bool first_loaded = false;
-             // Try starting from start_idx, skip corrupted files with limited fallback
-             for (int fallback = 0; fallback < 10 && !first_loaded; fallback++) {
-                 int try_idx = (start_idx + fallback) % (int)items_ptr->size();
-                 if ((*items_ptr)[try_idx].type != "image") continue;
-                 // Check corrupted cache — skip if already failed
-                  {
-                      std::lock_guard<std::mutex> lk(slide.corrupted_cache_mtx);
-                      auto it = slide.corrupted_cache.find((*items_ptr)[try_idx].path);
-                      if (it != slide.corrupted_cache.end() && it->second.first >= 1) continue;
-                  }
-                 slide.load_item((*items_ptr)[try_idx], items_ptr);  // v6.0.11: pass items_ptr
-                 if (slide.current_tex.id != 0) {
-                    first_loaded = true;
-                    slide_debug("INIT_FIRST_LOADED: path=%s tex id=%d w=%d h=%d", (*items_ptr)[try_idx].path.substr(0,60).c_str(), slide.current_tex.id, slide.current_tex.width, slide.current_tex.height);
-                     if (fallback > 0) {
-                         slide.current_index.store(try_idx);
-                         slide.next_index.store((try_idx + 1) % (int)items_ptr->size());
-                     }
-                 }
-             }
-          if (!first_loaded && (*items_ptr)[start_idx].type == "image") {
-                    slide.load_item((*items_ptr)[start_idx], items_ptr); // v6.0.11: pass items_ptr
-                }
+    // ── Ensure first slide is always an image, never a video ──
+    int start_idx = 0;
+    if (!items_ptr->empty()) {
+        for (size_t i = 0; i < items_ptr->size(); i++) {
+            if ((*items_ptr)[i].type == "image") {
+                start_idx = (int)i;
+                break;
+            }
         }
 
-      splash.cleanup();
+        slide.current_index.store(start_idx);
+        slide.next_index.store((start_idx + 1) % (int)items_ptr->size());
+        
+        // Clean, centralized reentrant invocation replaces 150 lines of duplicate buggy thread logic
+        slide.preload_next(); 
+
+        // ── Load first image — uses preloaded texture if ready, else loads from disk ──
+        slide.current_tex.id = 0;
+
+        bool first_loaded = false;
+        // Try starting from start_idx, skip corrupted files with limited fallback
+        for (int fallback = 0; fallback < 10 && !first_loaded; fallback++) {
+            int try_idx = (start_idx + fallback) % (int)items_ptr->size();
+            if ((*items_ptr)[try_idx].type != "image") continue;
+            // Check corrupted cache — skip if already failed
+            {
+                std::lock_guard<std::mutex> lk(slide.corrupted_cache_mtx);
+                auto it = slide.corrupted_cache.find((*items_ptr)[try_idx].path);
+                if (it != slide.corrupted_cache.end() && it->second.first >= 1) continue;
+            }
+            slide.load_item((*items_ptr)[try_idx], items_ptr);
+            if (slide.current_tex.id != 0) {
+                first_loaded = true;
+                slide_debug("INIT_FIRST_LOADED: path=%s tex id=%d w=%d h=%d", (*items_ptr)[try_idx].path.substr(0,60).c_str(), slide.current_tex.id, slide.current_tex.width, slide.current_tex.height);
+                if (fallback > 0) {
+                    slide.current_index.store(try_idx);
+                    slide.next_index.store((try_idx + 1) % (int)items_ptr->size());
+                }
+            }
+        }
+        if (!first_loaded && (*items_ptr)[start_idx].type == "image") {
+            slide.load_item((*items_ptr)[start_idx], items_ptr);
+        }
+    }
+
+    splash.cleanup();
 
       // Show first frame cleanly — all init is done, GL state is uncontaminated
            // v3.0.0: render always (mpv frames render through transparent clear)
