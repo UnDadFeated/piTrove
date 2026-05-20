@@ -4,7 +4,6 @@ cache/
 config/
 *.zip
 *.bak
-src/config/config.toml
 src/build/
 src/build_new/
 .sudo_as_admin_successful
@@ -15,4 +14,3 @@ logs/
 PLAN.md
 piTrove
 *_tmp*
-CMakeLists.txt
