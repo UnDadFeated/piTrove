@@ -2,7 +2,7 @@
 # v5.5.0  |  ARM64  |  Raylib 6.x (DRM/KMS)
 
 cmake_minimum_required(VERSION 3.20)
-project(piTrove VERSION 7.0.10 LANGUAGES CXX)
+project(piTrove VERSION 7.1.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
