@@ -5,6 +5,13 @@
 ### Fixed
 - **CRITICAL · Preload thread explosion** — `preload_running` flag raced between `update()`, `advance()`, and the preload thread, causing ~30 threads/sec spawned for the same image → SIGKILL by systemd in ~30s. Fixed with 4-part atomic lifecycle: (1) `preload_next()` atomically check-and-sets `preload_running=true` under `preload_lifecycle_mtx` before spawning, (2) preload thread keeps `preload_running=true` on success (prevents `update()` from restarting loop), (3) swap path resets `preload_running=false` so guard block can trigger next preload, (4) `advance()` joins in-flight thread then resets flag.
 
+## v7.9.0 — MPV black screen fix, countdown timer overlay (May 20, 2026)
+
+### Fixed
+- **Video black screen on Pi 5** — `hwdec=auto-safe` defaulted to `drmprime` which bypasses the Raylib FBO texture pipeline. Changed to `hwdec=v4l2m2m-copy` which brings decoded frames into shared GPU memory. Set `fbo.internal_format=0` (auto-detect) instead of `0x1908` which chokes GLES2 layout allocations.
+- **EGL surface asymmetry** — `make_egl_current()` and `release_egl_current()` now map both `EGL_DRAW` and `EGL_READ` surfaces instead of a single surface, preventing context flip draw validation failures.
+- **Countdown timer missing** — Replaced synchronous 60fps `mpv_get_property("time-remaining")` polling (which flooded IPC and caused thread locks) with `mpv_observe_property()` async listeners on the event thread. Updates pass via `std::atomic<double>` to the overlay engine. Timer overlay now shows `MM:SS` countdown during video playback.
+
 ## v7.8.1 — EXIF rotation at display time, skip video probing in Phase 2 (May 20, 2026)
 
 ### Fixed
