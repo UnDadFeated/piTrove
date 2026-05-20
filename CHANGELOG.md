@@ -1,5 +1,13 @@
 # Changelog
 
+## v7.6.0 — Async logger, flock PID locking, ESC deadlock, treadmill responsiveness (May 20, 2026)
+
+### Fixed
+- **CRITICAL · ESC systemctl restart deadlock** — `system("systemctl restart piTrove.service")` blocked the main thread synchronously while systemd tried to stop the same process via SIGTERM, creating a circular dependency deadlock (killed by SIGKILL after 90s). Fixed by backgrounding with `&`.
+- **HIGH · 30-second treadmill shutdown lag** — `sleep_for(seconds(30))` meant the main thread could block up to 30s at `treadmill_thread.join()` after `g_running=false`. Subdivided into 1-second steps with `g_running` check each iteration.
+- **HIGH · Stale PID file lockout** — Power loss left `.pid` file on disk, causing `std::filesystem::exists` to reject reboots. Replaced with POSIX `flock(LOCK_EX | LOCK_NB)` advisory locking with stale PID recovery via `kill(pid, 0)` liveness check.
+- **MEDIUM · Synchronous logger blocking worker threads** — Logger `log()` performed blocking `printf` + file write inside a shared mutex, stalling scan workers and main loop on slow SD card/CIFS. Converted to double-buffered async logger with background flush thread — log() now only acquires a brief queue lock.
+
 ## v7.5.0 — Preload tight-loop fix (May 20, 2026)
 
 ### Fixed

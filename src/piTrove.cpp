@@ -10,7 +10,7 @@
  *   • Slideshow – raylib, preload, crossfade, Ken Burns
  */
 
-#define VERSION "7.5.0"
+#define VERSION "7.6.0"
 #define APP_NAME "piTrove"
 
 // Global atomics for headless features
@@ -1062,36 +1062,59 @@ static Color overlay_color_from_str(const std::string& name) {
 }
 
 struct Logger {
-    std::ofstream log_file;
-    std::mutex    mtx;
-    LogLevel      level{LogLevel::INFO};
-    std::string   log_dir;
-    int           log_fd{-1};
+    LogLevel   level{LogLevel::INFO};
+    std::string log_dir;
+    std::string log_file_path;
+
+    // Async queue
+    std::mutex   queue_mtx;
+    std::condition_variable cv;
+    std::vector<std::string> front_queue;
+    std::vector<std::string> back_queue;
+    std::thread flush_thread;
+    std::atomic<bool> flush_running{true};
+
+    void flush_loop() {
+        while (flush_running.load() || !front_queue.empty()) {
+            {
+                std::unique_lock<std::mutex> lock(queue_mtx);
+                cv.wait(lock, [this] { return !front_queue.empty() || !flush_running.load(); });
+                std::swap(front_queue, back_queue);
+            }
+            if (!back_queue.empty()) {
+                FILE* f = fopen(log_file_path.c_str(), "a");
+                for (const auto& msg : back_queue) {
+                    write(STDOUT_FILENO, msg.c_str(), msg.size());
+                    if (f) fprintf(f, "%s", msg.c_str());
+                }
+                if (f) { fclose(f); fflush(stdout); }
+                back_queue.clear();
+            }
+        }
+    }
 
     void init(const std::string& path, LogLevel lvl) {
         level = lvl;
         log_dir = path;
         std::filesystem::create_directories(path);
 
-        // Timestamped log file name: piTrove_YYYYMMDD_HHMMSS.log
         auto now = std::chrono::system_clock::now();
         auto t = std::chrono::system_clock::to_time_t(now);
         char fname[128];
         struct tm tm_buf;
         std::strftime(fname, sizeof(fname), "piTrove_%Y%m%d_%H%M%S.log", localtime_r(&t, &tm_buf));
-        std::string log_path = path + "/" + fname;
+        log_file_path = path + "/" + fname;
 
-        log_file.open(log_path, std::ios::app);
-
-        // Open file descriptor for flock
-        log_fd = open(log_path.c_str(), O_WRONLY);
         // Rotate: keep only last 3 log files
         rotate_logs(path, 3);
+
+        flush_thread = std::thread(&Logger::flush_loop, this);
     }
 
     ~Logger() {
-        if (log_fd >= 0) close(log_fd);
-        if (log_file.is_open()) log_file.close();
+        flush_running.store(false);
+        cv.notify_one();
+        if (flush_thread.joinable()) flush_thread.join();
     }
 
     void rotate_logs(const std::string& dir, int keep) {
@@ -1112,12 +1135,9 @@ struct Logger {
     void log(LogLevel lvl, const char* fmt, ...) {
         if (lvl < level) return;
 
-        std::lock_guard<std::mutex> lk(mtx);
-
         auto now = std::chrono::system_clock::now();
-        auto t   = std::chrono::system_clock::to_time_t(now);
-        auto ms  = std::chrono::duration_cast<std::chrono::milliseconds>(
-                      now.time_since_epoch()) % 1000;
+        auto t = std::chrono::system_clock::to_time_t(now);
+        auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()) % 1000;
 
         const char* tag = (lvl == LogLevel::WARN)  ? "WARN"
                           : (lvl == LogLevel::ERROR) ? "ERROR"
@@ -1127,25 +1147,25 @@ struct Logger {
         char header[64];
         struct tm tm_buf2;
         std::strftime(header, sizeof(header), "%Y-%m-%d %H:%M:%S", localtime_r(&t, &tm_buf2));
+
         char line[512];
-        int n = std::snprintf(line, sizeof(line), "%s.%03ld [%s] ",
-                              header, (long)ms.count(), tag);
+        int n = std::snprintf(line, sizeof(line), "%s.%03ld [%s] ", header, (long)ms.count(), tag);
 
         va_list ap;
         va_start(ap, fmt);
         std::vsnprintf(line + n, sizeof(line) - (size_t)n, fmt, ap);
         va_end(ap);
 
-        // stdout (use write to avoid blocking on full pipe)
-        std::string out_line(line);
-        out_line += '\n';
-        write(STDOUT_FILENO, out_line.data(), out_line.size());
+        std::string final_line;
+        final_line.reserve(n + 512);
+        final_line += line;
+        final_line += '\n';
 
-        // file
-        if (log_file.is_open()) {
-            log_file << line << "\n";
-            log_file.flush();
+        {
+            std::lock_guard<std::mutex> lock(queue_mtx);
+            front_queue.push_back(std::move(final_line));
         }
+        cv.notify_one();
     }
 
     void info(const char* fmt, ...) {
@@ -1155,7 +1175,7 @@ struct Logger {
         va_end(ap);
         log(LogLevel::INFO, "%s", buf);
     }
-   void warn(const char* fmt, ...) {
+    void warn(const char* fmt, ...) {
         va_list ap; va_start(ap, fmt);
         char buf[4096];
         vsnprintf(buf, sizeof(buf), fmt, ap);
@@ -6012,10 +6032,12 @@ void treadmill_worker(const Config& cfg, Slideshow& slideshow_ref) {
 
         auto midnight = std::chrono::system_clock::from_time_t(std::mktime(&date_copy));
 
-         // Sleep in 30-second chunks to allow clean application exits
-         while (std::chrono::system_clock::now() < midnight && g_running.load()) {
-             std::this_thread::sleep_for(std::chrono::seconds(30));
-         }
+       // Subdivided 1-second steps guarantee quick response times when g_running goes false
+        while (std::chrono::system_clock::now() < midnight && g_running.load()) {
+            for (int i = 0; i < 30 && g_running.load(); i++) {
+                std::this_thread::sleep_for(std::chrono::seconds(1));
+            }
+        }
 
         if (!g_running.load()) break;
 
@@ -6327,22 +6349,59 @@ g_logger.init(cfg.log_dir, cfg.verbose ? LogLevel::DEBUG : LogLevel::INFO);
     SplashScreen splash;
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    //  SINGLE INSTANCE
+    //  SINGLE INSTANCE — POSIX flock with stale PID recovery
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
     {
-        std::string pidfile = cfg.cache_dir + "/piTrove.pid";
-        std::string old_pid;
-        std::ifstream pf(pidfile);
-        if (pf.is_open()) {
-            std::getline(pf, old_pid);
-            pf.close();
-            if (!old_pid.empty()) {
-                pid_t old = safe_stoi(old_pid, -1);
-                if (old > 1 && old != getpid() && kill(old, 0) == 0) {
-                    g_logger.info("Killing previous instance (PID %ld)", (long)old);
-                    kill(old, SIGKILL);
-                    usleep(300000);
+        std::string pid_path = cfg.cache_dir + "/piTrove.pid";
+        int fd = open(pid_path.c_str(), O_RDWR | O_CREAT, 0644);
+        if (fd >= 0) {
+            if (flock(fd, LOCK_EX | LOCK_NB) == 0) {
+                // Locked — write our PID
+                ftruncate(fd, 0);
+                std::string pid_str = std::to_string(getpid()) + "\n";
+                write(fd, pid_str.c_str(), pid_str.size());
+                // Do NOT close(fd) — closing releases the lock
+                // OS cleans up automatically on process exit
+            } else {
+                // Another instance holds the lock
+                char buf[64] = {0};
+                ssize_t len = read(fd, buf, sizeof(buf) - 1);
+                std::string existing_pid = "UNKNOWN";
+                if (len > 0) {
+                    buf[len] = '\0';
+                    existing_pid = buf;
+                    try {
+                        pid_t old_pid = std::stoi(existing_pid);
+                        if (kill(old_pid, 0) != -1 || errno != ESRCH) {
+                            fprintf(stderr, "[CRITICAL] piTrove already running (PID %s). Exiting.\n", existing_pid.c_str());
+                            close(fd);
+                            exit(1);
+                        }
+                        // Dead process — stale lock, try to reclaim
+                        flock(fd, LOCK_UN);
+                        if (flock(fd, LOCK_EX | LOCK_NB) == 0) {
+                            g_logger.info("Reclaimed stale lock (dead PID %s)", existing_pid.c_str());
+                            ftruncate(fd, 0);
+                            std::string pid_str = std::to_string(getpid()) + "\n";
+                            write(fd, pid_str.c_str(), pid_str.size());
+                        }
+                    } catch (...) {
+                        fprintf(stderr, "[CRITICAL] Cannot acquire lock. Another instance may be running.\n");
+                        close(fd);
+                        exit(1);
+                    }
+                } else {
+                    // Empty file — try to relock
+                    flock(fd, LOCK_UN);
+                    if (flock(fd, LOCK_EX | LOCK_NB) != 0) {
+                        fprintf(stderr, "[CRITICAL] Cannot acquire lock. Another instance may be running.\n");
+                        close(fd);
+                        exit(1);
+                    }
+                    ftruncate(fd, 0);
+                    std::string pid_str = std::to_string(getpid()) + "\n";
+                    write(fd, pid_str.c_str(), pid_str.size());
                 }
             }
         }
@@ -6897,10 +6956,12 @@ auto items_ptr = std::make_shared<std::vector<MediaItem>>(std::move(active_items
          float dt = std::chrono::duration<float>(now - last_time).count();
          last_time = now;
          if (IsKeyPressed(KEY_ESCAPE)) {
-             g_running.store(false);
-             printf("\033[1;33m[INFO]\033[0m Restarting piTrove after ESC...\n");
-             system("systemctl restart piTrove.service 2>/dev/null || true");
-         }
+              g_running.store(false);
+              printf("\033[1;33m[INFO]\033[0m Exiting piTrove after ESC...\n");
+              // Background & prevents deadlock: systemd may send SIGTERM to this
+              // process via restart, and system() blocks until systemctl returns.
+              system("systemctl restart piTrove.service 2>/dev/null &");
+          }
     if (IsKeyPressed(KEY_SPACE)) {
              std::lock_guard<std::mutex> lk(slide.shuffle_mutex);
              slide.shuffle = !slide.shuffle;
