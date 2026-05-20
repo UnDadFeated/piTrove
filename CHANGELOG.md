@@ -1,5 +1,11 @@
 # Changelog
 
+## v7.7.0 — CacheManager double-close fix, transaction mutex (May 20, 2026)
+
+### Fixed
+- **CRITICAL · CacheManager double-close crash** — `close()` finalized statements and closed the DB handle but left pointers dangling (not `nullptr`). If `open()` failed during statement compilation, it called `close()` then returned `false`; the caller deleted the `CacheManager` instance, triggering a double-`close()` in the destructor → double-finalize → heap corruption crash. Fixed by nullifying all pointers after freeing.
+- **HIGH · Transaction methods missing mutex guard** — `begin_transaction()` and `commit_transaction()` executed raw SQLite commands without `std::lock_guard<std::mutex>` while all other `CacheManager` methods were protected. Concurrent HTTP/cache requests could interleave with transaction boundaries → `SQLITE_BUSY` or internal connection faults. Added `db_mutex` lock to both methods.
+
 ## v7.6.0 — Async logger, flock PID locking, ESC deadlock, treadmill responsiveness (May 20, 2026)
 
 ### Fixed

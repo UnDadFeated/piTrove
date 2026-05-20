@@ -255,6 +255,13 @@ All bugs in Rounds 20-25 have been resolved (v7.1.7). See git history for detail
 | B304 | MEDIUM | bias_lighting/ken_burns/collage/border/dat/overlay — all 12 overlay checks bypass lock | All fixed via render_cfg capture |
 | B305 | HIGH | Transition duration/effect reads in overlay — g_cfg.transition_duration and g_cfg.transition_effect without lock | Fixed via render_cfg capture |
 
+## Bug Fix Round 35 (B306-B307) — CacheManager Double-Close & Transaction Locking
+
+| # | Severity | Bug | Fix Applied |
+|---|----------|-----|-------------|
+| B306 | CRITICAL | CacheManager close() leaves dangling pointers — sqlite3_finalize/close without nullptr leaves stale pointers; double-close in destructor (open failure → close() → delete → ~CacheManager → close()) → heap corruption crash | Nullify all pointers after freeing in close() |
+| B307 | HIGH | Transaction methods missing mutex guard — begin_transaction()/commit_transaction() execute raw SQLite without db_mutex while all other CacheManager methods are protected; concurrent HTTP/cache requests interleave → SQLITE_BUSY | Added std::lock_guard<std::mutex> lk(db_mutex) to both methods |
+
 ## Next Steps
 - Run `make` on Pi to verify Round 26-33 fixes compile cleanly
 - Test each fix individually before committing

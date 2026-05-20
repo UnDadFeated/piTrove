@@ -10,7 +10,7 @@
  *   • Slideshow – raylib, preload, crossfade, Ken Burns
  */
 
-#define VERSION "7.6.0"
+#define VERSION "7.7.0"
 #define APP_NAME "piTrove"
 
 // Global atomics for headless features
@@ -2205,11 +2205,11 @@ struct CacheManager {
     ~CacheManager() { close(); }
 
     void close() {
-        if (stmt_upsert) sqlite3_finalize(stmt_upsert);
-        if (stmt_load) sqlite3_finalize(stmt_load);
-        if (stmt_mark) sqlite3_finalize(stmt_mark);
-        if (db) sqlite3_close(db);
-    }
+         if (stmt_upsert) { sqlite3_finalize(stmt_upsert); stmt_upsert = nullptr; }
+         if (stmt_load) { sqlite3_finalize(stmt_load); stmt_load = nullptr; }
+         if (stmt_mark) { sqlite3_finalize(stmt_mark); stmt_mark = nullptr; }
+         if (db) { sqlite3_close(db); db = nullptr; }
+     }
 
     bool load_cached(MediaItem& mi) {
         if (!stmt_load) return false;
@@ -2277,13 +2277,17 @@ struct CacheManager {
     }
     // ──────────────────────────────────────────────────────────────────────────
 
-    // Bulk transaction support — wraps Phase 3 loop in BEGIN/COMMIT for speed
+    // Bulk transaction support — synchronized for thread safety
     void begin_transaction() {
-        if (db) sqlite3_exec(db, "BEGIN TRANSACTION;", nullptr, nullptr, nullptr);
+        if (!db) return;
+        std::lock_guard<std::mutex> lk(db_mutex);
+        sqlite3_exec(db, "BEGIN TRANSACTION;", nullptr, nullptr, nullptr);
     }
 
     void commit_transaction() {
-        if (db) sqlite3_exec(db, "COMMIT;", nullptr, nullptr, nullptr);
+        if (!db) return;
+        std::lock_guard<std::mutex> lk(db_mutex);
+        sqlite3_exec(db, "COMMIT;", nullptr, nullptr, nullptr);
     }
 };
 
