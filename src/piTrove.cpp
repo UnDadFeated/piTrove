@@ -849,7 +849,9 @@ static std::string trim(const std::string& s) {
     return s.substr(a, b - a + 1);
 }
 
+
 // ── Safe string conversion helpers (v11.9.0 audit fix) ──
+
 // v16.7.0: warn on parse failure so config typos are detectable
 // (use fprintf since these functions are defined before g_logger declaration)
 static int safe_stoi(const std::string& s, int def) {
@@ -859,10 +861,10 @@ static float safe_stof(const std::string& s, float def) {
     try { return std::stof(s); } catch(...) { fprintf(stderr, "[WARN] Invalid float in config: '%s' (default %.2f)\n", s.c_str(), def); return def; }
 }
 static double safe_stod(const std::string& s, double def) {
-    try { return std::stod(s); } catch(...) { g_logger.warn("Invalid double in config: '%s' (default %.2f)", s.c_str(), def); return def; }
+    try { return std::stod(s); } catch(...) { fprintf(stderr, "[WARN] Invalid double in config: '%s' (default %.2f)\n", s.c_str(), def); return def; }
 }
 static long safe_stol(const std::string& s, long def) {
-    try { return std::stol(s); } catch(...) { g_logger.warn("Invalid long in config: '%s' (default %ld)", s.c_str(), (long)def); return def; }
+    try { return std::stol(s); } catch(...) { fprintf(stderr, "[WARN] Invalid long in config: '%s' (default %ld)\n", s.c_str(), (long)def); return def; }
 }
 
 static Config load_config(const char* path) {
@@ -1653,8 +1655,106 @@ bool MPVPlayer::update_frame() {
       return true;
   }
 
-struct CacheManager;
+struct MediaItem {
+    std::string path;
+    std::string filename;
+    std::string ext;
+    std::string type{"image"};
+    int64_t     width{0};
+    int64_t     height{0};
+    double      duration{0.0};
+    int         exif_rotation{0};
+    int64_t     file_size{0};
+    int64_t     modified_time{0};
+    bool        cached{false};
+    int64_t     last_shown{0};
+};
+
+struct CacheManager {
+
+    sqlite3* db;
+
+    CacheManager() : db(nullptr) {}
+    ~CacheManager() { if (db) sqlite3_close(db); }
+
+    bool open(const std::string& path) {
+        int rc = sqlite3_open(path.c_str(), &db);
+        if (rc != SQLITE_OK) return false;
+        
+        const char* sql = "CREATE TABLE IF NOT EXISTS cache ("
+                          "path TEXT PRIMARY KEY, type TEXT, width INT, height INT, "
+                          "duration REAL, exif_rotation INT, last_shown INTEGER, bad INT DEFAULT 0);";
+        char* err_msg = nullptr;
+        if (sqlite3_exec(db, sql, nullptr, nullptr, &err_msg) != SQLITE_OK) {
+            sqlite3_free(err_msg);
+            return false;
+        }
+        return true;
+    }
+
+    bool load_cached(MediaItem& mi) {
+        sqlite3_stmt* stmt;
+        const char* sql = "SELECT type, width, height, duration, exif_rotation, last_shown FROM cache WHERE path = ?;";
+        if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK) return false;
+        sqlite3_bind_text(stmt, 1, mi.path.c_str(), -1, SQLITE_STATIC);
+        bool found = false;
+        if (sqlite3_step(stmt) == SQLITE_ROW) {
+            mi.type = (const char*)sqlite3_column_text(stmt, 0);
+            mi.width = sqlite3_column_int(stmt, 1);
+            mi.height = sqlite3_column_int(stmt, 2);
+            mi.duration = sqlite3_column_double(stmt, 3);
+            mi.exif_rotation = sqlite3_column_int(stmt, 4);
+            mi.last_shown = sqlite3_column_int64(stmt, 5);
+            found = true;
+        }
+        sqlite3_finalize(stmt);
+        return found;
+    }
+
+    void mark_shown(const std::string& path) {
+        sqlite3_stmt* stmt;
+        const char* sql = "UPDATE cache SET last_shown = ? WHERE path = ?;";
+        if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) == SQLITE_OK) {
+            sqlite3_bind_int64(stmt, 1, std::time(nullptr));
+            sqlite3_bind_text(stmt, 2, path.c_str(), -1, SQLITE_STATIC);
+            sqlite3_step(stmt);
+        }
+        sqlite3_finalize(stmt);
+    }
+
+    void mark_bad(const std::string& path) {
+        sqlite3_stmt* stmt;
+        const char* sql = "UPDATE cache SET bad = 1 WHERE path = ?;";
+        if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) == SQLITE_OK) {
+            sqlite3_bind_text(stmt, 1, path.c_str(), -1, SQLITE_STATIC);
+            sqlite3_step(stmt);
+        }
+        sqlite3_finalize(stmt);
+    }
+
+    void upsert(const MediaItem& mi, int bad = 0) {
+        sqlite3_stmt* stmt;
+        const char* sql = "INSERT OR REPLACE INTO cache (path, type, width, height, duration, exif_rotation, last_shown, bad) "
+                          "VALUES (?, ?, ?, ?, ?, ?, ?, ?);";
+        if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) == SQLITE_OK) {
+            sqlite3_bind_text(stmt, 1, mi.path.c_str(), -1, SQLITE_STATIC);
+            sqlite3_bind_text(stmt, 2, mi.type.c_str(), -1, SQLITE_STATIC);
+            sqlite3_bind_int(stmt, 3, mi.width);
+            sqlite3_bind_int(stmt, 4, mi.height);
+            sqlite3_bind_double(stmt, 5, mi.duration);
+            sqlite3_bind_int(stmt, 6, mi.exif_rotation);
+            sqlite3_bind_int64(stmt, 7, mi.last_shown);
+            sqlite3_bind_int(stmt, 8, bad);
+            sqlite3_step(stmt);
+        }
+        sqlite3_finalize(stmt);
+    }
+
+    void begin_transaction() { sqlite3_exec(db, "BEGIN TRANSACTION;", nullptr, nullptr, nullptr); }
+    void commit_transaction() { sqlite3_exec(db, "COMMIT;", nullptr, nullptr, nullptr); }
+};
 CacheManager* g_cache = nullptr;
+
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 //  NEON HELPERS
@@ -1728,24 +1828,6 @@ static double probe_video_duration(const std::string& path, int timeout_ms) {
     }
 }
 
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-//  MEDIA ITEM
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-struct MediaItem {
-    std::string path;
-    std::string filename;
-    std::string ext;
-    std::string type{"image"};
-    int64_t     width{0};
-    int64_t     height{0};
-    double      duration{0.0};
-    int         exif_rotation{0};
-    int64_t     file_size{0};
-    int64_t     modified_time{0};
-    bool        cached{false};
-    int64_t     last_shown{0};
-};
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 //  EXIF READER (libexif)
@@ -2170,9 +2252,6 @@ static void scan_directory(const std::string& dir, int depth,
 }
 
 
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-//  CACHE MANAGER (SQLite3, WAL, mmap)
-// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 // Probe video metadata — fork+execvp, SIGKILL watchdog, poll() timeout
 // Replaces popen()+timeout which cannot interrupt a CIFS hang:
@@ -2278,194 +2357,7 @@ static bool verify_database(const std::string& path) {
     return ok;
 }
 
-struct CacheManager {
-    sqlite3* db{nullptr};
-    std::mutex db_mutex;
-    sqlite3_stmt* stmt_upsert{nullptr};
-    sqlite3_stmt* stmt_load{nullptr};
-    sqlite3_stmt* stmt_mark{nullptr};
 
-    bool open(const std::string& dir) {
-        // FIX: Ensure cache directory exists before SQLite tries to write
-        // v16.2.0: use std::filesystem instead of blocking system("mkdir -p")
-         if (!std::filesystem::create_directories(dir) && !std::filesystem::exists(dir)) {
-             g_logger.error("Failed to create cache directory: %s", dir.c_str());
-             return false;
-         }
- 
-        std::string path = dir + "/cache.db";
-        int flags = SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_FULLMUTEX;
-         if (sqlite3_open_v2(path.c_str(), &db, flags, nullptr) != SQLITE_OK) {
-             if (db) { sqlite3_close(db); db = nullptr; }
-             return false;
-          }
-          sqlite3_busy_timeout(db, 5000);
-
-          // v16.2.0: log PRAGMA results for easier debugging
-        char* err = nullptr;
-        if (sqlite3_exec(db, "PRAGMA journal_mode=WAL;", nullptr, nullptr, &err) != SQLITE_OK) {
-            g_logger.warn("Failed to set WAL mode: %s", err ? err : "unknown");
-            if (err) sqlite3_free(err);
-        }
-        if (sqlite3_exec(db, "PRAGMA synchronous=NORMAL;", nullptr, nullptr, &err) != SQLITE_OK) {
-            g_logger.warn("Failed to set synchronous=NORMAL: %s", err ? err : "unknown");
-            if (err) sqlite3_free(err);
-        }
-        char mmap_sql[64];
-        snprintf(mmap_sql, sizeof(mmap_sql), "PRAGMA mmap_size=%ld", g_cfg.cache_mmap_size);
-        if (sqlite3_exec(db, mmap_sql, nullptr, nullptr, &err) != SQLITE_OK) {
-            g_logger.warn("Failed to set mmap_size=%d: %s", g_cfg.cache_mmap_size, err ? err : "unknown");
-            if (err) sqlite3_free(err);
-        }
-
-        // v16.2.0: log DDL errors
-         if (sqlite3_exec(db,
-             "CREATE TABLE IF NOT EXISTS cache ("
-             "path TEXT PRIMARY KEY, type TEXT, w INT, h INT, duration REAL, "
-             "exif INT, bad INT DEFAULT 0, last_shown INTEGER DEFAULT 0, timestamp INTEGER DEFAULT 0"
-             ")", nullptr, nullptr, &err) != SQLITE_OK) {
-             g_logger.error("Failed to create cache table: %s", err ? err : "unknown");
-             if (err) sqlite3_free(err);
-             close();
-             return false;
-         }
-
-
-       // Safe migration for existing databases
-        if (sqlite3_exec(db, "ALTER TABLE cache ADD COLUMN last_shown INTEGER DEFAULT 0",
-                      nullptr, nullptr, &err) != SQLITE_OK) {
-            // Column may already exist — harmless
-            if (err) sqlite3_free(err);
-        }
-        if (sqlite3_exec(db, "ALTER TABLE cache ADD COLUMN bad INT DEFAULT 0",
-                      nullptr, nullptr, &err) != SQLITE_OK) {
-            // Column may already exist — harmless
-            if (err) sqlite3_free(err);
-        }
-
-        // Ensure we don't leak on earlier failures: reset any partially prepared statements
-        sqlite3_finalize(stmt_upsert); stmt_upsert = nullptr;
-        sqlite3_finalize(stmt_load); stmt_load = nullptr;
-        sqlite3_finalize(stmt_mark); stmt_mark = nullptr;
-
-        // Pre-compile statements for efficiency
-         if (sqlite3_prepare_v2(db,
-             "INSERT INTO cache (path, type, w, h, exif, duration, bad, last_shown, timestamp) "
-             "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) "
-             "ON CONFLICT(path) DO UPDATE SET "
-             "w=excluded.w, h=excluded.h, exif=excluded.exif, "
-             "duration=excluded.duration, bad=excluded.bad, "
-             "last_shown=excluded.last_shown, timestamp=excluded.timestamp",
-             -1, &stmt_upsert, nullptr) != SQLITE_OK) {
-             g_logger.error("Failed to prepare upsert statement.");
-             close();
-             return false;
-         }
- 
-         if (sqlite3_prepare_v2(db,
-             "SELECT w, h, duration, exif, bad, last_shown, timestamp FROM cache WHERE path = ?",
-             -1, &stmt_load, nullptr) != SQLITE_OK) {
-             g_logger.error("Failed to prepare load statement.");
-             close();
-             return false;
-         }
- 
-         if (sqlite3_prepare_v2(db,
-             "UPDATE cache SET last_shown = ? WHERE path = ?",
-             -1, &stmt_mark, nullptr) != SQLITE_OK) {
-             g_logger.error("Failed to prepare mark statement.");
-             close();
-             return false;
-         }
-
-
-        return true;
-    }
-
-    ~CacheManager() { close(); }
-
-    void close() {
-        if (stmt_upsert) sqlite3_finalize(stmt_upsert);
-        if (stmt_load) sqlite3_finalize(stmt_load);
-        if (stmt_mark) sqlite3_finalize(stmt_mark);
-        if (db) sqlite3_close(db);
-    }
-
-    bool load_cached(MediaItem& mi) {
-        if (!stmt_load) return false;
-        std::lock_guard<std::mutex> lk(db_mutex);
-        bool found = false;
-        sqlite3_bind_text(stmt_load, 1, mi.path.c_str(), -1, SQLITE_STATIC);
-        if (sqlite3_step(stmt_load) == SQLITE_ROW) {
-            mi.width      = sqlite3_column_int64(stmt_load, 0);
-            mi.height     = sqlite3_column_int64(stmt_load, 1);
-            mi.duration   = sqlite3_column_double(stmt_load, 2);
-            mi.exif_rotation = sqlite3_column_int(stmt_load, 3);
-            int bad = sqlite3_column_int(stmt_load, 4);
-            mi.last_shown = sqlite3_column_int64(stmt_load, 5);
-            mi.modified_time = sqlite3_column_int64(stmt_load, 6);
-            if (bad == 0) found = true;
-        }
-        sqlite3_reset(stmt_load);
-        return found;
-    }
-
-    void upsert(const MediaItem& mi, int bad) {
-        if (!stmt_upsert) return;
-        std::lock_guard<std::mutex> lk(db_mutex);
-        sqlite3_bind_text(stmt_upsert, 1, mi.path.c_str(), -1, SQLITE_STATIC);
-        sqlite3_bind_text(stmt_upsert, 2, mi.type.c_str(), -1, SQLITE_STATIC);
-        sqlite3_bind_int64(stmt_upsert, 3, mi.width);
-        sqlite3_bind_int64(stmt_upsert, 4, mi.height);
-        sqlite3_bind_int(stmt_upsert, 5, mi.exif_rotation);
-        sqlite3_bind_double(stmt_upsert, 6, mi.duration);
-        sqlite3_bind_int(stmt_upsert, 7, bad);
-        sqlite3_bind_int64(stmt_upsert, 8, mi.last_shown);
-        sqlite3_bind_int64(stmt_upsert, 9, mi.modified_time);
-        int step_ret = sqlite3_step(stmt_upsert);
-        if (step_ret != SQLITE_DONE) {
-            g_logger.error("Failed to execute upsert for: %s", mi.path.c_str());
-        }
-        sqlite3_reset(stmt_upsert);
-    }
-
-    void mark_shown(const std::string& path) {
-        if (!stmt_mark) return;
-        std::lock_guard<std::mutex> lk(db_mutex);
-        sqlite3_bind_int64(stmt_mark, 1, time(nullptr));
-        // v6.0.3: Use SQLITE_TRANSIENT so SQLite copies the data immediately
-        // SQLITE_STATIC would dangle if path goes out of scope before sqlite3_reset
-        sqlite3_bind_text(stmt_mark, 2, path.c_str(), -1, SQLITE_TRANSIENT);
-        int step_ret = sqlite3_step(stmt_mark);
-        if (step_ret != SQLITE_DONE) {
-            g_logger.error("Failed to execute mark_shown for: %s", path.c_str());
-        }
-        sqlite3_reset(stmt_mark);
-    }
-
-    // ── NEW FIX: Persist bad files to SQLite so they are skipped permanently ──
-    void mark_bad(const std::string& filepath) {
-        if (!db) return;
-        std::lock_guard<std::mutex> lk(db_mutex);
-        const char* sql = "UPDATE cache SET bad = 1 WHERE path = ?;";
-        sqlite3_stmt* stmt;
-        if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) == SQLITE_OK) {
-            sqlite3_bind_text(stmt, 1, filepath.c_str(), -1, SQLITE_TRANSIENT);
-            sqlite3_step(stmt);
-            sqlite3_finalize(stmt);
-        }
-    }
-    // ──────────────────────────────────────────────────────────────────────────
-
-    // Bulk transaction support — wraps Phase 3 loop in BEGIN/COMMIT for speed
-    void begin_transaction() {
-        if (db) sqlite3_exec(db, "BEGIN TRANSACTION;", nullptr, nullptr, nullptr);
-    }
-
-    void commit_transaction() {
-        if (db) sqlite3_exec(db, "COMMIT;", nullptr, nullptr, nullptr);
-    }
-};
 
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -3394,7 +3286,7 @@ void slide_debug_close() {
 }
 struct Slideshow;
 void treadmill_worker(const Config&, Slideshow&);
-struct CacheManager;
+
 struct Slideshow {
     Font      hud_font{};
     bool      hud_font_loaded{false};
@@ -3628,7 +3520,6 @@ if (img.data && img.width > 0 && img.height > 0) {
      }
 
     void preload_next() {
-        // v6.0.6: Capture items shared_ptr to prevent treadmill worker from replacing it
         auto items_ptr = get_items();
         if (items_ptr->empty()) return;
 
@@ -3661,6 +3552,7 @@ if (img.data && img.width > 0 && img.height > 0) {
                 while (!found_valid && attempts < max_attempts && corrupted_count < max_corrupted && !preload_cancel.load() && !stop_preload.load()) {
                     attempts++;
                     preload_progress.store(attempts);
+                    if (preloaded_img.data != nullptr) { UnloadImage(preloaded_img); preloaded_img = {}; }
                     int idx = next_index.load();
                     if (idx < 0 || idx >= (int)items_ptr->size()) { 
                         next_index.store((current_index.load() + 1) % (int)items_ptr->size()); 
@@ -3757,267 +3649,7 @@ if (img.data && img.width > 0 && img.height > 0) {
             }
         });
     }
-
-        preload_cancel.store(false);
-        preload_ready.store(false);
-
-preload_thread = std::thread([this, items_ptr]() {
-                 try {
-                     if (items_ptr->empty()) { preload_ready.store(true); preload_running.store(false); return; }
-                     g_logger.info("PRELOAD_START: idx=%d path=%s", next_index.load(),
-                         (*items_ptr)[next_index.load()].path.substr(0, 60).c_str());
-                     bool found_valid = false;
-                    int attempts = 0;
-                    int corrupted_count = 0;
-                    int max_corrupted = preload_initial_phase.load() ? 10 : 20;
-                    int max_attempts = preload_initial_phase.load() ? 15 : 30;
-                    max_attempts = max_attempts < (int)items_ptr->size() ? max_attempts : (int)items_ptr->size();
-                    preload_max.store(max_attempts);
-                    // preload_limit removed v6.0.10: was never read (B8)
-                    while (!found_valid && attempts < max_attempts && corrupted_count < max_corrupted && !preload_cancel.load() && !stop_preload.load()) {
-                      attempts++;
-                      preload_progress.store(attempts);
-                      if (preloaded_img.data != nullptr) { UnloadImage(preloaded_img); preloaded_img = {}; }
-                      int idx = next_index.load();
-                      if (idx < 0 || idx >= (int)items_ptr->size()) { next_index.store((current_index.load() + 1) % (int)items_ptr->size()); idx = next_index.load(); }
-                  slide_debug("PRELOAD_THREAD: idx=%d current=%d items_ptr=%d", idx, current_index.load(), (int)items_ptr->size());
-                       // v1.9.6: Copy next_item to prevent UAF if items_ptr vector is reallocated (H3)
-                       auto next_item = (*items_ptr)[idx];
-                    slide_debug("PRELOAD_THREAD: path=%s ext=%s", next_item.path.substr(0,60).c_str(), next_item.ext.c_str());
-                      if (next_item.type == "image") {
-                          // Check corrupted cache — skip if already failed once
-                           {
-                               std::lock_guard<std::mutex> lk(corrupted_cache_mtx);
-                               auto it = corrupted_cache.find(next_item.path);
-                               if (it != corrupted_cache.end() && it->second.first >= 1) {
-                                   g_logger.info("PRELOAD_SKIP: corrupted cache hit idx=%d path=%s", idx, next_item.path.substr(0, 60).c_str());
-                                   // FIX v2.0.0: fetch_add returns OLD value — compute ni+1 explicitly
-                                   int ni = next_index.fetch_add(1, std::memory_order_relaxed);
-                                    int ni_next = (ni + 1 >= (int)items_ptr->size()) ? 0 : (ni + 1);
-                                    next_index.store(ni_next);  // normalize
-                                   if (next_index.load() == current_index.load()) break;
-                                  corrupted_count++;
-                                  continue;
-                              }
-                          }
-
-                                  std::string ext_lower = next_item.ext;
-                                    std::transform(ext_lower.begin(), ext_lower.end(), ext_lower.begin(), ::tolower);
-                                     if (ext_lower == "heic" || ext_lower == "heif") {
-                                         Image local_img = LoadImageHEIC(next_item.path);
-                                         if (local_img.data) {
-                                             std::lock_guard<std::mutex> lk(preload_mutex);
-                                             apply_exif_rotation(local_img, next_item.exif_rotation);
-                                             preloaded_img = local_img;
-                                             next_w.store(preloaded_img.width);
-                                             next_h.store(preloaded_img.height);
-                                             Color c = GetAverageColor(preloaded_img);
-                                             next_bg_color_hex.store(((unsigned int)c.r << 24) | ((unsigned int)c.g << 16) | ((unsigned int)c.b << 8) | (unsigned int)c.a);
-                                             int depth = std::max(1, std::min(preloaded_img.width, preloaded_img.height) / 6);
-                                             auto pack = [](Color c) -> unsigned int { return ((unsigned int)c.r<<24)|((unsigned int)c.g<<16)|((unsigned int)c.b<<8)|(unsigned int)c.a; };
-                                             next_bias_top_hex.store(pack(GetEdgeAvgColor(preloaded_img, depth, 0)));
-                                             next_bias_bot_hex.store(pack(GetEdgeAvgColor(preloaded_img, depth, 1)));
-                                             next_bias_lft_hex.store(pack(GetEdgeAvgColor(preloaded_img, depth, 2)));
-                                             next_bias_rgt_hex.store(pack(GetEdgeAvgColor(preloaded_img, depth, 3)));
-                                             preloaded_img_valid.store(true);
-                                             found_valid = true;
-                                             UnloadImage(local_img);
-                                         }
-                                     }
-                                     else if (ext_lower == "webp") {
-                                         Image local_img = LoadImageWebP(next_item.path);
-                                         if (local_img.data) {
-                                             std::lock_guard<std::mutex> lk(preload_mutex);
-                                             apply_exif_rotation(local_img, next_item.exif_rotation);
-                                             preloaded_img = local_img;
-                                             next_w.store(preloaded_img.width);
-                                             next_h.store(preloaded_img.height);
-                                             Color c = GetAverageColor(preloaded_img);
-                                             next_bg_color_hex.store(((unsigned int)c.r << 24) | ((unsigned int)c.g << 16) | ((unsigned int)c.b << 8) | (unsigned int)c.a);
-                                             int depth = std::max(1, std::min(preloaded_img.width, preloaded_img.height) / 6);
-                                             auto pack = [](Color c) -> unsigned int { return ((unsigned int)c.r<<24)|((unsigned int)c.g<<16)|((unsigned int)c.b<<8)|(unsigned int)c.a; };
-                                             next_bias_top_hex.store(pack(GetEdgeAvgColor(preloaded_img, depth, 0)));
-                                             next_bias_bot_hex.store(pack(GetEdgeAvgColor(preloaded_img, depth, 1)));
-                                             next_bias_lft_hex.store(pack(GetEdgeAvgColor(preloaded_img, depth, 2)));
-                                             next_bias_rgt_hex.store(pack(GetEdgeAvgColor(preloaded_img, depth, 3)));
-                                             preloaded_img_valid.store(true);
-                                             found_valid = true;
-                                             UnloadImage(local_img);
-                                         }
-                                     }
-                                     else {
-                                         Image local_img = LoadImageRobust(next_item.path);
-                                         if (local_img.data) {
-                                             std::lock_guard<std::mutex> lk(preload_mutex);
-                                             apply_exif_rotation(local_img, next_item.exif_rotation);
-                                             preloaded_img = local_img;
-                                             next_w.store(preloaded_img.width);
-                                             next_h.store(preloaded_img.height);
-                                             Color c = GetAverageColor(preloaded_img);
-                                             next_bg_color_hex.store(((unsigned int)c.r << 24) | ((unsigned int)c.g << 16) | ((unsigned int)c.b << 8) | (unsigned int)c.a);
-                                             int depth = std::max(1, std::min(preloaded_img.width, preloaded_img.height) / 6);
-                                             auto pack = [](Color c) -> unsigned int { return ((unsigned int)c.r<<24)|((unsigned int)c.g<<16)|((unsigned int)c.b<<8)|(unsigned int)c.a; };
-                                             next_bias_top_hex.store(pack(GetEdgeAvgColor(preloaded_img, depth, 0)));
-                                             next_bias_bot_hex.store(pack(GetEdgeAvgColor(preloaded_img, depth, 1)));
-                                             next_bias_lft_hex.store(pack(GetEdgeAvgColor(preloaded_img, depth, 2)));
-                                             next_bias_rgt_hex.store(pack(GetEdgeAvgColor(preloaded_img, depth, 3)));
-                                             preloaded_img_valid.store(true);
-                                             found_valid = true;
-                                             UnloadImage(local_img);
-                                         }
-                                     }
-                                     
-                                     if (!found_valid) {
-                                         g_logger.info("PRELOAD_FAIL: image load failed idx=%d ext=%s %s", idx, next_item.ext.c_str(), next_item.path.substr(0, 60).c_str());
-                                         {
-                                             std::lock_guard<std::mutex> lk(corrupted_cache_mtx);
-                                             if (corrupted_cache.find(next_item.path) == corrupted_cache.end()) corrupted_cache_seq++;
-                                             corrupted_cache[next_item.path] = {1, corrupted_cache_seq};
-                                             if ((int)corrupted_cache.size() > MAX_CORRUPTED_CACHE) {
-                                                 auto oldest = corrupted_cache.begin();
-                                                 for (auto it = corrupted_cache.begin(); it != corrupted_cache.end(); ++it)
-                                                     if (it->second.second < oldest->second.second) oldest = it;
-                                                 corrupted_cache.erase(oldest);
-                                             }
-                                         }
-                                         if (next_index.load() == current_index.load()) break;
-                                         corrupted_count++;
-                                         continue;
-                                     }
-
-                                     }
-
-                                     else if (ext_lower == "webp") {
-                                         Image local_img = LoadImageWebP(next_item.path);
-                                         if (local_img.data) {
-                                             std::lock_guard<std::mutex> lk(preload_mutex);
-                                             apply_exif_rotation(local_img, next_item.exif_rotation);
-                                             preloaded_img = local_img;
-                                             next_w.store(preloaded_img.width);
-                                             next_h.store(preloaded_img.height);
-                                             Color c = GetAverageColor(preloaded_img);
-                                             next_bg_color_hex.store(((unsigned int)c.r << 24) | ((unsigned int)c.g << 16) | ((unsigned int)c.b << 8) | (unsigned int)c.a);
-                                             int depth = std::max(1, std::min(preloaded_img.width, preloaded_img.height) / 6);
-                                             auto pack = [](Color c) -> unsigned int { return ((unsigned int)c.r<<24)|((unsigned int)c.g<<16)|((unsigned int)c.b<<8)|(unsigned int)c.a; };
-                                             next_bias_top_hex.store(pack(GetEdgeAvgColor(preloaded_img, depth, 0)));
-                                             next_bias_bot_hex.store(pack(GetEdgeAvgColor(preloaded_img, depth, 1)));
-                                             next_bias_lft_hex.store(pack(GetEdgeAvgColor(preloaded_img, depth, 2)));
-                                             next_bias_rgt_hex.store(pack(GetEdgeAvgColor(preloaded_img, depth, 3)));
-                                             preloaded_img_valid.store(true);
-                                             UnloadImage(local_img);
-                                         }
-                                     }
-
-                                     else {
-                                         Image local_img = LoadImageRobust(next_item.path);
-                                         if (local_img.data) {
-                                             std::lock_guard<std::mutex> lk(preload_mutex);
-                                             apply_exif_rotation(local_img, next_item.exif_rotation);
-                                             preloaded_img = local_img;
-                                             next_w.store(preloaded_img.width);
-                                             next_h.store(preloaded_img.height);
-                                             Color c = GetAverageColor(preloaded_img);
-                                             next_bg_color_hex.store(((unsigned int)c.r << 24) | ((unsigned int)c.g << 16) | ((unsigned int)c.b << 8) | (unsigned int)c.a);
-                                             int depth = std::max(1, std::min(preloaded_img.width, preloaded_img.height) / 6);
-                                             auto pack = [](Color c) -> unsigned int { return ((unsigned int)c.r<<24)|((unsigned int)c.g<<16)|((unsigned int)c.b<<8)|(unsigned int)c.a; };
-                                             next_bias_top_hex.store(pack(GetEdgeAvgColor(preloaded_img, depth, 0)));
-                                             next_bias_bot_hex.store(pack(GetEdgeAvgColor(preloaded_img, depth, 1)));
-                                             next_bias_lft_hex.store(pack(GetEdgeAvgColor(preloaded_img, depth, 2)));
-                                             next_bias_rgt_hex.store(pack(GetEdgeAvgColor(preloaded_img, depth, 3)));
-                                             preloaded_img_valid.store(true);
-                                             UnloadImage(local_img);
-                                         }
-                                     }
-
-
-                         if (preloaded_img.data == nullptr || preloaded_img.width <= 0 || preloaded_img.height <= 0) {
-                                g_logger.info("PRELOAD_FAIL: image load failed idx=%d ext=%s %s", idx, next_item.ext.c_str(), next_item.path.substr(0, 60).c_str());
-                                // Cache corrupted file
-                               {
-                                   std::lock_guard<std::mutex> lk(corrupted_cache_mtx);
-                              if (corrupted_cache.find(next_item.path) == corrupted_cache.end()) corrupted_cache_seq++;
-                              corrupted_cache[next_item.path] = {1, corrupted_cache_seq};
-                                   if ((int)corrupted_cache.size() > MAX_CORRUPTED_CACHE) {
-                                       // Remove oldest entry by sequence number
-                                       auto oldest = corrupted_cache.begin();
-                                       for (auto it = corrupted_cache.begin(); it != corrupted_cache.end(); ++it)
-                                           if (it->second.second < oldest->second.second) oldest = it;
-                                       corrupted_cache.erase(oldest);
-                                  }
-                              }
-                              if (next_index.load() == current_index.load()) break;
-                              corrupted_count++;
-                              continue;
-                        }
-                            // v16.4.0: found_valid + slide_debug moved inside success block (M1)
-                            {
-                               std::lock_guard<std::mutex> lk(preload_mutex);
-                                 apply_exif_rotation(preloaded_img, next_item.exif_rotation);
-                                next_w.store(preloaded_img.width);
-                                next_h.store(preloaded_img.height);
-                                Color c = GetAverageColor(preloaded_img);
-                                 next_bg_color_hex.store(((unsigned int)c.r << 24) | ((unsigned int)c.g << 16) | ((unsigned int)c.b << 8) | (unsigned int)c.a);
-                                {
-                                    int depth = std::max(1, std::min(preloaded_img.width, preloaded_img.height) / 6);
-                                    auto pack = [](Color c) -> unsigned int {
-                                        return ((unsigned int)c.r<<24)|((unsigned int)c.g<<16)|((unsigned int)c.b<<8)|(unsigned int)c.a;
-                                    };
-                                    next_bias_top_hex.store(pack(GetEdgeAvgColor(preloaded_img, depth, 0)));
-                                    next_bias_bot_hex.store(pack(GetEdgeAvgColor(preloaded_img, depth, 1)));
-                                    next_bias_lft_hex.store(pack(GetEdgeAvgColor(preloaded_img, depth, 2)));
-                                    next_bias_rgt_hex.store(pack(GetEdgeAvgColor(preloaded_img, depth, 3)));
-                                }
-                                preloaded_img_valid.store(true);
-                            }
-                           found_valid = true;
-                             slide_debug("PRELOAD_THREAD: OK sz=%dx%d", preloaded_img.width, preloaded_img.height);
-                             g_logger.info("PRELOAD_OK: loaded %dx%d from %s", preloaded_img.width, preloaded_img.height,
-                                 next_item.path.substr(0, 60).c_str());
-                        } else {
-                            // Video — probe duration in background for faster transition.
-                           // FIX v1.9.8: set found_valid so the loop stops here and
-                             // next_index stays pointing at this video. Without this,
-                             // consecutive videos (videos_per_photos > 1) are skipped.
-                             double dur = probe_video_duration(next_item.path, g_cfg.video_probe_timeout * 1000);
-                             if (dur > 0) {
-                                 // v6.0.6: Hold shuffle_mutex to protect items write-back from treadmill worker
-                                 std::lock_guard<std::mutex> lk(shuffle_mutex);
-                                 if (idx >= 0 && idx < (int)items_ptr->size())
-                                     (*items_ptr)[idx].duration = dur;
-                             }
-                             slide_debug("PRELOAD_VID: %s dur=%.1fs", next_item.path.c_str(), dur);
-                             g_logger.info("PRELOAD_VID: probed %s duration=%.1fs", next_item.path.substr(0, 60).c_str(), dur);
-                             found_valid = true;
-                            // next_index intentionally left pointing at this video.
-                       }
-                   }
-                  bool was_initial = preload_initial_phase.exchange(false);
-                       if (was_initial) {
-                       if (preload_cancel.load()) slide_debug("PRELOAD_CANCELLED by user navigation");
-                       // preload_limit removed v6.0.10: was never read (B8)
-                       }
-                       if (found_valid) {
-                            g_logger.info("PRELOAD_DONE: attempts=%d corrupted=%d found=yes phase=%s",
-                                attempts, corrupted_count, was_initial ? "initial" : "remaining");
-                        }
-                      preload_ready.store(true);
-                   // v1.9.6: Protect preload_running write with lifecycle mutex (H2)
-                   {
-                       std::lock_guard<std::mutex> lk(preload_lifecycle_mtx);
-                       preload_running.store(false);
-                   }
-                  } catch (const std::exception& e) {
-                       g_logger.error("preload_next crashed: %s", e.what());
-                       preload_ready.store(true);
-                       { std::lock_guard<std::mutex> lk(preload_lifecycle_mtx); preload_running.store(false); }
-                    } catch (...) {
-                        g_logger.error("preload_next crashed (unknown)");
-                        preload_ready.store(true);
-                       { std::lock_guard<std::mutex> lk(preload_lifecycle_mtx); preload_running.store(false); }
-                   }
-                });
-    }
-
+ 
     void clear_tex_refs() {
              // FIX v16.9.0: dedicated cleanup — unloads any dangling textures before slide advance
              // v6.0.5: Hold first_img_mtx when accessing first_img_tex to prevent race with first_img_thread
@@ -4149,24 +3781,6 @@ preload_thread = std::thread([this, items_ptr]() {
         {
             std::lock_guard<std::mutex> lk(g_config_mtx);
             cfg = g_cfg;
-        }
-
-        // Ensure preload is always active if not ready
-        if (!preload_running.load() && !preload_ready.load()) {
-            preload_next();
-        }
-
-
-        // Capture config locally to avoid data races with HTTP thread (B264)
-        Config cfg;
-        {
-            std::lock_guard<std::mutex> lk(g_config_mtx);
-            cfg = g_cfg;
-        }
-
-        // Ensure preload is always active if not ready
-        if (!preload_running.load() && !preload_ready.load()) {
-            preload_next();
         }
 
        // Finalize the background load on the main thread (thread-safe for OpenGL)
