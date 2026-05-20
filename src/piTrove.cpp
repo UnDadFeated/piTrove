@@ -1098,6 +1098,7 @@ if (key == "cooldown_days")       c.cooldown_days = safe_stoi(val, c.cooldown_da
 #include <sys/mman.h>
 #include <sys/ioctl.h>
 #include <linux/fb.h>
+#include <future>
 #include <cstdint>
 #include <vector>
 
@@ -7692,7 +7693,8 @@ slide.items = items_ptr;
     ClearBackground(BLACK);
     EndDrawing();
 
-    slide.cleanup();\n    g_mpv.destroy();
+    slide.cleanup();
+    g_mpv.destroy();
     // Ensure preload_thread is fully stopped before closing VRAM context
     if (slide.preload_thread.joinable()) slide.preload_thread.join();
     CloseWindow();
