@@ -1,5 +1,16 @@
 # Changelog
 
+## v7.1.7 — Structural Build Fixes (May 19, 2026)
+### Fixed
+- **CRITICAL · Duplicate code blocks causing build failure** — Removed massive orphaned duplicate of `preload_next()` (~260 lines) that caused Slideshow methods (`init`, `render`, `advance`, `update`, `cleanup`) to be unreachable.
+- **CRITICAL · Duplicate `sqlite3_stmt* stmt` in `CacheManager::open()`** — Integrity check block was duplicated, causing redeclaration error.
+- **CRITICAL · Duplicate `Config cfg` in `Slideshow::update()`** — Config capture block was duplicated, causing redeclaration error.
+- **HIGH · `CacheManager` defined after `scan_directory()` usage** — `scan_directory()` called `g_cache->load_cached()` but `CacheManager` was forward-declared only. Moved full definition before `scan_directory()`.
+- **HIGH · `g_cache` global declared before `CacheManager` definition** — Moved `g_cache` declaration to after the `CacheManager` class definition.
+- **MEDIUM · Missing `#include <future>`** — `std::async` and `std::launch` used in root scan but `<future>` was not included.
+- **LOW · Missing closing brace for `main()`** — File ended without `}` closing `main()`, causing "expected '}' at end of input" error.
+- **LOW · `safe_stod`/`safe_stol` used `g_logger` before declaration** — Replaced with `fprintf(stderr, ...)` to match `safe_stoi`/`safe_stof` pattern.
+
 ## v7.1.1 — Stability and Version Bump (May 19, 2026)
 - Bumped version to 7.1.1 across all system files.
 
