@@ -1,5 +1,10 @@
 # Changelog
 
+## v8.0.1 — Fix preload deadlock on video items (May 20, 2026)
+
+### Fixed
+- **Preload deadlock on videos** — When preload encountered a video, it probed duration but did not advance the index or set `preloaded_img_valid`. The main loop discarded the empty preload and called `preload_next()`, but `preload_running` was still `true`, blocking the slideshow indefinitely. Fixed by advancing `next_index` when preload hits a video (videos don't need texture preloading).
+
 ## v8.0.0 — Replace in-process libmpv with subprocess mpv --vo=drm (May 20, 2026)
 
 ### Changed

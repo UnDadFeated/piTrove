@@ -3473,6 +3473,7 @@ if (img.data && img.width > 0 && img.height > 0) {
                             corrupted_count++;
                         }
                     } else {
+                        // v8.0.0: Preload videos — probe duration, advance index (no texture needed for subprocess mpv)
                         double dur = probe_video_duration(next_item.path, g_cfg.video_probe_timeout * 1000);
                         if (dur > 0) {
                             std::lock_guard<std::mutex> lk(shuffle_mutex);
@@ -3480,6 +3481,10 @@ if (img.data && img.width > 0 && img.height > 0) {
                                 (*items_ptr)[idx].duration = dur;
                         }
                         g_logger.info("PRELOAD_VID: probed %s duration=%.1fs", next_item.path.substr(0, 60).c_str(), dur);
+                        int ni_curr = next_index.fetch_add(1, std::memory_order_relaxed);
+                        int ni_next = (ni_curr + 1 >= (int)items_ptr->size()) ? 0 : (ni_curr + 1);
+                        next_index.store(ni_next);
+                        if (next_index.load() == current_index.load()) break;
                         found_valid = true;
                     }
                 }
