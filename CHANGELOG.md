@@ -1,5 +1,15 @@
 # Changelog
 
+## v8.0.3 — Dynamic ratio tracking, shuffle all items, ratio-biased advance (May 20, 2026)
+
+### Changed
+- **Dynamic ratio tracking** — Removed hardcoded 10-then-8 interleaving in `treadmill_worker()`. All items (photos + videos) are shuffled together into a single playlist. `advance()` now tracks `photos_since_video` counter — when it exceeds `videos_per_photos` (8), the next advance forces a video selection (cycling forward to find one). Resets counter to 0 when a video is displayed.
+- **Shuffle all items together** — `treadmill_worker()` now merges photos and videos into one list and shuffles the entire thing, rather than shuffling photos separately, building a rigid interleaved sequence, then shuffling again (which destroyed the ratio).
+- **Config: shuffle=1, transition_delay=120** — Shuffle re-enabled (ratio is enforced dynamically). Transition delay back to 120s.
+
+### Fixed
+- **Videos not playing** — Root cause: shuffle mode picked random indices from a fully-shuffled list, so videos (mixed among thousands of photos) were almost never selected. Dynamic ratio tracking ensures videos are forced every 8 photos regardless of shuffle.
+
 ## v8.0.1 — Fix preload deadlock on video items (May 20, 2026)
 
 ### Fixed
