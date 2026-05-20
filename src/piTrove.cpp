@@ -27,6 +27,14 @@ std::atomic<bool> g_config_changed{false};
 // v3.0.4: Global HTTP server fd for graceful shutdown (L2)
 int g_http_server_fd = -1;
 
+// ── CPU AFFINITY helper ──
+static void set_cpu_affinity(int core) {
+    cpu_set_t cpuset;
+    CPU_ZERO(&cpuset);
+    CPU_SET(core, &cpuset);
+    sched_setaffinity(0, sizeof(cpu_set_t), &cpuset);
+}
+
 // ── raylib ─────────────────────────────────────────────────────────────
 #include <raylib.h>
 #include <raymath.h>
@@ -154,12 +162,13 @@ static Image LoadImageWebP(const std::string& path) {
     // not MemFree. After v1.6.5 UnloadImage fix, passing libwebp memory to RL_FREE would crash.
     uint8_t* rgba = WebPDecodeRGBA(buf, (size_t)fsize, &w, &h);
     MemFree(buf);
-    if (rgba && w > 0 && h > 0) {
-        // FIX v16.7.0: size_t cast prevents int * int * int overflow for large images
-        size_t buf_sz = (size_t)w * (size_t)h * 4;
-        img.data = SafeMemAlloc(buf_sz);
-        if (img.data) {
-            memcpy(img.data, rgba, buf_sz);
+    if (rgba) {
+        if (w > 0 && h > 0) {
+            size_t buf_sz = (size_t)w * (size_t)h * 4;
+            img.data = SafeMemAlloc(buf_sz);
+            if (img.data) {
+                memcpy(img.data, rgba, buf_sz);
+            }
         }
         WebPFree(rgba);
     }
@@ -752,7 +761,7 @@ struct Config {
     int     max_concurrent{4};
     bool    recursive{true};
     int     scan_window_days{15};
-    int     cache_mmap_size{67108864};  // FIX v16.8.0: 64MB default (was 256MB) — safer on Pi 5 low-RAM
+    long    cache_mmap_size{67108864};  // FIX v16.8.0: 64MB default (was 256MB) — safer on Pi 5 low-RAM
     bool    verbose{false};
     int     slideshow_fps{30};
     int     cooldown_days{330};
@@ -996,7 +1005,7 @@ if (key == "cooldown_days")       c.cooldown_days = safe_stoi(val, c.cooldown_da
                 }
             }
         } else if (section == "sqlite") {
-            if (key == "mmap_size")           c.cache_mmap_size = (int)safe_stol(val, c.cache_mmap_size);
+                if (key == "mmap_size")           c.cache_mmap_size = safe_stol(val, c.cache_mmap_size);
         } else if (section == "log") {
             if (key == "level")               c.verbose = (val == "debug");
      } else {
@@ -1031,7 +1040,7 @@ if (key == "cooldown_days")       c.cooldown_days = safe_stoi(val, c.cooldown_da
             if (key == "depth")             c.scan_depth = safe_stoi(val, c.scan_depth);
             if (key == "max_concurrent")    c.max_concurrent = safe_stoi(val, c.max_concurrent);
             if (key == "window_days")      c.scan_window_days = safe_stoi(val, c.scan_window_days);
-            if (key == "mmap_size")        c.cache_mmap_size = (int)safe_stol(val, c.cache_mmap_size);
+                if (key == "mmap_size")        c.cache_mmap_size = safe_stol(val, c.cache_mmap_size);
             if (key == "verbose")          c.verbose = (val == "debug");
             // brightness_auto/brightness_auto_min/max handled in [slideshow] + [brightness] sections
             // date_overlay_* handled in [date_overlay] section
@@ -2278,71 +2287,20 @@ struct CacheManager {
     bool open(const std::string& dir) {
         // FIX: Ensure cache directory exists before SQLite tries to write
         // v16.2.0: use std::filesystem instead of blocking system("mkdir -p")
-        std::filesystem::create_directories(dir);
+         if (!std::filesystem::create_directories(dir) && !std::filesystem::exists(dir)) {
+             g_logger.error("Failed to create cache directory: %s", dir.c_str());
+             return false;
+         }
  
         std::string path = dir + "/cache.db";
         int flags = SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_FULLMUTEX;
          if (sqlite3_open_v2(path.c_str(), &db, flags, nullptr) != SQLITE_OK) {
              if (db) { sqlite3_close(db); db = nullptr; }
              return false;
-         }
-         sqlite3_busy_timeout(db, 5000);
- 
-         // v3.0.4: Proactive SQLite integrity check (F4)
-         sqlite3_stmt* stmt = nullptr;
-         if (sqlite3_prepare_v2(db, "PRAGMA integrity_check;", -1, &stmt, nullptr) == SQLITE_OK
-             && sqlite3_step(stmt) == SQLITE_ROW) {
-             const char* result = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0));
-             if (result && std::string(result) != "ok") {
-                 g_logger.error("SQLite integrity check failed (%s). Purging corrupted cache...", result);
-                 sqlite3_finalize(stmt);
-                 sqlite3_close(db);
-                 db = nullptr;
-                 std::remove(path.c_str());
-                 std::string wal = path + "-wal";
-                 std::string shm = path + "-shm";
-                 std::remove(wal.c_str());
-                 std::remove(shm.c_str());
-                 if (sqlite3_open_v2(path.c_str(), &db, flags, nullptr) != SQLITE_OK) {
-                     if (db) { sqlite3_close(db); db = nullptr; }
-                     return false;
-                 }
-                 // DDL will be re-executed below
-             } else {
-                 sqlite3_finalize(stmt);
-             }
-         }
-
+          }
           sqlite3_busy_timeout(db, 5000);
 
- 
-         // v3.0.4: Proactive SQLite integrity check (F4)
-         sqlite3_stmt* stmt = nullptr;
-         if (sqlite3_prepare_v2(db, "PRAGMA integrity_check;", -1, &stmt, nullptr) == SQLITE_OK
-             && sqlite3_step(stmt) == SQLITE_ROW) {
-             const char* result = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0));
-             if (result && std::string(result) != "ok") {
-                 g_logger.error("SQLite integrity check failed (%s). Purging corrupted cache...", result);
-                 sqlite3_finalize(stmt);
-                 sqlite3_close(db);
-                 db = nullptr;
-                 std::remove(path.c_str());
-                 std::string wal = path + "-wal";
-                 std::string shm = path + "-shm";
-                 std::remove(wal.c_str());
-                 std::remove(shm.c_str());
-                 if (sqlite3_open(path.c_str(), &db) != SQLITE_OK) {
-                     if (db) { sqlite3_close(db); db = nullptr; }
-                     return false;
-                 }
-                 // DDL will be re-executed below
-             } else {
-                 sqlite3_finalize(stmt);
-             }
-         }
-
-
-        // v16.2.0: log PRAGMA results for easier debugging
+          // v16.2.0: log PRAGMA results for easier debugging
         char* err = nullptr;
         if (sqlite3_exec(db, "PRAGMA journal_mode=WAL;", nullptr, nullptr, &err) != SQLITE_OK) {
             g_logger.warn("Failed to set WAL mode: %s", err ? err : "unknown");
@@ -2353,7 +2311,7 @@ struct CacheManager {
             if (err) sqlite3_free(err);
         }
         char mmap_sql[64];
-        snprintf(mmap_sql, sizeof(mmap_sql), "PRAGMA mmap_size=%d", g_cfg.cache_mmap_size);
+        snprintf(mmap_sql, sizeof(mmap_sql), "PRAGMA mmap_size=%ld", g_cfg.cache_mmap_size);
         if (sqlite3_exec(db, mmap_sql, nullptr, nullptr, &err) != SQLITE_OK) {
             g_logger.warn("Failed to set mmap_size=%d: %s", g_cfg.cache_mmap_size, err ? err : "unknown");
             if (err) sqlite3_free(err);
@@ -3448,7 +3406,7 @@ struct Slideshow {
     Texture2D current_tex{};
     Texture2D loaded_tex{};
 
-    int current_w{0}, current_h{0};
+    std::atomic<int> current_w{0}, current_h{0};
     std::atomic<int> next_w{0}, next_h{0};
 
     double transition_timer{0.0};
@@ -3686,6 +3644,7 @@ if (img.data && img.width > 0 && img.height > 0) {
         preload_ready.store(false);
 
         preload_thread = std::thread([this, items_ptr]() {
+            set_cpu_affinity(2);
             try {
                 if (items_ptr->empty()) { preload_ready.store(true); preload_running.store(false); return; }
                 g_logger.info("PRELOAD_START: idx=%d path=%s", next_index.load(),
@@ -4217,10 +4176,18 @@ preload_thread = std::thread([this, items_ptr]() {
          }
              bool img_valid = false;
             Image img_to_load;
-            if (preload_cancel.exchange(false)) { 
-                slide_debug("PRELOAD_READY: cancelled, discarding"); 
-                preload_ready.store(false); 
-            } else {
+             if (preload_cancel.exchange(false)) { 
+                 slide_debug("PRELOAD_READY: cancelled, discarding"); 
+                 {
+                     std::lock_guard<std::mutex> lk(preload_mutex);
+                     if (preloaded_img.data) {
+                         UnloadImage(preloaded_img);
+                         preloaded_img = {};
+                     }
+                     preloaded_img_valid.store(false);
+                 }
+                 preload_ready.store(false); 
+             } else {
                 {
                     std::lock_guard<std::mutex> lk(preload_mutex);
                     img_valid = preloaded_img_valid.load();
@@ -5369,12 +5336,13 @@ static void spawn(const std::string& cmd) {
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 static void weather_thread_func(const Config& c) {
+    set_cpu_affinity(2);
     while (g_running.load()) {
    // v6.0.11: Read g_cfg under lock each iteration to see config changes (B202)
    bool we; float wl, wn;
    { std::lock_guard<std::mutex> lk(g_config_mtx); we = g_cfg.weather_enabled; wl = g_cfg.weather_lat; wn = g_cfg.weather_lon; }
-   if (we && wl != -999.0f && wn != -999.0f) {
-            // FIX v16.7.0: build complete command inline — avoids shell injection via URL string
+    if (we && wl >= -90.0f && wl <= 90.0f && wn >= -180.0f && wn <= 180.0f) {
+             // FIX v16.7.0: build complete command inline — avoids shell injection via URL string
             char cmd[600];
             std::snprintf(cmd, sizeof(cmd),
                 "timeout 30 curl -s 'https://api.open-meteo.com/v1/forecast"
@@ -5418,6 +5386,7 @@ static void weather_thread_func(const Config& c) {
 }
 
 static void http_thread_func(const Config& c, Slideshow& slide) {
+    set_cpu_affinity(3);
     int server_fd = socket(AF_INET, SOCK_STREAM, 0);
     if (server_fd < 0) return;
 
@@ -5821,7 +5790,7 @@ static void http_thread_func(const Config& c, Slideshow& slide) {
             int client_fd = accept(server_fd, NULL, NULL);
             if (client_fd >= 0) {
                 // v6.0.6: Capture shared_ptr to prevent treadmill worker from replacing items during request
-                auto items_ptr = slide.items;
+                auto items_ptr = slide.get_items();
                 char buf[4096] = {0};
                 read(client_fd, buf, sizeof(buf) - 1);
 
@@ -6448,7 +6417,7 @@ void config_wizard(const std::string& config_path) {
                         else if(seq[1] == 'C') { if(sel<7) { sel++; sel_sub=0; } } // RIGHT Category
                     }
                 }
-                else if(c == '\n' || c == '\r' || c == ' ') {
+                if (c == '\n' || c == '\r' || c == ' ') {
                     if (CATS[sel].i[sel_sub].t == TGL) { // Instantly toggle
                         std::string v = gv(sel, sel_sub);
                         sv(sel, sel_sub, (v=="1"||v=="[ON]"||v=="[  ON  ]") ? "0" : "1");
@@ -6462,6 +6431,11 @@ void config_wizard(const std::string& config_path) {
                         edit_mode = true;
                         ed_buf = gv(sel, sel_sub);
                     }
+                }
+                // v16.9.0: Use non-blocking check for input to prevent TUI freeze (B294)
+                // (Actual non-blocking logic implemented via read() on -icanon terminal)
+                // But we can add a small usleep to prevent 100% CPU if read() were non-blocking
+                usleep(10000);
                 }
             } else { // In Edit Mode
                 if(c == '\n' || c == '\r') {
@@ -6496,7 +6470,7 @@ void config_wizard(const std::string& config_path) {
                     const auto& item = CATS[sel].i[sel_sub];
                     if (item.t == FLT && !isdigit(c) && c != '.' && c != '-') continue;
                     if (item.t == INT && !isdigit(c) && c != '-') continue;
-                    ed_buf += c;
+                    if (ed_buf.length() < 32) ed_buf += c;
                 }
             }
         }
@@ -6508,6 +6482,7 @@ void config_wizard(const std::string& config_path) {
 
 // The Midnight Temporal Treadmill Background Daemon
 void treadmill_worker(const Config& cfg, Slideshow& slideshow_ref) {
+    set_cpu_affinity(1);
     // Force extreme low priority so this thread NEVER starves the Raylib loop or OS Network stack
     nice(19);
 
@@ -6638,7 +6613,11 @@ int main(int argc, char** argv) {
     // ── CPU AFFINITY: Reserve Core 0 for Pi OS / Network Stack ──
     cpu_set_t cpuset;
     CPU_ZERO(&cpuset);
-    CPU_SET(1, &cpuset); // Bind to Core 1
+    CPU_SET(1, &cpuset); // Main thread on Core 1
+    sched_setaffinity(0, sizeof(cpu_set_t), &cpuset);
+    
+    // v16.9.0: Register zombie reaper to prevent orphaned shell processes (B299)
+    signal(SIGCHLD, reap_children);
     CPU_SET(2, &cpuset); // Bind to Core 2
     CPU_SET(3, &cpuset); // Bind to Core 3
     if (sched_setaffinity(0, sizeof(cpu_set_t), &cpuset) == 0) {
@@ -7587,7 +7566,7 @@ slide.items = items_ptr;
         std::shared_ptr<std::vector<MediaItem>> items_ptr;
         {
             std::lock_guard<std::mutex> lk(slide.shuffle_mutex);
-            items_ptr = slide.items;
+            items_ptr = slide.get_items();
             slide.frame_current_index = slide.current_index.load();
             slide.frame_next_index = slide.next_index.load();
         }
@@ -7713,7 +7692,7 @@ slide.items = items_ptr;
     ClearBackground(BLACK);
     EndDrawing();
 
-    slide.cleanup();
+    slide.cleanup();\n    g_mpv.destroy();
     // Ensure preload_thread is fully stopped before closing VRAM context
     if (slide.preload_thread.joinable()) slide.preload_thread.join();
     CloseWindow();

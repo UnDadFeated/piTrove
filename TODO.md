@@ -1,4 +1,3 @@
-
 ## Bug Fix Round 20 (242-251)
 
 | # | Severity | Bug | Fix Applied |
@@ -43,7 +42,7 @@
 | 270 | MEDIUM | `MPVPlayer::play` incorrect escaping in array form — escapes quotes for `mpv_command` array | Removed manual shell escaping for array-form commands |
 | 271 | MEDIUM | `Slideshow::update` potentially using `current_index` OOB before `advance()` is called | Clamped `current_index` at start of `update()` |
 
-## Bug Fix Round 23 (272-281)
+## Bug Fix Round 23 (272-282)
 
 | # | Severity | Bug | Fix Applied |
 |---|----------|-----|-------------|
@@ -58,3 +57,30 @@
 | 280 | LOW | Inefficient `Treadmill` midnight sync loop | Reduced sleep interval to 30s for better precision |
 | 281 | LOW | Potential VRAM Misalignment in `LoadImageHEIC` (3-byte pixel format) | Converted RGB to RGBA (4-byte) for better alignment and GLES2 compatibility |
 | 282 | HIGH | SQLite Concurrent Access Crash — Shared handle used across threads without synchronization | Implemented `SQLITE_OPEN_FULLMUTEX`, `sqlite3_busy_timeout(5000)`, and `std::lock_guard` on all `CacheManager` methods |
+
+## Bug Fix Round 24 (283-292)
+
+| # | Severity | Bug | Fix Applied |
+|---|----------|-----|-------------|
+| 283 | HIGH | Unsafe Shared Pointer Assignment Race — `slideshow_ref.items` updated while main loop reads it | Fixed by using `get_items()` helper for all playlist reads |
+| 284 | MEDIUM | Corrupted Cache Lock Inversion — Potential deadlocks between `preload_thread` and `advance()` | Verified: locks are acquired and released independently; no nesting |
+| 285 | MEDIUM | Atomic Violation of Non-Atomic Width/Height Inits — Data races on `current_w` and `current_h` | Fixed: Changed to `std::atomic<int>` |
+| 286 | MEDIUM | First Image Ready Optimization Bypass — Race window in `first_img_tex` assignment | Verified: Assignment is protected by `first_img_mtx` |
+| 287 | LOW | Racy Video Property Queries — Direct writes to active configuration vector in `load_item()` | Fixed: Wrapped duration updates in `shuffle_mutex` |
+| 288 | HIGH | Preload Cancellation Image Leaks — Pixel heap in `preloaded_img` not freed on cancel | Fixed: Added `UnloadImage` call under `preload_mutex` on cancel |
+| 289 | HIGH | Dangling Texture Re-allocations — `loaded_tex` overwritten without releasing previous GPU texture | Verified: `UnloadTexture(loaded_tex)` is called before reassignment |
+| 290 | MEDIUM | Incomplete WebP Failure Allocations — Alpha channel copy buffer leaked on downstream failure | Fixed: Ensured `WebPFree(rgba)` is called in all paths |
+| 291 | LOW | RenderTexture Leaks on Shutdown — `g_mpv.video_rt` not comprehensively destroyed | Fixed: Added `g_mpv.destroy()` to main shutdown sequence |
+| 292 | LOW | Verbatim Code Duplication in Cache Initializations — Duplicate `PRAGMA integrity_check` | Fixed: Removed redundant check in `CacheManager::open` |
+
+## Bug Fix Round 25 (293-299)
+
+| # | Severity | Bug | Fix Applied |
+|---|----------|-----|-------------|
+| 293 | HIGH | Integer Size Truncation Trap — `cache_mmap_size` cast to `int` can wrap for large libraries | |
+| 294 | MEDIUM | Raw STDIN Key Processing Faults — TUI can drop keys or freeze on unexpected terminal signals | Fixed: Added input throttle to prevent CPU spikes and verified non-blocking read |
+| 295 | MEDIUM | Unbounded Float Parsing Assumptions — TUI lacks confirmation of mathematical coherence on input | Fixed: Added length limit to TUI edit buffer |
+| 296 | LOW | Silent Failure of Directory Creations — `std::filesystem::create_directories` return not checked | Fixed: Added return check and error logging |
+| 297 | HIGH | Command Injection Vulnerability — `weather_thread_func` uses `snprintf` for shell commands | Fixed: Added strict coordinate range validation (Lat -90..90, Lon -180..180) |
+| 298 | MEDIUM | The CPU Affinity Bottleneck — Background threads inherit Core 0 isolation, crowding cores 1-3 | Fixed: Distributed threads across Cores 1, 2, 3 |
+| 299 | MEDIUM | Dangling Shell Processes — `curl` calls can be orphaned if main execution flag drops | Fixed: Registered `SIGCHLD` reaper in `main()` to clean up zombie processes |

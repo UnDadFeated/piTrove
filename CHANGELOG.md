@@ -5,7 +5,7 @@
 
 ## v7.1.0 — Concurrency and Memory Hardening (May 19, 2026)
 ### Fixed
-- **CRITICAL · SQLite Concurrency Race Conditions (B282)** — Implemented `SQLITE_OPEN_FULLMUTEX` (serialized handle), `sqlite3_busy_timeout(5000)`, and `std::lock_guard` across all `CacheManager` methods to eliminate segfaults and deadlocks between the UI thread and the background scanner.
+- **CRITICAL · SQLite Concurrent Access Crash (B282)** — Implemented `SQLITE_OPEN_FULLMUTEX`, `sqlite3_busy_timeout(5000)`, and `std::lock_guard` across all `CacheManager` methods to eliminate segfaults and deadlocks between the UI thread and the background scanner.
 - **HIGH · Memory/VRAM Leaks (Round 22-23)** — Resolved multiple resource leaks including FBO leaks in `MPVPlayer::update_frame` and dangling textures during rapid navigation.
 - **HIGH · Data Races (Round 22-23)** — Fixed race conditions on `g_cfg` capture, `preloaded_img` access, and `MPVPlayer::current_file` state.
 - **MEDIUM · Logic & Safety (Round 22-23)** — 
