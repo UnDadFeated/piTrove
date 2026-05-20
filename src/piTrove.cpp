@@ -10,7 +10,7 @@
  *   • Slideshow – raylib, preload, crossfade, Ken Burns
  */
 
-#define VERSION "7.9.0"
+#define VERSION "7.10.0"
 #define APP_NAME "piTrove"
 
 // Global atomics for headless features
@@ -1307,6 +1307,7 @@ bool MPVPlayer::init() {
     mpv_set_option_string(ctx, "msg-level", "all=warn");
     mpv_set_option_string(ctx, "gpu-api", "opengl");
     mpv_set_option_string(ctx, "opengl-es", "yes");
+    mpv_set_option_string(ctx, "vo", "libmpv"); // Required for mpv_render_context API
     
     // Pi 5 FBO Compatibility Optimization
     mpv_set_option_string(ctx, "hwdec", "v4l2m2m-copy"); 
@@ -1515,7 +1516,7 @@ bool MPVPlayer::update_frame() {
       fbo.fbo = (int)video_rt.id;   
       fbo.w   = surface_w;
       fbo.h   = surface_h;
-      fbo.internal_format = 0; // Let mpv auto-detect layout structures from the active texture bound
+      fbo.internal_format = 0x1908; // GLES2: explicit GL_RGBA (0 = auto-detect fails silently on DRM)
 
       int flip_y = 1;
       // FIX: Removed BLOCK_FOR_TARGET_TIME — 32-bit int causes stack corruption with mpv's 64-bit uint64_t* on ARM64
@@ -1526,6 +1527,12 @@ bool MPVPlayer::update_frame() {
       };
 
        int ret = mpv_render_context_render(gl_ctx, render_params);
+       if (ret < 0) {
+           g_logger.error("MPV_RENDER: render failed ret=%d fbo=%d w=%d h=%d", ret, (int)video_rt.id, surface_w, surface_h);
+       } else {
+           // Verify texture was written by checking for non-zero pixels (best-effort)
+           g_logger.info("MPV_RENDER: frame written fbo=%d w=%d h=%d", (int)video_rt.id, surface_w, surface_h);
+       }
        
        // CRITICAL: Always reset FBO and Viewport before checking return value,
        // as mpv_render_context_render leaves the FBO bound regardless of success.
