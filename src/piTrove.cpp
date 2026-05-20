@@ -2281,10 +2281,38 @@ struct CacheManager {
         std::filesystem::create_directories(dir);
  
         std::string path = dir + "/cache.db";
-          if (sqlite3_open(path.c_str(), &db) != SQLITE_OK) {
-              if (db) { sqlite3_close(db); db = nullptr; }
-              return false;
-          }
+        int flags = SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_FULLMUTEX;
+         if (sqlite3_open_v2(path.c_str(), &db, flags, nullptr) != SQLITE_OK) {
+             if (db) { sqlite3_close(db); db = nullptr; }
+             return false;
+         }
+         sqlite3_busy_timeout(db, 5000);
+ 
+         // v3.0.4: Proactive SQLite integrity check (F4)
+         sqlite3_stmt* stmt = nullptr;
+         if (sqlite3_prepare_v2(db, "PRAGMA integrity_check;", -1, &stmt, nullptr) == SQLITE_OK
+             && sqlite3_step(stmt) == SQLITE_ROW) {
+             const char* result = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0));
+             if (result && std::string(result) != "ok") {
+                 g_logger.error("SQLite integrity check failed (%s). Purging corrupted cache...", result);
+                 sqlite3_finalize(stmt);
+                 sqlite3_close(db);
+                 db = nullptr;
+                 std::remove(path.c_str());
+                 std::string wal = path + "-wal";
+                 std::string shm = path + "-shm";
+                 std::remove(wal.c_str());
+                 std::remove(shm.c_str());
+                 if (sqlite3_open_v2(path.c_str(), &db, flags, nullptr) != SQLITE_OK) {
+                     if (db) { sqlite3_close(db); db = nullptr; }
+                     return false;
+                 }
+                 // DDL will be re-executed below
+             } else {
+                 sqlite3_finalize(stmt);
+             }
+         }
+
           sqlite3_busy_timeout(db, 5000);
 
  
@@ -2425,6 +2453,7 @@ struct CacheManager {
 
     void upsert(const MediaItem& mi, int bad) {
         if (!stmt_upsert) return;
+        std::lock_guard<std::mutex> lk(db_mutex);
         sqlite3_bind_text(stmt_upsert, 1, mi.path.c_str(), -1, SQLITE_STATIC);
         sqlite3_bind_text(stmt_upsert, 2, mi.type.c_str(), -1, SQLITE_STATIC);
         sqlite3_bind_int64(stmt_upsert, 3, mi.width);
@@ -2443,6 +2472,7 @@ struct CacheManager {
 
     void mark_shown(const std::string& path) {
         if (!stmt_mark) return;
+        std::lock_guard<std::mutex> lk(db_mutex);
         sqlite3_bind_int64(stmt_mark, 1, time(nullptr));
         // v6.0.3: Use SQLITE_TRANSIENT so SQLite copies the data immediately
         // SQLITE_STATIC would dangle if path goes out of scope before sqlite3_reset
@@ -2457,6 +2487,7 @@ struct CacheManager {
     // ── NEW FIX: Persist bad files to SQLite so they are skipped permanently ──
     void mark_bad(const std::string& filepath) {
         if (!db) return;
+        std::lock_guard<std::mutex> lk(db_mutex);
         const char* sql = "UPDATE cache SET bad = 1 WHERE path = ?;";
         sqlite3_stmt* stmt;
         if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) == SQLITE_OK) {

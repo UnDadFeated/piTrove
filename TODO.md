@@ -57,3 +57,4 @@
 | 279 | LOW | Unprotected `std::stoi` calls in `is_in_seasonal_window` | Wrapped `std::stoi` in try-catch block |
 | 280 | LOW | Inefficient `Treadmill` midnight sync loop | Reduced sleep interval to 30s for better precision |
 | 281 | LOW | Potential VRAM Misalignment in `LoadImageHEIC` (3-byte pixel format) | Converted RGB to RGBA (4-byte) for better alignment and GLES2 compatibility |
+| 282 | HIGH | SQLite Concurrent Access Crash — Shared handle used across threads without synchronization | Implemented `SQLITE_OPEN_FULLMUTEX`, `sqlite3_busy_timeout(5000)`, and `std::lock_guard` on all `CacheManager` methods |
