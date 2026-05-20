@@ -1,14 +1,17 @@
 # Changelog
 
-## v8.0.3 — Dynamic ratio tracking, shuffle all items, ratio-biased advance (May 20, 2026)
+## v8.0.1 — Dynamic ratio tracking, shuffle all items, ratio-biased advance (May 20, 2026)
 
 ### Changed
-- **Dynamic ratio tracking** — Removed hardcoded 10-then-8 interleaving in `treadmill_worker()`. All items (photos + videos) are shuffled together into a single playlist. `advance()` now tracks `photos_since_video` counter — when it exceeds `videos_per_photos` (8), the next advance forces a video selection (cycling forward to find one). Resets counter to 0 when a video is displayed.
-- **Shuffle all items together** — `treadmill_worker()` now merges photos and videos into one list and shuffles the entire thing, rather than shuffling photos separately, building a rigid interleaved sequence, then shuffling again (which destroyed the ratio).
-- **Config: shuffle=1, transition_delay=120** — Shuffle re-enabled (ratio is enforced dynamically). Transition delay back to 120s.
+- **Dynamic ratio tracking** — Replaced rigid 10-then-N interleaving in `treadmill_worker()` with `photos_since_video` counter in `Slideshow` struct. Counter resets to 0 on video, increments by 1 on each photo display. When `photos_since_video >= videos_per_photos`, next `advance()` scans forward in playlist to force video selection.
+- **Shuffle all items together** — `treadmill_worker()` merges photos and videos into single shuffled list. Previously: shuffle photos, rigid interleaving (10 photos + N videos), shuffle again — destroying the ratio entirely.
+- **Preload advances past videos** — Video preload now advances `next_index` (same as photo preload). Videos don't need texture preloading, so preloaded items are skipped. Prevents video from appearing as "next" item.
+- **Ratio counter reset on hot-swap** — `photos_since_video` reset to 0 when `treadmill_worker` replaces playlist at midnight.
 
 ### Fixed
-- **Videos not playing** — Root cause: shuffle mode picked random indices from a fully-shuffled list, so videos (mixed among thousands of photos) were almost never selected. Dynamic ratio tracking ensures videos are forced every 8 photos regardless of shuffle.
+- **Videos never play with shuffle=1** — Root cause: random index selection from fully-shuffled list made videos statistically impossible to hit among 45K+ photos. Dynamic ratio tracking ensures videos are forced every N photos regardless of shuffle position.
+- **Config read without lock in advance()** — `g_cfg.videos_per_photos` captured inside `g_config_mtx` lock before ratio check.
+- **No fallback when no video found** — If ratio scan wraps around without finding video, falls back to normal random shuffle.
 
 ## v8.0.1 — Fix preload deadlock on video items (May 20, 2026)
 
