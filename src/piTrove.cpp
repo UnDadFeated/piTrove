@@ -1296,6 +1296,12 @@ static bool play_video_subprocess(const std::string &path, int volume) {
         int dbg = open("/home/pi/mpv_debug.log", O_WRONLY|O_CREAT|O_TRUNC, 0644);
         if (dbg >= 0) { dup2(dbg, STDOUT_FILENO); dup2(dbg, STDERR_FILENO); close(dbg); }
 
+        // Extract filename for OSD
+        std::string filename = path.substr(path.find_last_of("/") + 1);
+        if (filename.size() > 50) filename = "..." + filename.substr(filename.size() - 47);
+        char osd_arg[300];
+        snprintf(osd_arg, sizeof(osd_arg), "--osd-msg1=%s", filename.c_str());
+
         char cmd[256];
         if (volume > 0) {
             snprintf(cmd, sizeof(cmd), "--volume=%d", volume);
@@ -1304,6 +1310,16 @@ static bool play_video_subprocess(const std::string &path, int volume) {
                 "--drm-connector=HDMI-A-1",
                 "--hwdec=auto",
                 "--no-osc",
+                osd_arg,
+                "--osd-align-x=left",
+                "--osd-align-y=top",
+                "--osd-margin-x=16",
+                "--osd-margin-y=16",
+                "--osd-font-size=36",
+                "--osd-duration=99999",
+                "--osd-bar",
+                "--osd-bar-align-x=0.5",
+                "--osd-bar-align-y=-1",
                 cmd,
                 path.c_str(),
                 nullptr);
@@ -1313,6 +1329,16 @@ static bool play_video_subprocess(const std::string &path, int volume) {
             "--drm-connector=HDMI-A-1",
             "--hwdec=auto",
             "--no-osc",
+            osd_arg,
+            "--osd-align-x=left",
+            "--osd-align-y=top",
+            "--osd-margin-x=16",
+            "--osd-margin-y=16",
+            "--osd-font-size=36",
+            "--osd-duration=99999",
+            "--osd-bar",
+            "--osd-bar-align-x=0.5",
+            "--osd-bar-align-y=-1",
             "--no-audio",
             path.c_str(),
             nullptr);
@@ -5967,7 +5993,7 @@ int main(int argc, char** argv) {
     std::set_terminate(terminate_handler);
 
     std::string home_dir = getenv("HOME") ? getenv("HOME") : "/home/pi";
-    std::string config_path = home_dir + "/piTrove/src/config/config.toml";
+    std::string config_path = home_dir + "/piTrove/config/config.toml";
     bool run_config = false;
     bool run_restart = false;
     
