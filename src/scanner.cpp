@@ -31,22 +31,15 @@ ssize_t get_dents64(int fd, char* buf, size_t bufsz) {
 
 std::vector<std::string> read_dir(const std::string& path) {
     std::vector<std::string> entries;
-    int fd = open(path.c_str(), O_RDONLY | O_DIRECTORY | O_NONBLOCK);
-    if (fd < 0) return entries;
+    DIR* dir = opendir(path.c_str());
+    if (!dir) return entries;
 
-    char buf[65536];
-    ssize_t n;
-    while ((n = get_dents64(fd, buf, sizeof(buf))) > 0) {
-        char* p = buf;
-        while (p < buf + n) {
-            auto* de = reinterpret_cast<struct dirent64*>(p);
-            if (de->d_name[0] != '.' || de->d_name[1] == '\0') {
-                entries.emplace_back(de->d_name);
-            }
-            p += de->d_reclen;
-        }
+    struct dirent* de;
+    while ((de = readdir(dir)) != nullptr) {
+        if (de->d_name[0] == '.' && de->d_name[1] == '\0') continue;
+        entries.emplace_back(de->d_name);
     }
-    close(fd);
+    closedir(dir);
     return entries;
 }
 
