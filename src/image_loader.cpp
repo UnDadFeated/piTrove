@@ -1,8 +1,12 @@
+#define _GNU_SOURCE
 #include "image_loader.h"
 #include "renderer.h"
 #include "util.h"
+#include <SDL_image.h>
 #include <algorithm>
 #include <stdexcept>
+#include <cstring>
+#include <cstdio>
 
 // EXIF tags and library
 #include <libexif/exif-data.h>
@@ -50,40 +54,34 @@ static void png_read_memory(png_structp png_ptr, png_bytep out, png_size_t want)
     }
 }
 
-// Resilient Low-Level Decoders
+// ============================================================
+// Low-Level Decoders — return raw pixels (no SDL calls)
+// ============================================================
 
-SDL_Surface* ImageLoader::load_jpeg_surface(const char* path) {
+static bool decode_jpeg_raw(const char* path, uint8_t*& out_pixels, int& out_w, int& out_h) {
     FILE* f = fopen(path, "rb");
-    if (!f) return nullptr;
+    if (!f) return false;
     fseek(f, 0, SEEK_END);
     long fsize = ftell(f);
     fseek(f, 0, SEEK_SET);
-    if (fsize <= 0) { fclose(f); return nullptr; }
+    if (fsize <= 0) { fclose(f); return false; }
     uint8_t* buf = (uint8_t*)malloc(fsize);
-    if (!buf) { fclose(f); return nullptr; }
+    if (!buf) { fclose(f); return false; }
     size_t nr = fread(buf, 1, (size_t)fsize, f);
-    if (nr != (size_t)fsize) { fclose(f); free(buf); return nullptr; }
+    if (nr != (size_t)fsize) { fclose(f); free(buf); return false; }
     fclose(f);
 
     struct jpeg_decompress_struct cinfo;
     jpeg_err_handler jerr;
-
     jpeg_create_decompress(&cinfo);
     cinfo.err = jpeg_std_error(&jerr.pub);
     jerr.pub.error_exit = jpeg_err_exit;
     jpeg_mem_src(&cinfo, buf, (size_t)fsize);
 
-    uint8_t* scanline = nullptr;
-    uint8_t* rowbuf = nullptr;
-    SDL_Surface* surface = nullptr;
-
     if (setjmp(jerr.setjmp_buffer)) {
         jpeg_destroy_decompress(&cinfo);
         free(buf);
-        if (scanline) free(scanline);
-        if (rowbuf) free(rowbuf);
-        if (surface) { SDL_FreeSurface(surface); surface = nullptr; }
-        return nullptr;
+        return false;
     }
 
     jpeg_read_header(&cinfo, TRUE);
@@ -92,109 +90,61 @@ SDL_Surface* ImageLoader::load_jpeg_surface(const char* path) {
 
     int w = (int)cinfo.output_width;
     int h = (int)cinfo.output_height;
-    int channels = (int)cinfo.output_components;
-
-    surface = SDL_CreateRGBSurfaceWithFormat(0, w, h, 32, SDL_PIXELFORMAT_RGBA32);
-    if (!surface) {
+    uint8_t* raw = (uint8_t*)malloc((size_t)w * h * 4);
+    if (!raw) {
         jpeg_abort_decompress(&cinfo);
         jpeg_destroy_decompress(&cinfo);
         free(buf);
-        return nullptr;
+        return false;
     }
 
-    uint8_t* dst = (uint8_t*)surface->pixels;
-    int dst_pitch = surface->pitch;
-
-    if (channels == 4) {
-        scanline = (uint8_t*)malloc((size_t)w * 4);
-        if (scanline) {
-            JSAMPROW row = {scanline};
-            while (cinfo.output_scanline < (unsigned int)h) {
-                unsigned int row_num = cinfo.output_scanline;
-                jpeg_read_scanlines(&cinfo, &row, 1);
-                memcpy(dst + row_num * dst_pitch, scanline, w * 4);
-            }
-            free(scanline);
-        } else {
-            jpeg_abort_decompress(&cinfo);
-            SDL_FreeSurface(surface);
-            surface = nullptr;
+    uint8_t* scanline = (uint8_t*)malloc((size_t)w * 4);
+    if (scanline) {
+        JSAMPROW row = {scanline};
+        while (cinfo.output_scanline < (unsigned int)h) {
+            unsigned int row_num = cinfo.output_scanline;
+            jpeg_read_scanlines(&cinfo, &row, 1);
+            memcpy(raw + row_num * w * 4, scanline, w * 4);
         }
-    } else {
-        int rowbuf_stride = (channels == 1) ? w : (w * 3);
-        rowbuf = (uint8_t*)malloc(rowbuf_stride);
-        if (rowbuf) {
-            JSAMPROW row = {rowbuf};
-            while (cinfo.output_scanline < (unsigned int)h) {
-                unsigned int row_num = cinfo.output_scanline;
-                jpeg_read_scanlines(&cinfo, &row, 1);
-                uint8_t* dst_row = dst + row_num * dst_pitch;
-                if (channels == 1) {
-                    for (int x = 0; x < w; x++) {
-                        unsigned char g = rowbuf[x];
-                        dst_row[x * 4 + 0] = g;
-                        dst_row[x * 4 + 1] = g;
-                        dst_row[x * 4 + 2] = g;
-                        dst_row[x * 4 + 3] = 255;
-                    }
-                } else {
-                    for (int x = 0; x < w; x++) {
-                        dst_row[x * 4 + 0] = rowbuf[x * 3 + 0];
-                        dst_row[x * 4 + 1] = rowbuf[x * 3 + 1];
-                        dst_row[x * 4 + 2] = rowbuf[x * 3 + 2];
-                        dst_row[x * 4 + 3] = 255;
-                    }
-                }
-            }
-            free(rowbuf);
-        } else {
-            jpeg_abort_decompress(&cinfo);
-            SDL_FreeSurface(surface);
-            surface = nullptr;
-        }
+        free(scanline);
     }
 
-    if (surface) {
-        jpeg_finish_decompress(&cinfo);
-    }
+    jpeg_finish_decompress(&cinfo);
     jpeg_destroy_decompress(&cinfo);
     free(buf);
-    return surface;
+
+    out_pixels = raw;
+    out_w = w;
+    out_h = h;
+    return true;
 }
 
-SDL_Surface* ImageLoader::load_png_surface(const char* path) {
+static bool decode_png_raw(const char* path, uint8_t*& out_pixels, int& out_w, int& out_h) {
     FILE* f = fopen(path, "rb");
-    if (!f) return nullptr;
+    if (!f) return false;
     fseek(f, 0, SEEK_END);
     long fsize = ftell(f);
     fseek(f, 0, SEEK_SET);
-    if (fsize <= 0) { fclose(f); return nullptr; }
+    if (fsize <= 0) { fclose(f); return false; }
     uint8_t* buf = (uint8_t*)malloc(fsize);
-    if (!buf) { fclose(f); return nullptr; }
+    if (!buf) { fclose(f); return false; }
     size_t nr = fread(buf, 1, (size_t)fsize, f);
-    if (nr != (size_t)fsize) { fclose(f); free(buf); return nullptr; }
+    if (nr != (size_t)fsize) { fclose(f); free(buf); return false; }
     fclose(f);
 
     png_structp png_ptr = png_create_read_struct(PNG_LIBPNG_VER_STRING, nullptr, nullptr, nullptr);
-    if (!png_ptr) { free(buf); return nullptr; }
+    if (!png_ptr) { free(buf); return false; }
     png_infop info_ptr = png_create_info_struct(png_ptr);
     if (!info_ptr) {
         png_destroy_read_struct(&png_ptr, nullptr, nullptr);
         free(buf);
-        return nullptr;
+        return false;
     }
-
-    uint8_t* tmp_rgb = nullptr;
-    png_bytep* rows = nullptr;
-    SDL_Surface* surface = nullptr;
 
     if (setjmp(png_jmpbuf(png_ptr))) {
         png_destroy_read_struct(&png_ptr, &info_ptr, nullptr);
         free(buf);
-        if (tmp_rgb) free(tmp_rgb);
-        if (rows) free(rows);
-        if (surface) { SDL_FreeSurface(surface); surface = nullptr; }
-        return nullptr;
+        return false;
     }
 
     png_mem_ctx png_ctx = {buf, 0, (size_t)fsize};
@@ -220,26 +170,23 @@ SDL_Surface* ImageLoader::load_png_surface(const char* path) {
     png_read_update_info(png_ptr, info_ptr);
     color_type = png_get_color_type(png_ptr, info_ptr);
 
-    surface = SDL_CreateRGBSurfaceWithFormat(0, width, height, 32, SDL_PIXELFORMAT_RGBA32);
-    if (!surface) {
+    uint8_t* raw = (uint8_t*)malloc((size_t)width * height * 4);
+    if (!raw) {
         png_destroy_read_struct(&png_ptr, &info_ptr, nullptr);
         free(buf);
-        return nullptr;
+        return false;
     }
 
-    uint8_t* dst = (uint8_t*)surface->pixels;
-    int dst_pitch = surface->pitch;
-
     if (color_type == PNG_COLOR_TYPE_RGB) {
-        tmp_rgb = (uint8_t*)malloc((size_t)width * height * 3);
-        rows = (png_bytep*)malloc((size_t)height * sizeof(png_bytep));
+        uint8_t* tmp_rgb = (uint8_t*)malloc((size_t)width * height * 3);
+        png_bytep* rows = (png_bytep*)malloc((size_t)height * sizeof(png_bytep));
         if (tmp_rgb && rows) {
             for (int y = 0; y < height; y++) {
                 rows[y] = (png_bytep)(tmp_rgb + y * width * 3);
             }
             png_read_image(png_ptr, rows);
             for (int y = 0; y < height; y++) {
-                uint8_t* dst_row = dst + y * dst_pitch;
+                uint8_t* dst_row = raw + y * width * 4;
                 uint8_t* src_row = tmp_rgb + y * width * 3;
                 for (int x = 0; x < width; x++) {
                     dst_row[x * 4 + 0] = src_row[x * 3 + 0];
@@ -248,101 +195,80 @@ SDL_Surface* ImageLoader::load_png_surface(const char* path) {
                     dst_row[x * 4 + 3] = 255;
                 }
             }
-        } else {
-            SDL_FreeSurface(surface);
-            surface = nullptr;
         }
         free(tmp_rgb);
         free(rows);
     } else {
-        rows = (png_bytep*)malloc((size_t)height * sizeof(png_bytep));
+        png_bytep* rows = (png_bytep*)malloc((size_t)height * sizeof(png_bytep));
         if (rows) {
             for (int y = 0; y < height; y++) {
-                rows[y] = (png_bytep)((uint8_t*)dst + y * dst_pitch);
+                rows[y] = (png_bytep)(raw + y * width * 4);
             }
             png_read_image(png_ptr, rows);
-            free(rows);
-        } else {
-            SDL_FreeSurface(surface);
-            surface = nullptr;
         }
+        free(rows);
     }
 
     png_destroy_read_struct(&png_ptr, &info_ptr, nullptr);
     free(buf);
-    return surface;
+
+    out_pixels = raw;
+    out_w = width;
+    out_h = height;
+    return true;
 }
 
-SDL_Surface* ImageLoader::load_tiff_surface(const char* path) {
+static bool decode_tiff_raw(const char* path, uint8_t*& out_pixels, int& out_w, int& out_h) {
     TIFF* tif = TIFFOpen(path, "r");
-    if (!tif) return nullptr;
+    if (!tif) return false;
 
     uint32_t width = 0, height = 0;
     TIFFGetField(tif, TIFFTAG_IMAGEWIDTH, &width);
     TIFFGetField(tif, TIFFTAG_IMAGELENGTH, &height);
 
-    if (width == 0 || height == 0) {
-        TIFFClose(tif);
-        return nullptr;
-    }
-
-    SDL_Surface* surface = SDL_CreateRGBSurfaceWithFormat(0, width, height, 32, SDL_PIXELFORMAT_RGBA32);
-    if (!surface) {
-        TIFFClose(tif);
-        return nullptr;
-    }
+    if (width == 0 || height == 0) { TIFFClose(tif); return false; }
 
     uint16_t spp = 1;
     TIFFGetField(tif, TIFFTAG_SAMPLESPERPIXEL, &spp);
     if (spp < 1 || spp > 4) spp = 1;
 
-    uint8_t* raw = (uint8_t*)malloc((size_t)width * spp);
-    if (!raw) {
-        SDL_FreeSurface(surface);
-        TIFFClose(tif);
-        return nullptr;
-    }
-
-    uint8_t* dst = (uint8_t*)surface->pixels;
-    int dst_pitch = surface->pitch;
+    uint8_t* raw = (uint8_t*)malloc((size_t)width * height * 4);
+    if (!raw) { TIFFClose(tif); return false; }
+    uint8_t* scanline = (uint8_t*)malloc((size_t)width * spp);
+    if (!scanline) { free(raw); TIFFClose(tif); return false; }
 
     uint32_t y = 0;
     while (y < height) {
-        if (TIFFReadScanline(tif, raw, y, 0) <= 0) {
-            g_logger.warn("TIFF partial read: row %u/%u — file may be corrupted", y, height);
-            SDL_FreeSurface(surface);
-            surface = nullptr;
-            break;
+        if (TIFFReadScanline(tif, scanline, y, 0) <= 0) {
+            free(raw); free(scanline); TIFFClose(tif);
+            return false;
         }
-
-        uint8_t* dst_row = dst + y * dst_pitch;
-
+        uint8_t* dst_row = raw + y * width * 4;
         if (spp == 1) {
             for (uint32_t x = 0; x < width; x++) {
-                uint8_t g = raw[x];
-                dst_row[x * 4 + 0] = g;
-                dst_row[x * 4 + 1] = g;
-                dst_row[x * 4 + 2] = g;
+                dst_row[x * 4 + 0] = scanline[x];
+                dst_row[x * 4 + 1] = scanline[x];
+                dst_row[x * 4 + 2] = scanline[x];
                 dst_row[x * 4 + 3] = 255;
             }
         } else if (spp == 3) {
             for (uint32_t x = 0; x < width; x++) {
-                dst_row[x * 4 + 0] = raw[x * 3 + 0];
-                dst_row[x * 4 + 1] = raw[x * 3 + 1];
-                dst_row[x * 4 + 2] = raw[x * 3 + 2];
+                dst_row[x * 4 + 0] = scanline[x * 3 + 0];
+                dst_row[x * 4 + 1] = scanline[x * 3 + 1];
+                dst_row[x * 4 + 2] = scanline[x * 3 + 2];
                 dst_row[x * 4 + 3] = 255;
             }
         } else if (spp == 4) {
             for (uint32_t x = 0; x < width; x++) {
-                dst_row[x * 4 + 0] = raw[x * 4 + 0];
-                dst_row[x * 4 + 1] = raw[x * 4 + 1];
-                dst_row[x * 4 + 2] = raw[x * 4 + 2];
-                dst_row[x * 4 + 3] = raw[x * 4 + 3];
+                dst_row[x * 4 + 0] = scanline[x * 4 + 0];
+                dst_row[x * 4 + 1] = scanline[x * 4 + 1];
+                dst_row[x * 4 + 2] = scanline[x * 4 + 2];
+                dst_row[x * 4 + 3] = scanline[x * 4 + 3];
             }
         } else {
             for (uint32_t x = 0; x < width; x++) {
                 for (int c = 0; c < 4 && c < spp; c++) {
-                    dst_row[x * 4 + c] = raw[x * spp + c];
+                    dst_row[x * 4 + c] = scanline[x * spp + c];
                 }
                 dst_row[x * 4 + 3] = 255;
             }
@@ -350,23 +276,24 @@ SDL_Surface* ImageLoader::load_tiff_surface(const char* path) {
         y++;
     }
 
-    free(raw);
+    free(scanline);
     TIFFClose(tif);
-    return surface;
+
+    out_pixels = raw;
+    out_w = (int)width;
+    out_h = (int)height;
+    return true;
 }
 
-SDL_Surface* ImageLoader::load_heic_surface(const char* path) {
+static bool decode_heic_raw(const char* path, uint8_t*& out_pixels, int& out_w, int& out_h) {
     heif_context* ctx = heif_context_alloc();
-    if (!ctx) {
-        g_logger.error("HEIC: Failed to allocate heif_context");
-        return nullptr;
-    }
+    if (!ctx) return false;
     heif_error err = heif_context_read_from_file(ctx, path, nullptr);
-    if (err.code != heif_error_Ok) { heif_context_free(ctx); return nullptr; }
+    if (err.code != heif_error_Ok) { heif_context_free(ctx); return false; }
 
     heif_image_handle* handle = nullptr;
     err = heif_context_get_primary_image_handle(ctx, &handle);
-    if (err.code != heif_error_Ok) { heif_context_free(ctx); return nullptr; }
+    if (err.code != heif_error_Ok) { heif_context_free(ctx); return false; }
 
     heif_image* heif_img = nullptr;
     err = heif_decode_image(handle, &heif_img, heif_colorspace_RGB,
@@ -374,23 +301,21 @@ SDL_Surface* ImageLoader::load_heic_surface(const char* path) {
     if (err.code != heif_error_Ok) {
         heif_image_handle_release(handle);
         heif_context_free(ctx);
-        return nullptr;
+        return false;
     }
 
     int w = heif_image_get_width(heif_img, heif_channel_interleaved);
     int h = heif_image_get_height(heif_img, heif_channel_interleaved);
     int stride = 0;
     const uint8_t* data = heif_image_get_plane_readonly(heif_img,
-                                                        heif_channel_interleaved,
-                                                        &stride);
+                                                         heif_channel_interleaved,
+                                                         &stride);
 
-    SDL_Surface* surface = SDL_CreateRGBSurfaceWithFormat(0, w, h, 32, SDL_PIXELFORMAT_RGBA32);
-    if (surface) {
-        uint8_t* dst = (uint8_t*)surface->pixels;
-        int dst_pitch = surface->pitch;
+    uint8_t* raw = (uint8_t*)malloc((size_t)w * h * 4);
+    if (raw) {
         for (int y = 0; y < h; y++) {
             const uint8_t* src_row = data + y * stride;
-            uint8_t* dst_row = dst + y * dst_pitch;
+            uint8_t* dst_row = raw + y * w * 4;
             for (int x = 0; x < w; x++) {
                 dst_row[x * 4 + 0] = src_row[x * 3 + 0];
                 dst_row[x * 4 + 1] = src_row[x * 3 + 1];
@@ -403,20 +328,26 @@ SDL_Surface* ImageLoader::load_heic_surface(const char* path) {
     heif_image_release(heif_img);
     heif_image_handle_release(handle);
     heif_context_free(ctx);
-    return surface;
+
+    if (raw) {
+        out_pixels = raw;
+        out_w = w;
+        out_h = h;
+    }
+    return !!raw;
 }
 
-SDL_Surface* ImageLoader::load_webp_surface(const char* path) {
+static bool decode_webp_raw(const char* path, uint8_t*& out_pixels, int& out_w, int& out_h) {
     FILE* f = fopen(path, "rb");
-    if (!f) return nullptr;
+    if (!f) return false;
     fseek(f, 0, SEEK_END);
     long fsize = ftell(f);
     fseek(f, 0, SEEK_SET);
-    if (fsize <= 0) { fclose(f); return nullptr; }
+    if (fsize <= 0) { fclose(f); return false; }
     uint8_t* buf = (uint8_t*)malloc(fsize);
-    if (!buf) { fclose(f); return nullptr; }
+    if (!buf) { fclose(f); return false; }
     size_t nr = fread(buf, 1, (size_t)fsize, f);
-    if (nr != (size_t)fsize) { free(buf); fclose(f); return nullptr; }
+    if (nr != (size_t)fsize) { free(buf); fclose(f); return false; }
     fclose(f);
 
     int w = 0, h = 0;
@@ -424,111 +355,190 @@ SDL_Surface* ImageLoader::load_webp_surface(const char* path) {
     free(buf);
     if (!rgba || w <= 0 || h <= 0) {
         if (rgba) WebPFree(rgba);
-        return nullptr;
+        return false;
     }
 
-    SDL_Surface* surface = SDL_CreateRGBSurfaceWithFormat(0, w, h, 32, SDL_PIXELFORMAT_RGBA32);
-    if (surface) {
-        uint8_t* dst = (uint8_t*)surface->pixels;
-        int dst_pitch = surface->pitch;
-        for (int y = 0; y < h; y++) {
-            memcpy(dst + y * dst_pitch, rgba + y * w * 4, w * 4);
-        }
-    }
-    WebPFree(rgba);
-    return surface;
+    out_pixels = rgba;
+    out_w = w;
+    out_h = h;
+    return true;
 }
 
-// CPU-Side Image Manipulations (Flips and Rotations)
+// ============================================================
+// Public API
+// ============================================================
 
-SDL_Surface* ImageLoader::flip_horizontal(SDL_Surface* src) {
-    if (!src) return nullptr;
-    SDL_Surface* dst = SDL_CreateRGBSurfaceWithFormat(0, src->w, src->h, 32, src->format->format);
-    if (!dst) return nullptr;
-    
-    int bpp = src->format->BytesPerPixel;
-    uint8_t* src_px = (uint8_t*)src->pixels;
-    uint8_t* dst_px = (uint8_t*)dst->pixels;
+RawImage ImageLoader::load_raw(const std::string& path) {
+    RawImage raw;
+    raw.valid = false;
 
-    for (int y = 0; y < src->h; y++) {
-        uint8_t* src_row = src_px + y * src->pitch;
-        uint8_t* dst_row = dst_px + y * dst->pitch;
-        for (int x = 0; x < src->w; x++) {
-            memcpy(dst_row + x * bpp, src_row + (src->w - 1 - x) * bpp, bpp);
+    FILE* f = fopen(path.c_str(), "rb");
+    if (!f) return raw;
+    uint8_t magic[4];
+    int magic_len = (int)fread(magic, 1, 4, f);
+    fclose(f);
+
+    if (magic_len < 4) return raw;
+
+    // JPEG: FF D8 FF
+    if (magic[0] == 0xFF && magic[1] == 0xD8 && magic[2] == 0xFF) {
+        if (decode_jpeg_raw(path.c_str(), raw.pixels, raw.width, raw.height)) {
+            raw.channels = 4;
+            raw.format = ImageFormat::RGBA32;
+            raw.valid = true;
         }
     }
-    return dst;
-}
-
-SDL_Surface* ImageLoader::flip_vertical(SDL_Surface* src) {
-    if (!src) return nullptr;
-    SDL_Surface* dst = SDL_CreateRGBSurfaceWithFormat(0, src->w, src->h, 32, src->format->format);
-    if (!dst) return nullptr;
-
-    uint8_t* src_px = (uint8_t*)src->pixels;
-    uint8_t* dst_px = (uint8_t*)dst->pixels;
-
-    for (int y = 0; y < src->h; y++) {
-        memcpy(dst_px + y * dst->pitch, src_px + (src->h - 1 - y) * src->pitch, src->pitch);
-    }
-    return dst;
-}
-
-SDL_Surface* ImageLoader::rotate_90_cw(SDL_Surface* src) {
-    if (!src) return nullptr;
-    SDL_Surface* dst = SDL_CreateRGBSurfaceWithFormat(0, src->h, src->w, 32, src->format->format);
-    if (!dst) return nullptr;
-
-    int bpp = src->format->BytesPerPixel;
-    uint8_t* src_px = (uint8_t*)src->pixels;
-    uint8_t* dst_px = (uint8_t*)dst->pixels;
-
-    for (int y = 0; y < src->h; y++) {
-        uint8_t* src_row = src_px + y * src->pitch;
-        for (int x = 0; x < src->w; x++) {
-            uint8_t* dst_pixel = dst_px + x * dst->pitch + (src->h - 1 - y) * bpp;
-            memcpy(dst_pixel, src_row + x * bpp, bpp);
+    // PNG: 89 50 4E 47
+    else if (magic[0] == 0x89 && magic[1] == 0x50 && magic[2] == 0x4E && magic[3] == 0x47) {
+        if (decode_png_raw(path.c_str(), raw.pixels, raw.width, raw.height)) {
+            raw.channels = 4;
+            raw.format = ImageFormat::RGBA32;
+            raw.valid = true;
         }
     }
-    return dst;
-}
-
-SDL_Surface* ImageLoader::rotate_90_ccw(SDL_Surface* src) {
-    if (!src) return nullptr;
-    SDL_Surface* dst = SDL_CreateRGBSurfaceWithFormat(0, src->h, src->w, 32, src->format->format);
-    if (!dst) return nullptr;
-
-    int bpp = src->format->BytesPerPixel;
-    uint8_t* src_px = (uint8_t*)src->pixels;
-    uint8_t* dst_px = (uint8_t*)dst->pixels;
-
-    for (int y = 0; y < src->h; y++) {
-        uint8_t* src_row = src_px + y * src->pitch;
-        for (int x = 0; x < src->w; x++) {
-            uint8_t* dst_pixel = dst_px + (src->w - 1 - x) * dst->pitch + y * bpp;
-            memcpy(dst_pixel, src_row + x * bpp, bpp);
+    // TIFF: LE or BE
+    else if ((magic[0] == 0x49 && magic[1] == 0x49 && magic[2] == 0x2A && magic[3] == 0x00) ||
+             (magic[0] == 0x4D && magic[1] == 0x4D && magic[2] == 0x00 && magic[3] == 0x2A)) {
+        if (decode_tiff_raw(path.c_str(), raw.pixels, raw.width, raw.height)) {
+            raw.channels = 4;
+            raw.format = ImageFormat::RGBA32;
+            raw.valid = true;
         }
     }
-    return dst;
-}
 
-SDL_Surface* ImageLoader::rotate_180(SDL_Surface* src) {
-    if (!src) return nullptr;
-    SDL_Surface* dst = SDL_CreateRGBSurfaceWithFormat(0, src->w, src->h, 32, src->format->format);
-    if (!dst) return nullptr;
-
-    int bpp = src->format->BytesPerPixel;
-    uint8_t* src_px = (uint8_t*)src->pixels;
-    uint8_t* dst_px = (uint8_t*)dst->pixels;
-
-    for (int y = 0; y < src->h; y++) {
-        uint8_t* src_row = src_px + y * src->pitch;
-        uint8_t* dst_row = dst_px + (src->h - 1 - y) * dst->pitch;
-        for (int x = 0; x < src->w; x++) {
-            memcpy(dst_row + (src->w - 1 - x) * bpp, src_row + x * bpp, bpp);
+    // Fallback: try IMG_Load for formats we don't have raw decoders for (BMP, GIF, etc.)
+    if (!raw.valid) {
+        SDL_Surface* surf = IMG_Load(path.c_str());
+        if (surf) {
+            // Convert to RGBA32 raw
+            if (surf->format->format == SDL_PIXELFORMAT_RGBA32 || surf->format->format == SDL_PIXELFORMAT_BGRA32) {
+                raw.pixels = (uint8_t*)malloc((size_t)surf->w * surf->h * 4);
+                if (raw.pixels) {
+                    memcpy(raw.pixels, surf->pixels, (size_t)surf->w * surf->h * 4);
+                    raw.width = surf->w;
+                    raw.height = surf->h;
+                    raw.channels = 4;
+                    raw.format = ImageFormat::RGBA32;
+                    raw.valid = true;
+                }
+            }
+            SDL_FreeSurface(surf);
         }
     }
-    return dst;
+
+    // HEIC/WEBP fallback
+    if (!raw.valid) {
+        std::string ext = path.substr(path.find_last_of('.') + 1);
+        std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
+        if (ext == "heic" || ext == "heif") {
+            if (decode_heic_raw(path.c_str(), raw.pixels, raw.width, raw.height)) {
+                raw.channels = 4;
+                raw.format = ImageFormat::RGBA32;
+                raw.valid = true;
+            }
+        } else if (ext == "webp") {
+            if (decode_webp_raw(path.c_str(), raw.pixels, raw.width, raw.height)) {
+                raw.channels = 4;
+                raw.format = ImageFormat::RGBA32;
+                raw.valid = true;
+            }
+        }
+    }
+
+    return raw;
+}
+
+std::shared_ptr<ImageData> ImageLoader::load(const std::string& path) {
+    auto data = std::make_shared<ImageData>();
+    data->valid = false;
+
+    // Load raw pixels on caller's thread (for preload workers)
+    RawImage raw = load_raw(path);
+    if (!raw.valid) {
+        g_logger.error("Failed to load image: %s", path.c_str());
+        return data;
+    }
+
+    // Create SDL surface from raw pixels (must be on main thread)
+    SDL_Surface* surface = SDL_CreateRGBSurfaceWithFormat(0, raw.width, raw.height, 32, SDL_PIXELFORMAT_RGBA32);
+    if (!surface) {
+        g_logger.error("Failed to create surface for: %s", path.c_str());
+        free(raw.pixels);
+        return data;
+    }
+    memcpy(surface->pixels, raw.pixels, (size_t)raw.width * raw.height * 4);
+    free(raw.pixels);
+
+    // Process EXIF rotation CPU-side
+    int exif = read_exif_rotation(path.c_str());
+    if (exif >= 2 && exif <= 8) {
+        SDL_Surface* rotated = apply_exif_rotation(surface, exif);
+        if (rotated) surface = rotated;
+    }
+
+    data->surface = surface;
+    data->width = surface->w;
+    data->height = surface->h;
+    data->exif_rotation = exif;
+    data->valid = true;
+
+    // Extract average color
+    GpuColor avg = Renderer::get_average_color(surface);
+    data->avg_r = avg.r;
+    data->avg_g = avg.g;
+    data->avg_b = avg.b;
+
+    return data;
+}
+
+void ImageLoader::load_texture(ImageData* data, SDL_Renderer* renderer) {
+    if (!data || !data->surface || !renderer || data->texture) return;
+
+    const int MAX_DIM = 1920;
+    if (data->width > MAX_DIM || data->height > MAX_DIM) {
+        float scale = (float)MAX_DIM / (float)std::max(data->width, data->height);
+        int nw = std::max(1, (int)(data->width * scale));
+        int nh = std::max(1, (int)(data->height * scale));
+
+        SDL_Surface* scaled = SDL_CreateRGBSurfaceWithFormat(0, nw, nh, 32, data->surface->format->format);
+        if (scaled) {
+            SDL_Rect src_rect = {0, 0, data->width, data->height};
+            SDL_Rect dst_rect = {0, 0, nw, nh};
+            SDL_BlitScaled(data->surface, &src_rect, scaled, &dst_rect);
+            SDL_FreeSurface(data->surface);
+            data->surface = scaled;
+            data->width = nw;
+            data->height = nh;
+        }
+    }
+
+    data->texture = SDL_CreateTextureFromSurface(renderer, data->surface);
+    if (!data->texture) {
+        g_logger.error("Failed to create texture from surface: %s", SDL_GetError());
+    } else {
+        SDL_SetTextureScaleMode(data->texture, SDL_ScaleModeLinear);
+    }
+
+    SDL_FreeSurface(data->surface);
+    data->surface = nullptr;
+}
+
+void ImageLoader::unload_texture(ImageData* data) {
+    if (!data) return;
+    if (data->texture) {
+        SDL_DestroyTexture(data->texture);
+        data->texture = nullptr;
+    }
+}
+
+void ImageLoader::unload(ImageData* data) {
+    if (!data) return;
+    unload_texture(data);
+    if (data->surface) {
+        SDL_FreeSurface(data->surface);
+        data->surface = nullptr;
+    }
+    data->valid = false;
 }
 
 int ImageLoader::read_exif_rotation(const char* path) {
@@ -552,164 +562,176 @@ SDL_Surface* ImageLoader::apply_exif_rotation(SDL_Surface* surface, int exif) {
     if (!surface || exif < 2 || exif > 8) return surface;
     SDL_Surface* rotated = nullptr;
     switch (exif) {
-        case 2: rotated = flip_horizontal(surface); break;
+        case 2: {
+            SDL_Surface* dst = SDL_CreateRGBSurfaceWithFormat(0, surface->w, surface->h, 32, surface->format->format);
+            if (dst) {
+                int bpp = surface->format->BytesPerPixel;
+                uint8_t* src_px = (uint8_t*)surface->pixels;
+                uint8_t* dst_px = (uint8_t*)dst->pixels;
+                for (int y = 0; y < surface->h; y++) {
+                    uint8_t* src_row = src_px + y * surface->pitch;
+                    uint8_t* dst_row = dst_px + y * dst->pitch;
+                    for (int x = 0; x < surface->w; x++) {
+                        memcpy(dst_row + x * bpp, src_row + (surface->w - 1 - x) * bpp, bpp);
+                    }
+                }
+                rotated = dst;
+            }
+            break;
+        }
         case 3: {
-            SDL_Surface* temp = flip_horizontal(surface);
-            if (temp) {
-                rotated = flip_vertical(temp);
-                SDL_FreeSurface(temp);
+            SDL_Surface* tmp = nullptr;
+            {
+                SDL_Surface* dst = SDL_CreateRGBSurfaceWithFormat(0, surface->w, surface->h, 32, surface->format->format);
+                if (dst) {
+                    int bpp = surface->format->BytesPerPixel;
+                    uint8_t* src_px = (uint8_t*)surface->pixels;
+                    uint8_t* dst_px = (uint8_t*)dst->pixels;
+                    for (int y = 0; y < surface->h; y++) {
+                        uint8_t* src_row = src_px + y * surface->pitch;
+                        uint8_t* dst_row = dst_px + y * dst->pitch;
+                        for (int x = 0; x < surface->w; x++) {
+                            memcpy(dst_row + x * bpp, src_row + (surface->w - 1 - x) * bpp, bpp);
+                        }
+                    }
+                    tmp = dst;
+                }
+            }
+            if (tmp) {
+                SDL_Surface* dst = SDL_CreateRGBSurfaceWithFormat(0, tmp->w, tmp->h, 32, tmp->format->format);
+                if (dst) {
+                    uint8_t* src_px = (uint8_t*)tmp->pixels;
+                    uint8_t* dst_px = (uint8_t*)dst->pixels;
+                    for (int y = 0; y < tmp->h; y++) {
+                        memcpy(dst_px + y * dst->pitch, src_px + (tmp->h - 1 - y) * tmp->pitch, tmp->pitch);
+                    }
+                    rotated = dst;
+                }
+                SDL_FreeSurface(tmp);
             }
             break;
         }
-        case 4: rotated = flip_vertical(surface); break;
+        case 4: {
+            SDL_Surface* dst = SDL_CreateRGBSurfaceWithFormat(0, surface->w, surface->h, 32, surface->format->format);
+            if (dst) {
+                uint8_t* src_px = (uint8_t*)surface->pixels;
+                uint8_t* dst_px = (uint8_t*)dst->pixels;
+                for (int y = 0; y < surface->h; y++) {
+                    memcpy(dst_px + y * dst->pitch, src_px + (surface->h - 1 - y) * surface->pitch, surface->pitch);
+                }
+                rotated = dst;
+            }
+            break;
+        }
         case 5: {
-            SDL_Surface* temp = rotate_90_cw(surface);
-            if (temp) {
-                rotated = flip_horizontal(temp);
-                SDL_FreeSurface(temp);
+            // 90 CW + horizontal flip
+            SDL_Surface* tmp = nullptr;
+            {
+                SDL_Surface* dst = SDL_CreateRGBSurfaceWithFormat(0, surface->h, surface->w, 32, surface->format->format);
+                if (dst) {
+                    int bpp = surface->format->BytesPerPixel;
+                    uint8_t* src_px = (uint8_t*)surface->pixels;
+                    uint8_t* dst_px = (uint8_t*)dst->pixels;
+                    for (int y = 0; y < surface->h; y++) {
+                        uint8_t* src_row = src_px + y * surface->pitch;
+                        for (int x = 0; x < surface->w; x++) {
+                            uint8_t* dst_pixel = dst_px + x * dst->pitch + (surface->h - 1 - y) * bpp;
+                            memcpy(dst_pixel, src_row + x * bpp, bpp);
+                        }
+                    }
+                    tmp = dst;
+                }
+            }
+            if (tmp) {
+                SDL_Surface* dst = SDL_CreateRGBSurfaceWithFormat(0, tmp->w, tmp->h, 32, tmp->format->format);
+                if (dst) {
+                    int bpp = tmp->format->BytesPerPixel;
+                    uint8_t* src_px = (uint8_t*)tmp->pixels;
+                    uint8_t* dst_px = (uint8_t*)dst->pixels;
+                    for (int y = 0; y < tmp->h; y++) {
+                        uint8_t* src_row = src_px + y * tmp->pitch;
+                        uint8_t* dst_row = dst_px + y * dst->pitch;
+                        for (int x = 0; x < tmp->w; x++) {
+                            memcpy(dst_row + x * bpp, src_row + (tmp->w - 1 - x) * bpp, bpp);
+                        }
+                    }
+                    rotated = dst;
+                }
+                SDL_FreeSurface(tmp);
             }
             break;
         }
-        case 6: rotated = rotate_90_cw(surface); break;
+        case 6: {
+            SDL_Surface* dst = SDL_CreateRGBSurfaceWithFormat(0, surface->h, surface->w, 32, surface->format->format);
+            if (dst) {
+                int bpp = surface->format->BytesPerPixel;
+                uint8_t* src_px = (uint8_t*)surface->pixels;
+                uint8_t* dst_px = (uint8_t*)dst->pixels;
+                for (int y = 0; y < surface->h; y++) {
+                    uint8_t* src_row = src_px + y * surface->pitch;
+                    for (int x = 0; x < surface->w; x++) {
+                        uint8_t* dst_pixel = dst_px + x * dst->pitch + (surface->h - 1 - y) * bpp;
+                        memcpy(dst_pixel, src_row + x * bpp, bpp);
+                    }
+                }
+                rotated = dst;
+            }
+            break;
+        }
         case 7: {
-            SDL_Surface* temp = rotate_90_cw(surface);
-            if (temp) {
-                rotated = flip_vertical(temp);
-                SDL_FreeSurface(temp);
+            // 90 CW + vertical flip
+            SDL_Surface* tmp = nullptr;
+            {
+                SDL_Surface* dst = SDL_CreateRGBSurfaceWithFormat(0, surface->h, surface->w, 32, surface->format->format);
+                if (dst) {
+                    int bpp = surface->format->BytesPerPixel;
+                    uint8_t* src_px = (uint8_t*)surface->pixels;
+                    uint8_t* dst_px = (uint8_t*)dst->pixels;
+                    for (int y = 0; y < surface->h; y++) {
+                        uint8_t* src_row = src_px + y * surface->pitch;
+                        for (int x = 0; x < surface->w; x++) {
+                            uint8_t* dst_pixel = dst_px + x * dst->pitch + (surface->h - 1 - y) * bpp;
+                            memcpy(dst_pixel, src_row + x * bpp, bpp);
+                        }
+                    }
+                    tmp = dst;
+                }
+            }
+            if (tmp) {
+                SDL_Surface* dst = SDL_CreateRGBSurfaceWithFormat(0, tmp->w, tmp->h, 32, tmp->format->format);
+                if (dst) {
+                    uint8_t* src_px = (uint8_t*)tmp->pixels;
+                    uint8_t* dst_px = (uint8_t*)dst->pixels;
+                    for (int y = 0; y < tmp->h; y++) {
+                        memcpy(dst_px + y * dst->pitch, src_px + (tmp->h - 1 - y) * tmp->pitch, tmp->pitch);
+                    }
+                    rotated = dst;
+                }
+                SDL_FreeSurface(tmp);
             }
             break;
         }
-        case 8: rotated = rotate_90_ccw(surface); break;
+        case 8: {
+            SDL_Surface* dst = SDL_CreateRGBSurfaceWithFormat(0, surface->h, surface->w, 32, surface->format->format);
+            if (dst) {
+                int bpp = surface->format->BytesPerPixel;
+                uint8_t* src_px = (uint8_t*)surface->pixels;
+                uint8_t* dst_px = (uint8_t*)dst->pixels;
+                for (int y = 0; y < surface->h; y++) {
+                    uint8_t* src_row = src_px + y * surface->pitch;
+                    for (int x = 0; x < surface->w; x++) {
+                        uint8_t* dst_pixel = dst_px + (surface->w - 1 - x) * dst->pitch + y * bpp;
+                        memcpy(dst_pixel, src_row + x * bpp, bpp);
+                    }
+                }
+                rotated = dst;
+            }
+            break;
+        }
     }
     if (rotated) {
         SDL_FreeSurface(surface);
         return rotated;
     }
     return surface;
-}
-
-// Public Methods
-
-std::shared_ptr<ImageData> ImageLoader::load(const std::string& path) {
-    auto data = std::make_shared<ImageData>();
-    SDL_Surface* surface = nullptr;
-
-    // Check file magic bytes and try low-level decoders first to maintain robust fallback behaviour
-    FILE* f = fopen(path.c_str(), "rb");
-    if (f) {
-        uint8_t magic[4];
-        int magic_len = (int)fread(magic, 1, 4, f);
-        fclose(f);
-
-        if (magic_len >= 4) {
-            // JPEG: FF D8 FF
-            if (magic[0] == 0xFF && magic[1] == 0xD8 && magic[2] == 0xFF) {
-                surface = load_jpeg_surface(path.c_str());
-            }
-            // PNG: 89 50 4E 47
-            else if (magic[0] == 0x89 && magic[1] == 0x50 && magic[2] == 0x4E && magic[3] == 0x47) {
-                surface = load_png_surface(path.c_str());
-            }
-            // TIFF: LE or BE
-            else if ((magic[0] == 0x49 && magic[1] == 0x49 && magic[2] == 0x2A && magic[3] == 0x00) ||
-                     (magic[0] == 0x4D && magic[1] == 0x4D && magic[2] == 0x00 && magic[3] == 0x2A)) {
-                surface = load_tiff_surface(path.c_str());
-            }
-        }
-    }
-
-    // If custom decoders didn't work or weren't used, try standard IMG_Load
-    if (!surface) {
-        surface = IMG_Load(path.c_str());
-    }
-
-    // Try custom HEIC / WEBP loader fallbacks
-    if (!surface) {
-        std::string ext = path.substr(path.find_last_of('.') + 1);
-        std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
-        if (ext == "heic" || ext == "heif") {
-            surface = load_heic_surface(path.c_str());
-        } else if (ext == "webp") {
-            surface = load_webp_surface(path.c_str());
-        }
-    }
-
-    if (!surface) {
-        g_logger.error("Failed to load image: %s", path.c_str());
-        data->valid = false;
-        return data;
-    }
-
-    // Process EXIF rotation CPU-side
-    int exif = read_exif_rotation(path.c_str());
-    if (exif >= 2 && exif <= 8) {
-        surface = apply_exif_rotation(surface, exif);
-    }
-
-    data->surface = surface;
-    data->width = surface->w;
-    data->height = surface->h;
-    data->exif_rotation = exif;
-    data->valid = true;
-
-    // Extract average color safely in background thread before uploading/freeing
-    GpuColor avg = Renderer::get_average_color(surface);
-    data->avg_r = avg.r;
-    data->avg_g = avg.g;
-    data->avg_b = avg.b;
-
-    return data;
-}
-
-void ImageLoader::load_texture(ImageData* data, SDL_Renderer* renderer) {
-    if (!data || !data->surface || !renderer || data->texture) return;
-    
-    // Scale image down on main thread if it exceeds screen dimensions to fit display or max VRAM size
-    const int MAX_DIM = 1920;
-    if (data->width > MAX_DIM || data->height > MAX_DIM) {
-        float scale = (float)MAX_DIM / (float)std::max(data->width, data->height);
-        int nw = std::max(1, (int)(data->width * scale));
-        int nh = std::max(1, (int)(data->height * scale));
-
-        SDL_Surface* scaled = SDL_CreateRGBSurfaceWithFormat(0, nw, nh, 32, data->surface->format->format);
-        if (scaled) {
-            SDL_Rect src_rect = {0, 0, data->width, data->height};
-            SDL_Rect dst_rect = {0, 0, nw, nh};
-            SDL_BlitScaled(data->surface, &src_rect, scaled, &dst_rect);
-            SDL_FreeSurface(data->surface);
-            data->surface = scaled;
-            data->width = nw;
-            data->height = nh;
-        }
-    }
-
-    data->texture = SDL_CreateTextureFromSurface(renderer, data->surface);
-    if (!data->texture) {
-        g_logger.error("Failed to create texture from surface: %s", SDL_GetError());
-    } else {
-        // Set bilinear filtering by default for high quality rendering
-        SDL_SetTextureScaleMode(data->texture, SDL_ScaleModeLinear);
-    }
-
-    // Free the CPU-side surface memory as it is now loaded in VRAM
-    SDL_FreeSurface(data->surface);
-    data->surface = nullptr;
-}
-
-void ImageLoader::unload_texture(ImageData* data) {
-    if (!data) return;
-    if (data->texture) {
-        SDL_DestroyTexture(data->texture);
-        data->texture = nullptr;
-    }
-}
-
-void ImageLoader::unload(ImageData* data) {
-    if (!data) return;
-    unload_texture(data);
-    if (data->surface) {
-        SDL_FreeSurface(data->surface);
-        data->surface = nullptr;
-    }
-    data->valid = false;
 }
