@@ -406,26 +406,6 @@ RawImage ImageLoader::load_raw(const std::string& path) {
         }
     }
 
-    // Fallback: try IMG_Load for formats we don't have raw decoders for (BMP, GIF, etc.)
-    if (!raw.valid) {
-        SDL_Surface* surf = IMG_Load(path.c_str());
-        if (surf) {
-            // Convert to RGBA32 raw
-            if (surf->format->format == SDL_PIXELFORMAT_RGBA32 || surf->format->format == SDL_PIXELFORMAT_BGRA32) {
-                raw.pixels = (uint8_t*)malloc((size_t)surf->w * surf->h * 4);
-                if (raw.pixels) {
-                    memcpy(raw.pixels, surf->pixels, (size_t)surf->w * surf->h * 4);
-                    raw.width = surf->w;
-                    raw.height = surf->h;
-                    raw.channels = 4;
-                    raw.format = ImageFormat::RGBA32;
-                    raw.valid = true;
-                }
-            }
-            SDL_FreeSurface(surf);
-        }
-    }
-
     // HEIC/WEBP fallback
     if (!raw.valid) {
         std::string ext = path.substr(path.find_last_of('.') + 1);
