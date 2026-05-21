@@ -35,6 +35,9 @@ TODO.md
 *.swo
 *~
 
+# Lock files
+*.lock
+
 # OS files
 .DS_Store
 Thumbs.db
