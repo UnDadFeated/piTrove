@@ -2,8 +2,8 @@
 #include "util.h"
 #include <unordered_set>
 
-PreloadQueue::PreloadQueue(int max_size, int num_threads, SDL_Renderer* renderer)
-    : max_size(max_size), num_threads(num_threads), renderer(renderer) {
+PreloadQueue::PreloadQueue(int max_size, int num_threads, SDL_Renderer* sdl_renderer)
+    : max_size(max_size), num_threads(num_threads), sdl_renderer(sdl_renderer) {
     running.store(false);
 }
 
@@ -66,7 +66,7 @@ std::shared_ptr<ImageData> PreloadQueue::try_dequeue() {
     if (data) {
         // We are on the main thread, so it is safe to upload the surface to VRAM
         if (data->valid && data->surface && !data->texture) {
-            ImageLoader::load_texture(data.get(), renderer);
+            ImageLoader::load_texture(data.get(), sdl_renderer);
         }
         // Wake up workers because we just freed a slot in the loaded queue
         work_cv.notify_all();

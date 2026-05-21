@@ -8,13 +8,13 @@
 
 class OverlayManager {
 private:
-    SDL_Renderer* renderer;
+    Renderer* renderer;
     FontRenderer* font_renderer;
     FontHandle* overlay_font;
     bool font_loaded{false};
 
 public:
-    OverlayManager(SDL_Renderer* renderer);
+    OverlayManager(Renderer* renderer);
     ~OverlayManager();
 
     void init();

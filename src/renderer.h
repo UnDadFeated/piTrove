@@ -2,7 +2,7 @@
 #define PITROVE_RENDERER_H
 
 #include <SDL.h>
-#include <GLES3/gl3.h>
+#include <SDL_ttf.h>
 #include <string>
 #include <vector>
 #include <mutex>
@@ -15,9 +15,9 @@ struct GpuColor {
 
 class Renderer {
 public:
+    SDL_Renderer* sdl_renderer{nullptr};
     SDL_Window* window{nullptr};
     SDL_GLContext gl_context{nullptr};
-    SDL_Renderer* sdl_renderer{nullptr};
     int screen_w{1920};
     int screen_h{1080};
 
@@ -58,8 +58,9 @@ public:
     // Scaling helpers
     void calculate_fit_rect(int img_w, int img_h, SDL_Rect& out_rect);
 
-    // Matte borders and screen cleaning
+    // Screen cleaning
     void clear(uint8_t r = 0, uint8_t g = 0, uint8_t b = 0, uint8_t a = 255);
+    void present();
     void draw_matte_borders(const SDL_Rect& fit_rect);
     void draw_solid_border(int width, uint8_t r = 0, uint8_t g = 0, uint8_t b = 0);
 

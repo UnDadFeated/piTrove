@@ -13,13 +13,15 @@ struct FontHandle {
     int size{0};
 };
 
+class Renderer;
+
 class FontRenderer {
 private:
-    SDL_Renderer* renderer;
+    Renderer* renderer;
     std::map<std::string, std::shared_ptr<FontHandle>> fonts;
 
 public:
-    FontRenderer(SDL_Renderer* renderer);
+    FontRenderer(Renderer* renderer);
     ~FontRenderer();
 
     FontHandle& load_font(const std::string& path, int size);

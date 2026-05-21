@@ -1,8 +1,9 @@
 #include "font_render.h"
+#include "renderer.h"
 #include "util.h"
 #include <stdexcept>
 
-FontRenderer::FontRenderer(SDL_Renderer* renderer) : renderer(renderer) {
+FontRenderer::FontRenderer(Renderer* renderer) : renderer(renderer) {
     if (TTF_WasInit() == 0) {
         if (TTF_Init() != 0) {
             g_logger.error("TTF_Init failed: %s", TTF_GetError());
@@ -61,13 +62,13 @@ void FontRenderer::draw_text(int x, int y, const FontHandle& font, const std::st
 
     SDL_Surface* main_surf = TTF_RenderUTF8_Blended(font.font, text.c_str(), {r, g, b, a});
     if (main_surf) {
-        SDL_Texture* main_tex = SDL_CreateTextureFromSurface(renderer, main_surf);
+        SDL_Texture* main_tex = SDL_CreateTextureFromSurface(renderer->sdl_renderer, main_surf);
         int tw = main_surf->w;
         int th = main_surf->h;
         SDL_FreeSurface(main_surf);
         if (main_tex) {
-            SDL_Rect main_rect = {x, y, tw, th};
-            SDL_RenderCopy(renderer, main_tex, NULL, &main_rect);
+            SDL_Rect dst = {x, y, tw, th};
+            SDL_RenderCopy(renderer->sdl_renderer, main_tex, nullptr, &dst);
             SDL_DestroyTexture(main_tex);
         }
     }
@@ -81,20 +82,20 @@ void FontRenderer::draw_text_glow(int x, int y, const FontHandle& font, const st
     // Draw glow (shadow/outline) by drawing it offset in 4 directions
     SDL_Surface* glow_surf = TTF_RenderUTF8_Blended(font.font, text.c_str(), {gr, gg, gb, ga});
     if (glow_surf) {
-        SDL_Texture* glow_tex = SDL_CreateTextureFromSurface(renderer, glow_surf);
+        SDL_Texture* glow_tex = SDL_CreateTextureFromSurface(renderer->sdl_renderer, glow_surf);
         int tw = glow_surf->w;
         int th = glow_surf->h;
         SDL_FreeSurface(glow_surf);
         if (glow_tex) {
-            SDL_Rect offsets[4] = {
-                {x - 1, y, tw, th},
-                {x + 1, y, tw, th},
-                {x, y - 1, tw, th},
-                {x, y + 1, tw, th}
-            };
-            for (auto& rect : offsets) {
-                SDL_RenderCopy(renderer, glow_tex, NULL, &rect);
-            }
+            SDL_Rect dst = {x - 1, y, tw, th};
+            SDL_RenderCopy(renderer->sdl_renderer, glow_tex, nullptr, &dst);
+            dst.x = x + 1;
+            SDL_RenderCopy(renderer->sdl_renderer, glow_tex, nullptr, &dst);
+            dst.x = x;
+            dst.y = y - 1;
+            SDL_RenderCopy(renderer->sdl_renderer, glow_tex, nullptr, &dst);
+            dst.y = y + 1;
+            SDL_RenderCopy(renderer->sdl_renderer, glow_tex, nullptr, &dst);
             SDL_DestroyTexture(glow_tex);
         }
     }
@@ -111,13 +112,13 @@ void FontRenderer::draw_text_shaded(int x, int y, const FontHandle& font, const 
     // Drop shadow: render 1 offset copy in shadow color
     SDL_Surface* shadow_surf = TTF_RenderUTF8_Blended(font.font, text.c_str(), {shade_r, shade_g, shade_b, shade_a});
     if (shadow_surf) {
-        SDL_Texture* shadow_tex = SDL_CreateTextureFromSurface(renderer, shadow_surf);
+        SDL_Texture* shadow_tex = SDL_CreateTextureFromSurface(renderer->sdl_renderer, shadow_surf);
         int tw = shadow_surf->w;
         int th = shadow_surf->h;
         SDL_FreeSurface(shadow_surf);
         if (shadow_tex) {
-            SDL_Rect shadow_rect = {x + 2, y + 2, tw, th};
-            SDL_RenderCopy(renderer, shadow_tex, NULL, &shadow_rect);
+            SDL_Rect dst = {x + 2, y + 2, tw, th};
+            SDL_RenderCopy(renderer->sdl_renderer, shadow_tex, nullptr, &dst);
             SDL_DestroyTexture(shadow_tex);
         }
     }
