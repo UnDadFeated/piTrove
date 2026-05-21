@@ -13,10 +13,17 @@
 #include <SDL.h>
 #include "image_loader.h"
 
+// Preloaded item: raw pixels + path from worker, surface created on main thread
+struct PreloadedItem {
+    RawImage raw;
+    std::string path;
+    bool valid = false;
+};
+
 class PreloadQueue {
 private:
-    // Queue of loaded CPU images waiting to be uploaded to VRAM on main thread
-    std::queue<std::shared_ptr<ImageData>> loaded_queue;
+    // Queue of preloaded items waiting for VRAM upload on main thread
+    std::queue<PreloadedItem> loaded_queue;
     std::mutex queue_mutex;
     std::condition_variable queue_cv;
 
