@@ -7,6 +7,7 @@ A professional-grade digital picture frame for the Raspberry Pi. Designed for ex
 [![Architecture](https://img.shields.io/badge/arch-aarch64-orange?style=flat-square)](https://en.wikipedia.org/wiki/AArch64)
 [![Graphics](https://img.shields.io/badge/graphics-DRM%2FKMS%20%7C%20GLES2-red?style=flat-square)](https://www.mesa3d.org/)
 [![License](https://img.shields.io/badge/license-MIT-green?style=flat-square)](LICENSE)
+[![Version](https://img.shields.io/badge/version-8.7.0-blue?style=flat-square)]()
 
 ## 🚀 Quick Start
 
