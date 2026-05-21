@@ -1,5 +1,12 @@
 # Changelog
 
+## v8.4.0 — Clean fullscreen video playback (May 20, 2026)
+
+### Fixed
+- **Video fullscreen — no OSD overlay bar** — Removed `--osd-bar` which rendered a dark progress bar across the bottom of the video. Videos now render clean fullscreen via mpv `--vo=drm`.
+- **Video OSD text bar removed** — Removed `--osd-status-msg`, `--osd-align-*`, and `--osd-font-size` arguments. The text overlay rendered a dark bar even when no video was playing. Videos play clean fullscreen.
+- **Subtitle overlay removed** — Added `--no-sub` to prevent hardcoded subtitles from rendering over video content.
+
 ## v8.3.0 — 30% video ratio, OSD progress, splash fallback, 5-day scan (May 20, 2026)
 
 ### Added

@@ -10,7 +10,7 @@
  *   • Slideshow – raylib, preload, crossfade, Ken Burns
  */
 
-#define VERSION "8.3.0"
+#define VERSION "8.4.0"
 #define APP_NAME "piTrove"
 
 // Global atomics for headless features
@@ -1286,12 +1286,10 @@ static bool play_video_subprocess(const std::string &path, int volume) {
         g_logger.error("VIDEO_DRM: No DRM fd found — mpv may fail to acquire display");
     }
 
-    // v8.2.0: Prepare OSD margin args (account for matte border)
-    int matte_px = g_cfg.matting_size;
-    char margin_x_arg[64], margin_y_arg[64];
-    snprintf(margin_x_arg, sizeof(margin_x_arg), "--osd-margin-x=%d", matte_px + 16);
-    snprintf(margin_y_arg, sizeof(margin_y_arg), "--osd-margin-y=%d", matte_px + 16);
-
+    // v8.4.0: mpv renders fullscreen to DRM — no OSD bars, clean fullscreen playback
+    // Removed --osd-bar (dark progress bar covers video), removed --osd-status-msg (dark text bar)
+    // Removed margin args (no OSD = no margins needed)
+    char cmd[256];
     pid_t pid = fork();
     if (pid == 0) {
         // Child process — exec mpv
@@ -1302,8 +1300,6 @@ static bool play_video_subprocess(const std::string &path, int volume) {
         int dbg = open("/home/pi/mpv_debug.log", O_WRONLY|O_CREAT|O_TRUNC, 0644);
         if (dbg >= 0) { dup2(dbg, STDOUT_FILENO); dup2(dbg, STDERR_FILENO); close(dbg); }
 
-        // v8.2.0: OSD shows "filename.ext - MM:SS" bottom-left, updated every frame
-        char cmd[256];
         if (volume > 0) {
             snprintf(cmd, sizeof(cmd), "--volume=%d", volume);
             execlp("mpv", "mpv",
@@ -1311,13 +1307,9 @@ static bool play_video_subprocess(const std::string &path, int volume) {
                 "--drm-connector=HDMI-A-1",
                 "--hwdec=auto",
                 "--no-osc",
-                "--osd-level=3",
-                "--osd-status-msg=${filename} - ${time-remaining}",
-                "--osd-align-x=left",
-                "--osd-align-y=bottom",
-                margin_x_arg,
-                margin_y_arg,
-                "--osd-font-size=28",
+                "--no-osd-bar",
+                "--no-sub",
+                "--no-keepaspect",
                 cmd,
                 path.c_str(),
                 nullptr);
@@ -1327,13 +1319,9 @@ static bool play_video_subprocess(const std::string &path, int volume) {
             "--drm-connector=HDMI-A-1",
             "--hwdec=auto",
             "--no-osc",
-            "--osd-level=3",
-            "--osd-status-msg=${filename} - ${time-remaining}",
-            "--osd-align-x=left",
-            "--osd-align-y=bottom",
-            margin_x_arg,
-            margin_y_arg,
-            "--osd-font-size=28",
+            "--no-osd-bar",
+            "--no-sub",
+            "--no-keepaspect",
             "--no-audio",
             path.c_str(),
             nullptr);
@@ -3975,8 +3963,8 @@ slide_debug("ADVANCE: fwd=%d cur=%d items_ptr=%d", forward ? 1 : 0, current_inde
       if (current_is_video) {
                     // v8.0.0: Video is rendered by subprocess mpv --vo=drm directly to display.
                     // During video playback, mpv controls the DRM display — Raylib's framebuffer
-                    // is not visible. Just clear to black in case DRM master is re-acquired.
-                    ClearBackground(BLACK);
+                    // is not visible. No-op: don't call ClearBackground, just return early.
+                    return;
              } else if (render_cfg.bias_lighting) {
                 // ── Background: Animated YouTube-Style Ambient Bias Lighting ──
 
