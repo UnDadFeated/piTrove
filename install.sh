@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# install.sh — PiTrove v7.10.2 installer
+# install.sh — PiTrove v8.7.0 installer
 # Target: Debian Trixie (13) 64-bit on Raspberry Pi 5
 # Features: JPEG/TIFF/PNG/WebP/HEIC robust loaders, CRT UI, multi-format support
 

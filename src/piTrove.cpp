@@ -10,7 +10,7 @@
  *   • Slideshow – raylib, preload, crossfade, Ken Burns
  */
 
-#define VERSION "8.5.0"
+#define VERSION "8.7.0"
 #define APP_NAME "piTrove"
 
 // Global atomics for headless features
@@ -1286,7 +1286,8 @@ static bool play_video_subprocess(const std::string &path, int volume) {
         g_logger.error("VIDEO_DRM: No DRM fd found — mpv may fail to acquire display");
     }
 
-    // v8.5.0: mpv native OSD — lower-left filename + time, accounts for matte border
+    // v8.7.0: mpv native OSD — lower-left filename + time, accounts for matte border
+    // Videos maintain aspect ratio via --keepaspect=force (letterboxing/pillarboxing)
     int matte_px = g_cfg.matting_size;
     char margin_x_arg[64], margin_y_arg[64];
     snprintf(margin_x_arg, sizeof(margin_x_arg), "--osd-margin-x=%d", matte_px + 8);
@@ -1308,6 +1309,7 @@ static bool play_video_subprocess(const std::string &path, int volume) {
                 "--vo=drm",
                 "--drm-connector=HDMI-A-1",
                 "--hwdec=auto",
+                "--keepaspect=force",
                 "--no-osc",
                 "--no-osd-bar",
                 "--osd-level=3",
@@ -1318,7 +1320,6 @@ static bool play_video_subprocess(const std::string &path, int volume) {
                 margin_y_arg,
                 "--osd-font-size=10",
                 "--no-sub",
-                "--no-keepaspect",
                 cmd,
                 path.c_str(),
                 nullptr);
@@ -1327,6 +1328,7 @@ static bool play_video_subprocess(const std::string &path, int volume) {
             "--vo=drm",
             "--drm-connector=HDMI-A-1",
             "--hwdec=auto",
+            "--keepaspect=force",
             "--no-osc",
             "--no-osd-bar",
             "--osd-level=3",
@@ -1337,7 +1339,6 @@ static bool play_video_subprocess(const std::string &path, int volume) {
             margin_y_arg,
             "--osd-font-size=10",
             "--no-sub",
-            "--no-keepaspect",
             "--no-audio",
             path.c_str(),
             nullptr);

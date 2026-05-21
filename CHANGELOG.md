@@ -1,5 +1,17 @@
 # Changelog
 
+## v8.7.0 — Video aspect ratio preservation (May 20, 2026)
+
+### Fixed
+- **Video aspect ratio** — Replaced `--no-keepaspect` with `--keepaspect=force` so videos render with correct proportions (letterboxed/pillarboxed on 16:9 display instead of stretched to fullscreen).
+
+## v8.6.0 — Robust shuffle entropy (May 20, 2026)
+
+### Changed
+- **Shuffle entropy** — Replaced `std::random_device` with `/dev/urandom` + `clock_gettime(CLOCK_MONOTONIC)` + PID + function address for robust, unique shuffle order on every boot.
+- **Video shuffle** — Videos are now shuffled independently before interleaving (previously only photos were shuffled).
+- **Combined list shuffle** — Final combined photo+video list is shuffled one last time, so items don't appear in the same order every boot.
+
 ## v8.5.0 — mpv native OSD with matte accounting (May 20, 2026)
 
 ### Added
