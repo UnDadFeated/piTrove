@@ -10,7 +10,7 @@
  *   • Slideshow – raylib, preload, crossfade, Ken Burns
  */
 
-#define VERSION "8.0.4"
+#define VERSION "8.3.0"
 #define APP_NAME "piTrove"
 
 // Global atomics for headless features
@@ -785,7 +785,7 @@ struct Config {
     int     scan_depth{10};
     int     max_concurrent{4};
     bool    recursive{true};
-    int     scan_window_days{15};
+    int     scan_window_days{5};
     long long cache_mmap_size{67108864};  // FIX v16.8.0: 64MB default (was 256MB) — safer on Pi 5 low-RAM
     bool    verbose{false};
     int     slideshow_fps{30};
@@ -962,7 +962,7 @@ Config load_config(const char* config_path) {
         else if (key == "count_y")           c.count_y = safe_stof(val, c.count_y);
         else if (key == "videos_per_photos") {
             int parsed = safe_stoi(val, 3);
-            c.videos_per_photos = std::max(1, std::min(9, parsed));
+            c.videos_per_photos = std::max(1, std::min(100, parsed));
         }
         else if (key == "play_just_photos")  c.play_just_photos = (val == "1" || val == "true");
         else if (key == "play_just_videos")  c.play_just_videos = (val == "1" || val == "true");
@@ -1286,6 +1286,12 @@ static bool play_video_subprocess(const std::string &path, int volume) {
         g_logger.error("VIDEO_DRM: No DRM fd found — mpv may fail to acquire display");
     }
 
+    // v8.2.0: Prepare OSD margin args (account for matte border)
+    int matte_px = g_cfg.matting_size;
+    char margin_x_arg[64], margin_y_arg[64];
+    snprintf(margin_x_arg, sizeof(margin_x_arg), "--osd-margin-x=%d", matte_px + 16);
+    snprintf(margin_y_arg, sizeof(margin_y_arg), "--osd-margin-y=%d", matte_px + 16);
+
     pid_t pid = fork();
     if (pid == 0) {
         // Child process — exec mpv
@@ -1296,12 +1302,7 @@ static bool play_video_subprocess(const std::string &path, int volume) {
         int dbg = open("/home/pi/mpv_debug.log", O_WRONLY|O_CREAT|O_TRUNC, 0644);
         if (dbg >= 0) { dup2(dbg, STDOUT_FILENO); dup2(dbg, STDERR_FILENO); close(dbg); }
 
-        // Extract filename for OSD
-        std::string filename = path.substr(path.find_last_of("/") + 1);
-        if (filename.size() > 50) filename = "..." + filename.substr(filename.size() - 47);
-        char osd_arg[300];
-        snprintf(osd_arg, sizeof(osd_arg), "--osd-msg1=%s", filename.c_str());
-
+        // v8.2.0: OSD shows "filename.ext - MM:SS" bottom-left, updated every frame
         char cmd[256];
         if (volume > 0) {
             snprintf(cmd, sizeof(cmd), "--volume=%d", volume);
@@ -1310,16 +1311,13 @@ static bool play_video_subprocess(const std::string &path, int volume) {
                 "--drm-connector=HDMI-A-1",
                 "--hwdec=auto",
                 "--no-osc",
-                osd_arg,
+                "--osd-level=3",
+                "--osd-status-msg=${filename} - ${time-remaining}",
                 "--osd-align-x=left",
-                "--osd-align-y=top",
-                "--osd-margin-x=16",
-                "--osd-margin-y=16",
-                "--osd-font-size=36",
-                "--osd-duration=99999",
-                "--osd-bar",
-                "--osd-bar-align-x=0.5",
-                "--osd-bar-align-y=-1",
+                "--osd-align-y=bottom",
+                margin_x_arg,
+                margin_y_arg,
+                "--osd-font-size=28",
                 cmd,
                 path.c_str(),
                 nullptr);
@@ -1329,16 +1327,13 @@ static bool play_video_subprocess(const std::string &path, int volume) {
             "--drm-connector=HDMI-A-1",
             "--hwdec=auto",
             "--no-osc",
-            osd_arg,
+            "--osd-level=3",
+            "--osd-status-msg=${filename} - ${time-remaining}",
             "--osd-align-x=left",
-            "--osd-align-y=top",
-            "--osd-margin-x=16",
-            "--osd-margin-y=16",
-            "--osd-font-size=36",
-            "--osd-duration=99999",
-            "--osd-bar",
-            "--osd-bar-align-x=0.5",
-            "--osd-bar-align-y=-1",
+            "--osd-align-y=bottom",
+            margin_x_arg,
+            margin_y_arg,
+            "--osd-font-size=28",
             "--no-audio",
             path.c_str(),
             nullptr);
@@ -1643,6 +1638,7 @@ static bool stat_timeout(const std::string& path, struct stat& st, int timeout_m
 
      if (!state->done) {
           g_logger.debug("stat timeout after %dms for '%s'", timeout_ms, path.c_str());
+          t.detach();  // v8.2.0: MUST detach — joinable thread destructor calls std::terminate()
           return false;  // Treat as "file not found" — safe to skip
       }
      t.join();
@@ -3603,12 +3599,12 @@ slide_debug("ADVANCE: fwd=%d cur=%d items_ptr=%d", forward ? 1 : 0, current_inde
                  if (!g_cfg.play_just_photos && !g_cfg.play_just_videos) {
                      int v_per_p = std::max(1, std::min(9, g_cfg.videos_per_photos));
                      photo_threshold = 10 / v_per_p;
-                     if (photos_since_video.load() >= photo_threshold) {
-                         force_video = true;
-                     }
-                 }
-             }
-             if (force_video) {
+                    if (photos_since_video.load() >= photo_threshold) {
+                        force_video = true;
+                    }
+                }
+            }
+            if (force_video) {
                  // Scan forward for next video
                  int vi = (prev_idx + 1) % (int)items_ptr->size();
                  int scans = 0;
@@ -3829,8 +3825,6 @@ slide_debug("ADVANCE: fwd=%d cur=%d items_ptr=%d", forward ? 1 : 0, current_inde
                           preload_running.store(false, std::memory_order_relaxed);
                       }
                       int failed_idx = frame_next_index;
-                      // FIX
-                      // the incremented value explicitly before storing.
                       int ni3 = next_index.fetch_add(1, std::memory_order_relaxed);
                       int ni3_next = (ni3 + 1 >= (int)items_ptr->size()) ? 0 : (ni3 + 1);
                       next_index.store(ni3_next);
@@ -3892,8 +3886,6 @@ slide_debug("ADVANCE: fwd=%d cur=%d items_ptr=%d", forward ? 1 : 0, current_inde
                          if (!play_video_subprocess((*items_ptr)[_swap_ci].path, cfg.video_volume)) {
                             g_logger.error("SWAP_TO_VIDEO: play_video_subprocess failed — skipping");
                             current_is_video.store(false);
-                            advance(true);
-                            return;
                         }
                   } else {
                      current_is_video.store(false);
@@ -3903,8 +3895,14 @@ slide_debug("ADVANCE: fwd=%d cur=%d items_ptr=%d", forward ? 1 : 0, current_inde
             transitioning = false;
                 transition_timer = 0;
                 transition_progress = 0.0;
-                fading_in = true;
-                fade_in_timer = 0.0f;
+                // v8.2.0: Skip fade-in for videos — mpv renders natively to DRM
+                if (!current_is_video.load()) {
+                    fading_in = true;
+                    fade_in_timer = 0.0f;
+                } else {
+                    fading_in = false;
+                    fade_in_timer = 0.0f;
+                }
                 item_timer = 0;
                  kb_timer = 0;
                  kb_zoom = 1.0f;
@@ -3916,7 +3914,7 @@ slide_debug("ADVANCE: fwd=%d cur=%d items_ptr=%d", forward ? 1 : 0, current_inde
                     // v8.0.4: Enforce video ratio bias in preload-swap path (not just advance())
                     if (!cfg.play_just_photos && !cfg.play_just_videos) {
                         int v_per_p = std::max(1, std::min(9, cfg.videos_per_photos));
-                        int photo_threshold = 10 / v_per_p;
+                        int photo_threshold = 10 / v_per_p; 
                         if (photos_since_video.load() >= photo_threshold) {
                             // Scan forward for next video
                             int ci = current_index.load();
@@ -4327,20 +4325,8 @@ slide_debug("ADVANCE: fwd=%d cur=%d items_ptr=%d", forward ? 1 : 0, current_inde
         }
         
         if (current_is_video) {
-            double rem = 0.0;  // v8.0.0: subprocess mpv — no in-process time tracking
-            if (rem > 0.0) {
-                int r_mins = (int)rem / 60;
-                int r_secs = (int)rem % 60;
-                char rem_buf[32];
-                snprintf(rem_buf, sizeof(rem_buf), " [%02d:%02d remaining]", r_mins, r_secs);
-                fname += std::string(rem_buf);
-            } else if (dur > 0) {
-                int mins = (int)dur / 60;
-                int secs = (int)dur % 60;
-                char dur_buf[16];
-                snprintf(dur_buf, sizeof(dur_buf), " (%d:%02d)", mins, secs);
-                fname += std::string(dur_buf);
-            }
+            // v8.2.0: mpv renders directly to DRM. We no longer overlay in-process text
+            // over the video; however, keeping logic for consistency with photos.
         }
         int fx = pad + (int)((sw - pad * 2) * render_cfg.filename_x);
         int fy = pad + (int)((sh - pad * 2) * render_cfg.filename_y);
@@ -4364,10 +4350,9 @@ slide_debug("ADVANCE: fwd=%d cur=%d items_ptr=%d", forward ? 1 : 0, current_inde
     if (render_cfg.timer_enabled) {
         char tbuf[32];
         if (current_is_video) {
-            double rem = 0.0;  // v8.0.0: subprocess mpv — no in-process time tracking
-            int r_mins = (int)rem / 60;
-            int r_secs = (int)rem % 60;
-            std::snprintf(tbuf, sizeof(tbuf), "%02d:%02d", r_mins, r_secs);
+            // v8.2.0: Video playback time is externalized in mpv.
+            // Just display generic indicator if needed.
+            std::snprintf(tbuf, sizeof(tbuf), "---");
         } else {
             int rem = std::max(0, (int)(render_cfg.transition_delay - item_timer));
             std::snprintf(tbuf, sizeof(tbuf), "%ds", rem);
@@ -6746,13 +6731,15 @@ g_logger.init(cfg.log_dir, cfg.verbose ? LogLevel::DEBUG : LogLevel::INFO);
         // Only videos
         active_items = std::move(active_videos);
     } else {
-        // Interleave videos into the photo stream
+        // Interleave videos into the photo stream (30% video ratio: 3 per cycle)
+        int cycle_size = std::max(4, g_cfg.videos_per_photos);
+        int photos_per_cycle = cycle_size - 3;
         size_t p_idx = 0, v_idx = 0;
         while (p_idx < active_photos.size() || v_idx < active_videos.size()) {
-            for (int i = 0; i < 10 && p_idx < active_photos.size(); i++) {
+            for (int i = 0; i < photos_per_cycle && p_idx < active_photos.size(); i++) {
                 active_items.push_back(active_photos[p_idx++]);
             }
-            for (int i = 0; i < g_cfg.videos_per_photos && v_idx < active_videos.size(); i++) {
+            for (int i = 0; i < 3 && v_idx < active_videos.size(); i++) {
                 active_items.push_back(active_videos[v_idx++]);
             }
         }
