@@ -215,15 +215,10 @@ int main(int argc, char** argv)
 
     g_overlay = new OverlayManager(&g_renderer);
 
-    g_preload = new PreloadQueue(g_cfg.max_concurrent, g_cfg.max_concurrent, g_renderer.sdl_renderer);
-    g_preload->start();
-    g_logger.info("Preload queue started");
-
-    // --- Phase 4: Ready ---
-    g_database_complete.store(true);
-    draw_phase_splash(4, 0, 0, 0, "READY");
-    g_renderer.cleanup_splash();
-
+    // Preload disabled for testing
+    // g_preload = new PreloadQueue(g_cfg.max_concurrent, g_cfg.max_concurrent, g_renderer.sdl_renderer);
+    // g_preload->start();
+    // g_logger.info(Preload queue started);
     g_logger.info("Starting slideshow loop with %d items", static_cast<int>(eligible.size()));
 
     // --- Main loop ---
@@ -234,7 +229,7 @@ int main(int argc, char** argv)
     // Preload next item
     if (eligible.size() > 1) {
         int next_idx = (current_idx + 1) % eligible.size();
-        g_preload->enqueue(eligible[next_idx].path);
+        // g_preload->enqueue(eligible[next_idx].path);
     }
 
     // Load first item
@@ -362,7 +357,7 @@ int main(int argc, char** argv)
             // Preload next after video
             if (eligible.size() > 1) {
                 int next_idx = (current_idx + 1) % static_cast<int>(eligible.size());
-                g_preload->enqueue(eligible[next_idx].path);
+                // g_preload->enqueue(eligible[next_idx].path);
             }
 
             SDL_Delay(50);
@@ -383,13 +378,8 @@ int main(int argc, char** argv)
             SDL_Texture* prev_tex = current_tex;
             SDL_Texture* next_tex = nullptr;
 
-            // Dequeue preloaded image
-            auto next_data = g_preload->try_dequeue();
-            if (next_data && next_data->texture) {
-                next_tex = next_data->texture;
-            }
-
-            // If no preloaded, load current
+            auto next_data = std::make_shared<ImageData>();
+            // Load current image
             if (!next_tex) {
                 int next_idx = (current_idx) % static_cast<int>(eligible.size());
                 next_data = ImageLoader::load(eligible[next_idx].path);
@@ -429,7 +419,7 @@ int main(int argc, char** argv)
                     // Preload next
                     if (eligible.size() > 1) {
                         int next_idx = (current_idx + 1) % static_cast<int>(eligible.size());
-                        g_preload->enqueue(eligible[next_idx].path);
+                        // g_preload->enqueue(eligible[next_idx].path);
                     }
 
                     // Update fit rect
@@ -492,10 +482,10 @@ int main(int argc, char** argv)
         g_mpv_player.stop();
     }
 
-    if (g_preload) {
-        g_preload->shutdown();
-        delete g_preload;
-    }
+    // if (g_preload) {
+        //     g_preload->shutdown();
+        //     delete g_preload;
+        // }
 
     if (g_transition) {
         g_transition->reset();

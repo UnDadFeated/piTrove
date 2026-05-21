@@ -9,6 +9,80 @@
 #include <algorithm>
 #include <cmath>
 #include <unistd.h>
+#include <cstring>
+#include <ctime>
+
+static float read_ram_usage() {
+    std::ifstream meminfo("/proc/meminfo");
+    if (!meminfo.is_open()) return 0.0f;
+    
+    long total = 0, available = 0;
+    std::string line;
+    while (std::getline(meminfo, line)) {
+        if (line.find("MemTotal:") == 0) {
+            std::sscanf(line.c_str(), "MemTotal: %ld kB", &total);
+        } else if (line.find("MemAvailable:") == 0) {
+            std::sscanf(line.c_str(), "MemAvailable: %ld kB", &available);
+        }
+    }
+    meminfo.close();
+    
+    if (total <= 0) return 0.0f;
+    return ((total - available) / (float)total) * 100.0f;
+}
+
+static float read_cpu_usage() {
+    std::ifstream stat1("/proc/stat");
+    if (!stat1.is_open()) return 0.0f;
+    
+    char label[32];
+    long long user1, nice1, system1, idle1, iowait1, irq1, softirq1;
+    stat1 >> label >> user1 >> nice1 >> system1 >> idle1 >> iowait1 >> irq1 >> softirq1;
+    stat1.close();
+    
+    usleep(1000000);
+    
+    std::ifstream stat2("/proc/stat");
+    if (!stat2.is_open()) return 0.0f;
+    
+    long long user2, nice2, system2, idle2, iowait2, irq2, softirq2;
+    stat2 >> label >> user2 >> nice2 >> system2 >> idle2 >> iowait2 >> irq2 >> softirq2;
+    stat2.close();
+    
+    long long total1 = user1 + nice1 + system1 + idle1 + iowait1 + irq1 + softirq1;
+    long long total2 = user2 + nice2 + system2 + idle2 + iowait2 + irq2 + softirq2;
+    long long total_diff = total2 - total1;
+    long long idle_diff = idle2 - idle1;
+    
+    if (total_diff == 0) return 0.0f;
+    return ((float)(total_diff - idle_diff) / (float)total_diff) * 100.0f;
+}
+
+static float read_cpu_freq() {
+    long long freq = 0;
+    std::ifstream freqfile("/sys/devices/system/cpu/cpu0/cpufreq/scaling_cur_freq");
+    if (freqfile.is_open()) {
+        freqfile >> freq;
+        freqfile.close();
+    }
+    if (freq <= 0) {
+        std::ifstream freqfile2("/sys/devices/system/cpu/cpu0/cpufreq/cpuinfo_cur_freq");
+        if (freqfile2.is_open()) {
+            freqfile2 >> freq;
+            freqfile2.close();
+        }
+    }
+    return (freq > 0) ? (freq / 1000.0f) : 0.0f;
+}
+
+static double get_uptime() {
+    std::ifstream uptime("/proc/uptime");
+    if (!uptime.is_open()) return 0.0;
+    double up = 0;
+    uptime >> up;
+    uptime.close();
+    return up;
+}
 
 Renderer g_renderer;
 
@@ -523,17 +597,29 @@ void Renderer::render_splash(int phase, int progress, int total, int done, const
     std::string dot_str(dots, '.');
     std::string cursor = "\u2588";
 
-    // Telemetry Diagnostics
-    int mem_mb = 142 + (int)(sin(uptime * 2.0) * 12) + (progress % 15);
+    // Real Hardware Telemetry
+    float ram_usage = read_ram_usage();
+    float cpu_usage = read_cpu_usage();
+    float cpu_freq = read_cpu_freq();
+    double sys_uptime = get_uptime();
+    int mem_mb = 0;
+    {
+        std::ifstream meminfo("/proc/meminfo");
+        if (meminfo.is_open()) {
+            char label[32];
+            long val;
+            while (meminfo >> label >> val) {
+                if (std::strcmp(label, "MemAvailable:") == 0) {
+                    mem_mb = val / 1024;
+                    break;
+                }
+            }
+            meminfo.close();
+        }
+    }
+    
     int speed = uptime > 0.001 ? (int)(progress / uptime) : 0;
     int latency = (phase <= 2) ? (rand() % 13 + 2) : 0;
-    int syscalls = (phase <= 2) ? (rand() % 2200 + 1200) : 0;
-
-    std::string rand_hex = "0x";
-    std::string rand_hash = "";
-    const char* hex_chars = "0123456789ABCDEF";
-    for (int i = 0; i < 8; i++) rand_hex += hex_chars[rand() % 16];
-    for (int i = 0; i < 12; i++) rand_hash += hex_chars[rand() % 16];
 
     // TOP HALF: SCANNER
     draw_splash_text("PHASE 2: DIRECTORY SCANNER", text_x, box_y + 12, 20, {0, 200, 0, 240});
@@ -578,36 +664,36 @@ void Renderer::render_splash(int phase, int progress, int total, int done, const
     std::snprintf(sys_buf, sizeof(sys_buf), "PID      : %d", getpid());
     draw_splash_text(sys_buf, col2_x, row_start_y, 14, {0, 130, 0, 220});
 
-    std::snprintf(sys_buf, sizeof(sys_buf), "MEM ALLOC: %d MB", mem_mb);
+    std::snprintf(sys_buf, sizeof(sys_buf), "RAM AVAIL: %d MB", mem_mb);
     draw_splash_text(sys_buf, col2_x, (int)(row_start_y + row_space), 14, {0, 130, 0, 220});
 
-    std::snprintf(sys_buf, sizeof(sys_buf), "PAGE FLTS: %d", (progress / 12) + (rand() % 3));
+    std::snprintf(sys_buf, sizeof(sys_buf), "RAM USAGE: %.1f%%", ram_usage);
     draw_splash_text(sys_buf, col2_x, (int)(row_start_y + row_space * 2.2f), 14, {0, 130, 0, 220});
 
-    std::snprintf(sys_buf, sizeof(sys_buf), "DIR_HASH : %s", rand_hash.c_str());
+    std::snprintf(sys_buf, sizeof(sys_buf), "UPTIME   : %.0f s", sys_uptime);
     draw_splash_text(sys_buf, col2_x, (int)(row_start_y + row_space * 3.5f), 14, {0, 130, 0, 220});
 
     // Column 3: CPU & Hardware Info
     std::snprintf(sys_buf, sizeof(sys_buf), "SOC TEMP : %.1f C", telemetry_temp);
     draw_splash_text(sys_buf, col3_x, row_start_y, 14, {0, 130, 0, 220});
 
-    std::snprintf(sys_buf, sizeof(sys_buf), "THREADS  : %d ACTIVE", std::max(1, (int)std::thread::hardware_concurrency() - 1));
+    std::snprintf(sys_buf, sizeof(sys_buf), "CPU USAGE: %.1f%%", cpu_usage);
     draw_splash_text(sys_buf, col3_x, (int)(row_start_y + row_space), 14, {0, 130, 0, 220});
 
-    std::snprintf(sys_buf, sizeof(sys_buf), "SYSCALLS : %d/s", syscalls);
+    std::snprintf(sys_buf, sizeof(sys_buf), "CPU FREQ : %.1f MHz", cpu_freq);
     draw_splash_text(sys_buf, col3_x, (int)(row_start_y + row_space * 2.2f), 14, {0, 130, 0, 220});
 
-    std::snprintf(sys_buf, sizeof(sys_buf), "LAST PTR : %s", (phase <= 2) ? rand_hex.c_str() : "0x00000000");
+    std::snprintf(sys_buf, sizeof(sys_buf), "CORES    : %d", std::thread::hardware_concurrency());
     draw_splash_text(sys_buf, col3_x, (int)(row_start_y + row_space * 3.5f), 14, {0, 130, 0, 220});
 
     // Column 4: Storage & Renderer info
     draw_splash_text("HW_DECODE: READY", col4_x, row_start_y, 14, {0, 130, 0, 220});
     draw_splash_text("RENDERER : SDL2", col4_x, (int)(row_start_y + row_space), 14, {0, 130, 0, 220});
 
-    std::snprintf(sys_buf, sizeof(sys_buf), "VFS BUF  : %d KB", 4096 + (progress % 1024));
+    std::snprintf(sys_buf, sizeof(sys_buf), "I/O SPEED: %d ops/s", speed);
     draw_splash_text(sys_buf, col4_x, (int)(row_start_y + row_space * 2.2f), 14, {0, 130, 0, 220});
 
-    std::snprintf(sys_buf, sizeof(sys_buf), "INODE Q  : %04d PEND", (phase <= 2) ? (rand() % 93 + 12) : 0);
+    std::snprintf(sys_buf, sizeof(sys_buf), "LATENCY  : %d ms", latency);
     draw_splash_text(sys_buf, col4_x, (int)(row_start_y + row_space * 3.5f), 14, {0, 130, 0, 220});
 
     // BOTTOM HALF: CACHER
@@ -674,7 +760,7 @@ void Renderer::render_splash(int phase, int progress, int total, int done, const
         std::snprintf(cache_buf, sizeof(cache_buf), "TRANSACT : PENDING Q=%d", rand() % 15 + 1);
         draw_splash_text(cache_buf, col4_x, bot_row_start_y + bot_row_space, 14, theme_dim);
 
-        std::snprintf(cache_buf, sizeof(cache_buf), "COMMIT_ID: %s", rand_hex.c_str());
+        std::snprintf(cache_buf, sizeof(cache_buf), "COMMIT_ID: %s", VERSION);
         draw_splash_text(cache_buf, col4_x, bot_row_start_y + bot_row_space * 2, 14, theme_dim);
 
         // Live Log Streams
