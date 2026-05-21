@@ -1,16 +1,40 @@
-piTrove/
+# Build artifacts
+piTrove
 build/
-cache/
-config/
-*.zip
-*.bak
 src/build/
 src/build_new/
-.sudo_as_admin_successful
-AGENTS.md
 
-.vscode/
+# Runtime data
+cache/
+config/
 logs/
+
+# Compiled binary
+*.o
+*.a
+*.so
+*.dylib
+
+# Archives
+*.zip
+*.tar.gz
+*.bak
+
+# IDE
+.vscode/
+.idea/
+
+# Development docs
 PLAN.md
-piTrove
+AGENTS.md
+TODO.md
+
+# Temp files
 *_tmp*
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# install.sh — PiTrove v8.7.0 installer
+# install.sh — PiTrove v9.0.0 installer
 # Target: Debian Trixie (13) 64-bit on Raspberry Pi 5
 # Features: JPEG/TIFF/PNG/WebP/HEIC robust loaders, CRT UI, multi-format support
 
@@ -20,7 +20,7 @@ yesno() {
 
 # ── Pre-flight checks ───────────────────────────────────────────────────────
 echo "============================================"
-  echo "  PiTrove v7.10.1 Installer"
+  echo "  PiTrove v9.0.0 Installer"
 echo "  Target: Raspberry Pi 5 / ARM64"
 echo "============================================"
 echo
@@ -70,6 +70,24 @@ for svc in labwc-tty1 seatd; do
     fi
 done
 
+# 5a. Kill existing piTrove processes and stop/disable systemd service to prevent locks
+info "Stopping and disabling existing piTrove service..."
+if systemctl is-active --quiet piTrove.service 2>/dev/null; then
+    systemctl stop piTrove.service || true
+    info "Stopped active piTrove.service"
+fi
+if systemctl is-enabled --quiet piTrove.service 2>/dev/null; then
+    systemctl disable piTrove.service || true
+    info "Disabled piTrove.service"
+fi
+
+info "Killing any running piTrove processes..."
+pkill -9 piTrove || true
+
+info "Removing old user autostart configurations..."
+rm -f "$PRIMARY_HOME/.config/autostart/piTrove.desktop" 2>/dev/null || true
+rm -f "/etc/xdg/autostart/piTrove.desktop" 2>/dev/null || true
+
 # 5b. Ensure SSH is still alive — critical safeguard
 if ! systemctl is-active --quiet ssh 2>/dev/null; then
     warn "SSH service is not active, attempting to start..."
@@ -95,6 +113,7 @@ info "Installing dependencies (this may take a few minutes)..."
 
 apt-get install -y -qq \
     build-essential cmake git curl pkg-config \
+    libsdl2-dev libsdl2-image-dev libsdl2-ttf-dev \
     libsqlite3-dev libexif-dev libjpeg-dev libpng-dev libtiff-dev libheif-dev libwebp-dev \
     libjpeg62-turbo-dev libopenjp2-7-dev libraw-dev \
     libasound2-dev libfreetype6-dev libfontconfig1-dev \
@@ -441,13 +460,7 @@ else
 fi
 chown -R $PRIMARY_USER:$PRIMARY_USER "$PRIMARY_HOME/piTrove"
 
-if [[ ! -d "$PRIMARY_HOME/raylib-src/.git" ]]; then
-    git clone https://github.com/raysan5/raylib.git "$PRIMARY_HOME/raylib-src"
-    info "Cloned raylib repository"
-else
-    info "raylib repository already exists (skipping)"
-fi
-chown -R $PRIMARY_USER:$PRIMARY_USER "$PRIMARY_HOME/raylib-src"
+# SDL2 migration complete — no raylib required
 
 # ── Install fonts ────────────────────────────────────────────────────────────
 info "Installing CRT overlay fonts..."
@@ -465,23 +478,7 @@ fi
 
 ok "Fonts installed"
 
-# ── Build raylib (DRM platform) ─────────────────────────────────────────────
-info "Building raylib (DRM platform)..."
-
-cd "$PRIMARY_HOME/raylib-src"
-rm -rf build
-cmake -B build \
-    -DCMAKE_BUILD_TYPE=Release \
-    -DPLATFORM=DRM \
-    -DGRAPHICS=GRAPHICS_API_OPENGL_ES2 \
-    -DCMAKE_C_FLAGS="-O3 -march=native -mtune=native"
-cmake --build build -j3 || fail "raylib build failed"
-
-cp build/raylib/libraylib.a /usr/local/lib/libraylib.a
-cp src/raylib.h  /usr/local/include/raylib.h
-cp src/rlgl.h    /usr/local/include/rlgl.h
-cp src/raymath.h /usr/local/include/raymath.h
-ok "Installed raylib to /usr/local/lib/ + /usr/local/include/"
+# Raylib build removed for SDL2 migration
 
 # ── Build piTrove ────────────────────────────────────────────────────────────
 info "Building piTrove..."
@@ -494,6 +491,12 @@ cmake --build build -j3 || fail "piTrove build failed"
 cp ./build/piTrove $PRIMARY_HOME/piTrove/piTrove
 chown $PRIMARY_USER:$PRIMARY_USER $PRIMARY_HOME/piTrove/piTrove
 info "Installed piTrove to $PRIMARY_HOME/piTrove/piTrove"
+
+# Install shaders
+mkdir -p "$PRIMARY_HOME/piTrove/shaders"
+cp -r "$PRIMARY_HOME/piTrove/src/shaders/"* "$PRIMARY_HOME/piTrove/shaders/"
+chown -R $PRIMARY_USER:$PRIMARY_USER "$PRIMARY_HOME/piTrove/shaders"
+info "Installed shaders to $PRIMARY_HOME/piTrove/shaders/"
 
 cd "$PRIMARY_HOME/piTrove"
 
@@ -535,7 +538,7 @@ fi
 
 cat > "$PRIMARY_HOME/piTrove/src/config/config.toml" <<EOF
 # ==========================================
-# piTrove Configuration File (v7.10.1)
+# piTrove Configuration File (v9.0.0)
 # ==========================================
 
 [paths]
@@ -674,7 +677,7 @@ info "Service installed: piTrove.service (enabled)"
  # ── Done ─────────────────────────────────────────────────────────────────────
 echo
 echo "============================================"
- echo "  PiTrove v7.10.1 installation complete!"
+ echo "  PiTrove v9.0.0 installation complete!"
 echo "============================================"
 echo
 
@@ -707,11 +710,7 @@ echo "  Logs:         $PRIMARY_HOME/piTrove/logs/"
 echo
 
 # ── Cleanup build artifacts ───────────────────────────────────────────────────
-# raylib-src is only needed during install; clean it up to reclaim ~500MB+
-if [[ -d "$PRIMARY_HOME/raylib-src/.git" ]]; then
-    rm -rf "$PRIMARY_HOME/raylib-src"
-    info "Cleaned up raylib-src ($PRIMARY_HOME/raylib-src) — freed ~500MB+"
-fi
+# raylib-src cleanup removed
 
 # ── Self-cleanup: remove ~/install.sh (one-time bootstrap copy) ──────────────
 # After install, the canonical copy lives in ~/piTrove/install.sh (from git clone).

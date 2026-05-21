@@ -1,0 +1,22 @@
+#ifndef PITROVE_MEDIA_ITEM_H
+#define PITROVE_MEDIA_ITEM_H
+
+#include <string>
+#include <cstdint>
+
+struct MediaItem {
+    std::string path;
+    std::string filename;
+    std::string ext;
+    std::string type{"image"}; // "image" or "video"
+    int64_t     width{0};
+    int64_t     height{0};
+    double      duration{0.0};
+    int         exif_rotation{0};
+    int64_t     file_size{0};
+    int64_t     modified_time{0};
+    bool        cached{false};
+    int64_t     last_shown{0};
+};
+
+#endif // PITROVE_MEDIA_ITEM_H
