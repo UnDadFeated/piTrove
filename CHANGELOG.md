@@ -1,5 +1,17 @@
 # Changelog
 
+## v8.0.4 — DRM rendering fix, mpv argument fix, scan window reduced (May 20, 2026)
+
+### Fixed
+- **Black screen during video playback** — Raylib's `BeginDrawing()`/`EndDrawing()` was called every main loop iteration, even while mpv owned the DRM display. This caused DRM/EGL conflicts and a permanent black screen. Fixed by skipping Raylib drawing cycle entirely when `current_is_video && g_video_subprocess_active`.
+- **mpv `--volume` argument crash** — `--volume 0` (space-separated) is invalid in newer mpv; requires `--volume=0` (equals sign). Fixed by using `snprintf()` to build `--volume=<val>` string.
+- **mpv `--hwdec=no` degrades 4K HEVC playback** — Replaced `--hwdec=no` with `--hwdec=auto` for hardware-accelerated decoding on Pi 5.
+- **mpv stderr invisible** — Added stdout/stderr redirect to `/home/pi/mpv_debug.log` for subprocess diagnostics.
+
+### Changed
+- **Scan temporal window reduced** — `window_days` changed from `15` to `5` in `config.toml`. 45K→12K files, scan time reduced from ~5 min to ~2.5 min.
+- **Photo+video mode restored** — Both `play_just_photos` and `play_just_videos` set to `0` (disabled filters), enabling mixed slideshow.
+
 ## v8.0.3 — Immediate Skip Integration and Robust Subprocess Control (May 20, 2026)
 
 ### Fixed
