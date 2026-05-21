@@ -1,15 +1,9 @@
-# CMakeLists.txt — PiTrove Digital Picture Frame
-# v5.5.0  |  ARM64  |  Raylib 6.x (DRM/KMS)
-
-cmake_minimum_required(VERSION 3.20)
-project(piTrove VERSION 8.7.0 LANGUAGES CXX)
+cmake_minimum_required(VERSION 3.16)
+project(piTrove VERSION 9.0.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
-set(CMAKE_CXX_EXTENSIONS OFF)
-
-# Output binary in parent of src/ (repo root), not in build/
-
+set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
 # ARM64 optimization
 if(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|arm64")
@@ -18,47 +12,109 @@ if(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|arm64")
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -pipe")
 endif()
 
-include_directories(/usr/local/include /usr/include/drm)
+# ============================================================
+# Dependencies
+# ============================================================
 
 find_package(PkgConfig REQUIRED)
-pkg_check_modules(SQLITE3 REQUIRED sqlite3)
-pkg_check_modules(EXIF REQUIRED libexif)
-pkg_check_modules(JPEG REQUIRED libjpeg)
-pkg_check_modules(PNG REQUIRED libpng)
-pkg_check_modules(TIFF REQUIRED libtiff-4)
-pkg_check_modules(HEIF REQUIRED libheif)
-pkg_check_modules(WEBP REQUIRED libwebp)
 
-set(LIBS
-    /usr/local/lib/libraylib.a
-    sqlite3
-    exif
-    jpeg
-    png
-    tiff
-    heif
-    webp
-    stdc++
-    pthread
-    dl
-    m
-    asound
-    drm
-    gbm
-    EGL
-    GLESv2
-    atomic
-    mpv
-    avcodec
-    avformat
-    avutil
-    swscale
-    ass
+# SDL2 + image + ttf
+pkg_check_modules(SDL2 REQUIRED sdl2)
+pkg_check_modules(SDL2_IMAGE REQUIRED SDL2_image)
+pkg_check_modules(SDL2_TTF REQUIRED SDL2_ttf)
+
+# DRM/GLES/EGL/GBM (system libraries on Pi)
+find_library(DRM_LIBRARY NAMES drm REQUIRED)
+find_library(GBM_LIBRARY NAMES gbm REQUIRED)
+find_library(EGL_LIBRARY NAMES EGL REQUIRED)
+find_library(GLES2_LIBRARY NAMES GLESv2 REQUIRED)
+
+# SQLite3
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(SQLITE3 REQUIRED sqlite3)
+
+# EXIF
+find_library(EXIF_LIBRARY NAMES exif REQUIRED)
+
+# MPV (optional — for video)
+option(ENABLE_MPV "Enable mpv video playback" ON)
+if(ENABLE_MPV)
+    find_library(LIBMPV mpv)
+    if(LIBMPV)
+        add_definitions(-DHAVE_MPV)
+    endif()
+endif()
+
+# ============================================================
+# Source files
+# ============================================================
+
+set(PISTROVE_SOURCES
+    main.cpp
+    config.cpp
+    scanner.cpp
+    cache.cpp
+    renderer.cpp
+    image_loader.cpp
+    font_render.cpp
+    transition.cpp
+    overlay.cpp
+    preload.cpp
+    util.cpp
 )
 
-add_executable(piTrove piTrove.cpp)
-target_link_libraries(piTrove PRIVATE ${LIBS})
+# Optional: video player
+if(ENABLE_MPV AND LIBMPV)
+    list(APPEND PISTROVE_SOURCES mpv_player.cpp)
+endif()
 
-install(TARGETS piTrove DESTINATION bin)
-install(FILES config.toml DESTINATION config)
-install(FILES splash.png DESTINATION .) # splash.png is optional user-provided
+# ============================================================
+# Executable
+# ============================================================
+
+add_executable(piTrove ${PISTROVE_SOURCES})
+
+target_include_directories(piTrove PRIVATE
+    ${SDL2_INCLUDE_DIRS}
+    ${SDL2_IMAGE_INCLUDE_DIRS}
+    ${SDL2_TTF_INCLUDE_DIRS}
+    ${SQLITE3_INCLUDE_DIRS}
+    /usr/include/drm
+    .
+)
+
+target_link_libraries(piTrove PRIVATE
+    ${SDL2_LIBRARIES}
+    ${SDL2_IMAGE_LIBRARIES}
+    ${SDL2_TTF_LIBRARIES}
+    ${LIBMPV}
+    ${DRM_LIBRARY}
+    ${GBM_LIBRARY}
+    ${EGL_LIBRARY}
+    ${GLES2_LIBRARY}
+    ${SQLITE3_LIBRARIES}
+    ${EXIF_LIBRARY}
+    png16
+    jpeg
+    webp
+    tiff
+    heif
+    dl
+    pthread
+    atomic
+)
+
+# Compiler flags
+target_compile_options(piTrove PRIVATE -O2 -Wall -Wextra)
+
+# Output binary in parent of src/ (repo root)
+set_target_properties(piTrove PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/..")
+
+# ============================================================
+# Install
+# ============================================================
+
+install(TARGETS piTrove DESTINATION ..)
+
+# Install shaders
+install(DIRECTORY shaders DESTINATION ..)

@@ -1,0 +1,486 @@
+#define _GNU_SOURCE
+#include "scanner.h"
+#include "util.h"
+#include "config.h"
+#include "cache.h"
+#include <dirent.h>
+#include <iostream>
+#include <fstream>
+#include <algorithm>
+#include <thread>
+#include <future>
+#include <cstring>
+#include <sys/syscall.h>
+#include <unistd.h>
+#include <fcntl.h>
+
+static const char* IMAGE_EXTS[] = {"jpg", "jpeg", "png", "bmp", "tga", "gif", "webp", "tiff", "tif", "heic", "heif"};
+static const char* VIDEO_EXTS[] = {"mp4", "mkv", "avi", "mov", "webm", "m4v"};
+
+static bool has_extension(std::string_view path, std::string_view ext) {
+    if (path.size() != ext.size()) return false;
+    for (size_t i = 0; i < ext.size(); ++i) {
+        if (tolower((unsigned char)path[i]) != tolower((unsigned char)ext[i])) return false;
+    }
+    return true;
+}
+
+ssize_t get_dents64(int fd, char* buf, size_t bufsz) {
+    return static_cast<ssize_t>(syscall(SYS_getdents64, fd, buf, bufsz));
+}
+
+std::vector<std::string> read_dir(const std::string& path) {
+    std::vector<std::string> entries;
+    int fd = open(path.c_str(), O_RDONLY | O_DIRECTORY | O_NONBLOCK);
+    if (fd < 0) return entries;
+
+    char buf[65536];
+    ssize_t n;
+    while ((n = get_dents64(fd, buf, sizeof(buf))) > 0) {
+        char* p = buf;
+        while (p < buf + n) {
+            auto* de = reinterpret_cast<struct dirent64*>(p);
+            if (de->d_name[0] != '.' || de->d_name[1] == '\0') {
+                entries.emplace_back(de->d_name);
+            }
+            p += de->d_reclen;
+        }
+    }
+    close(fd);
+    return entries;
+}
+
+struct TimeoutState {
+    std::mutex mtx;
+    std::condition_variable cv;
+    bool done = false;
+};
+
+std::vector<std::string> read_dir_timeout(const std::string& path, int timeout_ms) {
+    auto entries = std::make_shared<std::vector<std::string>>();
+    auto state = std::make_shared<TimeoutState>();
+
+    std::thread t([entries, path, state]() {
+        *entries = read_dir(path);
+        {
+            std::lock_guard<std::mutex> lk(state->mtx);
+            state->done = true;
+        }
+        state->cv.notify_one();
+    });
+
+    std::unique_lock<std::mutex> lk(state->mtx);
+    state->cv.wait_for(lk, std::chrono::milliseconds(timeout_ms), [&]() { return state->done; });
+
+    if (!state->done) {
+        g_logger.warn("read_dir timeout after %dms for '%s'", timeout_ms, path.c_str());
+        t.detach();
+        return {};
+    } else {
+        t.join();
+        return *entries;
+    }
+}
+
+bool stat_timeout(const std::string& path, struct stat& st, int timeout_ms) {
+    auto result = std::make_shared<int>(-1);
+    auto st_ptr = std::make_shared<struct stat>();
+    auto state = std::make_shared<TimeoutState>();
+
+    std::thread t([path, st_ptr, result, state]() {
+        *result = stat(path.c_str(), st_ptr.get());
+        {
+            std::lock_guard<std::mutex> lk(state->mtx);
+            state->done = true;
+        }
+        state->cv.notify_one();
+    });
+
+    std::unique_lock<std::mutex> lk(state->mtx);
+    state->cv.wait_for(lk, std::chrono::milliseconds(timeout_ms), [&]() { return state->done; });
+
+    if (!state->done) {
+        g_logger.debug("stat timeout after %dms for '%s'", timeout_ms, path.c_str());
+        t.detach();
+        return false;
+    }
+    t.join();
+    if (*result == 0) st = *st_ptr;
+    return *result == 0;
+}
+
+std::string file_ext(const std::string& path) {
+    auto dot = path.find_last_of('.');
+    if (dot == std::string::npos || dot == path.size() - 1) return "";
+    return path.substr(dot + 1);
+}
+
+std::string file_name(const std::string& path) {
+    auto slash = path.find_last_of('/');
+    if (slash == std::string::npos) return path;
+    return path.substr(slash + 1);
+}
+
+bool is_image(std::string_view ext_or_path) {
+    std::string_view ext = ext_or_path;
+    auto dot = ext_or_path.find_last_of('.');
+    if (dot != std::string_view::npos) {
+        ext = ext_or_path.substr(dot + 1);
+    }
+    for (auto e : IMAGE_EXTS) {
+        if (has_extension(ext, e)) return true;
+    }
+    return false;
+}
+
+bool is_video(std::string_view ext_or_path) {
+    std::string_view ext = ext_or_path;
+    auto dot = ext_or_path.find_last_of('.');
+    if (dot != std::string_view::npos) {
+        ext = ext_or_path.substr(dot + 1);
+    }
+    for (auto e : VIDEO_EXTS) {
+        if (has_extension(ext, e)) return true;
+    }
+    return false;
+}
+
+bool is_media(std::string_view ext_or_path) {
+    return is_image(ext_or_path) || is_video(ext_or_path);
+}
+
+bool is_in_seasonal_window(const std::string& filename, int window_days) {
+    if (window_days <= 0) return true;
+
+    int digit_groups[3] = {0, 0, 0};
+    int group_count = 0;
+    int i = 0;
+    while (i < (int)filename.size() && group_count < 3) {
+        while (i < (int)filename.size() && !isdigit(filename[i])) i++;
+        if (i >= (int)filename.size()) break;
+        int val = 0;
+        while (i < (int)filename.size() && isdigit(filename[i])) {
+            val = val * 10 + (filename[i] - '0');
+            i++;
+        }
+        digit_groups[group_count++] = val;
+    }
+
+    if (group_count < 3) return false;
+    if (i >= (int)filename.size() || filename[i] != '_') return false;
+
+    int file_y = digit_groups[0];
+    int file_m = digit_groups[1];
+    int file_d = digit_groups[2];
+    if (file_m < 1 || file_m > 12 || file_d < 1 || file_d > 31) return false;
+    if (file_y < 1900 || file_y > 2100) return false;
+
+    time_t t = std::time(nullptr);
+    tm tm_buf;
+    tm* now = localtime_r(&t, &tm_buf);
+    int curr_m = now->tm_mon + 1;
+    int curr_d = now->tm_mday;
+
+    int file_doy = file_m * 30 + file_d;
+    int curr_doy = curr_m * 30 + curr_d;
+
+    int diff = std::abs(curr_doy - file_doy);
+    if (diff > 365 / 2) diff = 365 - diff;
+
+    return diff <= window_days;
+}
+
+std::string run_ffprobe(const std::vector<std::string>& args, int timeout_ms) {
+    std::vector<const char*> argv;
+    argv.push_back("ffprobe");
+    for (const auto& a : args) argv.push_back(a.c_str());
+    argv.push_back(nullptr);
+    int pipefd[2];
+    if (pipe2(pipefd, O_CLOEXEC) != 0) return "";
+    pid_t pid = fork();
+    if (pid < 0) { close(pipefd[0]); close(pipefd[1]); return ""; }
+    if (pid == 0) {
+        dup2(pipefd[1], STDOUT_FILENO);
+        int devnull = open("/dev/null", O_WRONLY);
+        if (devnull >= 0) { dup2(devnull, STDERR_FILENO); close(devnull); }
+        close(pipefd[0]); close(pipefd[1]);
+        setsid();
+        struct rlimit rl{ 256u*1024*1024, 256u*1024*1024 };
+        setrlimit(RLIMIT_AS, &rl);
+        execvp("ffprobe", const_cast<char* const*>(argv.data()));
+        _exit(127);
+    }
+    close(pipefd[1]);
+    std::string out; out.reserve(512);
+    char buf[4096];
+    auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeout_ms);
+    bool eof_reached = false;
+    while (true) {
+        auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(
+            deadline - std::chrono::steady_clock::now()).count();
+        if (remaining <= 0) { break; }
+        struct pollfd pfd{ pipefd[0], POLLIN, 0 };
+        int ret = poll(&pfd, 1, (int)std::min<long>(remaining, 500));
+        if (ret < 0) { if (errno == EINTR) continue; break; }
+        if (ret == 0) continue;
+        if (pfd.revents & (POLLIN|POLLHUP)) {
+            ssize_t n = read(pipefd[0], buf, sizeof(buf));
+            if (n > 0) {
+                out.append(buf, n);
+                if (out.size() > 65536) break;
+            }
+            else { eof_reached = true; break; }
+        }
+    }
+    if (!eof_reached) {
+        kill(pid, SIGKILL);
+    }
+    close(pipefd[0]);
+    waitpid(pid, nullptr, 0);
+    return out;
+}
+
+std::string ffprobe_field(const std::string& out, const std::string& key) {
+    std::string search = "\n" + key + "=";
+    auto pos = out.find(search);
+    if (pos == std::string::npos) {
+        search = key + "=";
+        pos = out.find(search);
+    }
+    if (pos == std::string::npos) return "";
+    pos += search.size();
+    auto end2 = out.find("\n", pos);
+    std::string val = (end2 == std::string::npos) ? out.substr(pos) : out.substr(pos, end2 - pos);
+    if (!val.empty() && val.back() == '\r') val.pop_back();
+    return val;
+}
+
+double probe_video_duration(const std::string& path, int timeout_ms) {
+    if (!std::filesystem::exists(path)) return 0.0;
+
+    std::string out = run_ffprobe({"-v","quiet","-print_format","default","-show_format", path},
+                                  std::max(timeout_ms, 15000));
+
+    std::string dur_str = ffprobe_field(out, "duration");
+    if (dur_str.empty()) return 0.0;
+
+    try {
+        double dur = std::stod(dur_str);
+        return (dur > 0.1) ? dur : 0.0;
+    } catch (...) {
+        return 0.0;
+    }
+}
+
+bool probe_video_meta(const std::string& filepath, int& width, int& height, float& duration, time_t& creation_time) {
+    if (filepath.empty()) return false;
+    auto out = run_ffprobe({"-v","quiet","-print_format","default=noprint_wrappers=1:nokey=0",
+        "-select_streams","v:0","-show_entries","stream=width,height:format=duration:format_tags=creation_time",
+        filepath}, 8000);
+    if (out.empty()) return false;
+    auto sw = ffprobe_field(out, "width"), sh = ffprobe_field(out, "height"),
+        sd = ffprobe_field(out, "duration"), sts = ffprobe_field(out, "TAG:creation_time");
+    if (sw.empty() || sh.empty() || sd.empty()) return false;
+    try { width = std::stoi(sw); height = std::stoi(sh); duration = std::stof(sd); }
+    catch (...) { return false; }
+    if (!sts.empty()) {
+        struct tm t={};
+        std::istringstream s(sts);
+        s >> std::get_time(&t, "%Y-%m-%dT%H:%M:%S");
+        if (!s.fail()) creation_time = timegm(&t);
+    }
+    return (width > 0 && height > 0 && duration > 0.0f);
+}
+
+bool MediaScanner::is_month_in_window(const std::string& dirname, int window_days) {
+    if (window_days <= 0) return true;
+
+    int groups[2] = {0, 0};
+    int gc = 0;
+    size_t i = 0;
+    while (i < dirname.size() && gc < 2) {
+        while (i < dirname.size() && !isdigit(dirname[i])) i++;
+        if (i >= dirname.size()) break;
+        int val = 0;
+        while (i < dirname.size() && isdigit(dirname[i])) {
+            val = val * 10 + (dirname[i] - '0');
+            i++;
+        }
+        groups[gc++] = val;
+        if (gc == 1 && i < dirname.size() && (dirname[i] == '-' || dirname[i] == '_')) i++;
+    }
+
+    if (gc < 2) return true;
+
+    int folder_m = groups[1];
+    if (folder_m < 1 || folder_m > 12) return true;
+
+    time_t t = std::time(nullptr);
+    tm tm_buf;
+    tm* now = localtime_r(&t, &tm_buf);
+    int curr_m = now->tm_mon + 1;
+
+    int max_month_spread = std::ceil(window_days / 30.0);
+    int diff = std::abs(curr_m - folder_m);
+    if (diff > 6) diff = 12 - diff;
+
+    return diff <= max_month_spread;
+}
+
+std::vector<std::string> MediaScanner::scan(const std::string& directory,
+                                           const std::vector<std::string>& exts,
+                                           int window_days,
+                                           int max_depth) {
+    live_found_count.store(0);
+    std::vector<std::string> all_files;
+    std::mutex list_mutex;
+
+    std::vector<std::string> subdirs;
+    std::vector<std::string> root_files;
+    std::vector<std::string> root_entries = read_dir_timeout(directory, 15000);
+    for (const auto& name : root_entries) {
+        std::string p = directory + "/" + name;
+        struct stat st;
+        if (stat_timeout(p, st, 5000)) {
+            if (S_ISDIR(st.st_mode)) {
+                if (is_month_in_window(name, window_days)) {
+                    subdirs.push_back(p);
+                }
+            } else if (S_ISREG(st.st_mode)) {
+                root_files.push_back(p);
+            }
+        }
+    }
+
+    auto worker = [&](int start_idx, int step) {
+        try {
+            for (size_t i = start_idx; i < subdirs.size(); i += step) {
+                std::string target_dir = subdirs[i];
+                std::function<void(const std::string&, int)> rec;
+                rec = [&](const std::string& dir, int d) {
+                    if (d > max_depth) return;
+                    std::vector<std::string> entries = read_dir_timeout(dir, 15000);
+                    for (const auto& name : entries) {
+                        std::string p = dir + "/" + name;
+                        struct stat st;
+                        if (!stat_timeout(p, st, 5000)) continue;
+                        if (S_ISDIR(st.st_mode)) {
+                            if (name[0] == '.') continue;
+                            rec(p, d + 1);
+                        } else if (S_ISREG(st.st_mode)) {
+                            process_entry(p, exts, window_days, list_mutex, all_files);
+                        }
+                    }
+                };
+                rec(target_dir, 1);
+            }
+        } catch (...) {}
+    };
+
+    for (const auto& p : root_files) {
+        process_entry(p, exts, window_days, list_mutex, all_files);
+    }
+
+    std::thread t1(worker, 0, 3);
+    std::thread t2(worker, 1, 3);
+    std::thread t3(worker, 2, 3);
+    t1.join(); t2.join(); t3.join();
+
+    return all_files;
+}
+
+int MediaScanner::get_count() {
+    return live_found_count.load(std::memory_order_relaxed);
+}
+
+void MediaScanner::process_entry(const std::string& path_str,
+                                 const std::vector<std::string>& exts,
+                                 int window_days,
+                                 std::mutex& list_mutex,
+                                 std::vector<std::string>& all_files) {
+    std::filesystem::path path_obj(path_str);
+    if (path_obj.stem().string().empty()) return;
+
+    std::string ext = path_obj.extension().string();
+    std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
+
+    if (std::find(exts.begin(), exts.end(), ext) != exts.end()) {
+        if (is_in_seasonal_window(path_obj.filename().string(), window_days)) {
+            std::lock_guard<std::mutex> lock(list_mutex);
+            all_files.push_back(path_obj.string());
+            live_found_count.fetch_add(1, std::memory_order_relaxed);
+        }
+    }
+}
+
+void scan_directory(const std::string& dir, int depth,
+                    std::vector<MediaItem>& items, std::atomic<int64_t>& count) {
+    g_logger.info("scan_directory: dir=%s depth=%d", dir.c_str(), depth);
+    MediaScanner scanner;
+    std::vector<std::string> exts = {".jpg", ".jpeg", ".png", ".webp", ".heic", ".heif", ".gif", ".bmp", ".tiff", ".mp4", ".mov", ".mkv", ".avi", ".webm"};
+    int scan_days;
+    std::vector<std::string> ignore_f;
+    {
+        std::lock_guard<std::mutex> lk(g_config_mtx);
+        scan_days = g_cfg.scan_window_days;
+        ignore_f = g_cfg.ignore_folders;
+    }
+    auto media_files = scanner.scan(dir, exts, scan_days, depth);
+
+    for (auto& filepath : media_files) {
+        auto fname = filepath.substr(filepath.find_last_of('/') + 1);
+        if (fname.empty() || fname[0] == '.') continue;
+
+        bool skip = false;
+        for (const auto& ign : ignore_f) {
+            if (filepath.find("/" + ign + "/") != std::string::npos ||
+                (filepath.size() >= ign.size() + 1 &&
+                 filepath.substr(filepath.size() - ign.size() - 1) == "/" + ign)) {
+                skip = true;
+                break;
+            }
+        }
+        if (skip) continue;
+
+        std::string ext = file_ext(filepath);
+        if (ext.empty()) continue;
+        if (!is_image(ext) && !is_video(ext)) continue;
+
+        struct stat st;
+        if (!stat_timeout(filepath, st, 5000)) continue;
+
+        MediaItem mi;
+        mi.path = filepath;
+        mi.filename = file_name(filepath);
+        mi.ext = ext;
+        mi.file_size = st.st_size;
+        mi.modified_time = st.st_mtime;
+        mi.type = is_image(ext) ? "image" : "video";
+
+        if (g_cache) g_cache->load_cached(mi);
+
+        items.push_back(std::move(mi));
+        count.fetch_add(1, std::memory_order_relaxed);
+    }
+}
+
+unsigned long long make_entropy_seed() {
+    unsigned long long seed = 0;
+    {
+        FILE* f = fopen("/dev/urandom", "r");
+        if (f) {
+            unsigned char buf[8];
+            if (fread(buf, 1, 8, f) == 8) {
+                for (int i = 0; i < 8; i++) seed = (seed << 8) | buf[i];
+            }
+            fclose(f);
+        }
+    }
+    seed ^= (unsigned long long)0xCAFEBABE;
+    seed ^= (unsigned long long)getpid() << 32;
+    seed ^= (unsigned long long)time(nullptr) * 2654435761ULL;
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    seed ^= ts.tv_nsec;
+    return seed ? seed : (unsigned long long)time(nullptr);
+}
