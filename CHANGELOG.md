@@ -1,5 +1,20 @@
 # Changelog
 
+## v8.3.0 — 30% video ratio, OSD progress, splash fallback, 5-day scan (May 20, 2026)
+
+### Added
+- **30% video ratio** — Videos now play 3 per cycle of `videos_per_photos` items (default 10 = 30%). Replaced hardcoded `10 photos + N videos` with dynamic `photos_per_cycle = v_pp - 3`. Configurable via `videos_per_photos` (1–100).
+- **Splash fallback chain** — If `splash_file` is empty or path not found, searches: `src/splash.png` → exe dir → `/proc/self/exe` resolution → parent `src/` dir. Falls back to solid dark background if none found.
+
+### Changed
+- **Scan window reduced** — `scan_window_days` default changed from `15` to `5` (configurable). Cuts scan time from ~5 min to ~2.5 min, reduces cache from 45K to ~12K items.
+- **Video OSD moved to bottom** — mpv OSD now shows `filename.ext - MM:SS` bottom-left (native mpv rendering). Removed redundant in-process filename overlay during video playback.
+- **Fade-in skipped for videos** — mpv renders natively to DRM; Raylib fade-in would cover mpv output.
+
+### Fixed
+- **Splash crash on empty config** — `splash_file = ""` no longer causes `create_directories("")` crash.
+- **videos_per_photos clamped to 9** — Removed `min(9, ...)` limit; now allows `min(100, ...)`.
+
 ## v8.0.4 — DRM rendering fix, mpv argument fix, scan window reduced (May 20, 2026)
 
 ### Fixed
