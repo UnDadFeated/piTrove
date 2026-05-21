@@ -1,4 +1,5 @@
 #include "preload.h"
+#include "renderer.h"
 #include "util.h"
 #include <unordered_set>
 
@@ -58,19 +59,48 @@ std::shared_ptr<ImageData> PreloadQueue::try_dequeue() {
     {
         std::lock_guard<std::mutex> lock(queue_mutex);
         if (!loaded_queue.empty()) {
-            data = loaded_queue.front();
+            PreloadedItem item = std::move(loaded_queue.front());
             loaded_queue.pop();
+
+            // Build ImageData from raw pixels (main thread — SDL context is thread-local)
+            data = std::make_shared<ImageData>();
+            data->valid = false;
+            
+            if (item.raw.valid) {
+                // Read EXIF (file I/O, no SDL)
+                data->exif_rotation = ImageLoader::read_exif_rotation(item.path.c_str());
+                data->width = item.raw.width;
+                data->height = item.raw.height;
+                data->valid = true;
+
+                // Create SDL surface from raw pixels
+                data->surface = SDL_CreateRGBSurfaceWithFormat(0, item.raw.width, item.raw.height, 32, SDL_PIXELFORMAT_RGBA32);
+                if (data->surface) {
+                    memcpy(data->surface->pixels, item.raw.pixels, (size_t)item.raw.width * item.raw.height * 4);
+                    free(item.raw.pixels);
+                    item.raw.pixels = nullptr;
+
+                    // Apply EXIF rotation (CPU work)
+                    if (data->exif_rotation >= 2 && data->exif_rotation <= 8) {
+                        SDL_Surface* rotated = ImageLoader::apply_exif_rotation(data->surface, data->exif_rotation);
+                        if (rotated) data->surface = rotated;
+                    }
+
+                    // Extract average color
+                    GpuColor avg = Renderer::get_average_color(data->surface);
+                    data->avg_r = avg.r;
+                    data->avg_g = avg.g;
+                    data->avg_b = avg.b;
+                }
+            }
         }
     }
 
-    if (data) {
-        // We are on the main thread, so it is safe to upload the surface to VRAM
-        if (data->valid && data->surface && !data->texture) {
-            ImageLoader::load_texture(data.get(), sdl_renderer);
-        }
-        // Wake up workers because we just freed a slot in the loaded queue
-        work_cv.notify_all();
+    if (data && data->valid && data->surface && !data->texture) {
+        ImageLoader::load_texture(data.get(), sdl_renderer);
     }
+
+    work_cv.notify_all();
     return data;
 }
 
@@ -84,8 +114,8 @@ void PreloadQueue::cancel_all() {
     {
         std::lock_guard<std::mutex> lock(queue_mutex);
         while (!loaded_queue.empty()) {
-            auto data = loaded_queue.front();
-            ImageLoader::unload(data.get());
+            auto& item = loaded_queue.front();
+            if (item.raw.pixels) free(item.raw.pixels);
             loaded_queue.pop();
         }
     }
@@ -127,11 +157,25 @@ void PreloadQueue::worker_thread(int thread_id) {
         }
 
         g_logger.debug("[Worker %d] preloading: %s", thread_id, path.c_str());
-        auto data = ImageLoader::load(path);
+        
+        // Decode to raw pixels ONLY — no SDL calls, safe for worker threads
+        RawImage raw = ImageLoader::load_raw(path);
+        
+        if (!raw.valid) {
+            g_logger.warn("[Worker %d] Failed to decode: %s", thread_id, path.c_str());
+            continue;
+        }
 
+        g_logger.debug("[Worker %d] Decoded %dx%d: %s", thread_id, raw.width, raw.height, path.c_str());
+
+        // Push raw data to loaded queue — main thread creates SDL surface
         {
             std::lock_guard<std::mutex> lock(queue_mutex);
-            loaded_queue.push(data);
+            PreloadedItem item;
+            item.raw = std::move(raw);
+            item.path = path;
+            item.valid = true;
+            loaded_queue.push(std::move(item));
         }
         queue_cv.notify_one();
     }
