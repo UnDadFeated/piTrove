@@ -10,7 +10,7 @@
  *   • Slideshow – raylib, preload, crossfade, Ken Burns
  */
 
-#define VERSION "8.4.0"
+#define VERSION "8.5.0"
 #define APP_NAME "piTrove"
 
 // Global atomics for headless features
@@ -1286,9 +1286,11 @@ static bool play_video_subprocess(const std::string &path, int volume) {
         g_logger.error("VIDEO_DRM: No DRM fd found — mpv may fail to acquire display");
     }
 
-    // v8.4.0: mpv renders fullscreen to DRM — no OSD bars, clean fullscreen playback
-    // Removed --osd-bar (dark progress bar covers video), removed --osd-status-msg (dark text bar)
-    // Removed margin args (no OSD = no margins needed)
+    // v8.5.0: mpv native OSD — lower-left filename + time, accounts for matte border
+    int matte_px = g_cfg.matting_size;
+    char margin_x_arg[64], margin_y_arg[64];
+    snprintf(margin_x_arg, sizeof(margin_x_arg), "--osd-margin-x=%d", matte_px + 8);
+    snprintf(margin_y_arg, sizeof(margin_y_arg), "--osd-margin-y=%d", matte_px + 8);
     char cmd[256];
     pid_t pid = fork();
     if (pid == 0) {
@@ -1308,6 +1310,13 @@ static bool play_video_subprocess(const std::string &path, int volume) {
                 "--hwdec=auto",
                 "--no-osc",
                 "--no-osd-bar",
+                "--osd-level=3",
+                "--osd-status-msg=${filename} - ${time-remaining}",
+                "--osd-align-x=left",
+                "--osd-align-y=bottom",
+                margin_x_arg,
+                margin_y_arg,
+                "--osd-font-size=10",
                 "--no-sub",
                 "--no-keepaspect",
                 cmd,
@@ -1320,6 +1329,13 @@ static bool play_video_subprocess(const std::string &path, int volume) {
             "--hwdec=auto",
             "--no-osc",
             "--no-osd-bar",
+            "--osd-level=3",
+            "--osd-status-msg=${filename} - ${time-remaining}",
+            "--osd-align-x=left",
+            "--osd-align-y=bottom",
+            margin_x_arg,
+            margin_y_arg,
+            "--osd-font-size=10",
             "--no-sub",
             "--no-keepaspect",
             "--no-audio",
