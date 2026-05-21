@@ -6723,7 +6723,7 @@ g_logger.init(cfg.log_dir, cfg.verbose ? LogLevel::DEBUG : LogLevel::INFO);
             FILE* f = fopen("/dev/urandom", "r");
             if (f) { unsigned char buf[8]; if (fread(buf, 1, 8, f) == 8) { for (int i = 0; i < 8; i++) seed = (seed << 8) | buf[i]; } fclose(f); }
         }
-        seed ^= (unsigned long long)(uintptr_t)&make_seed;
+        seed ^= (unsigned long long)0xCAFEBABE;
         seed ^= (unsigned long long)getpid() << 32;
         seed ^= (unsigned long long)time(nullptr) * 2654435761ULL;
         struct timespec ts; clock_gettime(CLOCK_MONOTONIC, &ts); seed ^= ts.tv_nsec;
