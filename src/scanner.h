@@ -48,11 +48,12 @@ public:
 
     MediaScanner() = default;
 
-    bool is_month_in_window(const std::string& dirname, int window_days);
+   bool is_month_in_window(const std::string& dirname, int window_days);
     std::vector<std::string> scan(const std::string& directory,
-                                 const std::vector<std::string>& exts,
-                                 int window_days,
-                                 int max_depth);
+                                  const std::vector<std::string>& exts,
+                                  int window_days,
+                                  int max_depth,
+                                  const std::vector<std::string>& ignore_folders);
     int get_count();
 
 private:

@@ -30,10 +30,10 @@ private:
     std::atomic<bool> running{false};
     int num_threads;
     std::vector<std::thread> threads;
-    SDL_Renderer* renderer;
+    SDL_Renderer* sdl_renderer;
 
 public:
-    PreloadQueue(int max_size, int num_threads, SDL_Renderer* renderer);
+    PreloadQueue(int max_size, int num_threads, SDL_Renderer* sdl_renderer);
     ~PreloadQueue();
 
     void start();

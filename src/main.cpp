@@ -13,7 +13,7 @@
 #include <SDL.h>
 #include <SDL_image.h>
 #include <SDL_ttf.h>
-#include <GLES3/gl3.h>
+// GLES3 removed - using SDL_Renderer
 #include <sys/file.h>
 #include <unistd.h>
 #include <csignal>
@@ -211,16 +211,10 @@ int main(int argc, char** argv)
     }
 
     // --- Transition engine ---
-    g_transition = new TransitionEngine(g_renderer.sdl_renderer);
-    g_transition->init();
-    g_logger.info("Transition engine initialized");
+  g_transition = new TransitionEngine();
 
-    // --- Overlay manager ---
-    g_overlay = new OverlayManager(g_renderer.sdl_renderer);
-    g_overlay->init();
-    g_logger.info("Overlay manager initialized");
+    g_overlay = new OverlayManager(&g_renderer);
 
-    // --- Preload queue ---
     g_preload = new PreloadQueue(g_cfg.max_concurrent, g_cfg.max_concurrent, g_renderer.sdl_renderer);
     g_preload->start();
     g_logger.info("Preload queue started");
@@ -319,6 +313,21 @@ int main(int argc, char** argv)
             g_logger.debug("Pause toggle");
         }
 
+        // Start transition effect
+        if (transitioning && !g_transition->is_active()) {
+            TransitionEffect effect = TransitionEffect::Fade;
+            int direction = 0;
+            if (transition_effect == "wipe") {
+                effect = TransitionEffect::WipeLeft;
+                direction = 0;
+            } else if (transition_effect == "ken_burns") {
+                effect = TransitionEffect::KenBurns;
+            } else if (transition_effect == "pixelate") {
+                effect = TransitionEffect::Pixelate;
+            }
+            g_transition->start(effect, g_cfg.transition_duration, direction, g_cfg.ken_burns_zoom);
+        }
+
         // --- Video playback ---
         if (eligible[current_idx].type == "video") {
             // Check if mpv is still running
@@ -391,30 +400,13 @@ int main(int argc, char** argv)
             }
 
             if (prev_tex && next_tex) {
-                // Make current context active for raw GLES calls
-                SDL_GL_MakeCurrent(g_renderer.window, g_renderer.gl_context);
-
                 // Clear
-                glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
-                glClear(GL_COLOR_BUFFER_BIT);
+                g_renderer.clear(0, 0, 0, 255);
 
-                // Apply transition shader
-                if (transition_effect == "ken_burns") {
-                    g_transition->render_ken_burns(next_tex, progress,
-                        g_cfg.ken_burns_zoom, 1.0f + g_cfg.ken_burns_zoom, 0.05f, 0.05f,
-                        g_renderer.screen_w, g_renderer.screen_h);
-                } else if (transition_effect == "wipe") {
-                    g_transition->render_wipe(prev_tex, next_tex, progress, 0);
-                } else if (transition_effect == "pixelate") {
-                    g_transition->render_pixelate(prev_tex, next_tex, progress, 50.0f,
-                        g_renderer.screen_w, g_renderer.screen_h);
-                } else { // crossfade
-                    // Simple crossfade via post_process
-                    g_transition->render_post_process(next_tex, progress, 0.0f, 0.0f, 0.0f, 0.0f,
-                        g_renderer.screen_w, g_renderer.screen_h);
-                }
-
-                SDL_GL_SwapWindow(g_renderer.window);
+                // Update and render transition
+                g_transition->update(dt);
+                g_transition->render(prev_tex, next_tex, g_renderer.screen_w, g_renderer.screen_h);
+                g_renderer.present();
 
                 // Cleanup old texture
                 if (current_tex) {
@@ -427,7 +419,7 @@ int main(int argc, char** argv)
                 // Update current texture
                 current_tex = next_tex;
 
-                if (progress >= 1.0f) {
+                if (g_transition->get_progress() >= 1.0f) {
                     transitioning = false;
                     item_timer = 0.0;
 
@@ -453,11 +445,8 @@ int main(int argc, char** argv)
         } else {
             // --- Render image ---
             if (current_tex) {
-                SDL_Renderer* sdl_r = g_renderer.sdl_renderer;
-
                 // Clear
-                SDL_SetRenderDrawColor(sdl_r, 0, 0, 0, 255);
-                SDL_RenderClear(sdl_r);
+                g_renderer.clear(0, 0, 0, 255);
 
                 // Matte borders
                 if (g_cfg.matting) {
@@ -466,28 +455,11 @@ int main(int argc, char** argv)
 
                 // Draw image
                 if (current_tex) {
-                    SDL_RenderCopy(sdl_r, current_tex, nullptr, &fit_rect);
+                    SDL_Rect dst = {fit_rect.x, fit_rect.y, fit_rect.w, fit_rect.h};
+                    SDL_RenderCopy(g_renderer.sdl_renderer, current_tex, nullptr, &dst);
                 }
 
-                // Post-process via shader if enabled
-                if (g_cfg.bias_lighting || g_cfg.vignette_enabled) {
-                    SDL_GL_MakeCurrent(g_renderer.window, g_renderer.gl_context);
-
-                    float bias_r = 0.0f, bias_g = 0.0f, bias_b = 0.0f;
-                    float scanline = 0.0f;
-
-                    // Get bias color (simplified)
-                    SDL_GL_BindTexture(current_tex, nullptr, nullptr);
-                    g_transition->render_post_process(current_tex,
-                        item_timer * g_cfg.bias_anim_speed,
-                        bias_r, bias_g, bias_b, scanline,
-                        g_renderer.screen_w, g_renderer.screen_h);
-                    SDL_GL_UnbindTexture(current_tex);
-
-                    SDL_GL_SwapWindow(g_renderer.window);
-                } else {
-                    SDL_RenderPresent(sdl_r);
-                }
+                g_renderer.present();
             }
 
             // --- Overlay ---
@@ -526,7 +498,7 @@ int main(int argc, char** argv)
     }
 
     if (g_transition) {
-        g_transition->cleanup();
+        g_transition->reset();
         delete g_transition;
     }
 

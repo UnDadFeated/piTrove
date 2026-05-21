@@ -8,7 +8,7 @@
 
 struct ImageData {
     SDL_Surface* surface{nullptr};   // CPU memory (for processing/preloading)
-    SDL_Texture* texture{nullptr};   // GPU VRAM
+    SDL_Texture* texture{nullptr};   // GPU VRAM (SDL_Texture handle)
     int width{0};
     int height{0};
     bool valid{false};
@@ -17,6 +17,8 @@ struct ImageData {
     uint8_t avg_g{0};
     uint8_t avg_b{0};
 };
+
+class Renderer;
 
 class ImageLoader {
 public:

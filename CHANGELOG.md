@@ -1,5 +1,10 @@
 # Changelog
 
+## v9.0.1 — Fix scanner hanging on Synology @eaDir/@Recycle (May 21, 2026)
+
+### Fixed
+- **CRITICAL · Scan freeze on CIFS/Synology NAS** — `ignore_folders` config (`@eaDir`, `@Recycle`, `Thumbs.db`) was only checked after the scan completed, not during traversal. The scanner recursed into massive Synology metadata directories, causing the app to hang indefinitely during the scan phase. Fixed by passing `ignore_folders` to `MediaScanner::scan()` and filtering directories during recursive traversal.
+
 ## v9.0.0 — SDL2 kmsdrm migration (May 21, 2026)
 
 ### Changed

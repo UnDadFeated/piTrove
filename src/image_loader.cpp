@@ -1,10 +1,6 @@
 #include "image_loader.h"
-#include "util.h"
 #include "renderer.h"
-#include <cstdio>
-#include <cstdlib>
-#include <cstring>
-#include <csetjmp>
+#include "util.h"
 #include <algorithm>
 #include <stdexcept>
 
@@ -666,7 +662,7 @@ std::shared_ptr<ImageData> ImageLoader::load(const std::string& path) {
 }
 
 void ImageLoader::load_texture(ImageData* data, SDL_Renderer* renderer) {
-    if (!data || !data->surface || data->texture) return;
+    if (!data || !data->surface || !renderer || data->texture) return;
     
     // Scale image down on main thread if it exceeds screen dimensions to fit display or max VRAM size
     const int MAX_DIM = 1920;
@@ -689,7 +685,7 @@ void ImageLoader::load_texture(ImageData* data, SDL_Renderer* renderer) {
 
     data->texture = SDL_CreateTextureFromSurface(renderer, data->surface);
     if (!data->texture) {
-        g_logger.error("Failed to upload texture to VRAM: %s", SDL_GetError());
+        g_logger.error("Failed to create texture from surface: %s", SDL_GetError());
     } else {
         // Set bilinear filtering by default for high quality rendering
         SDL_SetTextureScaleMode(data->texture, SDL_ScaleModeLinear);

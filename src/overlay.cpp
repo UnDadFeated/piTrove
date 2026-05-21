@@ -6,7 +6,7 @@
 #include <sstream>
 #include <algorithm>
 
-OverlayManager::OverlayManager(SDL_Renderer* renderer)
+OverlayManager::OverlayManager(Renderer* renderer)
     : renderer(renderer), font_renderer(nullptr), overlay_font(nullptr) {}
 
 OverlayManager::~OverlayManager() {
@@ -153,8 +153,6 @@ void OverlayManager::draw_all(int current_idx, int total_items, const std::strin
 
     // 2. Filename Overlay
     if (file_enabled && current_idx >= 0 && current_idx < total_items) {
-        // Note: For videos, the filename OSD overlay will render on top of the black matte borders 
-        // to maintain user experience even while video occupies GLES DRM plane
         int fx = pad + (int)((sw - pad * 2) * file_x);
         int fy = pad + (int)((sh - pad * 2) * file_y);
         FontHandle& font = font_renderer->load_font(overlay_font->path, file_size);

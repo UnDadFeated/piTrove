@@ -330,7 +330,8 @@ bool MediaScanner::is_month_in_window(const std::string& dirname, int window_day
 std::vector<std::string> MediaScanner::scan(const std::string& directory,
                                            const std::vector<std::string>& exts,
                                            int window_days,
-                                           int max_depth) {
+                                           int max_depth,
+                                           const std::vector<std::string>& ignore_folders) {
     live_found_count.store(0);
     std::vector<std::string> all_files;
     std::mutex list_mutex;
@@ -339,6 +340,12 @@ std::vector<std::string> MediaScanner::scan(const std::string& directory,
     std::vector<std::string> root_files;
     std::vector<std::string> root_entries = read_dir_timeout(directory, 15000);
     for (const auto& name : root_entries) {
+        bool ignored = false;
+        for (const auto& ign : ignore_folders) {
+            if (name == ign) { ignored = true; break; }
+        }
+        if (ignored) continue;
+
         std::string p = directory + "/" + name;
         struct stat st;
         if (stat_timeout(p, st, 5000)) {
@@ -366,6 +373,11 @@ std::vector<std::string> MediaScanner::scan(const std::string& directory,
                         if (!stat_timeout(p, st, 5000)) continue;
                         if (S_ISDIR(st.st_mode)) {
                             if (name[0] == '.') continue;
+                            bool ignored = false;
+                            for (const auto& ign : ignore_folders) {
+                                if (name == ign) { ignored = true; break; }
+                            }
+                            if (ignored) continue;
                             rec(p, d + 1);
                         } else if (S_ISREG(st.st_mode)) {
                             process_entry(p, exts, window_days, list_mutex, all_files);
@@ -425,7 +437,7 @@ void scan_directory(const std::string& dir, int depth,
         scan_days = g_cfg.scan_window_days;
         ignore_f = g_cfg.ignore_folders;
     }
-    auto media_files = scanner.scan(dir, exts, scan_days, depth);
+    auto media_files = scanner.scan(dir, exts, scan_days, depth, ignore_f);
 
     for (auto& filepath : media_files) {
         auto fname = filepath.substr(filepath.find_last_of('/') + 1);
