@@ -1,5 +1,24 @@
 # Changelog
 
+## v9.0.0 — SDL2 kmsdrm migration (May 21, 2026)
+
+### Changed
+- **Raylib → SDL2 kmsdrm** — Replaced Raylib EGL/DRM backend with SDL2 kmsdrm video driver for native framebuffer access on Pi 5.
+- **Modular architecture** — Monolithic `piTrove.cpp` split into 12 source modules: `main.cpp`, `scanner.cpp`, `cache.cpp`, `config.cpp`, `preload.cpp`, `renderer.cpp`, `overlay.cpp`, `transition.cpp`, `mpv_player.cpp`, `image_loader.cpp`, `font_render.cpp`, `util.cpp`.
+- **GLES3 shaders** — All 4 GLSL shaders updated to `#version 300 es` with `in`/`out` qualifiers: `ken_burns`, `wipe`, `pixelate`, `post_process`.
+- **Two-phase preload** — Worker threads decode via `IMG_Load()` → push `SurfaceItem`; main thread uploads to VRAM via `SDL_CreateTextureFromSurface()` → push `TextureItem`. O(1) duplicate detection via `unordered_set`.
+- **Hybrid rendering pipeline** — `SDL_Renderer` for primitives and EXIF rotation; raw GLES3 calls for shader transitions and TTF text overlays.
+- **TTF text rendering** — `TTF_RenderUTF8_Blended` only (avoids opaque bounding box); glow via 4 offset copies.
+- **Shaders externalized** — GLSL source files in `src/shaders/` instead of embedded C strings.
+- **config.cpp refactored** — Removed local lambdas, uses global `util.h` functions (`trim`, `safe_stoi`, `safe_stof`, `safe_stod`, `safe_stoll`).
+- **Scanner fixed** — Added `#define _GNU_SOURCE` and `#include <dirent.h>` for `getdents64`.
+- **CMakeLists.txt** — Proper SDL2_image/png16/jpeg/webp/tiff/heif/SQLite3 linking via pkg-config.
+
+### Fixed
+- **Build system** — SQLite3 via pkg-config, explicit png16/jpeg/webp/tiff/heif linking (not via SDL2_image transitive).
+- **VRAM budget** — ~72MB max: current image ≤16MB, 3 preloaded ≤48MB, fonts ≤2MB, shaders ≤1MB, overhead ≤5MB.
+- **Aspect ratio math** — Compare image aspect to screen aspect; wider → pillarbox, taller → letterbox.
+
 ## v8.7.0 — Video aspect ratio preservation (May 20, 2026)
 
 ### Fixed

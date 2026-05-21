@@ -5,9 +5,9 @@ A professional-grade digital picture frame for the Raspberry Pi. Designed for ex
 [![Platform](https://img.shields.io/badge/platform-Pi%204%20%7C%20Pi%205-blue?style=flat-square)](https://www.raspberrypi.com/)
 [![OS](https://img.shields.io/badge/OS-Trixie%20Lite%20%28Debian%2013%29-lightgreen?style=flat-square)](https://www.debian.org/)
 [![Architecture](https://img.shields.io/badge/arch-aarch64-orange?style=flat-square)](https://en.wikipedia.org/wiki/AArch64)
-[![Graphics](https://img.shields.io/badge/graphics-DRM%2FKMS%20%7C%20GLES2-red?style=flat-square)](https://www.mesa3d.org/)
+[![Graphics](https://img.shields.io/badge/graphics-SDL2%20kmsdrm%20%7C%20GLES3-red?style=flat-square)](https://www.mesa3d.org/)
 [![License](https://img.shields.io/badge/license-MIT-green?style=flat-square)](LICENSE)
-[![Version](https://img.shields.io/badge/version-8.7.0-blue?style=flat-square)]()
+[![Version](https://img.shields.io/badge/version-9.0.0-blue?style=flat-square)]()
 
 ## 🚀 Quick Start
 
@@ -66,14 +66,31 @@ graph TD
     end
 ```
 
-- **Language**: C++17 / OpenGL ES 2.0
-- **Core Libraries**: Raylib, libmpv, SQLite3, libexif, libheif.
-- **Hardware Accel**: Pi 5 V4L2 / VC4 DRM path.
+- **Language**: C++17 / OpenGL ES 3.0
+- **Core Libraries**: SDL2 (kmsdrm), libmpv, SQLite3, libexif, libheif.
+- **Hardware Accel**: Pi 5 VC4 DRM/KMS with GLES3 shaders.
 
 ## 📁 Project Structure
-- `src/piTrove.cpp`: The core application logic.
-- `src/config/config.toml`: User configuration.
-- `install.sh`: Bootstrap installer.
+```
+src/
+├── main.cpp          — Entry point, event loop, DRM master flow
+├── scanner.cpp/h     — Recursive media scanning (getdents64)
+├── cache.cpp/h       — SQLite3 WAL-mode metadata persistence
+├── config.cpp/h      — TOML config parser
+├── preload.cpp/h     — Two-phase async preload (surface → texture upload)
+├── renderer.cpp/h    — SDL_Renderer primitives, EXIF rotation, TTF text
+├── overlay.cpp/h     — CRT vignette, scanlines, bias lighting
+├── transition.cpp/h  — GLES3 shader transitions (crossfade, wipe, pixelate)
+├── mpv_player.cpp/h  — mpv subprocess (drmDropMaster/drmSetMaster)
+├── image_loader.cpp/h — IMG_Load wrapper (JPEG, PNG, TIFF, WebP, HEIC)
+├── font_render.cpp/h  — TTF_RenderUTF8_Blended glow text
+├── util.cpp/h         — trim, safe_stoi, safe_stof, safe_stoll helpers
+├── shaders/           — GLES3 GLSL vertex/fragment shaders
+├── fonts/             — DejaVuSansMono-Bold.ttf
+├── config.toml        — Default config template
+├── splash.png         — Splash screen image
+```
+- `install.sh`: Bootstrap installer (runs as standard user, sudo for privileged ops).
 - `CHANGELOG.md`: Detailed version history.
 
 ---
