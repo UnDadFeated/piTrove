@@ -10,7 +10,7 @@
  *   • Slideshow – raylib, preload, crossfade, Ken Burns
  */
 
-#define VERSION "8.0.3"
+#define VERSION "8.0.4"
 #define APP_NAME "piTrove"
 
 // Global atomics for headless features
@@ -1148,7 +1148,7 @@ struct Logger {
             }
         }
         std::sort(files.begin(), files.end());
-        while ((int)files.size() >= keep) {
+        while ((int)files.size() > keep) {
             std::filesystem::remove(files.front());
             files.erase(files.begin());
         }
@@ -1292,31 +1292,30 @@ static bool play_video_subprocess(const std::string &path, int volume) {
         // Close inherited fds to avoid holding DRM/EGL resources
         for (int i = 3; i < 1024; ++i) close(i);
 
-        char vol_str[16];
-        snprintf(vol_str, sizeof(vol_str), "%d", volume);
+        // Redirect stdout/stderr to debug log for diagnosis
+        int dbg = open("/home/pi/mpv_debug.log", O_WRONLY|O_CREAT|O_TRUNC, 0644);
+        if (dbg >= 0) { dup2(dbg, STDOUT_FILENO); dup2(dbg, STDERR_FILENO); close(dbg); }
 
+        char cmd[256];
         if (volume > 0) {
+            snprintf(cmd, sizeof(cmd), "--volume=%d", volume);
             execlp("mpv", "mpv",
                 "--vo=drm",
                 "--drm-connector=HDMI-A-1",
-                "--hwdec=no",
-                "--msg-level=all=error",
-                "--no-terminal",
+                "--hwdec=auto",
                 "--no-osc",
-                "--volume", vol_str,
-                path.c_str(),
-                nullptr);
-            execlp("mpv", "mpv",
-                "--vo=drm",
-                "--drm-connector=HDMI-A-1",
-                "--hwdec=no",
-                "--msg-level=all=error",
-                "--no-terminal",
-                "--no-osc",
-                "--no-audio",
+                cmd,
                 path.c_str(),
                 nullptr);
         }
+        execlp("mpv", "mpv",
+            "--vo=drm",
+            "--drm-connector=HDMI-A-1",
+            "--hwdec=auto",
+            "--no-osc",
+            "--no-audio",
+            path.c_str(),
+            nullptr);
         _exit(1);  // exec failed
     } else if (pid > 0) {
         g_video_pid = pid;
@@ -1420,32 +1419,19 @@ static bool is_media(std::string_view path) {
 //  VIDEO DURATION PROBE (ffprobe, v1.8.5)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-// v6.0.3: Forward declaration — run_ffprobe is defined later in this file
+// v6.0.3: Forward declarations — defined later in this file
 static std::string run_ffprobe(const std::vector<std::string>& args, int timeout_ms);
+static std::string ffprobe_field(const std::string& out, const std::string& key);
 
 static double probe_video_duration(const std::string& path, int timeout_ms) {
     if (!std::filesystem::exists(path)) return 0.0;
 
-    // v6.0.3: Use run_ffprobe() instead of popen() — fork+exec+poll+SIGKILL
-    // popen() cannot be killed mid-operation on CIFS; run_ffprobe has proper watchdog
-    std::string json = run_ffprobe({"-v","quiet","-print_format","json","-show_format","-show_streams", path}, timeout_ms);
+    // Only probe format section (header-only) — never scan entire file on CIFS
+    // Minimum 15s timeout for slow network mounts
+    std::string out = run_ffprobe({"-v","quiet","-print_format","default","-show_format", path},
+                                  std::max(timeout_ms, 15000));
 
-    // Find "duration" field in the top-level format object
-    // Format: "duration":"245.123456"
-    std::string dur_key = "\"duration\":";
-    size_t dur_pos = json.find(dur_key);
-    if (dur_pos == std::string::npos) return 0.0;
-    dur_pos += dur_key.size();
-
-    // Skip whitespace
-    while (dur_pos < json.size() && (json[dur_pos] == ' ' || json[dur_pos] == '\t')) dur_pos++;
-
-    // Extract numeric string
-    std::string dur_str;
-    while (dur_pos < json.size() && (isdigit(json[dur_pos]) || json[dur_pos] == '.')) {
-        dur_str += json[dur_pos++];
-    }
-
+    std::string dur_str = ffprobe_field(out, "duration");
     if (dur_str.empty()) return 0.0;
 
     try {
@@ -1630,11 +1616,9 @@ static bool stat_timeout(const std::string& path, struct stat& st, int timeout_m
      state->cv.wait_for(lk, std::chrono::milliseconds(timeout_ms), [&]() { return state->done; });
 
      if (!state->done) {
-         g_logger.debug("stat timeout after %dms for '%s'", timeout_ms, path.c_str());
-        t.detach();
-
-         return false;  // Treat as "file not found" — safe to skip
-     }
+          g_logger.debug("stat timeout after %dms for '%s'", timeout_ms, path.c_str());
+          return false;  // Treat as "file not found" — safe to skip
+      }
      t.join();
      if (*result == 0) st = *st_ptr;
      return *result == 0;
@@ -1760,7 +1744,8 @@ public:
         std::mutex list_mutex;
 
         // Helper for recursive scanning using safe read_dir
-        std::function<void(const std::string&, int)> scan_rec = [&](const std::string& current_dir, int depth) {
+        std::function<void(const std::string&, int)> scan_rec;
+        scan_rec = [&](const std::string& current_dir, int depth) {
             if (depth > max_depth) return;
 
             // 1. Scan files in this directory (with timeout to prevent CIFS hangs)
@@ -3726,6 +3711,10 @@ slide_debug("ADVANCE: fwd=%d cur=%d items_ptr=%d", forward ? 1 : 0, current_inde
 
 
          if (preload_ready.load()) {
+              // v8.0.4: Defer GPU texture upload while video subprocess owns DRM master
+              if (current_is_video.load() && g_video_subprocess_active.load()) {
+                  // Don't consume preload_ready yet — keep it pending until DRM is available
+              } else {
         slide_debug("PRELOAD_READY: valid=%s data=%s", preloaded_img_valid.load() ? "Y" : "N", preloaded_img.data ? "Y" : "N");
          if (preloaded_img_valid.load() && preloaded_img.data) {
              g_logger.info("PRELOAD_READY: valid image received");
@@ -3756,7 +3745,8 @@ slide_debug("ADVANCE: fwd=%d cur=%d items_ptr=%d", forward ? 1 : 0, current_inde
                 }
                 preload_ready.store(false);
             }
-        }
+                      }
+          }
 
     if (fading_in) {
         slide_debug("FADE_CHECK: fading=%d timer=%f dur=%f", fading_in, fade_in_timer, cfg.transition_duration);
@@ -3868,6 +3858,7 @@ slide_debug("ADVANCE: fwd=%d cur=%d items_ptr=%d", forward ? 1 : 0, current_inde
                             current_tex.id = 0;
                         }
                       current_is_video.store(true);
+                      photos_since_video.store(0); // v8.0.4: reset ratio counter on video
                           current_w = cfg.screen_w;
                           current_h = cfg.screen_h;
 
@@ -3880,6 +3871,7 @@ slide_debug("ADVANCE: fwd=%d cur=%d items_ptr=%d", forward ? 1 : 0, current_inde
                         }
                   } else {
                      current_is_video.store(false);
+                     photos_since_video.fetch_add(1); // v8.0.4: track photo count for ratio
                  }
 
             transitioning = false;
@@ -3895,6 +3887,25 @@ slide_debug("ADVANCE: fwd=%d cur=%d items_ptr=%d", forward ? 1 : 0, current_inde
          // FIX v1.9.9: kick off preload for the item after the newly
                    // displayed one. advance() only preloads what was just swapped
                    // in — nothing preloads the successor until we do it here.
+                    // v8.0.4: Enforce video ratio bias in preload-swap path (not just advance())
+                    if (!cfg.play_just_photos && !cfg.play_just_videos) {
+                        int v_per_p = std::max(1, std::min(9, cfg.videos_per_photos));
+                        int photo_threshold = 10 / v_per_p;
+                        if (photos_since_video.load() >= photo_threshold) {
+                            // Scan forward for next video
+                            int ci = current_index.load();
+                            int sz = (int)items_ptr->size();
+                            for (int s = 1; s < sz; s++) {
+                                int vi = (ci + s) % sz;
+                                if ((*items_ptr)[vi].type == "video") {
+                                    next_index.store(vi);
+                                    g_logger.info("RATIO_BIAS: forced video idx=%d after %d photos in preload-swap",
+                                        vi, photos_since_video.load());
+                                    break;
+                                }
+                            }
+                        }
+                    }
                     preload_next();
                     slide_debug("POST_SWAP: preload_kicked cur=%d", frame_next_index);
                     g_logger.info("SWAP_COMPLETE: cur=%d type=%s transitioning=false",
@@ -6339,31 +6350,28 @@ g_logger.init(cfg.log_dir, cfg.verbose ? LogLevel::DEBUG : LogLevel::INFO);
     std::atomic<int> threads_remaining{0};
 
     auto work = [&](int start, int end) {
-            std::thread worker_inner([&, start, end]() {
-                g_logger.info("Worker thread starting: start=%d end=%d subdirs=%zu",
-                    start, end, subdirs.size());
-                try {
-                    std::vector<MediaItem> local_items;
-                    for (int i = start; i < end; i++) {
-                        if (subdirs[i].empty() || subdirs[i][0] == '.') continue;
-                        std::string dir = g_cfg.media_dir + "/" + subdirs[i];
-                        scan_directory(dir, cfg.scan_depth - 1,
-                                       local_items, scan_count);
-                    }
-                    std::lock_guard<std::mutex> lk(items_mtx);
-                    scanned_items.insert(scanned_items.end(),
-                                         std::make_move_iterator(local_items.begin()),
-                                         std::make_move_iterator(local_items.end()));
-                    g_logger.info("Worker scan complete: start=%d end=%d", start, end);
-                } catch (const std::exception& e) {
-                    g_logger.error("Scan worker crashed: %s", e.what());
-                } catch (...) {
-                    g_logger.error("Scan worker crashed (unknown)");
-                }
-            });
-            worker_inner.join();
-            g_logger.info("Worker thread done: start=%d end=%d", start, end);
-            threads_remaining.fetch_sub(1, std::memory_order_release);
+        g_logger.info("Worker thread starting: start=%d end=%d subdirs=%zu",
+            start, end, subdirs.size());
+        try {
+            std::vector<MediaItem> local_items;
+            for (int i = start; i < end; i++) {
+                if (subdirs[i].empty() || subdirs[i][0] == '.') continue;
+                std::string dir = g_cfg.media_dir + "/" + subdirs[i];
+                scan_directory(dir, cfg.scan_depth - 1,
+                               local_items, scan_count);
+            }
+            std::lock_guard<std::mutex> lk(items_mtx);
+            scanned_items.insert(scanned_items.end(),
+                                 std::make_move_iterator(local_items.begin()),
+                                 std::make_move_iterator(local_items.end()));
+            g_logger.info("Worker scan complete: start=%d end=%d", start, end);
+        } catch (const std::exception& e) {
+            g_logger.error("Scan worker crashed: %s", e.what());
+        } catch (...) {
+            g_logger.error("Scan worker crashed (unknown)");
+        }
+        g_logger.info("Worker thread done: start=%d end=%d", start, end);
+        threads_remaining.fetch_sub(1, std::memory_order_release);
     };
    std::vector<std::thread> threads;
     int total_threads = cfg.max_concurrent + 1; // Workers + 1 root thread
@@ -6461,7 +6469,7 @@ g_logger.init(cfg.log_dir, cfg.verbose ? LogLevel::DEBUG : LogLevel::INFO);
     // --- TEMPORAL WINDOW FAILSAFE ---
     // If the window_days filter is too restrictive and returns 0 files,
     // automatically fallback to a full library scan (window_days = 0).
-   if (scanned_items.empty() && cfg.scan_window_days != 0) {
+    if (scanned_items.empty() && cfg.scan_window_days != 0) {
         g_logger.warn("Temporal window found 0 files. Rescanning all media...");
         scan_count.store(0);
         // Join old threads before destroying them (prevent std::terminate)
@@ -6901,11 +6909,13 @@ if (slide.current_is_video) {
                    check_video_subprocess();
                }
 
-              // Always render — video frame decoded above, render() blits video_rt.
-              // Overlays (borders, date, clock, weather) draw on top inside render().
-              BeginDrawing();
-              slide.render();
-              EndDrawing();
+              // During video playback, mpv renders directly to DRM.
+               // Skip Raylib rendering to avoid DRM/EGL conflicts.
+               if (!slide.current_is_video || !g_video_subprocess_active.load()) {
+                   BeginDrawing();
+                   slide.render();
+                   EndDrawing();
+               }
            // v2.9.0: Main loop diagnostic logging
               if (!slide.current_is_video && !slide.transitioning) {
                   static int frame_count = 0;
