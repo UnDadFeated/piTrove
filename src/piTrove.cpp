@@ -3793,14 +3793,14 @@ slide_debug("ADVANCE: fwd=%d cur=%d items_ptr=%d", forward ? 1 : 0, current_inde
                   current_is_video ? 1 : 0, g_video_subprocess_active.load() ? 1 : 0, video_playing ? 1 : 0, transitioning ? 1 : 0);
 
              if (!transitioning) {
-                bool time_up = false;
-                if (current_is_video) {
-                      // v8.0.0: time_up when subprocess mpv exited or stalled >2s without starting
-                      time_up = (!video_playing && item_timer > 2.0);
-              } else {
-                 time_up = (item_timer >= cfg.transition_delay);
-             slide_debug("TIME_UP: t=%f del=%f up=%d", item_timer, cfg.transition_delay, item_timer >= cfg.transition_delay);
-             }
+                 bool time_up = false;
+                 if (current_is_video) {
+                       // v8.5.0: use transition_delay (330s cooldown) for post-video pause
+                       time_up = (!video_playing && item_timer >= cfg.transition_delay);
+               } else {
+                  time_up = (item_timer >= cfg.transition_delay);
+              slide_debug("TIME_UP: t=%f del=%f up=%d", item_timer, cfg.transition_delay, item_timer >= cfg.transition_delay);
+              }
 
             if (time_up) {
                 transitioning = true;
@@ -4353,14 +4353,10 @@ slide_debug("ADVANCE: fwd=%d cur=%d items_ptr=%d", forward ? 1 : 0, current_inde
     // Timer overlay
     if (render_cfg.timer_enabled) {
         char tbuf[32];
-        if (current_is_video) {
-            // v8.2.0: Video playback time is externalized in mpv.
-            // Just display generic indicator if needed.
-            std::snprintf(tbuf, sizeof(tbuf), "---");
-        } else {
-            int rem = std::max(0, (int)(render_cfg.transition_delay - item_timer));
-            std::snprintf(tbuf, sizeof(tbuf), "%ds", rem);
-        }
+         // v8.5.0: render() only called when video subprocess is NOT active (mpv owns DRM)
+         // So always show countdown — covers photo display + post-video cooldown
+         int rem = std::max(0, (int)(render_cfg.transition_delay - item_timer));
+         std::snprintf(tbuf, sizeof(tbuf), "%ds", rem);
         int tx = pad + (int)((sw - pad * 2) * render_cfg.timer_x);
         int ty = pad + (int)((sh - pad * 2) * render_cfg.timer_y);
         Color tcol = overlay_color_from_str(render_cfg.timer_color);
@@ -6720,11 +6716,28 @@ g_logger.init(cfg.log_dir, cfg.verbose ? LogLevel::DEBUG : LogLevel::INFO);
         }
     }
 
+    // v8.5.0: Robust entropy source for shuffle — reads /dev/urandom + combines multiple sources
+    auto make_seed = []() -> unsigned long long {
+        unsigned long long seed = 0;
+        {
+            FILE* f = fopen("/dev/urandom", "r");
+            if (f) { unsigned char buf[8]; if (fread(buf, 1, 8, f) == 8) { for (int i = 0; i < 8; i++) seed = (seed << 8) | buf[i]; } fclose(f); }
+        }
+        seed ^= (unsigned long long)(uintptr_t)&make_seed;
+        seed ^= (unsigned long long)getpid() << 32;
+        seed ^= (unsigned long long)time(nullptr) * 2654435761ULL;
+        struct timespec ts; clock_gettime(CLOCK_MONOTONIC, &ts); seed ^= ts.tv_nsec;
+        return seed ? seed : (unsigned long long)time(nullptr);
+    };
+
     // Randomize photo order on every launch
     if (!active_photos.empty()) {
-        std::random_device rd;
-        std::mt19937 g(rd());
-        std::shuffle(active_photos.begin(), active_photos.end(), g);
+        std::mt19937_64 rng(make_seed());
+        std::shuffle(active_photos.begin(), active_photos.end(), rng);
+    }
+    if (!active_videos.empty()) {
+        std::mt19937_64 rng_v(make_seed() ^ 0xDEADBEEF);
+        std::shuffle(active_videos.begin(), active_videos.end(), rng_v);
     }
 
     std::vector<MediaItem> active_items;
@@ -6735,7 +6748,8 @@ g_logger.init(cfg.log_dir, cfg.verbose ? LogLevel::DEBUG : LogLevel::INFO);
         // Only videos
         active_items = std::move(active_videos);
     } else {
-        // Interleave videos into the photo stream (30% video ratio: 3 per cycle)
+        // v8.5.0: Interleave videos into the photo stream per config ratio, then shuffle combined list
+        // Uses videos_per_photos from config (e.g. 10 = 3 videos per 7 photos = 30%)
         int cycle_size = std::max(4, g_cfg.videos_per_photos);
         int photos_per_cycle = cycle_size - 3;
         size_t p_idx = 0, v_idx = 0;
@@ -6746,6 +6760,11 @@ g_logger.init(cfg.log_dir, cfg.verbose ? LogLevel::DEBUG : LogLevel::INFO);
             for (int i = 0; i < 3 && v_idx < active_videos.size(); i++) {
                 active_items.push_back(active_videos[v_idx++]);
             }
+        }
+        // Final shuffle of combined list ensures items don't appear in the same order every boot
+        {
+            std::mt19937_64 rng_final(make_seed() ^ 0xBEEFCAFE);
+            std::shuffle(active_items.begin(), active_items.end(), rng_final);
         }
     }
 
