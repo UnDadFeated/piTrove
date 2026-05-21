@@ -1,5 +1,17 @@
 # Changelog
 
+## v8.5.0 — mpv native OSD with matte accounting (May 20, 2026)
+
+### Added
+- **mpv native OSD overlay** — Videos now show `filename.ext - MM:SS` in lower-left corner via mpv's built-in `--osd-status-msg`. Positioned below the matte border (48px default) + 8px padding.
+
+### Changed
+- **OSD font size** — Set to 10 for unobtrusive text that doesn't compete with video content.
+- **OSD margins** — Automatically offset by `matting_size + 8` so the text appears below the matte border.
+
+### Fixed
+- **Video filename invisible** — Restored `--osd-status-msg` with `--no-osd-bar` (no dark progress bar, only the text overlay).
+
 ## v8.4.0 — Clean fullscreen video playback (May 20, 2026)
 
 ### Fixed
