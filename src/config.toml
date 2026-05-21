@@ -1,0 +1,93 @@
+# ==========================================
+# piTrove Configuration File (v7.1.1)
+# ==========================================
+
+[paths]
+media_dir = /mnt/nas
+cache_dir = /home/pi/piTrove/cache
+log_dir = /home/pi/piTrove/logs
+
+[display]
+rotation = 0
+splash_file = src/splash.png
+splash_overlay_y = 0.5
+auto_display_rotation = 1
+
+[slideshow]
+shuffle = 1
+transition_delay = 10.0
+transition_duration = 1.5
+slideshow_fps = 30
+transition_effect = "crossfade"
+ken_burns = 0
+ken_burns_speed = 0.1
+matting = 1
+matting_size = 48
+cooldown_days = 330
+brightness_auto = 0
+brightness_auto_min = 50
+brightness_auto_max = 100
+bias_lighting = 1
+ bias_anim_speed = 0.5
+ bias_anim_style = "edge_glow"
+ bias_color_mode = "auto"
+ ken_burns_zoom = 0.15
+ bias_strength = 110
+ 
+ [scan]
+recursive = 1
+depth = 10
+max_concurrent = 4
+window_days = 5
+ignore_folders = ["@eaDir", "@Recycle", "Thumbs.db"]
+
+[sqlite]
+mmap_size = 67108864
+
+[log]
+level = info
+
+[overlay]
+timer_enabled = 1
+timer_x = 0.94
+timer_y = 0.03
+timer_font_size = 12
+timer_color = yellow
+filename_enabled = 1
+filename_x = 0.04
+filename_y = 0.966
+count_enabled = 0
+videos_per_photos = 3
+play_just_photos = 0
+play_just_videos = 0
+sleep_time = ""
+wake_time = ""
+
+[date_overlay]
+enabled = 0
+text = "%Y-%m-%d"
+x = 0.1
+y = 0.08
+font_size = 20
+color = cyan
+
+[touch]
+enabled = 0
+
+[collage]
+enabled = 0
+cols = 2
+rows = 2
+
+[video]
+volume = 0
+probe_timeout = 5
+
+[dashboard]
+weather_enabled = 0
+weather_lat = -999.0
+weather_lon = -999.0
+
+[remote]
+http_enabled = 0
+http_port = 8080

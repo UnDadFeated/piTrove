@@ -10,7 +10,7 @@
  *   • Slideshow – raylib, preload, crossfade, Ken Burns
  */
 
-#define VERSION "8.0.4"
+#define VERSION "8.0.3"
 #define APP_NAME "piTrove"
 
 // Global atomics for headless features
@@ -1292,30 +1292,31 @@ static bool play_video_subprocess(const std::string &path, int volume) {
         // Close inherited fds to avoid holding DRM/EGL resources
         for (int i = 3; i < 1024; ++i) close(i);
 
-        // Redirect stdout/stderr to debug log for diagnosis
-        int dbg = open("/home/pi/mpv_debug.log", O_WRONLY|O_CREAT|O_TRUNC, 0644);
-        if (dbg >= 0) { dup2(dbg, STDOUT_FILENO); dup2(dbg, STDERR_FILENO); close(dbg); }
+        char vol_str[16];
+        snprintf(vol_str, sizeof(vol_str), "%d", volume);
 
-        char cmd[256];
         if (volume > 0) {
-            snprintf(cmd, sizeof(cmd), "--volume=%d", volume);
             execlp("mpv", "mpv",
                 "--vo=drm",
                 "--drm-connector=HDMI-A-1",
-                "--hwdec=auto",
+                "--hwdec=no",
+                "--msg-level=all=error",
+                "--no-terminal",
                 "--no-osc",
-                cmd,
+                "--volume", vol_str,
+                path.c_str(),
+                nullptr);
+            execlp("mpv", "mpv",
+                "--vo=drm",
+                "--drm-connector=HDMI-A-1",
+                "--hwdec=no",
+                "--msg-level=all=error",
+                "--no-terminal",
+                "--no-osc",
+                "--no-audio",
                 path.c_str(),
                 nullptr);
         }
-        execlp("mpv", "mpv",
-            "--vo=drm",
-            "--drm-connector=HDMI-A-1",
-            "--hwdec=auto",
-            "--no-osc",
-            "--no-audio",
-            path.c_str(),
-            nullptr);
         _exit(1);  // exec failed
     } else if (pid > 0) {
         g_video_pid = pid;
@@ -1419,19 +1420,32 @@ static bool is_media(std::string_view path) {
 //  VIDEO DURATION PROBE (ffprobe, v1.8.5)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-// v6.0.3: Forward declarations — defined later in this file
+// v6.0.3: Forward declaration — run_ffprobe is defined later in this file
 static std::string run_ffprobe(const std::vector<std::string>& args, int timeout_ms);
-static std::string ffprobe_field(const std::string& out, const std::string& key);
 
 static double probe_video_duration(const std::string& path, int timeout_ms) {
     if (!std::filesystem::exists(path)) return 0.0;
 
-    // Only probe format section (header-only) — never scan entire file on CIFS
-    // Minimum 15s timeout for slow network mounts
-    std::string out = run_ffprobe({"-v","quiet","-print_format","default","-show_format", path},
-                                  std::max(timeout_ms, 15000));
+    // v6.0.3: Use run_ffprobe() instead of popen() — fork+exec+poll+SIGKILL
+    // popen() cannot be killed mid-operation on CIFS; run_ffprobe has proper watchdog
+    std::string json = run_ffprobe({"-v","quiet","-print_format","json","-show_format","-show_streams", path}, timeout_ms);
 
-    std::string dur_str = ffprobe_field(out, "duration");
+    // Find "duration" field in the top-level format object
+    // Format: "duration":"245.123456"
+    std::string dur_key = "\"duration\":";
+    size_t dur_pos = json.find(dur_key);
+    if (dur_pos == std::string::npos) return 0.0;
+    dur_pos += dur_key.size();
+
+    // Skip whitespace
+    while (dur_pos < json.size() && (json[dur_pos] == ' ' || json[dur_pos] == '\t')) dur_pos++;
+
+    // Extract numeric string
+    std::string dur_str;
+    while (dur_pos < json.size() && (isdigit(json[dur_pos]) || json[dur_pos] == '.')) {
+        dur_str += json[dur_pos++];
+    }
+
     if (dur_str.empty()) return 0.0;
 
     try {
@@ -6909,13 +6923,11 @@ if (slide.current_is_video) {
                    check_video_subprocess();
                }
 
-              // During video playback, mpv renders directly to DRM.
-               // Skip Raylib rendering to avoid DRM/EGL conflicts.
-               if (!slide.current_is_video || !g_video_subprocess_active.load()) {
-                   BeginDrawing();
-                   slide.render();
-                   EndDrawing();
-               }
+              // Always render — video frame decoded above, render() blits video_rt.
+              // Overlays (borders, date, clock, weather) draw on top inside render().
+              BeginDrawing();
+              slide.render();
+              EndDrawing();
            // v2.9.0: Main loop diagnostic logging
               if (!slide.current_is_video && !slide.transitioning) {
                   static int frame_count = 0;
