@@ -1,5 +1,14 @@
 # Changelog
 
+## v9.0.12 — stb_image loader, TRACE logging, fix SDL/stb free mismatch (May 21, 2026)
+
+- Replace SDL_image IMG_Load with stb_image stbi_load for all image loading
+- Copy stb pixels into malloc'd buffer to fix SDL/stb free mismatch crash
+- Add libstb-dev dependency to CMakeLists.txt
+- Add TRACE logging to all source files for debugging
+- Set g_database_complete after cache build to prevent crash purge
+- Add g_crash_cache_dir initialization in main
+
 ## v9.0.1 — Fix scanner hanging on Synology @eaDir/@Recycle (May 21, 2026)
 
 ### Fixed
