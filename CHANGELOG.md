@@ -1,5 +1,11 @@
 # Changelog
 
+## v10.3.8 — EXIF Rotation Multi-IFD & Camera EXIF Screenshot Filter (May 22, 2026)
+
+### Fixed
+- **Sideways photos** — `read_exif_rotation()` now checks both `EXIF_IFD_0` and `EXIF_IFD_EXIF` for orientation tag. Many cameras (especially phones) write orientation to `EXIF_IFD_EXIF`, causing photos to display sideways when only checking `EXIF_IFD_0`.
+- **Screenshots bypassing filter** — `classify_media_item()` now requires camera-specific EXIF tags (Make, Model, ExposureTime, FNumber, DateTimeOriginal) before applying the 90/10 people/animals heuristic. Screenshots saved as `.jpg`/`.jpeg`/`.heic` without camera EXIF are classified as documents and filtered out when "Keep People" or "Keep Animals" is active.
+
 ## v10.3.7 — Graceful Shutdown & Collage Filename Fix (May 22, 2026)
 
 ### Fixed
