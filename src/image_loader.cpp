@@ -90,6 +90,14 @@ std::shared_ptr<ImageData> ImageLoader::load(const std::string& path) {
     result->avg_g = avg.g;
     result->avg_b = avg.b;
 
+    // Sample 4 edge colors for bias gradient (0=top, 1=bottom, 2=left, 3=right)
+    for (int e = 0; e < 4; e++) {
+        GpuColor ec = Renderer::get_edge_average_color(surf, 8, e);
+        result->edge_r[e] = ec.r;
+        result->edge_g[e] = ec.g;
+        result->edge_b[e] = ec.b;
+    }
+
     return result;
 }
 

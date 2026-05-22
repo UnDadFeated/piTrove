@@ -62,6 +62,7 @@ public:
     void clear(uint8_t r = 0, uint8_t g = 0, uint8_t b = 0, uint8_t a = 255);
     void present();
     void draw_matte_borders(const SDL_Rect& fit_rect);
+    void draw_bias_lighting(const SDL_Rect& fit_rect, const uint8_t edge_r[4], const uint8_t edge_g[4], const uint8_t edge_b[4], int bias_strength, float item_timer, float anim_speed, const std::string& style);
     void draw_solid_border(int width, uint8_t r = 0, uint8_t g = 0, uint8_t b = 0);
 
     // Splash Screen methods

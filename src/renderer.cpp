@@ -309,6 +309,82 @@ void Renderer::draw_matte_borders(const SDL_Rect& fit_rect) {
     }
 }
 
+void Renderer::draw_bias_lighting(const SDL_Rect& fit_rect, const uint8_t edge_r[4], const uint8_t edge_g[4], const uint8_t edge_b[4], int bias_strength, float item_timer, float anim_speed, const std::string& style) {
+    if (!sdl_renderer) return;
+    int sw = screen_w, sh = screen_h;
+    int steps = 8;
+    float pulse = 1.0f;
+    if (style == "pulse" || style == "edge_glow" || style == "breathe") {
+        float t = item_timer * anim_speed;
+        if (style == "breathe") {
+            pulse = 0.7f + 0.3f * (0.5f + 0.5f * sinf(t * 3.14159f));
+        } else {
+            pulse = 0.8f + 0.2f * (0.5f + 0.5f * sinf(t * 3.14159f * 2));
+        }
+    }
+    int strength = (bias_strength * pulse) / 100;
+    // Top gradient (edge 0)
+    if (fit_rect.y > 0) {
+        int mat_h = fit_rect.y;
+        for (int s = 0; s < steps; s++) {
+            float t2 = (float)s / steps;
+            int alpha = (int)(255.0f * (1.0f - t2) * (strength / 255.0f));
+            if (alpha <= 0) break;
+            int band_h = (mat_h + steps - 1 - s) / steps;
+            if (band_h <= 0) band_h = 1;
+            int y = fit_rect.y - s * band_h;
+            SDL_SetRenderDrawColor(sdl_renderer, (uint8_t)(edge_r[0] * strength / 255), (uint8_t)(edge_g[0] * strength / 255), (uint8_t)(edge_b[0] * strength / 255), alpha);
+            SDL_Rect r = {0, y, sw, band_h};
+            SDL_RenderFillRect(sdl_renderer, &r);
+        }
+    }
+    // Bottom gradient (edge 1)
+    if (fit_rect.y + fit_rect.h < sh) {
+        int mat_h = sh - (fit_rect.y + fit_rect.h);
+        for (int s = 0; s < steps; s++) {
+            float t2 = (float)s / steps;
+            int alpha = (int)(255.0f * (1.0f - t2) * (strength / 255.0f));
+            if (alpha <= 0) break;
+            int band_h = (mat_h + steps - 1 - s) / steps;
+            if (band_h <= 0) band_h = 1;
+            int y = fit_rect.y + fit_rect.h + s * band_h;
+            SDL_SetRenderDrawColor(sdl_renderer, (uint8_t)(edge_r[1] * strength / 255), (uint8_t)(edge_g[1] * strength / 255), (uint8_t)(edge_b[1] * strength / 255), alpha);
+            SDL_Rect r = {0, y, sw, band_h};
+            SDL_RenderFillRect(sdl_renderer, &r);
+        }
+    }
+    // Left gradient (edge 2)
+    if (fit_rect.x > 0) {
+        int mat_w = fit_rect.x;
+        for (int s = 0; s < steps; s++) {
+            float t2 = (float)s / steps;
+            int alpha = (int)(255.0f * (1.0f - t2) * (strength / 255.0f));
+            if (alpha <= 0) break;
+            int band_w = (mat_w + steps - 1 - s) / steps;
+            if (band_w <= 0) band_w = 1;
+            int x = fit_rect.x - s * band_w;
+            SDL_SetRenderDrawColor(sdl_renderer, (uint8_t)(edge_r[2] * strength / 255), (uint8_t)(edge_g[2] * strength / 255), (uint8_t)(edge_b[2] * strength / 255), alpha);
+            SDL_Rect r = {x, 0, band_w, sh};
+            SDL_RenderFillRect(sdl_renderer, &r);
+        }
+    }
+    // Right gradient (edge 3)
+    if (fit_rect.x + fit_rect.w < sw) {
+        int mat_w = sw - (fit_rect.x + fit_rect.w);
+        for (int s = 0; s < steps; s++) {
+            float t2 = (float)s / steps;
+            int alpha = (int)(255.0f * (1.0f - t2) * (strength / 255.0f));
+            if (alpha <= 0) break;
+            int band_w = (mat_w + steps - 1 - s) / steps;
+            if (band_w <= 0) band_w = 1;
+            int x = fit_rect.x + fit_rect.w + s * band_w;
+            SDL_SetRenderDrawColor(sdl_renderer, (uint8_t)(edge_r[3] * strength / 255), (uint8_t)(edge_g[3] * strength / 255), (uint8_t)(edge_b[3] * strength / 255), alpha);
+            SDL_Rect r = {x, 0, band_w, sh};
+            SDL_RenderFillRect(sdl_renderer, &r);
+        }
+    }
+}
+
 void Renderer::draw_solid_border(int width, uint8_t r, uint8_t g, uint8_t b) {
     if (width <= 0) return;
     
