@@ -183,7 +183,6 @@ static void watchman_loop() {
 }
 
 static void draw_phase_splash(int phase, int progress, int total, int done, const char* label, int dot_counter, const char* filename = nullptr, bool animated = true) {
-    g_logger.info("[TRACE] draw_phase_splash phase=%d progress=%d total=%d done=%d label=%s", phase, progress, total, done, label);
     g_renderer.render_splash(phase, progress, total, done, label, dot_counter, filename, animated);
 }
 
@@ -522,6 +521,7 @@ int main(int argc, char** argv) {
     g_transition->set_renderer(&g_renderer);
     fprintf(stderr, "TRACE: new OverlayManager\n"); fflush(stderr);
     g_overlay = new OverlayManager(&g_renderer);
+    g_overlay->init();
     fprintf(stderr, "TRACE: g_logger.info\n"); fflush(stderr);
     g_logger.info("Starting slideshow loop with %d items", (int)g_eligible.size());
 

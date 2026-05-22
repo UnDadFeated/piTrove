@@ -24,7 +24,6 @@ void TransitionEngine::start(TransitionEffect effect, float duration, int direct
 }
 
 void TransitionEngine::update(float delta_time) {
-    g_logger.info("TRACE: TransitionEngine::update active=%d delta=%f elapsed=%f progress=%f", active, delta_time, elapsed, config.progress);
     if (!active) return;
     
     elapsed += delta_time;
