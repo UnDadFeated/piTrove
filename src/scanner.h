@@ -50,7 +50,7 @@ public:
     MediaScanner() = default;
 
   bool is_month_in_window(const std::string& dirname, int window_days);
-    std::vector<std::string> scan(const std::string& directory,
+    std::vector<MediaItem> scan(const std::string& directory,
                                    const std::vector<std::string>& exts,
                                    int window_days,
                                    int max_depth,
@@ -60,10 +60,11 @@ public:
 
 private:
     void process_entry(const std::string& path_str,
+                       const struct stat& st,
                        const std::vector<std::string>& exts,
                        int window_days,
                        std::mutex& list_mutex,
-                       std::vector<std::string>& all_files);
+                       std::vector<MediaItem>& all_items);
 };
 
 // Global scanner interface

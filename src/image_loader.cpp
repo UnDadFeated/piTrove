@@ -59,25 +59,16 @@ std::shared_ptr<ImageData> ImageLoader::load(const std::string& path) {
         return result;
     }
 
-    // Copy into malloc'd buffer so SDL can manage it (stbi uses its own allocator)
-    size_t psize = (size_t)w * h * 4;
-    uint8_t* sdl_pixels = (uint8_t*)malloc(psize);
-    if (!sdl_pixels) {
-        stbi_image_free(pixels);
-        g_logger.error("malloc failed for surface: %s", path.c_str());
-        return result;
-    }
-    memcpy(sdl_pixels, pixels, psize);
-    stbi_image_free(pixels);
-
-    SDL_Surface* surf = SDL_CreateRGBSurfaceWithFormatFrom(
-        (void*)sdl_pixels, w, h, 32, w * 4, SDL_PIXELFORMAT_RGBA32
-    );
+    SDL_Surface* surf = SDL_CreateRGBSurfaceWithFormat(0, w, h, 32, SDL_PIXELFORMAT_RGBA32);
     if (!surf) {
-        free(sdl_pixels);
-        g_logger.error("SDL_CreateRGBSurfaceFrom failed for: %s", path.c_str());
+        stbi_image_free(pixels);
+        g_logger.error("SDL_CreateRGBSurfaceWithFormat failed for: %s", path.c_str());
         return result;
     }
+
+    size_t psize = (size_t)w * h * 4;
+    memcpy(surf->pixels, pixels, psize);
+    stbi_image_free(pixels);
 
     result->surface = surf;
     result->width = w;

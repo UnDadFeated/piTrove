@@ -23,10 +23,10 @@ extern std::atomic<bool> g_database_complete;
 extern std::string g_crash_cache_dir;
 
 enum class LogLevel {
-    INFO,
-    WARN,
-    ERROR,
-    DEBUG
+    DEBUG = 0,
+    INFO = 1,
+    WARN = 2,
+    ERROR = 3
 };
 
 struct Logger {

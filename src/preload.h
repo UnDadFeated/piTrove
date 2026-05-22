@@ -18,6 +18,12 @@ struct PreloadedItem {
     RawImage raw;
     std::string path;
     bool valid = false;
+
+    PreloadedItem() = default;
+    PreloadedItem(PreloadedItem&&) noexcept = default;
+    PreloadedItem& operator=(PreloadedItem&&) noexcept = default;
+    PreloadedItem(const PreloadedItem&) = delete;
+    PreloadedItem& operator=(const PreloadedItem&) = delete;
 };
 
 class PreloadQueue {

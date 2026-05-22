@@ -17,6 +17,40 @@ struct RawImage {
     ImageFormat format = ImageFormat::Unknown;
     bool valid = false;
 
+    RawImage() = default;
+
+    // Move constructor
+    RawImage(RawImage&& other) noexcept
+        : pixels(other.pixels),
+          width(other.width),
+          height(other.height),
+          channels(other.channels),
+          format(other.format),
+          valid(other.valid) {
+        other.pixels = nullptr;
+        other.valid = false;
+    }
+
+    // Move assignment
+    RawImage& operator=(RawImage&& other) noexcept {
+        if (this != &other) {
+            free(pixels);
+            pixels = other.pixels;
+            width = other.width;
+            height = other.height;
+            channels = other.channels;
+            format = other.format;
+            valid = other.valid;
+            other.pixels = nullptr;
+            other.valid = false;
+        }
+        return *this;
+    }
+
+    // Delete copy operations to prevent shallow copy crashes
+    RawImage(const RawImage&) = delete;
+    RawImage& operator=(const RawImage&) = delete;
+
     ~RawImage() {
         free(pixels);
         pixels = nullptr;
@@ -32,6 +66,60 @@ struct ImageData {
     SDL_Texture* texture = nullptr;
     // Average color for bias lighting
     uint8_t avg_r = 0, avg_g = 0, avg_b = 0;
+
+    ImageData() = default;
+
+    // Destructor to safely release SDL surface and texture
+    ~ImageData() {
+        if (texture) {
+            SDL_DestroyTexture(texture);
+            texture = nullptr;
+        }
+        if (surface) {
+            SDL_FreeSurface(surface);
+            surface = nullptr;
+        }
+    }
+
+    // Delete copy operations to prevent shallow copy double-free crashes
+    ImageData(const ImageData&) = delete;
+    ImageData& operator=(const ImageData&) = delete;
+
+    // Support move operations
+    ImageData(ImageData&& other) noexcept
+        : width(other.width),
+          height(other.height),
+          exif_rotation(other.exif_rotation),
+          valid(other.valid),
+          surface(other.surface),
+          texture(other.texture),
+          avg_r(other.avg_r),
+          avg_g(other.avg_g),
+          avg_b(other.avg_b) {
+        other.surface = nullptr;
+        other.texture = nullptr;
+        other.valid = false;
+    }
+
+    ImageData& operator=(ImageData&& other) noexcept {
+        if (this != &other) {
+            if (texture) SDL_DestroyTexture(texture);
+            if (surface) SDL_FreeSurface(surface);
+            width = other.width;
+            height = other.height;
+            exif_rotation = other.exif_rotation;
+            valid = other.valid;
+            surface = other.surface;
+            texture = other.texture;
+            avg_r = other.avg_r;
+            avg_g = other.avg_g;
+            avg_b = other.avg_b;
+            other.surface = nullptr;
+            other.texture = nullptr;
+            other.valid = false;
+        }
+        return *this;
+    }
 };
 
 class ImageLoader {
