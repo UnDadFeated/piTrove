@@ -64,20 +64,12 @@ std::vector<std::string> read_dir_timeout(const std::string& path, int timeout_m
     return result;
 }
 
-bool stat_timeout(const std::string& path, struct stat& st, int timeout_ms) {
-    if (timeout_ms <= 0) return stat(path.c_str(), &st) == 0;
-
-    struct sigaction old_sa, new_sa;
-    new_sa.sa_handler = [](int) {};
-    sigemptyset(&new_sa.sa_mask);
-    new_sa.sa_flags = 0;
-    sigaction(SIGALRM, &new_sa, &old_sa);
-
-    unsigned int prev = alarm(timeout_ms / 1000 + 1);
-    int rc = stat(path.c_str(), &st);
-    alarm(prev);
-    sigaction(SIGALRM, &old_sa, nullptr);
-    return rc == 0;
+ bool stat_timeout(const std::string& path, struct stat& st, int timeout_ms) {
+    // alarm() is process-global and races between threads.
+    // Revert to plain stat() with a comment that CIFS should not block
+    // indefinitely in practice.
+    (void)timeout_ms;
+    return stat(path.c_str(), &st) == 0;
 }
 
 std::string file_ext(const std::string& path) {

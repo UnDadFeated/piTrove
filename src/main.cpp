@@ -289,7 +289,8 @@ static std::vector<MediaItem> filter_playlist(const std::vector<MediaItem>& item
 
     if (on_this_day) {
         std::time_t t = std::time(nullptr);
-        std::tm* today = std::localtime(&t);
+        struct tm tm_buf;
+        std::tm* today = localtime_r(&t, &tm_buf);
         int today_m = today ? (today->tm_mon + 1) : 5;
         int today_d = today ? today->tm_mday : 22;
 
@@ -365,14 +366,22 @@ static std::vector<MediaItem> filter_playlist(const std::vector<MediaItem>& item
                 bool is_doc = false;
                 classify_media_item(item, has_people, has_animals, is_doc);
                 
+                // Snapshot config values under lock to avoid data race
+                bool snap_show_people, snap_keep_animals;
+                {
+                    std::lock_guard<std::mutex> lk(g_config_mtx);
+                    snap_show_people = g_cfg.show_people_faces;
+                    snap_keep_animals = g_cfg.keep_animals;
+                }
+
                 if (is_doc) {
                     // Skip documents/screenshots if filtering is active
-                    if (g_cfg.show_people_faces || g_cfg.keep_animals) {
+                    if (snap_show_people || snap_keep_animals) {
                         continue;
                     }
                 } else {
-                    bool filter_people = g_cfg.show_people_faces;
-                    bool filter_animals = g_cfg.keep_animals;
+                    bool filter_people = snap_show_people;
+                    bool filter_animals = snap_keep_animals;
                     
                     if (filter_people || filter_animals) {
                         bool keep = false;
@@ -1060,7 +1069,7 @@ int main(int argc, char** argv) {
         std::string path = g_eligible[current_idx].path;
         if (!file_exists(path)) {
             g_logger.warn("MISSING_FILE: First media file is missing/deleted from disk: %s", path.c_str());
-            g_cache->mark_bad(path);
+            if (g_cache) g_cache->mark_bad(path);
 
             // Erase from g_scanned_items and g_eligible
             auto it_scanned = std::remove_if(g_scanned_items.begin(), g_scanned_items.end(),
@@ -1552,11 +1561,25 @@ int main(int argc, char** argv) {
                 rendered = true;
             } else if (current_tex) {
                 g_renderer.clear(0, 0, 0, 255);
-                if (g_cfg.bias_lighting && current_data) {
+                // Snapshot config for render frame to avoid data race
+                bool snap_bias, snap_matting;
+                int snap_bias_strength, snap_border_width;
+                float snap_anim_speed;
+                std::string snap_anim_style;
+                {
+                    std::lock_guard<std::mutex> lk(g_config_mtx);
+                    snap_bias = g_cfg.bias_lighting;
+                    snap_matting = g_cfg.matting;
+                    snap_bias_strength = g_cfg.bias_strength;
+                    snap_border_width = g_cfg.border_width;
+                    snap_anim_speed = g_cfg.bias_anim_speed;
+                    snap_anim_style = g_cfg.bias_anim_style;
+                }
+                if (snap_bias && current_data) {
                     g_renderer.draw_bias_lighting(fit_rect,
                         current_data->avg_r, current_data->avg_g, current_data->avg_b,
-                        g_cfg.bias_strength, (float)item_timer, g_cfg.bias_anim_speed, g_cfg.bias_anim_style, g_cfg.border_width);
-                } else if (g_cfg.matting) {
+                        snap_bias_strength, (float)item_timer, snap_anim_speed, snap_anim_style, snap_border_width);
+                } else if (snap_matting) {
                     g_renderer.draw_matte_borders(fit_rect);
                 }
                 SDL_FRect dst = {(float)fit_rect.x, (float)fit_rect.y, (float)fit_rect.w, (float)fit_rect.h};
