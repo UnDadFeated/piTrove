@@ -10,6 +10,7 @@
 #include "preload.h"
 #include "mpv_player.h"
 #include "tui.h"
+#include "http_server.h"
 
 #include <SDL3/SDL.h>
 #include <SDL3_image/SDL_image.h>
@@ -32,10 +33,10 @@ static TransitionEngine* g_transition = nullptr;
 static OverlayManager* g_overlay = nullptr;
 
 // Background Watchman & Dynamic Playlist State
-static std::mutex g_playlist_mtx;
-static std::vector<MediaItem> g_scanned_items;
-static std::vector<MediaItem> g_eligible;
-static int current_idx = 0;
+std::mutex g_playlist_mtx;
+std::vector<MediaItem> g_scanned_items;
+std::vector<MediaItem> g_eligible;
+int current_idx = 0;
 static std::thread g_watchman_thread;
 static std::atomic<bool> g_watchman_running{false};
 
@@ -83,98 +84,202 @@ static bool is_item_in_seasonal_window(const MediaItem& item, int window_days) {
     return is_in_seasonal_window(item.filename, window_days);
 }
 
-static void classify_media_item(const MediaItem& item, bool& has_people, bool& has_animals, bool& is_doc) {
-    has_people = false;
-    has_animals = false;
-    is_doc = false;
+static bool should_be_twin_portrait(int idx, int size) {
+    bool twin_enabled = false;
+    {
+        std::lock_guard<std::mutex> lock(g_config_mtx);
+        twin_enabled = g_cfg.twin_portrait_enabled;
+    }
+    if (!twin_enabled || size < 2) return false;
 
-    // Convert filename and parent directory path to lowercase
-    std::string path_lower = item.path;
-    std::transform(path_lower.begin(), path_lower.end(), path_lower.begin(), ::tolower);
-    std::string name_lower = item.filename;
-    std::transform(name_lower.begin(), name_lower.end(), name_lower.begin(), ::tolower);
+    // Check if the current item is portrait
+    const auto& item1 = g_eligible[idx];
+    if (item1.type == "video" || item1.height <= item1.width || item1.height <= 0) return false;
 
-    // List of common document / screenshot / web-grab indicators
-    static const std::vector<std::string> doc_keywords = {
-        "screenshot", "screen shot", "scan", "document", "invoice", "receipt", "bill", "ticket", "paper", 
-        "page", "chart", "diagram", "slide", "text", "whatsapp", "telegram", "download", "discord", 
-        "logo", "banner", "icon", "wallpaper", "avatar", "clipart", "pdf", "docx", "txt", "xlsx"
-    };
+    // Check if the next item is portrait
+    const auto& item2 = g_eligible[(idx + 1) % size];
+    if (item2.type == "video" || item2.height <= item2.width || item2.height <= 0) return false;
 
-    // List of common people / faces / selfies / portraits keywords
-    static const std::vector<std::string> people_keywords = {
-        "people", "person", "man", "woman", "kid", "child", "baby", "face", "selfie", "family", "portrait", 
-        "wedding", "party", "graduation", "trip", "vacation", "group", "friends", "us", "me", "dad", "mom", 
-        "brother", "sister", "grandpa", "grandma", "uncle", "aunt", "cousin", "son", "daughter", "wife", 
-        "husband", "bf", "gf", "boy", "girl", "christmas", "thanksgiving", "holiday", "birthday", "self"
-    };
+    return true;
+}
 
-    // List of common animal keywords
-    static const std::vector<std::string> animal_keywords = {
-        "cat", "dog", "pet", "animal", "bird", "fish", "horse", "cow", "sheep", "pig", "chicken", "duck", 
-        "wildlife", "zoo", "safari", "squirrel", "rabbit", "deer", "fox", "bear", "tiger", "lion", "elephant", 
-        "puppy", "kitten", "paw", "kitty", "doggie"
-    };
+static void calculate_fit_rect_in_area(int img_w, int img_h, int area_x, int area_y, int area_w, int area_h, SDL_Rect& out_rect) {
+    bool has_matting = false;
+    bool has_bias = false;
+    int mat_size = 0;
+    int border_w = 0;
+    {
+        std::lock_guard<std::mutex> lock(g_config_mtx);
+        has_matting = g_cfg.matting;
+        has_bias = g_cfg.bias_lighting;
+        mat_size = g_cfg.matting_size;
+        border_w = g_cfg.border_width;
+    }
 
-    // 1. Precise keyword matching in path or filename
-    for (const auto& kw : doc_keywords) {
-        if (path_lower.find(kw) != std::string::npos) {
-            is_doc = true;
-            return; // If it's a document/screenshot, classify and return immediately
+    int effective_x = area_x;
+    int effective_y = area_y;
+    int effective_w = area_w;
+    int effective_h = area_h;
+
+    if (has_matting || has_bias) {
+        int mat = mat_size;
+        if (has_bias) {
+            mat += border_w;
         }
+        effective_x += mat;
+        effective_y += mat;
+        effective_w -= mat * 2;
+        effective_h -= mat * 2;
+        if (effective_w < 1) effective_w = 1;
+        if (effective_h < 1) effective_h = 1;
     }
+    float scale = std::min((float)effective_w / img_w, (float)effective_h / img_h);
+    out_rect.w = (int)(img_w * scale);
+    out_rect.h = (int)(img_h * scale);
+    out_rect.x = effective_x + (effective_w - out_rect.w) / 2;
+    out_rect.y = effective_y + (effective_h - out_rect.h) / 2;
+}
 
-    for (const auto& kw : people_keywords) {
-        if (path_lower.find(kw) != std::string::npos) {
-            has_people = true;
+static SDL_Texture* render_state_to_texture(
+    SDL_Renderer* renderer,
+    int sw, int sh,
+    const std::shared_ptr<ImageData>& primary,
+    const std::shared_ptr<ImageData>& twin,
+    double item_timer
+) {
+    // Create a target texture
+    SDL_Texture* target = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_RGBA8888, SDL_TEXTUREACCESS_TARGET, sw, sh);
+    if (!target) return nullptr;
+
+    // Set render target to our texture
+    SDL_SetRenderTarget(renderer, target);
+
+    // Clear target texture to black
+    SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
+    SDL_RenderClear(renderer);
+
+    if (twin && twin->texture && primary && primary->texture) {
+        // Draw twin portrait layout!
+        SDL_Rect rect_l, rect_r;
+        calculate_fit_rect_in_area(primary->width, primary->height, 0, 0, sw / 2, sh, rect_l);
+        calculate_fit_rect_in_area(twin->width, twin->height, sw / 2, 0, sw - (sw / 2), sh, rect_r);
+
+        // Draw bias lighting if enabled
+        bool has_bias = false;
+        int bias_strength = 110;
+        float anim_speed = 0.5f;
+        std::string style = "edge_glow";
+        int border_w = 10;
+        {
+            std::lock_guard<std::mutex> lock(g_config_mtx);
+            has_bias = g_cfg.bias_lighting;
+            bias_strength = g_cfg.bias_strength;
+            anim_speed = g_cfg.bias_anim_speed;
+            style = g_cfg.bias_anim_style;
+            border_w = g_cfg.border_width;
         }
-    }
 
-    for (const auto& kw : animal_keywords) {
-        if (path_lower.find(kw) != std::string::npos) {
-            has_animals = true;
+        if (has_bias) {
+            g_renderer.draw_bias_lighting(rect_l, primary->avg_r, primary->avg_g, primary->avg_b,
+                bias_strength, (float)item_timer, anim_speed, style, border_w);
+            g_renderer.draw_bias_lighting(rect_r, twin->avg_r, twin->avg_g, twin->avg_b,
+                bias_strength, (float)item_timer, anim_speed, style, border_w);
         }
-    }
 
-    // 2. If it is already tagged by keyword, respect it
-    if (has_people || has_animals) {
-        return;
-    }
+        SDL_FRect dst_l = {(float)rect_l.x, (float)rect_l.y, (float)rect_l.w, (float)rect_l.h};
+        SDL_RenderTexture(renderer, primary->texture, nullptr, &dst_l);
 
-    // 3. Fallback heuristic for standard camera rolls (like IMG_4829.JPG or DSC_0294.JPG)
-    // If it has typical camera photo format, it is a camera capture
-    bool is_camera_roll = false;
-    if (name_lower.rfind("img_", 0) == 0 || 
-        name_lower.rfind("dsc_", 0) == 0 || 
-        name_lower.rfind("dscn", 0) == 0 ||
-        name_lower.rfind("dscf", 0) == 0 ||
-        name_lower.rfind("mvimg_", 0) == 0 ||
-        name_lower.rfind("cimg", 0) == 0 ||
-        name_lower.rfind("gopr", 0) == 0 ||
-        (item.ext == ".jpg" || item.ext == ".jpeg" || item.ext == ".heic" || item.ext == ".heif")) {
-        is_camera_roll = true;
-    }
+        SDL_FRect dst_r = {(float)rect_r.x, (float)rect_r.y, (float)rect_r.w, (float)rect_r.h};
+        SDL_RenderTexture(renderer, twin->texture, nullptr, &dst_r);
+    } else if (primary && primary->texture) {
+        // Draw single image layout!
+        SDL_Rect rect;
+        g_renderer.calculate_fit_rect(primary->width, primary->height, rect);
 
-    if (is_camera_roll) {
-        // Deterministically distribute typical family camera rolls (75% people/faces, 20% pets/animals, 5% scenery/other)
-        // using a consistent hash of the filename so the same file is always classified identically.
-        unsigned int hash = 5381;
-        for (char c : item.filename) {
-            hash = ((hash << 5) + hash) + c;
+        bool has_bias = false;
+        int bias_strength = 110;
+        float anim_speed = 0.5f;
+        std::string style = "edge_glow";
+        int border_w = 10;
+        bool has_matting = false;
+        {
+            std::lock_guard<std::mutex> lock(g_config_mtx);
+            has_bias = g_cfg.bias_lighting;
+            bias_strength = g_cfg.bias_strength;
+            anim_speed = g_cfg.bias_anim_speed;
+            style = g_cfg.bias_anim_style;
+            border_w = g_cfg.border_width;
+            has_matting = g_cfg.matting;
         }
-        unsigned int score = hash % 100;
-        if (score < 75) {
-            has_people = true;
-        } else if (score < 95) {
-            has_animals = true;
+
+        if (has_bias) {
+            g_renderer.draw_bias_lighting(rect, primary->avg_r, primary->avg_g, primary->avg_b,
+                bias_strength, (float)item_timer, anim_speed, style, border_w);
+        } else if (has_matting) {
+            g_renderer.draw_matte_borders(rect);
         }
-    } else {
-        // Non-camera, non-keyworded files: classify as document/scenery to be safe
-        is_doc = true;
+
+        SDL_FRect dst = {(float)rect.x, (float)rect.y, (float)rect.w, (float)rect.h};
+        SDL_RenderTexture(renderer, primary->texture, nullptr, &dst);
     }
+
+    // Reset render target back to default (screen)
+    SDL_SetRenderTarget(renderer, nullptr);
+    return target;
 }
 
 static std::vector<MediaItem> filter_playlist(const std::vector<MediaItem>& items, int cooldown_days, int window_days) {
+    bool on_this_day = false;
+    {
+        std::lock_guard<std::mutex> lock(g_config_mtx);
+        on_this_day = g_cfg.on_this_day_enabled;
+    }
+
+    if (on_this_day) {
+        std::time_t t = std::time(nullptr);
+        std::tm* today = std::localtime(&t);
+        int today_m = today ? (today->tm_mon + 1) : 5;
+        int today_d = today ? today->tm_mday : 22;
+
+        std::vector<MediaItem> anniversary_items;
+        for (const auto& item : items) {
+            int y = 0, m = 0, d = 0;
+            if (get_item_date(item, y, m, d)) {
+                if (m == today_m && d == today_d) {
+                    anniversary_items.push_back(item);
+                }
+            }
+        }
+
+        if (!anniversary_items.empty()) {
+            g_logger.info("ON_THIS_DAY: Found %zu anniversary items for month=%d day=%d!", anniversary_items.size(), today_m, today_d);
+            std::vector<MediaItem> anniversary_filtered;
+            for (const auto& item : anniversary_items) {
+                if (item.type != "video") {
+                    bool has_people = false, has_animals = false, is_doc = false;
+                    classify_media_item(item, has_people, has_animals, is_doc);
+                    if (is_doc && (g_cfg.show_people_faces || g_cfg.keep_animals)) continue;
+                    
+                    bool filter_people = g_cfg.show_people_faces;
+                    bool filter_animals = g_cfg.keep_animals;
+                    if (filter_people || filter_animals) {
+                        bool keep = false;
+                        if (filter_people && has_people) keep = true;
+                        if (filter_animals && has_animals) keep = true;
+                        if (!keep) continue;
+                    }
+                }
+                anniversary_filtered.push_back(item);
+            }
+            if (!anniversary_filtered.empty()) {
+                return anniversary_filtered;
+            }
+            g_logger.warn("ON_THIS_DAY: Anniversary items were all filtered out by category toggles. Falling back to normal playlist.");
+        } else {
+            g_logger.info("ON_THIS_DAY: No anniversary items matching today's month=%d day=%d. Falling back to normal playlist.", today_m, today_d);
+        }
+    }
+
     std::vector<MediaItem> filtered;
     int64_t now = static_cast<int64_t>(std::time(nullptr));
     
@@ -285,28 +390,36 @@ static void organize_playlist(std::vector<MediaItem>& eligible, int videos_per_p
             std::shuffle(videos.begin(), videos.end(), rng_video);
         }
 
-        int cycle_size = std::max(4, videos_per_photos);
-        int photos_per_cycle = cycle_size - 3;
-        
         eligible.clear();
-        size_t p_idx = 0, v_idx = 0;
-        while (p_idx < photos.size() || v_idx < videos.size()) {
-            for (int i = 0; i < photos_per_cycle && p_idx < photos.size(); i++) {
-                eligible.push_back(std::move(photos[p_idx++]));
-            }
-            for (int i = 0; i < 3 && v_idx < videos.size(); i++) {
-                eligible.push_back(std::move(videos[v_idx++]));
+        if (videos.empty()) {
+            eligible = std::move(photos);
+        } else if (photos.empty()) {
+            eligible = std::move(videos);
+        } else {
+            // Distribute videos mathematically and evenly across photos
+            double ratio = static_cast<double>(photos.size()) / static_cast<double>(videos.size());
+            double accumulator = 0.0;
+            size_t p_idx = 0, v_idx = 0;
+            
+            while (p_idx < photos.size() || v_idx < videos.size()) {
+                if (v_idx >= videos.size()) {
+                    eligible.push_back(std::move(photos[p_idx++]));
+                } else if (p_idx >= photos.size()) {
+                    eligible.push_back(std::move(videos[v_idx++]));
+                } else {
+                    if (accumulator >= ratio) {
+                        eligible.push_back(std::move(videos[v_idx++]));
+                        accumulator -= ratio;
+                    } else {
+                        eligible.push_back(std::move(photos[p_idx++]));
+                        accumulator += 1.0;
+                    }
+                }
             }
         }
 
-        g_logger.info("Playlist organized: %zu photos + %zu videos = %zu total (ratio: 3 videos per %d cycle)",
-            photos.size(), videos.size(), eligible.size(), cycle_size);
-    }
-
-    // Unified aggressive shuffle of the final combined/interleaved list to avoid rigid repeating patterns
-    if (shuffle_enabled) {
-        std::mt19937_64 rng(make_entropy_seed());
-        std::shuffle(eligible.begin(), eligible.end(), rng);
+        g_logger.info("Playlist organized: %zu photos + %zu videos = %zu total (de-clustered mathematical interleaving ratio: %.2f)",
+            photos.size(), videos.size(), eligible.size(), static_cast<double>(photos.size()) / std::max((size_t)1, videos.size()));
     }
 }
 
@@ -333,11 +446,11 @@ static void mark_item_shown(const std::string& path, bool lock_playlist = true) 
     }
 }
 
-static void advance_playlist(int direction = 1) {
+static void advance_playlist(int step = 1) {
     if (g_eligible.empty()) return;
     
-    if (direction == 1) {
-        int next_idx = current_idx + 1;
+    if (step > 0) {
+        int next_idx = current_idx + step;
         if (next_idx >= (int)g_eligible.size()) {
             g_logger.info("Playlist reached end. Re-filtering and re-shuffling to prevent repetition...");
             
@@ -374,7 +487,7 @@ static void advance_playlist(int direction = 1) {
             current_idx = next_idx;
         }
     } else {
-        current_idx = (current_idx - 1 + (int)g_eligible.size()) % (int)g_eligible.size();
+        current_idx = (current_idx + step + (int)g_eligible.size() * std::abs(step)) % (int)g_eligible.size();
     }
 }
 
@@ -797,6 +910,21 @@ int main(int argc, char** argv) {
         organize_playlist(g_eligible, videos_per_photos, play_just_photos, play_just_videos, shuffle_enabled);
     }
 
+    // Start HTTP Web Remote Dashboard if enabled
+    {
+        bool http_srv = false;
+        int http_prt = 8080;
+        {
+            std::lock_guard<std::mutex> lock(g_config_mtx);
+            http_srv = g_cfg.http_enabled && g_cfg.web_dashboard_enabled;
+            http_prt = g_cfg.http_port;
+        }
+        if (http_srv) {
+            g_logger.info("HTTP: Starting background web remote server on port %d...", http_prt);
+            start_http_server(http_prt);
+        }
+    }
+
     g_logger.info("Starting slideshow with %zu items", g_eligible.size());
 
     g_transition = new TransitionEngine();
@@ -804,55 +932,144 @@ int main(int argc, char** argv) {
     g_overlay = new OverlayManager(&g_renderer);
     g_overlay->init();
     g_logger.info("Starting slideshow loop with %zu items", g_eligible.size());
-
-    // --- Main slideshow loop setup ---
     current_idx = 0;
     double item_timer = 0.0;
     auto last_frame_time = std::chrono::steady_clock::now();
 
     std::shared_ptr<ImageData> current_data = nullptr;
+    std::shared_ptr<ImageData> current_twin_data = nullptr;
     std::shared_ptr<ImageData> next_data = nullptr;
+    std::shared_ptr<ImageData> next_twin_data = nullptr;
     SDL_Texture* current_tex = nullptr;
+    SDL_Texture* transition_prev_target = nullptr;
+    SDL_Texture* transition_next_target = nullptr;
     SDL_Rect fit_rect{0, 0, 0, 0};
 
-    // Find the first valid item to display
+    // Find the first valid item to display, skipping and removing bad/missing files
     int load_attempts = 0;
     while (load_attempts < (int)g_eligible.size() && load_attempts < 20) {
+        std::string path = g_eligible[current_idx].path;
+        if (!file_exists(path)) {
+            g_logger.warn("MISSING_FILE: First media file is missing/deleted from disk: %s", path.c_str());
+            g_cache->mark_bad(path);
+
+            // Erase from g_scanned_items and g_eligible
+            auto it_scanned = std::remove_if(g_scanned_items.begin(), g_scanned_items.end(),
+                [&](const MediaItem& item) { return item.path == path; });
+            if (it_scanned != g_scanned_items.end()) {
+                g_scanned_items.erase(it_scanned, g_scanned_items.end());
+            }
+            g_eligible.erase(g_eligible.begin() + current_idx);
+
+            if (g_eligible.empty()) break;
+            if (current_idx >= (int)g_eligible.size()) current_idx = 0;
+            load_attempts++;
+            continue;
+        }
+
         if (g_eligible[current_idx].type == "video") {
             // First item is a video, let the main loop play it!
             g_logger.info("First item in playlist is a video: %s", g_eligible[current_idx].path.c_str());
             break;
         } else {
-            // First item is an image, load it!
-            current_data = ImageLoader::load(g_eligible[current_idx].path);
-            if (current_data && current_data->valid) {
-                ImageLoader::load_texture(current_data.get(), g_renderer.sdl_renderer);
-                current_tex = current_data->texture;
-                mark_item_shown(g_eligible[current_idx].path, false);
+            // First item is an image, check if should be twin portrait
+            bool is_twin = should_be_twin_portrait(current_idx, (int)g_eligible.size());
+            if (is_twin) {
+                int next_idx = (current_idx + 1) % (int)g_eligible.size();
+                std::string path_l = g_eligible[current_idx].path;
+                std::string path_r = g_eligible[next_idx].path;
 
-                // Update in-memory item metadata with actual dimensions and EXIF rotation
-                g_eligible[current_idx].width = current_data->width;
-                g_eligible[current_idx].height = current_data->height;
-                g_eligible[current_idx].exif_rotation = current_data->exif_rotation;
-                for (auto& item : g_scanned_items) {
-                    if (item.path == g_eligible[current_idx].path) {
-                        item.width = current_data->width;
-                        item.height = current_data->height;
-                        item.exif_rotation = current_data->exif_rotation;
-                        break;
-                    }
+                if (!file_exists(path_l)) {
+                    g_logger.warn("MISSING_FILE: Left twin file missing: %s", path_l.c_str());
+                    g_cache->mark_bad(path_l);
+                    g_eligible.erase(g_eligible.begin() + current_idx);
+                    if (g_eligible.empty()) break;
+                    if (current_idx >= (int)g_eligible.size()) current_idx = 0;
+                    load_attempts++;
+                    continue;
                 }
-                // Persist the actual values to the cache database
-                g_cache->upsert(g_eligible[current_idx], 0);
+                if (!file_exists(path_r)) {
+                    g_logger.warn("MISSING_FILE: Right twin file missing: %s", path_r.c_str());
+                    g_cache->mark_bad(path_r);
+                    g_eligible.erase(g_eligible.begin() + next_idx);
+                    if (g_eligible.empty()) break;
+                    if (current_idx >= (int)g_eligible.size()) current_idx = 0;
+                    load_attempts++;
+                    continue;
+                }
 
-                g_renderer.calculate_fit_rect(g_eligible[current_idx].width, g_eligible[current_idx].height, fit_rect);
-                g_logger.info("First item is an image, loaded successfully: %s (%dx%d)", g_eligible[current_idx].path.c_str(), g_eligible[current_idx].width, g_eligible[current_idx].height);
-                break;
+                current_data = ImageLoader::load(path_l);
+                current_twin_data = ImageLoader::load(path_r);
+
+                if (current_data && current_data->valid && current_twin_data && current_twin_data->valid) {
+                    ImageLoader::load_texture(current_data.get(), g_renderer.sdl_renderer);
+                    ImageLoader::load_texture(current_twin_data.get(), g_renderer.sdl_renderer);
+                    current_tex = current_data->texture;
+                    mark_item_shown(path_l, false);
+                    mark_item_shown(path_r, false);
+
+                    // Update metadata
+                    g_eligible[current_idx].width = current_data->width;
+                    g_eligible[current_idx].height = current_data->height;
+                    g_eligible[current_idx].exif_rotation = current_data->exif_rotation;
+
+                    g_eligible[next_idx].width = current_twin_data->width;
+                    g_eligible[next_idx].height = current_twin_data->height;
+                    g_eligible[next_idx].exif_rotation = current_twin_data->exif_rotation;
+
+                    g_cache->upsert(g_eligible[current_idx], 0);
+                    g_cache->upsert(g_eligible[next_idx], 0);
+
+                    g_logger.info("First item is twin-portrait, loaded successfully: %s and %s", path_l.c_str(), path_r.c_str());
+                    break;
+                } else {
+                    if (!current_data || !current_data->valid) {
+                        g_cache->mark_bad(path_l);
+                        g_eligible.erase(g_eligible.begin() + current_idx);
+                    } else if (!current_twin_data || !current_twin_data->valid) {
+                        g_cache->mark_bad(path_r);
+                        g_eligible.erase(g_eligible.begin() + next_idx);
+                    }
+                    current_data = nullptr;
+                    current_twin_data = nullptr;
+                    if (g_eligible.empty()) break;
+                    if (current_idx >= (int)g_eligible.size()) current_idx = 0;
+                    load_attempts++;
+                }
             } else {
-                g_cache->mark_bad(g_eligible[current_idx].path);
-                g_logger.warn("Bad first image, skipping: %s", g_eligible[current_idx].path.c_str());
-                current_idx = (current_idx + 1) % (int)g_eligible.size();
-                load_attempts++;
+                current_data = ImageLoader::load(g_eligible[current_idx].path);
+                if (current_data && current_data->valid) {
+                    ImageLoader::load_texture(current_data.get(), g_renderer.sdl_renderer);
+                    current_tex = current_data->texture;
+                    current_twin_data = nullptr;
+                    mark_item_shown(g_eligible[current_idx].path, false);
+
+                    // Update in-memory item metadata with actual dimensions and EXIF rotation
+                    g_eligible[current_idx].width = current_data->width;
+                    g_eligible[current_idx].height = current_data->height;
+                    g_eligible[current_idx].exif_rotation = current_data->exif_rotation;
+                    for (auto& item : g_scanned_items) {
+                        if (item.path == g_eligible[current_idx].path) {
+                            item.width = current_data->width;
+                            item.height = current_data->height;
+                            item.exif_rotation = current_data->exif_rotation;
+                            break;
+                        }
+                    }
+                    // Persist the actual values to the cache database
+                    g_cache->upsert(g_eligible[current_idx], 0);
+
+                    g_renderer.calculate_fit_rect(g_eligible[current_idx].width, g_eligible[current_idx].height, fit_rect);
+                    g_logger.info("First item is an image, loaded successfully: %s (%dx%d)", g_eligible[current_idx].path.c_str(), g_eligible[current_idx].width, g_eligible[current_idx].height);
+                    break;
+                } else {
+                    g_cache->mark_bad(g_eligible[current_idx].path);
+                    g_logger.warn("Bad first image, skipping: %s", g_eligible[current_idx].path.c_str());
+                    g_eligible.erase(g_eligible.begin() + current_idx);
+                    if (g_eligible.empty()) break;
+                    if (current_idx >= (int)g_eligible.size()) current_idx = 0;
+                    load_attempts++;
+                }
             }
         }
     }
@@ -866,10 +1083,22 @@ int main(int argc, char** argv) {
     g_watchman_thread = std::thread(watchman_loop);
     g_logger.info("Watchman: Background watchman thread spawned successfully.");
 
+    double fps_timer = 0.0;
+    int frame_counter = 0;
+    int active_fps = 60;
+
     while (g_running.load()) {
         auto now = std::chrono::steady_clock::now();
         double dt = std::chrono::duration<double>(now - last_frame_time).count();
         last_frame_time = now;
+
+        frame_counter++;
+        fps_timer += dt;
+        if (fps_timer >= 1.0) {
+            active_fps = frame_counter;
+            frame_counter = 0;
+            fps_timer -= 1.0;
+        }
 
         SDL_Event event;
         while (SDL_PollEvent(&event)) {
@@ -892,6 +1121,57 @@ int main(int argc, char** argv) {
         // --- Mutex-Guarded playlist lookup & manipulation ---
         std::unique_lock<std::mutex> playlist_lock(g_playlist_mtx);
 
+        // Apply Pause Toggle command
+        if (cmd == 3) {
+            g_slideshow_paused = !g_slideshow_paused.load();
+            g_logger.info("SLIDESHOW: Pause toggled remotely. Current pause state = %s", g_slideshow_paused.load() ? "PAUSED" : "PLAYING");
+        }
+
+        // Robust Missing/Deleted File Skipping
+        while (!g_eligible.empty()) {
+            std::string path = g_eligible[current_idx].path;
+            if (file_exists(path)) {
+                break;
+            }
+            g_logger.warn("MISSING_FILE: Media file is missing/deleted from disk: %s", path.c_str());
+            
+            // Mark file path as bad in sqlite cache
+            if (g_cache) {
+                g_cache->mark_bad(path);
+            }
+            
+            // Dynamically erase from g_scanned_items
+            auto it_scanned = std::remove_if(g_scanned_items.begin(), g_scanned_items.end(),
+                [&](const MediaItem& item) { return item.path == path; });
+            if (it_scanned != g_scanned_items.end()) {
+                g_scanned_items.erase(it_scanned, g_scanned_items.end());
+            }
+
+            // Dynamically erase from g_eligible
+            g_eligible.erase(g_eligible.begin() + current_idx);
+            
+            // Wrap current_idx if we erased the last item
+            if (g_eligible.empty()) {
+                break;
+            }
+            if (current_idx >= (int)g_eligible.size()) {
+                current_idx = 0;
+            }
+            
+            // Reset transition and timer states to load the new item fresh
+            transitioning = true;
+            transition_timer = 0.0;
+            if (g_transition) {
+                g_transition->reset();
+            }
+            if (transition_prev_target) { SDL_DestroyTexture(transition_prev_target); transition_prev_target = nullptr; }
+            if (transition_next_target) { SDL_DestroyTexture(transition_next_target); transition_next_target = nullptr; }
+            if (next_data) {
+                next_data = nullptr;
+                next_twin_data = nullptr;
+            }
+        }
+
         if (g_eligible.empty()) {
             playlist_lock.unlock();
             SDL_Delay(100);
@@ -907,11 +1187,14 @@ int main(int argc, char** argv) {
             if (g_transition) {
                 g_transition->reset();
             }
+            if (transition_prev_target) { SDL_DestroyTexture(transition_prev_target); transition_prev_target = nullptr; }
+            if (transition_next_target) { SDL_DestroyTexture(transition_next_target); transition_next_target = nullptr; }
+            
             transitioning = true; transition_timer = 0.0;
             if (cmd == 1) {
-                advance_playlist(1);
+                advance_playlist(current_twin_data ? 2 : 1);
             } else {
-                advance_playlist(-1);
+                advance_playlist(current_twin_data ? -2 : -1);
             }
         }
 
@@ -954,10 +1237,12 @@ int main(int argc, char** argv) {
                 mark_item_shown(video_path, false); // Mark the video as shown for cooldown
                 if (current_data) {
                     current_data = nullptr;
+                    current_twin_data = nullptr;
                     current_tex = nullptr;
                 }
                 if (next_data) {
                     next_data = nullptr;
+                    next_twin_data = nullptr;
                 }
                 transitioning = false; // Bypass transitioning during video rendering
                 if (g_transition) {
@@ -969,78 +1254,192 @@ int main(int argc, char** argv) {
         }
 
         // --- Image Rendering Handling ---
-        item_timer += dt;
+        double dt_scaled = g_slideshow_paused.load() ? 0.0 : dt;
+        item_timer += dt_scaled;
 
         if (transitioning) {
-            transition_timer += dt;
+            transition_timer += dt_scaled;
 
             // Load next_data exactly once at the beginning of the transition
             if (!next_data) {
                 int next_idx = current_idx % (int)g_eligible.size();
-                std::string next_path = g_eligible[next_idx].path;
-                
-                playlist_lock.unlock(); // Unlock while performing blocking filesystem loading
-                next_data = ImageLoader::load(next_path);
-                playlist_lock.lock(); // Re-lock
-                
-                if (next_data && next_data->valid) {
-                    ImageLoader::load_texture(next_data.get(), g_renderer.sdl_renderer);
+                bool is_twin = should_be_twin_portrait(next_idx, (int)g_eligible.size());
 
-                    // Update in-memory item metadata with actual loaded/rotated dimensions and EXIF
-                    g_eligible[next_idx].width = next_data->width;
-                    g_eligible[next_idx].height = next_data->height;
-                    g_eligible[next_idx].exif_rotation = next_data->exif_rotation;
-                    for (auto& item : g_scanned_items) {
-                        if (item.path == next_path) {
-                            item.width = next_data->width;
-                            item.height = next_data->height;
-                            item.exif_rotation = next_data->exif_rotation;
-                            break;
-                        }
+                if (is_twin) {
+                    int next_idx_twin = (next_idx + 1) % (int)g_eligible.size();
+                    std::string next_path = g_eligible[next_idx].path;
+                    std::string next_path_twin = g_eligible[next_idx_twin].path;
+
+                    playlist_lock.unlock(); // Unlock while performing blocking filesystem loading
+                    next_data = ImageLoader::load(next_path);
+                    next_twin_data = ImageLoader::load(next_path_twin);
+                    playlist_lock.lock(); // Re-lock
+
+                    if (next_data && next_data->valid && next_twin_data && next_twin_data->valid) {
+                        ImageLoader::load_texture(next_data.get(), g_renderer.sdl_renderer);
+                        ImageLoader::load_texture(next_twin_data.get(), g_renderer.sdl_renderer);
+
+                        // Update metadata
+                        g_eligible[next_idx].width = next_data->width;
+                        g_eligible[next_idx].height = next_data->height;
+                        g_eligible[next_idx].exif_rotation = next_data->exif_rotation;
+
+                        g_eligible[next_idx_twin].width = next_twin_data->width;
+                        g_eligible[next_idx_twin].height = next_twin_data->height;
+                        g_eligible[next_idx_twin].exif_rotation = next_twin_data->exif_rotation;
+
+                        g_cache->upsert(g_eligible[next_idx], 0);
+                        g_cache->upsert(g_eligible[next_idx_twin], 0);
+                    } else {
+                        if (next_data && !next_data->valid) g_cache->mark_bad(next_path);
+                        if (next_twin_data && !next_twin_data->valid) g_cache->mark_bad(next_path_twin);
+                        next_data = nullptr;
+                        next_twin_data = nullptr;
                     }
-                    // Persist the actual values to the cache database
-                    g_cache->upsert(g_eligible[next_idx], 0);
+                } else {
+                    std::string next_path = g_eligible[next_idx].path;
+
+                    playlist_lock.unlock(); // Unlock while performing blocking filesystem loading
+                    next_data = ImageLoader::load(next_path);
+                    playlist_lock.lock(); // Re-lock
+
+                    if (next_data && next_data->valid) {
+                        ImageLoader::load_texture(next_data.get(), g_renderer.sdl_renderer);
+                        next_twin_data = nullptr;
+
+                        g_eligible[next_idx].width = next_data->width;
+                        g_eligible[next_idx].height = next_data->height;
+                        g_eligible[next_idx].exif_rotation = next_data->exif_rotation;
+
+                        g_cache->upsert(g_eligible[next_idx], 0);
+                    } else {
+                        if (next_data) g_cache->mark_bad(next_path);
+                        next_data = nullptr;
+                        next_twin_data = nullptr;
+                    }
                 }
             }
 
-            SDL_Texture* prev_tex = (current_data && current_data->texture) ? current_data->texture : nullptr;
-            SDL_Texture* next_tex = (next_data && next_data->texture) ? next_data->texture : nullptr;
+            bool load_success = next_data && next_data->texture && (!should_be_twin_portrait(current_idx, (int)g_eligible.size()) || (next_twin_data && next_twin_data->texture));
 
-            if (prev_tex && next_tex) {
-                g_renderer.clear(0, 0, 0, 255);
-                g_transition->update(dt);
-                g_transition->render(prev_tex, next_tex, g_renderer.screen_w, g_renderer.screen_h);
-                g_renderer.present();
+            if (load_success) {
+                // Generate intermediate flat textures representing full screen layout states
+                if (!transition_prev_target) {
+                    transition_prev_target = render_state_to_texture(g_renderer.sdl_renderer, g_renderer.screen_w, g_renderer.screen_h, current_data, current_twin_data, item_timer);
+                }
+                if (!transition_next_target) {
+                    transition_next_target = render_state_to_texture(g_renderer.sdl_renderer, g_renderer.screen_w, g_renderer.screen_h, next_data, next_twin_data, 0.0);
+                }
 
-                if (g_transition->get_progress() >= 1.0f) {
-                    transitioning = false; 
+                if (transition_prev_target && transition_next_target) {
+                    g_renderer.clear(0, 0, 0, 255);
+                    g_transition->update(dt_scaled);
+                    g_transition->render(transition_prev_target, transition_next_target, g_renderer.screen_w, g_renderer.screen_h);
+                    g_renderer.present();
+
+                    if (g_transition->get_progress() >= 1.0f) {
+                        transitioning = false;
+                        item_timer = 0.0;
+
+                        current_data = next_data;
+                        current_twin_data = next_twin_data;
+                        next_data = nullptr;
+                        next_twin_data = nullptr;
+
+                        if (transition_prev_target) { SDL_DestroyTexture(transition_prev_target); transition_prev_target = nullptr; }
+                        if (transition_next_target) { SDL_DestroyTexture(transition_next_target); transition_next_target = nullptr; }
+
+                        current_tex = current_data->texture;
+                        mark_item_shown(g_eligible[current_idx].path, false);
+                        if (current_twin_data) {
+                            mark_item_shown(g_eligible[(current_idx + 1) % (int)g_eligible.size()].path, false);
+                        }
+                        g_renderer.calculate_fit_rect(g_eligible[current_idx].width, g_eligible[current_idx].height, fit_rect);
+                    }
+                } else {
+                    if (transition_prev_target) { SDL_DestroyTexture(transition_prev_target); transition_prev_target = nullptr; }
+                    if (transition_next_target) { SDL_DestroyTexture(transition_next_target); transition_next_target = nullptr; }
+
+                    transitioning = false;
                     item_timer = 0.0;
+                    if (g_transition) g_transition->reset();
 
-                    // Clean RAII swap: assign next_data to current_data.
-                    // The old current_data's destructor automatically releases its texture and surface.
-                    current_data = next_data;
-                    next_data = nullptr;
-                    current_tex = current_data->texture;
-                    mark_item_shown(g_eligible[current_idx].path, false);
-                    g_renderer.calculate_fit_rect(g_eligible[current_idx].width, g_eligible[current_idx].height, fit_rect);
+                    if (next_data) {
+                        current_data = next_data;
+                        current_twin_data = next_twin_data;
+                        next_data = nullptr;
+                        next_twin_data = nullptr;
+                        current_tex = current_data->texture;
+                        mark_item_shown(g_eligible[current_idx].path, false);
+                        if (current_twin_data) {
+                            mark_item_shown(g_eligible[(current_idx + 1) % (int)g_eligible.size()].path, false);
+                        }
+                        g_renderer.calculate_fit_rect(g_eligible[current_idx].width, g_eligible[current_idx].height, fit_rect);
+                    }
                 }
             } else {
-                // If loading next image failed or prev_tex is null (swapping from video), abort transition and display immediately
-                transitioning = false; 
+                transitioning = false;
                 item_timer = 0.0;
-                if (g_transition) {
-                    g_transition->reset();
-                }
+                if (g_transition) g_transition->reset();
+                if (transition_prev_target) { SDL_DestroyTexture(transition_prev_target); transition_prev_target = nullptr; }
+                if (transition_next_target) { SDL_DestroyTexture(transition_next_target); transition_next_target = nullptr; }
+
                 if (next_data) {
                     current_data = next_data;
+                    current_twin_data = next_twin_data;
                     next_data = nullptr;
+                    next_twin_data = nullptr;
                     current_tex = current_data->texture;
                     mark_item_shown(g_eligible[current_idx].path, false);
+                    if (current_twin_data) {
+                        mark_item_shown(g_eligible[(current_idx + 1) % (int)g_eligible.size()].path, false);
+                    }
                     g_renderer.calculate_fit_rect(g_eligible[current_idx].width, g_eligible[current_idx].height, fit_rect);
                 }
             }
         } else {
-            if (current_tex) {
+            bool rendered = false;
+            if (current_twin_data && current_twin_data->texture && current_data && current_data->texture) {
+                g_renderer.clear(0, 0, 0, 255);
+                SDL_Rect rect_l, rect_r;
+                int sw = g_renderer.screen_w;
+                int sh = g_renderer.screen_h;
+                calculate_fit_rect_in_area(current_data->width, current_data->height, 0, 0, sw / 2, sh, rect_l);
+                calculate_fit_rect_in_area(current_twin_data->width, current_twin_data->height, sw / 2, 0, sw - (sw / 2), sh, rect_r);
+
+                bool has_bias = false;
+                int bias_strength = 110;
+                float anim_speed = 0.5f;
+                std::string style = "edge_glow";
+                int border_w = 10;
+                bool has_matting = false;
+                {
+                    std::lock_guard<std::mutex> lock(g_config_mtx);
+                    has_bias = g_cfg.bias_lighting;
+                    bias_strength = g_cfg.bias_strength;
+                    anim_speed = g_cfg.bias_anim_speed;
+                    style = g_cfg.bias_anim_style;
+                    border_w = g_cfg.border_width;
+                    has_matting = g_cfg.matting;
+                }
+
+                if (has_bias) {
+                    g_renderer.draw_bias_lighting(rect_l, current_data->avg_r, current_data->avg_g, current_data->avg_b,
+                        bias_strength, (float)item_timer, anim_speed, style, border_w);
+                    g_renderer.draw_bias_lighting(rect_r, current_twin_data->avg_r, current_twin_data->avg_g, current_twin_data->avg_b,
+                        bias_strength, (float)item_timer, anim_speed, style, border_w);
+                } else if (has_matting) {
+                    g_renderer.draw_matte_borders(rect_l);
+                    g_renderer.draw_matte_borders(rect_r);
+                }
+
+                SDL_FRect dst_l = {(float)rect_l.x, (float)rect_l.y, (float)rect_l.w, (float)rect_l.h};
+                SDL_RenderTexture(g_renderer.sdl_renderer, current_data->texture, nullptr, &dst_l);
+
+                SDL_FRect dst_r = {(float)rect_r.x, (float)rect_r.y, (float)rect_r.w, (float)rect_r.h};
+                SDL_RenderTexture(g_renderer.sdl_renderer, current_twin_data->texture, nullptr, &dst_r);
+                rendered = true;
+            } else if (current_tex) {
                 g_renderer.clear(0, 0, 0, 255);
                 if (g_cfg.bias_lighting && current_data) {
                     g_renderer.draw_bias_lighting(fit_rect,
@@ -1051,18 +1450,22 @@ int main(int argc, char** argv) {
                 }
                 SDL_FRect dst = {(float)fit_rect.x, (float)fit_rect.y, (float)fit_rect.w, (float)fit_rect.h};
                 SDL_RenderTexture(g_renderer.sdl_renderer, current_tex, nullptr, &dst);
- 
+                rendered = true;
+            }
+
+            if (rendered) {
                 if (g_overlay) {
                     g_overlay->draw_all(current_idx, (int)g_eligible.size(),
-                        g_eligible[current_idx].filename, item_timer, false);
+                        &g_eligible[current_idx],
+                        current_twin_data ? &g_eligible[(current_idx + 1) % (int)g_eligible.size()] : nullptr,
+                        item_timer, false, active_fps, current_data.get(), current_twin_data.get());
                 }
- 
                 g_renderer.present();
             }
- 
+
             if (item_timer >= g_cfg.transition_delay) {
                 transitioning = true; transition_timer = 0.0;
-                advance_playlist(1);
+                advance_playlist(current_twin_data ? 2 : 1);
             }
         }
 
@@ -1072,6 +1475,9 @@ int main(int argc, char** argv) {
 
     // --- Cleanup ---
     g_logger.info("Shutting down...");
+    
+    // Stop background HTTP server
+    stop_http_server();
     
     // Stop background watchman thread safely
     g_watchman_running.store(false);
@@ -1084,6 +1490,11 @@ int main(int argc, char** argv) {
     if (g_transition) { g_transition->reset(); delete g_transition; }
     if (g_overlay) { g_overlay->cleanup(); delete g_overlay; }
     if (current_data) { current_data = nullptr; }
+    if (current_twin_data) { current_twin_data = nullptr; }
+    if (next_data) { next_data = nullptr; }
+    if (next_twin_data) { next_twin_data = nullptr; }
+    if (transition_prev_target) { SDL_DestroyTexture(transition_prev_target); }
+    if (transition_next_target) { SDL_DestroyTexture(transition_next_target); }
     if (g_cache) { g_cache->close(); delete g_cache; }
     g_renderer.cleanup();
 

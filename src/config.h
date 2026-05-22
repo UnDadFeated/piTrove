@@ -52,6 +52,15 @@ struct Config {
     bool    show_people_faces{true};
     bool    keep_animals{true};
 
+    // New features v10.2.0
+    bool    on_this_day_enabled{false};
+    bool    web_dashboard_enabled{true};
+    bool    diagnostics_hud_enabled{false};
+    bool    adaptive_text_enabled{true};
+    bool    twin_portrait_enabled{true};
+    bool    closed_captions_enabled{true};
+
+
     // [slideshow] advanced
     std::string sleep_time{""};
     std::string wake_time{""};

@@ -84,6 +84,7 @@ rows = 2
 [video]
 volume = 0
 probe_timeout = 5
+closed_captions_enabled = 1
 
 [dashboard]
 weather_enabled = 0
@@ -91,5 +92,13 @@ weather_lat = -999.0
 weather_lon = -999.0
 
 [remote]
-http_enabled = 0
+http_enabled = 1
 http_port = 8080
+web_dashboard_enabled = 1
+
+[features]
+on_this_day_enabled = 0
+diagnostics_hud_enabled = 0
+adaptive_text_enabled = 1
+twin_portrait_enabled = 1
+

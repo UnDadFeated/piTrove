@@ -58,7 +58,14 @@ bool Config::load(const std::string& path) {
         else if (key == "play_just_videos")  this->play_just_videos = (val == "1" || val == "true");
         else if (key == "show_people_faces") this->show_people_faces = !(val == "0" || val == "false");
         else if (key == "keep_animals")      this->keep_animals = !(val == "0" || val == "false");
+        else if (key == "on_this_day_enabled") this->on_this_day_enabled = (val == "1" || val == "true");
+        else if (key == "web_dashboard_enabled") this->web_dashboard_enabled = !(val == "0" || val == "false");
+        else if (key == "diagnostics_hud_enabled") this->diagnostics_hud_enabled = (val == "1" || val == "true");
+        else if (key == "adaptive_text_enabled") this->adaptive_text_enabled = !(val == "0" || val == "false");
+        else if (key == "twin_portrait_enabled") this->twin_portrait_enabled = !(val == "0" || val == "false");
+        else if (key == "closed_captions_enabled") this->closed_captions_enabled = !(val == "0" || val == "false");
         else if (key == "sleep_time")        this->sleep_time = val;
+
         else if (key == "wake_time")         this->wake_time = val;
         else if (key == "weather_enabled")   this->weather_enabled = (val == "1" || val == "true");
         else if (key == "weather_lat")       this->weather_lat = safe_stof(val, this->weather_lat);

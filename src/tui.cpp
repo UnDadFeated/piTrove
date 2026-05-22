@@ -98,7 +98,8 @@ void config_wizard(const std::string& config_path) {
         
         f << "[video]\n";
         f << "volume = " << g_cfg.video_volume << "\n";
-        f << "probe_timeout = " << g_cfg.video_probe_timeout << "\n\n";
+        f << "probe_timeout = " << g_cfg.video_probe_timeout << "\n";
+        f << "closed_captions_enabled = " << (g_cfg.closed_captions_enabled ? "1" : "0") << "\n\n";
         
         f << "[dashboard]\n";
         f << "weather_enabled = " << (g_cfg.weather_enabled ? "1" : "0") << "\n";
@@ -107,7 +108,14 @@ void config_wizard(const std::string& config_path) {
         
         f << "[remote]\n";
         f << "http_enabled = " << (g_cfg.http_enabled ? "1" : "0") << "\n";
-        f << "http_port = " << g_cfg.http_port << "\n\n";
+        f << "http_port = " << g_cfg.http_port << "\n";
+        f << "web_dashboard_enabled = " << (g_cfg.web_dashboard_enabled ? "1" : "0") << "\n\n";
+
+        f << "[features]\n";
+        f << "on_this_day_enabled = " << (g_cfg.on_this_day_enabled ? "1" : "0") << "\n";
+        f << "diagnostics_hud_enabled = " << (g_cfg.diagnostics_hud_enabled ? "1" : "0") << "\n";
+        f << "adaptive_text_enabled = " << (g_cfg.adaptive_text_enabled ? "1" : "0") << "\n";
+        f << "twin_portrait_enabled = " << (g_cfg.twin_portrait_enabled ? "1" : "0") << "\n\n";
         
         f << "[date_overlay]\n";
         f << "enabled = " << (g_cfg.date_overlay_enabled ? "1" : "0") << "\n";
@@ -171,6 +179,7 @@ void config_wizard(const std::string& config_path) {
         {"Sleep Time", STR, "Time to turn off HDMI port (HH:MM, e.g. 23:00)"},
         {"Wake Time", STR, "Time to turn on HDMI port (HH:MM, e.g. 07:30)"},
         {"HTTP Remote", TGL, "Enable local web server to skip/pause"},
+        {"Web Dashboard", TGL, "Enable glassmorphic HTTP web remote control dashboard"},
         {"Splash Overlay Y", FLT, "Vertical position of splash UI (0.0 to 1.0)"}
     };
     static const CI CC[] = {
@@ -185,14 +194,17 @@ void config_wizard(const std::string& config_path) {
         {"Clock Size", INT, "Font size of clock text in pixels"},
         {"Clock Color", ENM, "Color of clock text"},
         {"Clock 24h", TGL, "Use 24-hour format for clock"},
-        {"Count Enabled", TGL, "Show playlist progress (e.g., '14 / 2054')"}
+        {"Count Enabled", TGL, "Show playlist progress (e.g., '14 / 2054')"},
+        {"Diagnostics HUD", TGL, "Monospace OSD overlay showing FPS, SoC temp, SQLite size, tags"},
+        {"Adaptive Text", TGL, "Color text outline dynamically based on background brightness"}
     };
     static const CI CD[] = {
         {"Video Volume", INT, "Volume level for video playback (0=muted)"},
         {"Videos per Photos", INT, "Interleave ratio. E.g., '2' plays 2 vids per 10 pics"},
         {"Probe Timeout", INT, "Max seconds for ffprobe duration extraction (0=disabled)"},
         {"Play Just Photos", TGL, "Completely exclude videos from playback"},
-        {"Play Just Videos", TGL, "Completely exclude photos from playback"}
+        {"Play Just Videos", TGL, "Completely exclude photos from playback"},
+        {"Closed Captions", TGL, "Enable video closed captions/subtitles by default"}
     };
     static const CI CE[] = {
         {"Transition Delay", FLT, "Seconds to display photo before transitioning"},
@@ -207,7 +219,8 @@ void config_wizard(const std::string& config_path) {
         {"Matting Enabled", TGL, "Draw 3D matte border around photos"},
         {"Matting Size", INT, "Thickness of the matte border in pixels"},
         {"Cooldown Days", INT, "Days to wait before showing a photo again (0=off)"},
-        {"Shuffle", TGL, "Randomize photo/video order"}
+        {"Shuffle", TGL, "Randomize photo/video order"},
+        {"Twin Portrait Split", TGL, "Render consecutive portrait images side-by-side"}
     };
     static const CI CG[] = {
         {"Recursive Scan", TGL, "Recursively scan subdirectories"},
@@ -216,7 +229,8 @@ void config_wizard(const std::string& config_path) {
         {"Ignore Folders", LST, "Comma-separated folder names to skip"},
         {"Max Concurrent", INT, "Max threads during loading (match CPU cores)"},
         {"Keep People", TGL, "Only show photos containing people (family, faces, friends)"},
-        {"Keep Animals", TGL, "Only show photos containing animals (pets, wildlife)"}
+        {"Keep Animals", TGL, "Only show photos containing animals (pets, wildlife)"},
+        {"On This Day", TGL, "Filter playlist to pictures matching current month and day"}
     };
     static const CI CH[] = {
         {"Weather Enabled", TGL, "Fetch local weather via Open-Meteo API"},
@@ -232,11 +246,11 @@ void config_wizard(const std::string& config_path) {
     struct CAT { const char* n; const CI* i; int c; };
     static const CAT CATS[] = {
         {"Display", CA, 4},
-        {"System", CB, 7},
-        {"Overlays", CC, 12},
-        {"Videos", CD, 5},
-        {"Slideshow", CE, 13},
-        {"Scanning", CG, 7},
+        {"System", CB, 8},
+        {"Overlays", CC, 14},
+        {"Videos", CD, 6},
+        {"Slideshow", CE, 14},
+        {"Scanning", CG, 8},
         {"Weather", CH, 3},
         {"Advanced", CI2, 3}
     };
@@ -253,7 +267,8 @@ void config_wizard(const std::string& config_path) {
             case 0: return g_cfg.media_dir; case 1: return g_cfg.cache_dir; case 2: return g_cfg.log_dir;
             case 3: return g_cfg.sleep_time; case 4: return g_cfg.wake_time;
             case 5: return g_cfg.http_enabled?"[ON]":"[OFF]";
-            case 6: return std::to_string(g_cfg.splash_overlay_y);
+            case 6: return g_cfg.web_dashboard_enabled?"[ON]":"[OFF]";
+            case 7: return std::to_string(g_cfg.splash_overlay_y);
         }
         if (c == 2) switch(i) {
             case 0: return g_cfg.timer_enabled?"[ON]":"[OFF]";
@@ -268,6 +283,8 @@ void config_wizard(const std::string& config_path) {
             case 9: return g_cfg.clock_color;
             case 10: return g_cfg.clock_24h?"[ON]":"[OFF]";
             case 11: return g_cfg.count_enabled?"[ON]":"[OFF]";
+            case 12: return g_cfg.diagnostics_hud_enabled?"[ON]":"[OFF]";
+            case 13: return g_cfg.adaptive_text_enabled?"[ON]":"[OFF]";
         }
         if (c == 3) switch(i) {
             case 0: return std::to_string(g_cfg.video_volume);
@@ -275,6 +292,7 @@ void config_wizard(const std::string& config_path) {
             case 2: return std::to_string(g_cfg.video_probe_timeout);
             case 3: return g_cfg.play_just_photos?"[ON]":"[OFF]";
             case 4: return g_cfg.play_just_videos?"[ON]":"[OFF]";
+            case 5: return g_cfg.closed_captions_enabled?"[ON]":"[OFF]";
         }
         if (c == 4) switch(i) {
             case 0: return std::to_string(g_cfg.transition_delay);
@@ -289,6 +307,7 @@ void config_wizard(const std::string& config_path) {
             case 10: return std::to_string(g_cfg.matting_size);
             case 11: return std::to_string(g_cfg.cooldown_days);
             case 12: return g_cfg.shuffle?"[ON]":"[OFF]";
+            case 13: return g_cfg.twin_portrait_enabled?"[ON]":"[OFF]";
         }
         if (c == 5) switch(i) {
             case 0: return g_cfg.recursive?"[ON]":"[OFF]";
@@ -298,6 +317,7 @@ void config_wizard(const std::string& config_path) {
             case 4: return std::to_string(g_cfg.max_concurrent);
             case 5: return g_cfg.show_people_faces?"[ON]":"[OFF]";
             case 6: return g_cfg.keep_animals?"[ON]":"[OFF]";
+            case 7: return g_cfg.on_this_day_enabled?"[ON]":"[OFF]";
         }
         if (c == 6) switch(i) {
             case 0: return g_cfg.weather_enabled?"[ON]":"[OFF]";
@@ -326,7 +346,8 @@ void config_wizard(const std::string& config_path) {
                 case 0:g_cfg.media_dir=v;break; case 1:g_cfg.cache_dir=v;break; case 2:g_cfg.log_dir=v;break;
                 case 3:g_cfg.sleep_time=v;break; case 4:g_cfg.wake_time=v;break;
                 case 5:g_cfg.http_enabled=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
-                case 6:{ try { g_cfg.splash_overlay_y=std::stof(v); } catch(...) {} break; }
+                case 6:g_cfg.web_dashboard_enabled=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
+                case 7:{ try { g_cfg.splash_overlay_y=std::stof(v); } catch(...) {} break; }
             }
             else if(c==2) switch(i){
                 case 0:g_cfg.timer_enabled=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
@@ -337,6 +358,8 @@ void config_wizard(const std::string& config_path) {
                 case 8:{ try { g_cfg.clock_font_size=std::stoi(v); } catch(...) {} break; } case 9:g_cfg.clock_color=v;break;
                 case 10:g_cfg.clock_24h=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
                 case 11:g_cfg.count_enabled=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
+                case 12:g_cfg.diagnostics_hud_enabled=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
+                case 13:g_cfg.adaptive_text_enabled=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
             }
             else if(c==3) switch(i){
                 case 0:{ try { g_cfg.video_volume=std::stoi(v); } catch(...) {} break; }
@@ -344,6 +367,7 @@ void config_wizard(const std::string& config_path) {
                 case 2:{ try { g_cfg.video_probe_timeout=std::stoi(v); } catch(...) {} break; }
                 case 3:g_cfg.play_just_photos=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
                 case 4:g_cfg.play_just_videos=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
+                case 5:g_cfg.closed_captions_enabled=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
             }
             else if(c==4) switch(i){
                 case 0:{ try { g_cfg.transition_delay=std::stof(v); } catch(...) {} break; } case 1:{ try { g_cfg.transition_duration=std::stof(v); } catch(...) {} break; }
@@ -357,6 +381,7 @@ void config_wizard(const std::string& config_path) {
                 case 10:{ try { g_cfg.matting_size=std::stoi(v); } catch(...) {} break; }
                 case 11:{ try { g_cfg.cooldown_days=std::stoi(v); } catch(...) {} break; }
                 case 12:g_cfg.shuffle=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
+                case 13:g_cfg.twin_portrait_enabled=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
             }
             else if(c==5) switch(i){
                 case 0:g_cfg.recursive=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
@@ -386,6 +411,7 @@ void config_wizard(const std::string& config_path) {
                 case 4:{ try { g_cfg.max_concurrent=std::stoi(v); } catch(...) {} break; }
                 case 5:g_cfg.show_people_faces=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
                 case 6:g_cfg.keep_animals=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
+                case 7:g_cfg.on_this_day_enabled=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
             }
             else if(c==6) switch(i){
                 case 0:g_cfg.weather_enabled=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;

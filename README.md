@@ -7,7 +7,7 @@ A professional-grade digital picture frame for the Raspberry Pi. Designed for ex
 [![Architecture](https://img.shields.io/badge/arch-aarch64-orange?style=flat-square)](https://en.wikipedia.org/wiki/AArch64)
 [![Graphics](https://img.shields.io/badge/graphics-SDL3-red?style=flat-square)](https://www.libsdl.org/)
 [![License](https://img.shields.io/badge/license-MIT-green?style=flat-square)](LICENSE)
-[![Version](https://img.shields.io/badge/version-10.1.0-blue?style=flat-square)]()
+[![Version](https://img.shields.io/badge/version-10.2.0-blue?style=flat-square)]()
 
 ## 🚀 Quick Start
 
@@ -29,11 +29,13 @@ wget -qO- https://raw.githubusercontent.com/UnDadFeated/piTrove/main/install.sh 
 ### 🖼️ High-Performance Media Engine
 - **Broad Format Support**: Native loading for JPEG, PNG, TIFF, WebP, HEIC/HEIF, BMP, and TGA.
 - **Cinematic Visuals**: 
+  - **Twin-Portrait Collage**: Automatically groups adjacent portrait-format images to display them side-by-side in a split-screen collage with individual frame borders and animations.
   - **Ken Burns Effect**: Smooth, configurable zoom and pan animations.
   - **Professional Transitions**: High-quality crossfades, wipes, pixelate, and dissolve effects.
   - **Dynamic Ambient Lighting**: Photo-aware edge glow and bias lighting that blends the frame into the room.
   - **CRT Aesthetic**: Optional vignette and scanline overlays for a retro-digital look.
 - **Video Integration**: Seamless interleaving of H.264/H.265 videos using an accelerated `mpv` subprocess rendering directly via native DRM/KMS.
+- **Dynamic CPU Core Scaling**: Dynamically detects available hardware cores and allocates `max_cores - 1` decoding threads to play videos, maximizing hardware efficiency while keeping a core free for background system integrity.
 
 ### 📂 Enterprise-Grade Scanning & Cache
 - **NAS Optimized**: Specialized `getdents64` implementation with timeout wrappers to prevent the "CIFS hang" common in standard filesystem libraries.
@@ -45,6 +47,7 @@ wget -qO- https://raw.githubusercontent.com/UnDadFeated/piTrove/main/install.sh 
   - **TUI Integration**: Toggle filters on the fly via the TUI config wizard (`Keep People` and `Keep Animals` options) or within `config.toml`.
 - **Temporal Filtering**: A "Seasonal Window" filter shows photos from the current time of year across any year (e.g., show only "December" photos every December).
 - **Intelligent Cooldown**: Ensures the same photo isn't shown too frequently (default 330-day cooldown).
+- **Robust Skip Pipeline**: Gracefully intercepts deleted, missing, or corrupt assets, dynamically marking them bad in the cache database and removing them from the queue to prevent application interruptions.
 
 ### 🛠️ System & Control
 - **Headless Design**: Operates via DRM/KMS (native framebuffer). No X11 or Wayland required.
