@@ -475,12 +475,41 @@ int main(int argc, char** argv) {
         return 0;
     }
 
-    // --- Shuffle ---
+    // --- Shuffle photos & videos separately, interleave 3 videos per 10 photos ---
     if (g_cfg.shuffle) {
         unsigned long long seed = make_entropy_seed();
-        std::mt19937_64 rng(seed);
-        std::shuffle(g_eligible.begin(), g_eligible.end(), rng);
         g_logger.info("Playlist shuffled with seed: 0x%llx", (unsigned long long)seed);
+
+        std::vector<MediaItem> photos, videos;
+        for (auto& item : g_eligible) {
+            if (item.type == "video") videos.push_back(std::move(item));
+            else photos.push_back(std::move(item));
+        }
+
+        std::mt19937_64 rng_photo(seed);
+        std::shuffle(photos.begin(), photos.end(), rng_photo);
+        std::mt19937_64 rng_video(seed);
+        std::shuffle(videos.begin(), videos.end(), rng_video);
+
+        // Interleave: for every 10 photos, add 3 videos
+        g_eligible.clear();
+        int vi = 0; // video index
+        for (int pi = 0; pi < (int)photos.size(); pi++) {
+            // Insert 3 videos after every group of 10 photos
+            if ((pi > 0 && pi % 10 == 0) && vi + 3 <= (int)videos.size()) {
+                g_eligible.push_back(std::move(videos[vi++]));
+                g_eligible.push_back(std::move(videos[vi++]));
+                g_eligible.push_back(std::move(videos[vi++]));
+            }
+            g_eligible.push_back(std::move(photos[pi]));
+        }
+        // Append remaining videos
+        while (vi < (int)videos.size()) {
+            g_eligible.push_back(std::move(videos[vi++]));
+        }
+
+        g_logger.info("Interleaved: %d photos + %d videos = %d total (3 videos per 10 photos)",
+            (int)photos.size(), (int)videos.size(), (int)g_eligible.size());
     }
 
     fprintf(stderr, "TRACE: before slideshow start\n"); fflush(stderr);
