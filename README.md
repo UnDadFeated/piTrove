@@ -5,7 +5,7 @@ A professional-grade digital picture frame for the Raspberry Pi. Designed for ex
 [![Platform](https://img.shields.io/badge/platform-Pi%204%20%7C%20Pi%205-blue?style=flat-square)](https://www.raspberrypi.com/)
 [![OS](https://img.shields.io/badge/OS-Trixie%20Lite%20%28Debian%2013%29-lightgreen?style=flat-square)](https://www.debian.org/)
 [![Architecture](https://img.shields.io/badge/arch-aarch64-orange?style=flat-square)](https://en.wikipedia.org/wiki/AArch64)
-[![Graphics](https://img.shields.io/badge/graphics-SDL3%20%7C%20GLES3-red?style=flat-square)](https://www.mesa3d.org/)
+[![Graphics](https://img.shields.io/badge/graphics-SDL3-red?style=flat-square)](https://www.libsdl.org/)
 [![License](https://img.shields.io/badge/license-MIT-green?style=flat-square)](LICENSE)
 [![Version](https://img.shields.io/badge/version-10.0.0-blue?style=flat-square)]()
 
@@ -30,10 +30,10 @@ wget -qO- https://raw.githubusercontent.com/UnDadFeated/piTrove/main/install.sh 
 - **Broad Format Support**: Native loading for JPEG, PNG, TIFF, WebP, HEIC/HEIF, BMP, and TGA.
 - **Cinematic Visuals**: 
   - **Ken Burns Effect**: Smooth, configurable zoom and pan animations.
-  - **Professional Transitions**: High-quality crossfades, wipes, and pixelate effects.
+  - **Professional Transitions**: High-quality crossfades, wipes, pixelate, and dissolve effects.
   - **Dynamic Ambient Lighting**: Photo-aware edge glow and bias lighting that blends the frame into the room.
   - **CRT Aesthetic**: Optional vignette and scanline overlays for a retro-digital look.
-- **Video Integration**: Seamless interleaving of H.264/H.265 videos using `libmpv` with hardware acceleration (`drmprime-copy`).
+- **Video Integration**: Seamless interleaving of H.264/H.265 videos using an accelerated `mpv` subprocess rendering directly via native DRM/KMS.
 
 ### 📂 Enterprise-Grade Scanning & Cache
 - **NAS Optimized**: Specialized `getdents64` implementation with timeout wrappers to prevent the "CIFS hang" common in standard filesystem libraries.
@@ -56,7 +56,7 @@ graph TD
     A[Media Root] --> B[Phase 1: Recursive Scan]
     B --> C[Phase 2: SQLite Metadata Cache]
     C --> D[Phase 3: Async Preload Pipeline]
-    D --> E[GLES2 Render Loop]
+    D --> E[SDL3 Render Loop]
     E --> F[DRM/KMS Framebuffer]
     
     subgraph "Preload Pipeline"
@@ -66,9 +66,9 @@ graph TD
     end
 ```
 
-- **Language**: C++17 / OpenGL ES 3.0
-- **Core Libraries**: SDL3, libmpv, SQLite3, libexif, libheif.
-- **Hardware Accel**: Pi 4/5 VC4 DRM/KMS with GLES3 shaders.
+- **Language**: C++17
+- **Core Libraries**: SDL3, SDL3_image, SDL3_ttf, libmpv, SQLite3, libexif, libheif.
+- **Hardware Accel**: Pi 4/5 VC4 DRM/KMS via SDL3 rendering.
 
 ## 📁 Project Structure
 ```
@@ -77,18 +77,19 @@ src/
 ├── scanner.cpp/h     — Recursive media scanning (getdents64)
 ├── cache.cpp/h       — SQLite3 WAL-mode metadata persistence
 ├── config.cpp/h      — TOML config parser
+├── tui.cpp/h         — Terminal-based setup & configuration wizard
 ├── preload.cpp/h     — Two-phase async preload (surface → texture upload)
-├── renderer.cpp/h    — SDL_Renderer primitives, EXIF rotation, TTF text
-├── overlay.cpp/h     — CRT vignette, scanlines, bias lighting
-├── transition.cpp/h  — GLES3 shader transitions (crossfade, wipe, pixelate)
-├── mpv_player.cpp/h  — mpv subprocess (drmDropMaster/drmSetMaster)
+├── renderer.cpp/h    — SDL_Renderer primitives, EXIF rotation, bias lighting, CRT vignette
+├── overlay.cpp/h     — OSD widgets (date, filename, count, timer, clock)
+├── transition.cpp/h  — High-performance SDL3 transitions (crossfade, wipe, pixelate, dissolve)
+├── mpv_player.cpp/h  — mpv subprocess controller (drmDropMaster/drmSetMaster)
 ├── image_loader.cpp/h — IMG_Load wrapper (JPEG, PNG, TIFF, WebP, HEIC)
 ├── font_render.cpp/h  — TTF_RenderUTF8_Blended glow text
-├── util.cpp/h         — trim, safe_stoi, safe_stof, safe_stoll helpers
-├── shaders/           — GLES3 GLSL vertex/fragment shaders
-├── fonts/             — DejaVuSansMono-Bold.ttf
+├── media_item.h      — Photo and video data structures
+├── util.cpp/h         — String parsing, safety, and path utilities
+├── fonts/             — Monospace layout fonts (DejaVuSansMono-Bold.ttf)
 ├── config.toml        — Default config template
-├── splash.png         — Splash screen image
+└── splash.png         — Boot splash screen image
 ```
 - `install.sh`: Bootstrap installer (runs as standard user, sudo for privileged ops).
 - `CHANGELOG.md`: Detailed version history.
