@@ -252,7 +252,7 @@ bool MediaScanner::is_month_in_window(const std::string& dirname, int window_day
         if (gc == 1 && i < dirname.size() && (dirname[i] == '-' || dirname[i] == '_')) i++;
     }
 
-    if (gc < 2) return true;
+    if (gc < 2) return true;  // Non-date folders always scanned (per legacy)
 
     int folder_m = groups[1];
     if (folder_m < 1 || folder_m > 12) return true;
@@ -261,12 +261,13 @@ bool MediaScanner::is_month_in_window(const std::string& dirname, int window_day
     tm tm_buf;
     tm* now = localtime_r(&t, &tm_buf);
     int curr_m = now->tm_mon + 1;
-
-    int max_month_spread = std::ceil(window_days / 30.0);
-    int diff = std::abs(curr_m - folder_m);
-    if (diff > 6) diff = 12 - diff;
-
-    return diff <= max_month_spread;
+    int curr_d = now->tm_mday;
+    int month_diff = std::abs(curr_m - folder_m);
+    if (month_diff > 6) month_diff = 12 - month_diff;
+    // With window_days=5, only current month (diff=0) passes.
+    // With window_days=15, ±1 month passes. With 30+, ±2 months.
+    int max_spread = (int)std::max(0, (window_days - 1) / 30);
+    return month_diff <= max_spread;
 }
 
 std::vector<MediaItem> MediaScanner::scan(const std::string& directory,
