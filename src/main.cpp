@@ -135,10 +135,9 @@ static void organize_playlist(std::vector<MediaItem>& eligible, int videos_per_p
         }
 
         if (shuffle_enabled) {
-            unsigned long long seed = make_entropy_seed();
-            std::mt19937_64 rng_photo(seed);
+            std::mt19937_64 rng_photo(make_entropy_seed());
             std::shuffle(photos.begin(), photos.end(), rng_photo);
-            std::mt19937_64 rng_video(seed);
+            std::mt19937_64 rng_video(make_entropy_seed());
             std::shuffle(videos.begin(), videos.end(), rng_video);
         }
 
@@ -687,6 +686,9 @@ int main(int argc, char** argv) {
                 g_logger.info("Interrupted video playback via skip request: stopping mpv.");
                 g_mpv_player.stop();
             }
+            if (g_transition) {
+                g_transition->reset();
+            }
             transitioning = true; transition_timer = 0.0;
             if (cmd == 1) {
                 current_idx = (current_idx + 1) % (int)g_eligible.size();
@@ -739,6 +741,9 @@ int main(int argc, char** argv) {
                     next_data = nullptr;
                 }
                 transitioning = false; // Bypass transitioning during video rendering
+                if (g_transition) {
+                    g_transition->reset();
+                }
                 playlist_lock.unlock();
             }
             SDL_Delay(50); continue;
@@ -805,6 +810,9 @@ int main(int argc, char** argv) {
                 // If loading next image failed or prev_tex is null (swapping from video), abort transition and display immediately
                 transitioning = false; 
                 item_timer = 0.0;
+                if (g_transition) {
+                    g_transition->reset();
+                }
                 if (next_data) {
                     current_data = next_data;
                     next_data = nullptr;
