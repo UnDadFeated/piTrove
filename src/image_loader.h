@@ -4,6 +4,8 @@
 #include <memory>
 #include <string>
 #include <cstdint>
+#include <cstring>
+#include <vector>
 #include <SDL.h>
 
 enum class ImageFormat { Unknown, RGBA32, RGB24, BGRA32, BGR24 };
@@ -66,10 +68,13 @@ struct ImageData {
     SDL_Texture* texture = nullptr;
     // Average color for bias lighting
     uint8_t avg_r = 0, avg_g = 0, avg_b = 0;
-    // Per-edge colors for bias gradient
+    // Per-edge colors (averaged, fallback)
     uint8_t edge_r[4] = {0, 0, 0, 0};
     uint8_t edge_g[4] = {0, 0, 0, 0};
     uint8_t edge_b[4] = {0, 0, 0, 0};
+    // Per-pixel edge strips for bias glow: packed RGB, one entry per screen pixel along the edge
+    std::vector<uint8_t> edge_top_rgb, edge_bot_rgb;  // top/bottom: width pixels
+    std::vector<uint8_t> edge_lft_rgb, edge_rgt_rgb;  // left/right: height pixels
 
     ImageData() = default;
 
@@ -100,6 +105,13 @@ struct ImageData {
           avg_r(other.avg_r),
           avg_g(other.avg_g),
           avg_b(other.avg_b) {
+        memcpy(edge_r, other.edge_r, sizeof(edge_r));
+        memcpy(edge_g, other.edge_g, sizeof(edge_g));
+        memcpy(edge_b, other.edge_b, sizeof(edge_b));
+        edge_top_rgb = std::move(other.edge_top_rgb);
+        edge_bot_rgb = std::move(other.edge_bot_rgb);
+        edge_lft_rgb = std::move(other.edge_lft_rgb);
+        edge_rgt_rgb = std::move(other.edge_rgt_rgb);
         other.surface = nullptr;
         other.texture = nullptr;
         other.valid = false;
@@ -118,6 +130,13 @@ struct ImageData {
             avg_r = other.avg_r;
             avg_g = other.avg_g;
             avg_b = other.avg_b;
+            memcpy(edge_r, other.edge_r, sizeof(edge_r));
+            memcpy(edge_g, other.edge_g, sizeof(edge_g));
+            memcpy(edge_b, other.edge_b, sizeof(edge_b));
+            edge_top_rgb = std::move(other.edge_top_rgb);
+            edge_bot_rgb = std::move(other.edge_bot_rgb);
+            edge_lft_rgb = std::move(other.edge_lft_rgb);
+            edge_rgt_rgb = std::move(other.edge_rgt_rgb);
             other.surface = nullptr;
             other.texture = nullptr;
             other.valid = false;

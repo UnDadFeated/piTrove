@@ -155,7 +155,7 @@ void OverlayManager::draw_all(int current_idx, int total_items, const std::strin
 
     // 2. Filename Overlay
     if (file_enabled && current_idx >= 0 && current_idx < total_items) {
-        int fx = pad + (int)((sw - pad * 2) * file_x);
+        int fx = pad + (int)((sw - pad * 2) * file_x) - 10;
         int fy = pad + (int)((sh - pad * 2) * file_y);
         FontHandle& font = font_renderer->load_font(overlay_font->path, file_size);
         draw_text_with_shadow(fx, fy, font, filename, {255, 255, 255, 255});
@@ -179,8 +179,8 @@ void OverlayManager::draw_all(int current_idx, int total_items, const std::strin
         char tbuf[32];
         int rem = std::max(0, (int)(transition_delay - item_timer));
         std::snprintf(tbuf, sizeof(tbuf), "%ds", rem);
-        int tx = pad + (int)((sw - pad * 2) * timer_x);
-        int ty = pad + (int)((sh - pad * 2) * timer_y);
+        int tx = pad + (int)((sw - pad * 2) * timer_x) + 25;
+        int ty = pad + (int)((sh - pad * 2) * timer_y) - 10;
         FontHandle& font = font_renderer->load_font(overlay_font->path, timer_size);
         draw_text_with_shadow(tx, ty, font, tbuf, timer_col);
     }
