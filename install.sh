@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # install.sh — PiTrove v9.1.2 installer
-# Target: Debian Trixie (13) 64-bit on Raspberry Pi 5
+# Target: Debian Trixie (13) 64-bit on Raspberry Pi 4/5
 # Features: JPEG/TIFF/PNG/WebP/HEIC robust loaders, CRT UI, multi-format support
 
 # Changed -euo to -eo to prevent crashes on unbound vars during fresh installs
@@ -21,7 +21,7 @@ yesno() {
 # ── Pre-flight checks ───────────────────────────────────────────────────────
 echo "============================================"
   echo "  PiTrove v9.1.2 Installer"
-echo "  Target: Raspberry Pi 5 / ARM64"
+echo "  Target: Raspberry Pi 4/5 / ARM64"
 echo "============================================"
 echo
 
@@ -130,9 +130,9 @@ ok "Dependencies installed"
 info "Adding $PRIMARY_USER to DRM/video groups..."
 usermod -aG video,render "$PRIMARY_USER"
 ok "$PRIMARY_USER added to video and render groups (DRM access)"
+# ── DRM/KMS configuration (Pi 4/5) ────────────────────────────────────────────
 
-# ── DRM/KMS configuration (Pi 5) ────────────────────────────────────────────
-info "Configuring DRM/KMS for Pi 5..."
+info "Configuring DRM/KMS..."
 
 BOOT_CFG="/boot/firmware/config.txt"
 if [[ -f "$BOOT_CFG" ]]; then
