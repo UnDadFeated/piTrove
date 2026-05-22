@@ -475,11 +475,18 @@ static void organize_playlist(std::vector<MediaItem>& eligible, int videos_per_p
                 if (v_idx >= videos.size()) {
                     eligible.push_back(std::move(photos[p_idx++]));
                 } else if (p_idx >= photos.size()) {
-                    eligible.push_back(std::move(videos[v_idx++]));
+                    // No more photos — stop placing videos to avoid consecutive videos
+                    break;
                 } else {
                     if (accumulator >= ratio) {
                         eligible.push_back(std::move(videos[v_idx++]));
                         accumulator -= ratio;
+                        // Force at least one photo after every video to prevent consecutive videos
+                        if (p_idx < photos.size()) {
+                            eligible.push_back(std::move(photos[p_idx++]));
+                        } else {
+                            break;
+                        }
                     } else {
                         eligible.push_back(std::move(photos[p_idx++]));
                         accumulator += 1.0;
@@ -1328,10 +1335,20 @@ int main(int argc, char** argv) {
         if (g_eligible[current_idx].type == "video") {
             if (g_mpv_player.is_active()) {
                 if (!g_mpv_player.check_status()) {
-                    // Video EOF: stop transition and advance to next
+                    // Video EOF: stop transition and advance to next, skipping any consecutive videos
                     g_logger.info("Video EOF detected: advancing playlist.");
                     transitioning = true; transition_timer = 0.0;
                     advance_playlist(1);
+                    // Skip any consecutive videos to prevent black screen gaps
+                    int skipped = 0;
+                    while (current_idx >= 0 && current_idx < (int)g_eligible.size() &&
+                           g_eligible[current_idx].type == "video") {
+                        g_logger.info("Skipping consecutive video: %s (will not add to cooldown)", g_eligible[current_idx].path.c_str());
+                        advance_playlist(1);
+                        skipped++;
+                        if (skipped > (int)g_eligible.size()) break; // safety
+                    }
+                    if (skipped > 0) g_logger.info("Skipped %d consecutive video(s), now on photo", skipped);
                 }
                 playlist_lock.unlock(); // Unlock before delay sleep
                 SDL_Delay(50); continue;
