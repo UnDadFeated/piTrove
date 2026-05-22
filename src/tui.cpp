@@ -103,7 +103,8 @@ void config_wizard(const std::string& config_path) {
         f << "closed_captions_enabled = " << (g_cfg.closed_captions_enabled ? "1" : "0") << "\n";
         f << "drm_connector = \"" << (g_cfg.drm_connector.empty() ? "auto" : g_cfg.drm_connector) << "\"\n";
         f << "drm_card = \"" << (g_cfg.drm_card.empty() ? "auto" : g_cfg.drm_card) << "\"\n";
-        f << "video_audio_device = \"" << (g_cfg.video_audio_device.empty() ? "auto" : g_cfg.video_audio_device) << "\"\n\n";
+        f << "video_audio_device = \"" << (g_cfg.video_audio_device.empty() ? "auto" : g_cfg.video_audio_device) << "\"\n";
+        f << "subtitles_dir = \"" << g_cfg.video_subtitles_dir << "\"\n\n";
         
         f << "[dashboard]\n";
         f << "weather_enabled = " << (g_cfg.weather_enabled ? "1" : "0") << "\n";
@@ -208,7 +209,8 @@ void config_wizard(const std::string& config_path) {
         {"Probe Timeout", INT, "Max seconds for ffprobe duration extraction (0=disabled)"},
         {"Play Just Photos", TGL, "Completely exclude videos from playback"},
         {"Play Just Videos", TGL, "Completely exclude photos from playback"},
-        {"Closed Captions", TGL, "Enable video closed captions/subtitles by default"}
+        {"Closed Captions", TGL, "Enable video closed captions/subtitles by default"},
+        {"Subtitles Dir", STR, "Path to folder containing .srt files (matching video basename)"}
     };
     static const CI CE[] = {
         {"Transition Delay", FLT, "Seconds to display photo before transitioning"},
@@ -258,7 +260,7 @@ void config_wizard(const std::string& config_path) {
         {"Display", CA, 4},
         {"System", CB, 8},
         {"Overlays", CC, 14},
-        {"Videos", CD, 6},
+        {"Videos", CD, 7},
         {"Slideshow", CE, 14},
         {"Scanning", CG, 8},
         {"Weather", CH, 3},
@@ -304,6 +306,7 @@ void config_wizard(const std::string& config_path) {
             case 3: return g_cfg.play_just_photos?"[ON]":"[OFF]";
             case 4: return g_cfg.play_just_videos?"[ON]":"[OFF]";
             case 5: return g_cfg.closed_captions_enabled?"[ON]":"[OFF]";
+            case 6: return g_cfg.video_subtitles_dir;
         }
         if (c == 4) switch(i) {
             case 0: return std::to_string(g_cfg.transition_delay);
@@ -385,6 +388,7 @@ void config_wizard(const std::string& config_path) {
                 case 3:g_cfg.play_just_photos=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
                 case 4:g_cfg.play_just_videos=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
                 case 5:g_cfg.closed_captions_enabled=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
+                case 6:g_cfg.video_subtitles_dir=v;break;
             }
             else if(c==4) switch(i){
                 case 0:{ try { g_cfg.transition_delay=std::stof(v); } catch(...) {} break; } case 1:{ try { g_cfg.transition_duration=std::stof(v); } catch(...) {} break; }

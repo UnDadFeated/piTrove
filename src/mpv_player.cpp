@@ -73,17 +73,33 @@ bool MpvPlayer::play(const std::string& path, int volume) {
 
     int matte_px = 0;
     bool cc_enabled = true;
+    std::string subtitles_dir = "";
     std::string connector_arg = "--drm-connector=HDMI-A-1";
     std::string audio_arg = "";
     {
         std::lock_guard<std::mutex> lock(g_config_mtx);
         matte_px = g_cfg.matting_size;
         cc_enabled = g_cfg.closed_captions_enabled;
+        subtitles_dir = g_cfg.video_subtitles_dir;
         if (!g_cfg.drm_connector.empty() && g_cfg.drm_connector != "auto") {
             connector_arg = "--drm-connector=" + g_cfg.drm_connector;
         }
         if (!g_cfg.video_audio_device.empty() && g_cfg.video_audio_device != "auto") {
             audio_arg = "--audio-device=" + g_cfg.video_audio_device;
+        }
+    }
+
+    // Look for matching .srt in subtitles folder
+    std::string sub_file = "";
+    if (!subtitles_dir.empty() && cc_enabled) {
+        std::string basename = path.substr(path.find_last_of('/') + 1);
+        size_t dot = basename.find_last_of('.');
+        if (dot != std::string::npos) basename = basename.substr(0, dot);
+        std::string srt_path = subtitles_dir + "/" + basename + ".srt";
+        struct stat st;
+        if (stat(srt_path.c_str(), &st) == 0) {
+            sub_file = "--sub-file=" + srt_path;
+            g_logger.info("VIDEO_SUB: Found subtitle match: %s", srt_path.c_str());
         }
     }
 
@@ -152,6 +168,9 @@ bool MpvPlayer::play(const std::string& path, int volume) {
             args.push_back("--sub-align-x=center");
             args.push_back("--sub-align-y=bottom");
             args.push_back(sub_margin_y_arg);
+            if (!sub_file.empty()) {
+                args.push_back(sub_file);
+            }
         } else {
             args.push_back("--no-sub");
         }

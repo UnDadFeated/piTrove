@@ -68,6 +68,7 @@ bool Config::load(const std::string& path) {
         else if (key == "drm_card")          this->drm_card = val;
         else if (key == "font_path")         this->font_path = val;
         else if (key == "video_audio_device")this->video_audio_device = val;
+        else if (key == "subtitles_dir")     this->video_subtitles_dir = val;
         else if (key == "sleep_time")        this->sleep_time = val;
 
         else if (key == "wake_time")         this->wake_time = val;
