@@ -66,6 +66,9 @@ struct Config {
     std::string font_path{"auto"};
     std::string video_audio_device{"auto"};
 
+    // Subtitles
+    std::string video_subtitles_dir{"/home/pi/piTrove/subtitles"};
+
 
     // [slideshow] advanced
     std::string sleep_time{""};

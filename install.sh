@@ -585,6 +585,7 @@ info "Creating internal directory tree..."
 mkdir -p "$PRIMARY_HOME/piTrove/cache" "$PRIMARY_HOME/piTrove/config"
 mkdir -p "$PRIMARY_HOME/piTrove/src/config"
 mkdir -p "$PRIMARY_HOME/piTrove/logs"
+mkdir -p "$PRIMARY_HOME/piTrove/subtitles"
 mkdir -p "$PRIMARY_HOME/piTrove/src/fonts"
 
 # ── Scan Window Setup ──────────────────────────────────────────────────────────
