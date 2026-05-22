@@ -9,8 +9,8 @@ struct MediaItem {
     std::string filename;
     std::string ext;
     std::string type{"image"}; // "image" or "video"
-    int64_t     width{0};
-    int64_t     height{0};
+    int        width{0};
+    int        height{0};
     double      duration{0.0};
     int         exif_rotation{0};
     int64_t     file_size{0};

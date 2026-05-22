@@ -17,7 +17,6 @@ std::atomic<int> g_remote_command{0};
 std::atomic<float> g_weather_temp{0.0f};
 std::atomic<int> g_weather_code{0};
 std::atomic<bool> g_config_changed{false};
-int g_http_server_fd = -1;
 std::atomic<bool> g_database_complete{false};
 std::string g_crash_cache_dir = "";
 

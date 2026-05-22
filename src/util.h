@@ -1,7 +1,7 @@
 #ifndef PITROVE_UTIL_H
 #define PITROVE_UTIL_H
 
-#define VERSION "10.3.2"
+#define VERSION "10.3.4"
 #define APP_NAME "piTrove"
 
 #include <atomic>
@@ -21,7 +21,7 @@ extern std::atomic<int> g_remote_command; // 1=Next, 2=Prev, 3=PauseToggle
 extern std::atomic<float> g_weather_temp;
 extern std::atomic<int> g_weather_code;
 extern std::atomic<bool> g_config_changed;
-extern int g_http_server_fd;
+
 extern std::atomic<bool> g_database_complete;
 extern std::string g_crash_cache_dir;
 
