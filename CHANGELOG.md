@@ -11,6 +11,7 @@
 - **Aesthetic Cleanliness** — Stripped all lingering/stale SDL2 mentions from debugging logs, initialization sequences, and splash screens to ensure clean and correct SDL3 terminology throughout the modern codebase.
 
 ### Fixed
+- **Closed Caption visibility and alignment** — Programmatically configured mpv to enforce ATSC A53/EIA-608 closed caption track generation (`--sub-create-cc-track=yes`) to resolve invisible captions. Standardized vertical closed caption positioning (`--sub-margin-y`) to align perfectly with the filename OSD on the bottom left, while keeping captions beautifully centered.
 - **mpv Subprocess Argument Safety** — Restructured child process argument building in the video player pipeline using standard `std::vector<std::string>` vectors evaluated cleanly on execution, resolving previous code redundancy and potential argument parsing bugs.
 
 ## v10.2.0 — Dynamic Core limit, Twin-Portrait Collage & Robust Media Skip (May 22, 2026)

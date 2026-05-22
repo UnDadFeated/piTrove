@@ -91,6 +91,9 @@ bool MpvPlayer::play(const std::string& path, int volume) {
     std::snprintf(margin_x_arg, sizeof(margin_x_arg), "--osd-margin-x=%d", matte_px + 8);
     std::snprintf(margin_y_arg, sizeof(margin_y_arg), "--osd-margin-y=%d", std::max(0, matte_px - 17));
 
+    char sub_margin_y_arg[64];
+    std::snprintf(sub_margin_y_arg, sizeof(sub_margin_y_arg), "--sub-margin-y=%d", std::max(0, matte_px - 17));
+
     // Dynamically calculate thread pool size based on CPU cores (max_cores - 1)
     unsigned int max_cores = std::thread::hardware_concurrency();
     if (max_cores == 0) max_cores = 4; // safe default fallback
@@ -142,9 +145,13 @@ bool MpvPlayer::play(const std::string& path, int volume) {
         }
 
         if (cc_enabled) {
+            args.push_back("--sub-create-cc-track=yes");
             args.push_back("--sub-auto=all");
             args.push_back("--sub-visibility=yes");
             args.push_back("--sid=auto");
+            args.push_back("--sub-align-x=center");
+            args.push_back("--sub-align-y=bottom");
+            args.push_back(sub_margin_y_arg);
         } else {
             args.push_back("--no-sub");
         }
