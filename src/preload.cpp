@@ -79,7 +79,7 @@ std::shared_ptr<ImageData> PreloadQueue::try_dequeue() {
                 data->valid = true;
 
                 // Create SDL surface from raw pixels
-                data->surface = SDL_CreateRGBSurfaceWithFormat(0, item.raw.width, item.raw.height, 32, SDL_PIXELFORMAT_RGBA32);
+                data->surface = SDL_CreateSurface(item.raw.width, item.raw.height, SDL_PIXELFORMAT_RGBA32);
                 if (data->surface) {
                     memcpy(data->surface->pixels, item.raw.pixels, (size_t)item.raw.width * item.raw.height * 4);
                     free(item.raw.pixels);
@@ -88,7 +88,7 @@ std::shared_ptr<ImageData> PreloadQueue::try_dequeue() {
                     if (data->exif_rotation >= 2 && data->exif_rotation <= 8) {
                         SDL_Surface* rotated = ImageLoader::apply_exif_rotation(data->surface, data->exif_rotation);
                         if (rotated) {
-                            SDL_FreeSurface(data->surface);
+                            SDL_DestroySurface(data->surface);
                             data->surface = rotated;
                         }
                     }
@@ -110,7 +110,7 @@ std::shared_ptr<ImageData> PreloadQueue::try_dequeue() {
                     // Per-pixel edge strips: average 3px deep per position
                     {
                         uint8_t* px = (uint8_t*)data->surface->pixels;
-                        int bpp = data->surface->format->BytesPerPixel;
+                        int bpp = SDL_BYTESPERPIXEL(data->surface->format);
                         int sw = data->surface->w, sh = data->surface->h;
                         int pitch = data->surface->pitch;
 

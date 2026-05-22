@@ -127,8 +127,14 @@ bool is_in_seasonal_window(const std::string& filename, int window_days) {
     int curr_m = now->tm_mon + 1;
     int curr_d = now->tm_mday;
 
-    int file_doy = file_m * 30 + file_d;
-    int curr_doy = curr_m * 30 + curr_d;
+    auto get_day_of_year = [](int month, int day) {
+        static const int days_before_month[] = { 0, 0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334 };
+        if (month < 1 || month > 12) return 0;
+        return days_before_month[month] + day;
+    };
+
+    int file_doy = get_day_of_year(file_m, file_d);
+    int curr_doy = get_day_of_year(curr_m, curr_d);
 
     int diff = std::abs(curr_doy - file_doy);
     if (diff > 365 / 2) diff = 365 - diff;
@@ -267,9 +273,8 @@ bool MediaScanner::is_month_in_window(const std::string& dirname, int window_day
     int curr_m = now->tm_mon + 1;
     int month_diff = std::abs(curr_m - folder_m);
     if (month_diff > 6) month_diff = 12 - month_diff;
-    // With window_days=5, only current month (diff=0) passes.
     // With window_days=15, ±1 month passes. With 30+, ±2 months.
-    int max_spread = (int)std::max(0, (window_days - 1) / 30);
+    int max_spread = (window_days + 29) / 30;
     return month_diff <= max_spread;
 }
 

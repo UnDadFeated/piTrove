@@ -1,7 +1,7 @@
 #ifndef PITROVE_TRANSITION_H
 #define PITROVE_TRANSITION_H
 
-#include <SDL.h>
+#include <SDL3/SDL.h>
 #include <string>
 #include <functional>
 

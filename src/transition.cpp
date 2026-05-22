@@ -82,22 +82,28 @@ void TransitionEngine::render_fade(SDL_Texture* prev_tex, SDL_Texture* next_tex,
     SDL_Renderer* sdl = renderer->sdl_renderer;
     float p = config.progress;
     
-    int prev_w = 0, prev_h = 0;
-    SDL_QueryTexture(prev_tex, nullptr, nullptr, &prev_w, &prev_h);
+    float pw = 0.0f, ph = 0.0f;
+    SDL_GetTextureSize(prev_tex, &pw, &ph);
+    int prev_w = (int)pw;
+    int prev_h = (int)ph;
     SDL_Rect prev_dst = calculate_fit_rect(prev_w, prev_h, screen_w, screen_h);
     
-    int next_w = 0, next_h = 0;
-    SDL_QueryTexture(next_tex, nullptr, nullptr, &next_w, &next_h);
+    float nw = 0.0f, nh = 0.0f;
+    SDL_GetTextureSize(next_tex, &nw, &nh);
+    int next_w = (int)nw;
+    int next_h = (int)nh;
     SDL_Rect next_dst = calculate_fit_rect(next_w, next_h, screen_w, screen_h);
     
     // Draw previous texture fading out
     SDL_SetTextureAlphaMod(prev_tex, (Uint8)(255.0f * (1.0f - p)));
-    SDL_RenderCopy(sdl, prev_tex, nullptr, &prev_dst);
+    SDL_FRect prev_dst_f = {(float)prev_dst.x, (float)prev_dst.y, (float)prev_dst.w, (float)prev_dst.h};
+    SDL_RenderTexture(sdl, prev_tex, nullptr, &prev_dst_f);
     SDL_SetTextureAlphaMod(prev_tex, 255);
     
     // Draw next texture fading in
     SDL_SetTextureAlphaMod(next_tex, (Uint8)(255.0f * p));
-    SDL_RenderCopy(sdl, next_tex, nullptr, &next_dst);
+    SDL_FRect next_dst_f = {(float)next_dst.x, (float)next_dst.y, (float)next_dst.w, (float)next_dst.h};
+    SDL_RenderTexture(sdl, next_tex, nullptr, &next_dst_f);
     SDL_SetTextureAlphaMod(next_tex, 255);
 }
 
@@ -107,16 +113,21 @@ void TransitionEngine::render_wipe(SDL_Texture* prev_tex, SDL_Texture* next_tex,
     SDL_Renderer* sdl = renderer->sdl_renderer;
     float p = config.progress;
     
-    int prev_w = 0, prev_h = 0;
-    SDL_QueryTexture(prev_tex, nullptr, nullptr, &prev_w, &prev_h);
+    float pw = 0.0f, ph = 0.0f;
+    SDL_GetTextureSize(prev_tex, &pw, &ph);
+    int prev_w = (int)pw;
+    int prev_h = (int)ph;
     SDL_Rect prev_dst = calculate_fit_rect(prev_w, prev_h, screen_w, screen_h);
     
-    int next_w = 0, next_h = 0;
-    SDL_QueryTexture(next_tex, nullptr, nullptr, &next_w, &next_h);
+    float nw = 0.0f, nh = 0.0f;
+    SDL_GetTextureSize(next_tex, &nw, &nh);
+    int next_w = (int)nw;
+    int next_h = (int)nh;
     SDL_Rect next_dst = calculate_fit_rect(next_w, next_h, screen_w, screen_h);
     
     // Draw previous texture fully
-    SDL_RenderCopy(sdl, prev_tex, nullptr, &prev_dst);
+    SDL_FRect prev_dst_f = {(float)prev_dst.x, (float)prev_dst.y, (float)prev_dst.w, (float)prev_dst.h};
+    SDL_RenderTexture(sdl, prev_tex, nullptr, &prev_dst_f);
     
     // Calculate wipe clip rect in screen coordinates
     SDL_Rect clip_rect = {0, 0, screen_w, screen_h};
@@ -137,9 +148,10 @@ void TransitionEngine::render_wipe(SDL_Texture* prev_tex, SDL_Texture* next_tex,
             break;
     }
     
-    SDL_RenderSetClipRect(sdl, &clip_rect);
-    SDL_RenderCopy(sdl, next_tex, nullptr, &next_dst);
-    SDL_RenderSetClipRect(sdl, nullptr);
+    SDL_SetRenderClipRect(sdl, &clip_rect);
+    SDL_FRect next_dst_f = {(float)next_dst.x, (float)next_dst.y, (float)next_dst.w, (float)next_dst.h};
+    SDL_RenderTexture(sdl, next_tex, nullptr, &next_dst_f);
+    SDL_SetRenderClipRect(sdl, nullptr);
 }
 
 void TransitionEngine::render_ken_burns(SDL_Texture* tex, int screen_w, int screen_h, float zoom) {
@@ -150,8 +162,10 @@ void TransitionEngine::render_ken_burns(SDL_Texture* tex, int screen_w, int scre
     
     float scale = 1.0f + zoom * p;
     
-    int tex_w = 0, tex_h = 0;
-    SDL_QueryTexture(tex, nullptr, nullptr, &tex_w, &tex_h);
+    float tw = 0.0f, th = 0.0f;
+    SDL_GetTextureSize(tex, &tw, &th);
+    int tex_w = (int)tw;
+    int tex_h = (int)th;
     
     SDL_Rect base_dst = calculate_fit_rect(tex_w, tex_h, screen_w, screen_h);
     
@@ -164,9 +178,9 @@ void TransitionEngine::render_ken_burns(SDL_Texture* tex, int screen_w, int scre
     int dst_x = (screen_w - dst_w) / 2 + (int)pan_x;
     int dst_y = (screen_h - dst_h) / 2 + (int)pan_y;
     
-    SDL_Rect dst = {dst_x, dst_y, dst_w, dst_h};
+    SDL_FRect dst_f = {(float)dst_x, (float)dst_y, (float)dst_w, (float)dst_h};
     
-    SDL_RenderCopy(sdl, tex, nullptr, &dst);
+    SDL_RenderTexture(sdl, tex, nullptr, &dst_f);
 }
 
 void TransitionEngine::render_pixelate(SDL_Texture* prev_tex, SDL_Texture* next_tex, int screen_w, int screen_h) {
@@ -175,18 +189,24 @@ void TransitionEngine::render_pixelate(SDL_Texture* prev_tex, SDL_Texture* next_
     SDL_Renderer* sdl = renderer->sdl_renderer;
     float p = config.progress;
     
-    int prev_w = 0, prev_h = 0;
-    SDL_QueryTexture(prev_tex, nullptr, nullptr, &prev_w, &prev_h);
+    float pw = 0.0f, ph = 0.0f;
+    SDL_GetTextureSize(prev_tex, &pw, &ph);
+    int prev_w = (int)pw;
+    int prev_h = (int)ph;
     SDL_Rect prev_dst = calculate_fit_rect(prev_w, prev_h, screen_w, screen_h);
     
-    int next_w = 0, next_h = 0;
-    SDL_QueryTexture(next_tex, nullptr, nullptr, &next_w, &next_h);
+    float nw = 0.0f, nh = 0.0f;
+    SDL_GetTextureSize(next_tex, &nw, &nh);
+    int next_w = (int)nw;
+    int next_h = (int)nh;
     SDL_Rect next_dst = calculate_fit_rect(next_w, next_h, screen_w, screen_h);
     
-    SDL_RenderCopy(sdl, prev_tex, nullptr, &prev_dst);
+    SDL_FRect prev_dst_f = {(float)prev_dst.x, (float)prev_dst.y, (float)prev_dst.w, (float)prev_dst.h};
+    SDL_RenderTexture(sdl, prev_tex, nullptr, &prev_dst_f);
     
     SDL_SetTextureAlphaMod(next_tex, (Uint8)(255.0f * p));
-    SDL_RenderCopy(sdl, next_tex, nullptr, &next_dst);
+    SDL_FRect next_dst_f = {(float)next_dst.x, (float)next_dst.y, (float)next_dst.w, (float)next_dst.h};
+    SDL_RenderTexture(sdl, next_tex, nullptr, &next_dst_f);
     SDL_SetTextureAlphaMod(next_tex, 255);
 }
 
@@ -196,17 +216,23 @@ void TransitionEngine::render_dissolve(SDL_Texture* prev_tex, SDL_Texture* next_
     SDL_Renderer* sdl = renderer->sdl_renderer;
     float p = config.progress;
     
-    int prev_w = 0, prev_h = 0;
-    SDL_QueryTexture(prev_tex, nullptr, nullptr, &prev_w, &prev_h);
+    float pw = 0.0f, ph = 0.0f;
+    SDL_GetTextureSize(prev_tex, &pw, &ph);
+    int prev_w = (int)pw;
+    int prev_h = (int)ph;
     SDL_Rect prev_dst = calculate_fit_rect(prev_w, prev_h, screen_w, screen_h);
     
-    int next_w = 0, next_h = 0;
-    SDL_QueryTexture(next_tex, nullptr, nullptr, &next_w, &next_h);
+    float nw = 0.0f, nh = 0.0f;
+    SDL_GetTextureSize(next_tex, &nw, &nh);
+    int next_w = (int)nw;
+    int next_h = (int)nh;
     SDL_Rect next_dst = calculate_fit_rect(next_w, next_h, screen_w, screen_h);
     
-    SDL_RenderCopy(sdl, prev_tex, nullptr, &prev_dst);
+    SDL_FRect prev_dst_f = {(float)prev_dst.x, (float)prev_dst.y, (float)prev_dst.w, (float)prev_dst.h};
+    SDL_RenderTexture(sdl, prev_tex, nullptr, &prev_dst_f);
     
     SDL_SetTextureAlphaMod(next_tex, (Uint8)(255.0f * p));
-    SDL_RenderCopy(sdl, next_tex, nullptr, &next_dst);
+    SDL_FRect next_dst_f = {(float)next_dst.x, (float)next_dst.y, (float)next_dst.w, (float)next_dst.h};
+    SDL_RenderTexture(sdl, next_tex, nullptr, &next_dst_f);
     SDL_SetTextureAlphaMod(next_tex, 255);
 }

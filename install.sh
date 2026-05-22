@@ -267,9 +267,9 @@ else
 fi
 
 # ── Install comprehensive system packages ──────────────────────────────────────
-run_with_spinner "Installing core system dependencies (SDL2, MPV, FFmpeg, EXIF)" apt-get install -y -qq \
+run_with_spinner "Installing core system dependencies (SDL3, MPV, FFmpeg, EXIF)" apt-get install -y -qq \
     build-essential cmake git curl pkg-config \
-    libsdl2-dev libsdl2-image-dev libsdl2-ttf-dev \
+    libsdl3-dev libsdl3-image-dev libsdl3-ttf-dev \
     libsqlite3-dev libexif-dev libjpeg-dev libpng-dev libtiff-dev libheif-dev libwebp-dev \
     libjpeg62-turbo-dev libopenjp2-7-dev libraw-dev \
     libasound2-dev libfreetype6-dev libfontconfig1-dev \
@@ -570,7 +570,7 @@ info "Compiling executable target..."
 run_compilation_with_progress "$PRIMARY_HOME/piTrove/src"
 
 # Copy binary to canonical location
-cp "$PRIMARY_HOME/piTrove/src/build/piTrove" "$PRIMARY_HOME/piTrove/piTrove"
+cp "$PRIMARY_HOME/piTrove/src/piTrove" "$PRIMARY_HOME/piTrove/piTrove"
 chown $PRIMARY_USER:$PRIMARY_USER "$PRIMARY_HOME/piTrove/piTrove"
 ok "Installed piTrove executable target"
 
@@ -731,7 +731,7 @@ Restart=always
 RestartSec=15
 StandardOutput=journal
 StandardError=journal
-Environment=HOME=$PRIMARY_HOME SDL_VIDEODRIVER=kmsdrm SDL_VIDEO_KMSDRM_DEVICE=/dev/dri/card1
+Environment=HOME=$PRIMARY_HOME SDL_VIDEO_DRIVER=kmsdrm SDL_VIDEODRIVER=kmsdrm SDL_VIDEO_KMSDRM_DEVICE=/dev/dri/card1 SDL_KMSDRM_DEVICE_INDEX=1
 
 [Install]
 WantedBy=multi-user.target

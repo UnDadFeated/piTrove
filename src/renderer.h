@@ -1,8 +1,8 @@
 #ifndef PITROVE_RENDERER_H
 #define PITROVE_RENDERER_H
 
-#include <SDL.h>
-#include <SDL_ttf.h>
+#include <SDL3/SDL.h>
+#include <SDL3_ttf/SDL_ttf.h>
 #include <string>
 #include <vector>
 #include <mutex>
@@ -17,7 +17,6 @@ class Renderer {
 public:
     SDL_Renderer* sdl_renderer{nullptr};
     SDL_Window* window{nullptr};
-    SDL_GLContext gl_context{nullptr};
     int screen_w{1920};
     int screen_h{1080};
 
