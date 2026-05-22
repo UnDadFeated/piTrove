@@ -89,6 +89,8 @@ void config_wizard(const std::string& config_path) {
         f << "videos_per_photos = " << g_cfg.videos_per_photos << "\n";
         f << "play_just_photos = " << (g_cfg.play_just_photos ? "1" : "0") << "\n";
         f << "play_just_videos = " << (g_cfg.play_just_videos ? "1" : "0") << "\n";
+        f << "show_people_faces = " << (g_cfg.show_people_faces ? "1" : "0") << "\n";
+        f << "keep_animals = " << (g_cfg.keep_animals ? "1" : "0") << "\n";
         f << "sleep_time = " << (g_cfg.sleep_time.empty() ? "\"\"" : "\"" + g_cfg.sleep_time + "\"") << "\n";
         f << "wake_time = " << (g_cfg.wake_time.empty() ? "\"\"" : "\"" + g_cfg.wake_time + "\"") << "\n";
         f << "filename_font_size = " << g_cfg.filename_font_size << "\n";
@@ -212,7 +214,9 @@ void config_wizard(const std::string& config_path) {
         {"Scan Depth", INT, "Max subdirectory depth to scan"},
         {"Temporal Window", INT, "Show media from =/- X days of today, any year. 0=all"},
         {"Ignore Folders", LST, "Comma-separated folder names to skip"},
-        {"Max Concurrent", INT, "Max threads during loading (match CPU cores)"}
+        {"Max Concurrent", INT, "Max threads during loading (match CPU cores)"},
+        {"Keep People", TGL, "Only show photos containing people (family, faces, friends)"},
+        {"Keep Animals", TGL, "Only show photos containing animals (pets, wildlife)"}
     };
     static const CI CH[] = {
         {"Weather Enabled", TGL, "Fetch local weather via Open-Meteo API"},
@@ -232,7 +236,7 @@ void config_wizard(const std::string& config_path) {
         {"Overlays", CC, 12},
         {"Videos", CD, 5},
         {"Slideshow", CE, 13},
-        {"Scanning", CG, 5},
+        {"Scanning", CG, 7},
         {"Weather", CH, 3},
         {"Advanced", CI2, 3}
     };
@@ -292,6 +296,8 @@ void config_wizard(const std::string& config_path) {
             case 2: return std::to_string(g_cfg.scan_window_days);
             case 3: { std::string s; for(size_t x=0;x<g_cfg.ignore_folders.size();x++) s+=g_cfg.ignore_folders[x]+(x<g_cfg.ignore_folders.size()-1?",":""); return s; }
             case 4: return std::to_string(g_cfg.max_concurrent);
+            case 5: return g_cfg.show_people_faces?"[ON]":"[OFF]";
+            case 6: return g_cfg.keep_animals?"[ON]":"[OFF]";
         }
         if (c == 6) switch(i) {
             case 0: return g_cfg.weather_enabled?"[ON]":"[OFF]";
@@ -378,6 +384,8 @@ void config_wizard(const std::string& config_path) {
                     if (!last.empty()) g_cfg.ignore_folders.push_back(last);
                 }break;
                 case 4:{ try { g_cfg.max_concurrent=std::stoi(v); } catch(...) {} break; }
+                case 5:g_cfg.show_people_faces=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
+                case 6:g_cfg.keep_animals=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
             }
             else if(c==6) switch(i){
                 case 0:g_cfg.weather_enabled=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
