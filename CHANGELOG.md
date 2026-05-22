@@ -1,5 +1,12 @@
 # Changelog
 
+## v9.1.2 — Bias lighting: per-edge color gradient from photo to black matte (May 21, 2026)
+
+### Added
+- **Bias lighting** — 4 edge colors sampled per photo (8px depth), drawn as 8-step gradient fading into matte
+- **Animation styles** — `edge_glow` (default), `pulse`, `breathe`, `none`
+- **Config knobs** — `bias_strength` (0-200), `bias_anim_speed`, `bias_anim_style`
+
 ## v9.1.0 — Video interleave, overlay fixes, scan optimizations (May 21, 2026)
 
 ### Changed
