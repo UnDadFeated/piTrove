@@ -122,6 +122,7 @@ void OverlayManager::get_adaptive_colors(const ImageData* img, GpuColor& text_co
 
 void OverlayManager::draw_all(int current_idx, int total_items, const MediaItem* item, const MediaItem* twin_item, double item_timer, bool is_video, int active_fps, const ImageData* current_data, const ImageData* current_twin_data) {
     if (!font_loaded || !font_renderer || !overlay_font) return;
+    (void)current_twin_data; // used for twin texture rendering elsewhere
 
     int pad = 15;
     int sw = g_renderer.screen_w;
@@ -239,8 +240,8 @@ void OverlayManager::draw_all(int current_idx, int total_items, const MediaItem*
             // Stack both filenames vertically in lower-left
             int th = 0, tw = 0;
             font_renderer->measure(font, item->filename, tw, th);
-            draw_contrast_text(fx, fy - th - 4, font, item->filename, {255, 255, 255, 255}, current_data);
-            draw_contrast_text(fx, fy, font, twin_item->filename, {255, 255, 255, 255}, current_twin_data);
+            draw_contrast_text(fx, fy - th - 4, font, item->filename, {255, 255, 255, 255}, global_img);
+            draw_contrast_text(fx, fy, font, twin_item->filename, {255, 255, 255, 255}, global_img);
         } else {
             draw_contrast_text(fx, fy, font, item->filename, {255, 255, 255, 255}, current_data);
         }
