@@ -103,11 +103,25 @@ int main(int argc, char** argv) {
     }
     g_logger.info("SDL2 context created: %dx%d", g_renderer.screen_w, g_renderer.screen_h);
 
+    // Render 3 black frames to initialize page flipping under KMSDRM before any textures are created
+    g_logger.info("Initializing EGL page flipping sweeps...");
+    for (int i = 0; i < 3; i++) {
+        g_renderer.clear(0, 0, 0, 255);
+        g_renderer.present();
+        SDL_Delay(16);
+    }
+
     // --- Splash ---
     g_logger.info("Loading splash screen...");
     g_renderer.load_splash(splash_file);
     g_logger.info("Splash loaded");
     fprintf(stderr, "TRACE: after load_splash\n"); fflush(stderr);
+
+    // Render initial splash immediately
+    for (int i = 0; i < 3; i++) {
+        draw_phase_splash(2, 0, 0, 0, "INIT", 0, nullptr, false);
+        SDL_Delay(16);
+    }
 
     // --- Fast-path: skip scan+cache if DB already exists ---
     fprintf(stderr, "TRACE: before cache check\n"); fflush(stderr);
@@ -182,8 +196,9 @@ int main(int argc, char** argv) {
         } else {
             g_logger.warn("Failed to open cache DB — will re-scan");
         }
-        delete fast_cache;
-        if (g_cache == fast_cache) g_cache = nullptr;
+        if (g_cache != fast_cache) {
+            delete fast_cache;
+        }
     }
 
     fprintf(stderr, "TRACE: after DB block, items=%d\n", (int)scanned_items.size()); fflush(stderr);
@@ -196,61 +211,33 @@ int main(int argc, char** argv) {
     if (do_scan) {
         g_logger.info("Phase 1: Scanning media...");
         auto scan_start = std::chrono::steady_clock::now();
+        draw_phase_splash(2, 0, 0, 0, "SCANNING", 0, nullptr, false);
 
-        static const std::vector<std::string> image_exts = {".jpg",".jpeg",".png",".webp",".heic",".heif",".gif",".bmp",".tiff",".tif"};
-        static const std::vector<std::string> video_exts = {".mp4",".mov",".mkv",".avi",".webm",".m4v"};
+        std::atomic<int64_t> scan_count{0};
+        std::atomic<bool> scan_done{false};
 
-        auto add_file = [&](const std::string& path) {
-            std::string ext;
-            auto dot = path.find_last_of('.');
-            if (dot != std::string::npos) ext = path.substr(dot);
-            std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
-
-            bool is_img = false, is_vid = false;
-            for (auto& e : image_exts) if (ext == e) is_img = true;
-            for (auto& e : video_exts) if (ext == e) is_vid = true;
-            if (!is_img && !is_vid) return;
-
-            std::string fname = path.substr(path.find_last_of('/') + 1);
-            if (fname.empty() || fname[0] == '.') return;
-
-            struct stat st;
-            if (stat(path.c_str(), &st) != 0) return;
-
-            MediaItem mi;
-            mi.path = path;
-            mi.filename = fname;
-            mi.ext = ext.substr(1); // remove dot
-            mi.file_size = st.st_size;
-            mi.modified_time = st.st_mtime;
-            mi.type = is_img ? "image" : "video";
-            mi.cached = false;
-            scanned_items.push_back(std::move(mi));
+        // Thread-safe progress callback updating only the atomic counter
+        auto safe_progress_callback = [&](int count) {
+            scan_count.store(count, std::memory_order_relaxed);
         };
 
-        std::error_code ec;
-        for (const auto& entry : std::filesystem::directory_iterator(media_dir, ec)) {
-            if (!entry.is_directory(ec)) continue;
-            std::string dirname = entry.path().filename().string();
-            if (dirname.empty() || dirname[0] == '.') continue;
+        int depth = 10;
+        { std::lock_guard<std::mutex> lk(g_config_mtx); depth = g_cfg.scan_depth; }
 
-            std::vector<std::string> ignore_f;
-            { std::lock_guard<std::mutex> lk(g_config_mtx); ignore_f = g_cfg.ignore_folders; }
-            bool ignored = false;
-            for (const auto& ign : ignore_f) if (dirname == ign) { ignored = true; break; }
-            if (ignored) continue;
+        std::thread scan_thread([&]() {
+            scan_directory(media_dir, depth, scanned_items, scan_count, safe_progress_callback);
+            scan_done.store(true);
+        });
 
-            std::string dirpath = entry.path().string();
-            for (const auto& sub : std::filesystem::directory_iterator(dirpath, ec)) {
-                if (sub.is_directory(ec)) {
-                    // Scan subdirectory
-                    for (const auto& inner : std::filesystem::directory_iterator(sub.path(), ec)) {
-                        if (inner.is_regular_file(ec)) add_file(inner.path().string());
-                    }
-                } else if (sub.is_regular_file(ec)) {
-                    add_file(sub.path().string());
-                }
-            }
+        // Main thread polls and renders splash safely on EGL context
+        while (!scan_done.load()) {
+            dot_counter++;
+            draw_phase_splash(2, (int)scan_count.load(), 0, 0, "SCANNING", dot_counter, nullptr, false);
+            SDL_Delay(33); // ~30 FPS throttling
+        }
+
+        if (scan_thread.joinable()) {
+            scan_thread.join();
         }
 
         auto scan_end = std::chrono::steady_clock::now();
@@ -353,6 +340,7 @@ int main(int argc, char** argv) {
 
     fprintf(stderr, "TRACE: new TransitionEngine\n"); fflush(stderr);
     g_transition = new TransitionEngine();
+    g_transition->set_renderer(&g_renderer);
     fprintf(stderr, "TRACE: new OverlayManager\n"); fflush(stderr);
     g_overlay = new OverlayManager(&g_renderer);
     fprintf(stderr, "TRACE: g_logger.info\n"); fflush(stderr);
@@ -364,7 +352,8 @@ int main(int argc, char** argv) {
     auto last_frame_time = std::chrono::steady_clock::now();
 
     fprintf(stderr, "TRACE: make_shared ImageData\n"); fflush(stderr);
-    auto current_data = std::make_shared<ImageData>();
+    std::shared_ptr<ImageData> current_data = std::make_shared<ImageData>();
+    std::shared_ptr<ImageData> next_data = nullptr;
     fprintf(stderr, "TRACE: start load loop\n"); fflush(stderr);
     int load_attempts = 0;
     while (load_attempts < 10) {
@@ -458,17 +447,17 @@ int main(int argc, char** argv) {
             transition_timer += dt;
             double trans_duration = g_cfg.transition_duration;
 
-            SDL_Texture* prev_tex = current_tex;
-            SDL_Texture* next_tex = nullptr;
-            auto next_data = std::make_shared<ImageData>();
-            if (!next_tex) {
+            // Load next_data exactly once at the beginning of the transition
+            if (!next_data) {
                 int next_idx = current_idx % (int)eligible.size();
                 next_data = ImageLoader::load(eligible[next_idx].path);
-                if (next_data->valid) {
+                if (next_data && next_data->valid) {
                     ImageLoader::load_texture(next_data.get(), g_renderer.sdl_renderer);
-                    next_tex = next_data->texture;
                 }
             }
+
+            SDL_Texture* prev_tex = (current_data && current_data->texture) ? current_data->texture : nullptr;
+            SDL_Texture* next_tex = (next_data && next_data->texture) ? next_data->texture : nullptr;
 
             if (prev_tex && next_tex) {
                 g_renderer.clear(0, 0, 0, 255);
@@ -476,20 +465,29 @@ int main(int argc, char** argv) {
                 g_transition->render(prev_tex, next_tex, g_renderer.screen_w, g_renderer.screen_h);
                 g_renderer.present();
 
-                if (current_tex) {
-                    auto old_data = std::make_shared<ImageData>();
-                    old_data->texture = current_tex; old_data->valid = true;
-                    ImageLoader::unload_texture(old_data.get());
-                }
-                current_tex = next_tex;
-
                 if (g_transition->get_progress() >= 1.0f) {
-                    transitioning = false; item_timer = 0.0;
+                    transitioning = false; 
+                    item_timer = 0.0;
+
+                    // Clean RAII swap: assign next_data to current_data.
+                    // The old current_data's destructor automatically releases its texture and surface.
+                    current_data = next_data;
+                    next_data = nullptr;
+                    current_tex = current_data->texture;
+
                     g_cache->mark_shown(eligible[current_idx].path);
                     g_renderer.calculate_fit_rect(eligible[current_idx].width, eligible[current_idx].height, fit_rect);
                 }
             } else {
-                transitioning = false; item_timer = 0.0;
+                // If loading next image failed, abort transition and jump directly to next
+                transitioning = false; 
+                item_timer = 0.0;
+                if (next_data) {
+                    current_data = next_data;
+                    next_data = nullptr;
+                    current_tex = current_data->texture;
+                    g_renderer.calculate_fit_rect(eligible[current_idx].width, eligible[current_idx].height, fit_rect);
+                }
             }
         } else {
             if (current_tex) {

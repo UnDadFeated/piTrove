@@ -30,79 +30,25 @@ ssize_t get_dents64(int fd, char* buf, size_t bufsz) {
 }
 
 std::vector<std::string> read_dir(const std::string& path) {
-    g_logger.info("TRACE: read_dir '%s'", path.c_str());
     std::vector<std::string> entries;
     DIR* dir = opendir(path.c_str());
     if (!dir) return entries;
 
     struct dirent* de;
     while ((de = readdir(dir)) != nullptr) {
-        if (de->d_name[0] == '.' && de->d_name[1] == '\0') continue;
+        if (de->d_name[0] == '.') continue;
         entries.emplace_back(de->d_name);
     }
     closedir(dir);
     return entries;
 }
 
-struct TimeoutState {
-    std::mutex mtx;
-    std::condition_variable cv;
-    bool done = false;
-};
-
 std::vector<std::string> read_dir_timeout(const std::string& path, int timeout_ms) {
-    g_logger.info("TRACE: read_dir_timeout '%s' timeout=%dms", path.c_str(), timeout_ms);
-    auto entries = std::make_shared<std::vector<std::string>>();
-    auto state = std::make_shared<TimeoutState>();
-
-    std::thread t([entries, path, state]() {
-        *entries = read_dir(path);
-        {
-            std::lock_guard<std::mutex> lk(state->mtx);
-            state->done = true;
-        }
-        state->cv.notify_one();
-    });
-
-    std::unique_lock<std::mutex> lk(state->mtx);
-    state->cv.wait_for(lk, std::chrono::milliseconds(timeout_ms), [&]() { return state->done; });
-
-    if (!state->done) {
-        g_logger.warn("read_dir timeout after %dms for '%s'", timeout_ms, path.c_str());
-        t.detach();
-        return {};
-    } else {
-        t.join();
-        return *entries;
-    }
+    return read_dir(path);
 }
 
-   bool stat_timeout(const std::string& path, struct stat& st, int timeout_ms) {
-    g_logger.info("TRACE: stat_timeout '%s'", path.c_str());
-    auto result = std::make_shared<int>(-1);
-    auto st_ptr = std::make_shared<struct stat>();
-    auto state = std::make_shared<TimeoutState>();
-
-    std::thread t([path, st_ptr, result, state]() {
-        *result = stat(path.c_str(), st_ptr.get());
-        {
-            std::lock_guard<std::mutex> lk(state->mtx);
-            state->done = true;
-        }
-        state->cv.notify_one();
-    });
-
-    std::unique_lock<std::mutex> lk(state->mtx);
-    state->cv.wait_for(lk, std::chrono::milliseconds(timeout_ms), [&]() { return state->done; });
-
-    if (!state->done) {
-        g_logger.debug("stat timeout after %dms for '%s'", timeout_ms, path.c_str());
-        t.detach();
-        return false;
-    }
-    t.join();
-    if (*result == 0) st = *st_ptr;
-    return *result == 0;
+bool stat_timeout(const std::string& path, struct stat& st, int timeout_ms) {
+    return stat(path.c_str(), &st) == 0;
 }
 
 std::string file_ext(const std::string& path) {
@@ -323,19 +269,19 @@ bool MediaScanner::is_month_in_window(const std::string& dirname, int window_day
     return diff <= max_month_spread;
 }
 
-std::vector<std::string> MediaScanner::scan(const std::string& directory,
-                                           const std::vector<std::string>& exts,
-                                           int window_days,
-                                           int max_depth,
-                                           const std::vector<std::string>& ignore_folders,
-                                           std::function<void(int)> progress) {
+std::vector<MediaItem> MediaScanner::scan(const std::string& directory,
+                                         const std::vector<std::string>& exts,
+                                         int window_days,
+                                         int max_depth,
+                                         const std::vector<std::string>& ignore_folders,
+                                         std::function<void(int)> progress) {
     live_found_count.store(0);
-    std::vector<std::string> all_files;
+    std::vector<MediaItem> all_items;
     std::mutex list_mutex;
 
     g_logger.info("TRACE: scan start dir='%s' exts=%d window=%d depth=%d ignore=%d", directory.c_str(), (int)exts.size(), window_days, max_depth, (int)ignore_folders.size());
     std::vector<std::string> subdirs;
-    std::vector<std::string> root_files;
+    std::vector<std::pair<std::string, struct stat>> root_files;
     std::vector<std::string> root_entries = read_dir_timeout(directory, 15000);
     for (const auto& name : root_entries) {
         bool ignored = false;
@@ -352,7 +298,7 @@ std::vector<std::string> MediaScanner::scan(const std::string& directory,
                     subdirs.push_back(p);
                 }
             } else if (S_ISREG(st.st_mode)) {
-                root_files.push_back(p);
+                root_files.push_back({p, st});
             }
         }
     }
@@ -376,9 +322,10 @@ std::vector<std::string> MediaScanner::scan(const std::string& directory,
                                 if (name == ign) { ignored = true; break; }
                             }
                             if (ignored) continue;
+                            if (!is_month_in_window(name, window_days)) continue;
                             rec(p, d + 1);
                         } else if (S_ISREG(st.st_mode)) {
-                            process_entry(p, exts, window_days, list_mutex, all_files);
+                            process_entry(p, st, exts, window_days, list_mutex, all_items);
                             if (progress) progress(live_found_count.load());
                         }
                     }
@@ -387,13 +334,6 @@ std::vector<std::string> MediaScanner::scan(const std::string& directory,
             }
         } catch (...) {}
     };
-
-    for (const auto& p : root_files) {
-        process_entry(p, exts, window_days, list_mutex, all_files);
-        if (progress) progress(live_found_count.load());
-    }
-
-    g_logger.info("TRACE: scan root done: entries=%d files=%d subdirs=%d", (int)root_entries.size(), (int)root_files.size(), (int)subdirs.size());
 
     // Use hardware threads (like legacy) for max throughput
     int hw_cores = std::max(1, (int)std::thread::hardware_concurrency());
@@ -411,9 +351,14 @@ std::vector<std::string> MediaScanner::scan(const std::string& directory,
         if (th.joinable()) th.join();
     }
 
-    g_logger.info("TRACE: scan threads joined, total=%d", (int)all_files.size());
+    for (const auto& pair : root_files) {
+        process_entry(pair.first, pair.second, exts, window_days, list_mutex, all_items);
+        if (progress) progress(live_found_count.load());
+    }
+
+    g_logger.info("TRACE: scan threads joined, total=%d", (int)all_items.size());
     if (progress) progress(live_found_count.load());
-    return all_files;
+    return all_items;
 }
 
 int MediaScanner::get_count() {
@@ -421,10 +366,11 @@ int MediaScanner::get_count() {
 }
 
 void MediaScanner::process_entry(const std::string& path_str,
+                                 const struct stat& st,
                                  const std::vector<std::string>& exts,
                                  int window_days,
                                  std::mutex& list_mutex,
-                                 std::vector<std::string>& all_files) {
+                                 std::vector<MediaItem>& all_items) {
     std::filesystem::path path_obj(path_str);
     if (path_obj.stem().string().empty()) return;
 
@@ -433,8 +379,16 @@ void MediaScanner::process_entry(const std::string& path_str,
 
     if (std::find(exts.begin(), exts.end(), ext) != exts.end()) {
         if (is_in_seasonal_window(path_obj.filename().string(), window_days)) {
+            MediaItem mi;
+            mi.path = path_str;
+            mi.filename = path_obj.filename().string();
+            mi.ext = ext;
+            mi.file_size = st.st_size;
+            mi.modified_time = st.st_mtime;
+            mi.type = is_image(ext) ? "image" : "video";
+
             std::lock_guard<std::mutex> lock(list_mutex);
-            all_files.push_back(path_obj.string());
+            all_items.push_back(std::move(mi));
             live_found_count.fetch_add(1, std::memory_order_relaxed);
         }
     }
@@ -457,41 +411,7 @@ void scan_directory(const std::string& dir, int depth,
     auto media_files = scanner.scan(dir, exts, scan_days, depth, ignore_f, progress);
     g_logger.info("TRACE: scan returned %d media files", (int)media_files.size());
 
-    for (auto& filepath : media_files) {
-        auto fname = filepath.substr(filepath.find_last_of('/') + 1);
-        if (fname.empty() || fname[0] == '.') continue;
-
-        bool skip = false;
-        for (const auto& ign : ignore_f) {
-            if (filepath.find("/" + ign + "/") != std::string::npos ||
-                (filepath.size() >= ign.size() + 1 &&
-                 filepath.substr(filepath.size() - ign.size() - 1) == "/" + ign)) {
-                skip = true;
-                break;
-            }
-        }
-        if (skip) continue;
-
-        std::string ext = file_ext(filepath);
-        if (ext.empty()) continue;
-        if (!is_image(ext) && !is_video(ext)) continue;
-
-        struct stat st;
-        if (!stat_timeout(filepath, st, 5000)) continue;
-
-        MediaItem mi;
-        mi.path = filepath;
-        mi.filename = file_name(filepath);
-        mi.ext = ext;
-        mi.file_size = st.st_size;
-        mi.modified_time = st.st_mtime;
-        mi.type = is_image(ext) ? "image" : "video";
-
-        if (g_cache) g_cache->load_cached(mi);
-
-        items.push_back(std::move(mi));
-        count.fetch_add(1, std::memory_order_relaxed);
-    }
+    items = std::move(media_files);
 }
 
 unsigned long long make_entropy_seed() {

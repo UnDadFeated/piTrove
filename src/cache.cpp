@@ -13,6 +13,13 @@ bool CacheManager::open(const std::string& dir) {
     std::filesystem::create_directories(dir);
 
     std::string path = dir + "/cache.db";
+    if (std::filesystem::exists(path) && !verify_database(path)) {
+        g_logger.warn("Cache database at %s has an outdated schema or is corrupt. Purging to rebuild...", path.c_str());
+        std::filesystem::remove(path);
+        std::filesystem::remove(path + "-wal");
+        std::filesystem::remove(path + "-shm");
+    }
+
     int flags = SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_FULLMUTEX;
     if (sqlite3_open_v2(path.c_str(), &db, flags, nullptr) != SQLITE_OK) {
         if (db) { sqlite3_close(db); db = nullptr; }
@@ -211,12 +218,12 @@ bool verify_database(const std::string& path) {
     sqlite3* db = nullptr;
     sqlite3_stmt* stmt = nullptr;
     bool ok = false;
-    if (sqlite3_open_v2(path.c_str(), &db, SQLITE_OPEN_READWRITE, nullptr) != SQLITE_OK) return false;
-    if (sqlite3_prepare_v2(db, "SELECT name FROM sqlite_master WHERE type='table' AND name='cache';", -1, &stmt, nullptr) == SQLITE_OK) {
-        if (sqlite3_step(stmt) == SQLITE_ROW) {
-            const char* tn = (const char*)sqlite3_column_text(stmt, 0);
-            if (tn && std::string(tn) == "cache") ok = true;
-        }
+    if (sqlite3_open_v2(path.c_str(), &db, SQLITE_OPEN_READONLY, nullptr) != SQLITE_OK) return false;
+    
+    // Check if the table 'cache' exists and has all the required columns
+    const char* sql = "SELECT path, type, w, h, duration, exif, bad, last_shown, timestamp FROM cache LIMIT 1;";
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) == SQLITE_OK) {
+        ok = true;
         sqlite3_finalize(stmt);
     }
     sqlite3_close(db);

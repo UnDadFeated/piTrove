@@ -3,6 +3,7 @@ piTrove
 build/
 src/build/
 src/build_new/
+test_render
 
 # Runtime data
 cache/

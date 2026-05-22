@@ -60,7 +60,7 @@ void FontRenderer::unload_font(const std::string& key) {
 
 void FontRenderer::draw_text(int x, int y, const FontHandle& font, const std::string& text,
                              uint8_t r, uint8_t g, uint8_t b, uint8_t a) {
-    if (text.empty() || !font.font) return;
+    if (!renderer || !renderer->sdl_renderer || text.empty() || !font.font) return;
 
     SDL_Surface* main_surf = TTF_RenderUTF8_Blended(font.font, text.c_str(), {r, g, b, a});
     if (main_surf) {
@@ -79,7 +79,7 @@ void FontRenderer::draw_text(int x, int y, const FontHandle& font, const std::st
 void FontRenderer::draw_text_glow(int x, int y, const FontHandle& font, const std::string& text,
                                   uint8_t r, uint8_t g, uint8_t b, uint8_t a,
                                   uint8_t gr, uint8_t gg, uint8_t gb, uint8_t ga) {
-    if (text.empty() || !font.font) return;
+    if (!renderer || !renderer->sdl_renderer || text.empty() || !font.font) return;
 
     // Draw glow (shadow/outline) by drawing it offset in 4 directions
     SDL_Surface* glow_surf = TTF_RenderUTF8_Blended(font.font, text.c_str(), {gr, gg, gb, ga});
@@ -109,7 +109,7 @@ void FontRenderer::draw_text_glow(int x, int y, const FontHandle& font, const st
 void FontRenderer::draw_text_shaded(int x, int y, const FontHandle& font, const std::string& text,
                                     uint8_t text_r, uint8_t text_g, uint8_t text_b, uint8_t text_a,
                                     uint8_t shade_r, uint8_t shade_g, uint8_t shade_b, uint8_t shade_a) {
-    if (text.empty() || !font.font) return;
+    if (!renderer || !renderer->sdl_renderer || text.empty() || !font.font) return;
 
     // Drop shadow: render 1 offset copy in shadow color
     SDL_Surface* shadow_surf = TTF_RenderUTF8_Blended(font.font, text.c_str(), {shade_r, shade_g, shade_b, shade_a});

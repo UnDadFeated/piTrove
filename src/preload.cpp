@@ -82,10 +82,12 @@ std::shared_ptr<ImageData> PreloadQueue::try_dequeue() {
                     free(item.raw.pixels);
                     item.raw.pixels = nullptr;
 
-                    // Apply EXIF rotation (CPU work)
                     if (data->exif_rotation >= 2 && data->exif_rotation <= 8) {
                         SDL_Surface* rotated = ImageLoader::apply_exif_rotation(data->surface, data->exif_rotation);
-                        if (rotated) data->surface = rotated;
+                        if (rotated) {
+                            SDL_FreeSurface(data->surface);
+                            data->surface = rotated;
+                        }
                     }
 
                     // Extract average color
@@ -116,8 +118,8 @@ void PreloadQueue::cancel_all() {
     {
         std::lock_guard<std::mutex> lock(queue_mutex);
         while (!loaded_queue.empty()) {
-            auto& item = loaded_queue.front();
-            if (item.raw.pixels) free(item.raw.pixels);
+            // The destructor of PreloadedItem automatically destroys its RawImage member,
+            // which safely releases the pixels memory. No manual free is needed here.
             loaded_queue.pop();
         }
     }

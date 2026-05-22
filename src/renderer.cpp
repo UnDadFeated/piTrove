@@ -2,6 +2,7 @@
 #include "util.h"
 #include "config.h"
 #include <SDL_image.h>
+#include <stb_image.h>
 #include <iostream>
 #include <fstream>
 #include <sstream>
@@ -150,9 +151,13 @@ bool Renderer::init(int w, int h, bool fullscreen) {
     }
     g_logger.info("[TRACE] IMG_Init OK");
 
-    Uint32 flags = 0;
+    Uint32 flags = SDL_WINDOW_OPENGL | SDL_WINDOW_SHOWN;
     if (fullscreen) {
         flags |= SDL_WINDOW_FULLSCREEN_DESKTOP;
+    }
+    const char* driver = SDL_GetCurrentVideoDriver();
+    if (driver && std::strcmp(driver, "kmsdrm") == 0) {
+        flags |= SDL_WINDOW_FULLSCREEN;
     }
 
     window = SDL_CreateWindow(
@@ -379,16 +384,24 @@ void Renderer::load_splash(const std::string& path) {
     }
 
     if (file_exists(splash_path)) {
-        SDL_Surface* surface = IMG_Load(splash_path.c_str());
-        if (surface) {
-            splash_logo = SDL_CreateTextureFromSurface(sdl_renderer, surface);
-            if (splash_logo) {
-                splash_logo_w = surface->w;
-                splash_logo_h = surface->h;
-                splash_logo_loaded = true;
-                g_logger.info("Splash image loaded: %s (%dx%d)", splash_path.c_str(), splash_logo_w, splash_logo_h);
+        int w = 0, h = 0, ch = 0;
+        uint8_t* pixels = stbi_load(splash_path.c_str(), &w, &h, &ch, 4); // Force RGBA32
+        if (pixels) {
+            SDL_Surface* surface = SDL_CreateRGBSurfaceWithFormat(0, w, h, 32, SDL_PIXELFORMAT_RGBA32);
+            if (surface) {
+                memcpy(surface->pixels, pixels, (size_t)w * h * 4);
+                splash_logo = SDL_CreateTextureFromSurface(sdl_renderer, surface);
+                if (splash_logo) {
+                    splash_logo_w = w;
+                    splash_logo_h = h;
+                    splash_logo_loaded = true;
+                    g_logger.info("Splash image loaded: %s (%dx%d)", splash_path.c_str(), splash_logo_w, splash_logo_h);
+                }
+                SDL_FreeSurface(surface);
             }
-            SDL_FreeSurface(surface);
+            stbi_image_free(pixels);
+        } else {
+            g_logger.error("stbi_load failed for splash logo: %s %s", splash_path.c_str(), stbi_failure_reason());
         }
     }
 
@@ -874,4 +887,5 @@ void Renderer::render_splash(int phase, int progress, int total, int done, const
     }
 
     SDL_RenderPresent(sdl_renderer);
+    SDL_PumpEvents();
 }
