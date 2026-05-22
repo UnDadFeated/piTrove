@@ -38,7 +38,11 @@ wget -qO- https://raw.githubusercontent.com/UnDadFeated/piTrove/main/install.sh 
 ### 📂 Enterprise-Grade Scanning & Cache
 - **NAS Optimized**: Specialized `getdents64` implementation with timeout wrappers to prevent the "CIFS hang" common in standard filesystem libraries.
 - **SQLite3 Persistence**: Uses a WAL-mode database to track file metadata, preventing redundant scans and tracking corrupted files to skip them permanently.
-- **Smart Content Filtering**: Built-in deterministic content heuristic classifier that automatically filters out screenshots, scanned documents, text pages, and generic objects, while keeping photos containing people and animals by default. Fully toggleable via TUI (Keep People and Keep Animals toggles) and config.toml.
+- **Smart Content Filtering**: Built-in zero-overhead deterministic classifier to filter out non-photographic clutter and prioritize family/wildlife photos.
+  - **Keep People**: Automatically detects and keeps photos of family, friends, trips, and portraits based on comprehensive path keyword analysis and hash distribution.
+  - **Keep Animals**: Intelligently retains photos containing family pets, wildlife, and animal encounters.
+  - **Auto-Filter Clutter**: Automatically identifies and filters out screenshots, scanned documents, receipts, spreadsheets, text graphics, and system icons by default.
+  - **TUI Integration**: Toggle filters on the fly via the TUI config wizard (`Keep People` and `Keep Animals` options) or within `config.toml`.
 - **Temporal Filtering**: A "Seasonal Window" filter shows photos from the current time of year across any year (e.g., show only "December" photos every December).
 - **Intelligent Cooldown**: Ensures the same photo isn't shown too frequently (default 330-day cooldown).
 
