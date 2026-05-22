@@ -117,6 +117,25 @@ bool Config::load(const std::string& path) {
         else if (key == "window_days")       this->scan_window_days = safe_stoi(val, this->scan_window_days);
         else if (key == "mmap_size")         this->cache_mmap_size = safe_stoll(val, this->cache_mmap_size);
         else if (key == "level")             this->verbose = (val == "debug");
+        else if (key == "ignore_folders") {
+            // Parse TOML array: ["@eaDir", "@Recycle"]
+            this->ignore_folders.clear();
+            auto start = val.find('[');
+            auto end = val.rfind(']');
+            if (start != std::string::npos && end != std::string::npos) {
+                std::string inner = val.substr(start + 1, end - start - 1);
+                size_t pos = 0;
+                while (pos < inner.size()) {
+                    size_t q1 = inner.find('"', pos);
+                    if (q1 == std::string::npos) break;
+                    size_t q2 = inner.find('"', q1 + 1);
+                    if (q2 == std::string::npos) break;
+                    std::string item = inner.substr(q1 + 1, q2 - q1 - 1);
+                    if (!item.empty()) this->ignore_folders.push_back(item);
+                    pos = q2 + 1;
+                }
+            }
+        }
         else if (key == "resolution") {
             auto comma = val.find(',');
             if (comma != std::string::npos) {
