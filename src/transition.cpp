@@ -70,13 +70,9 @@ void TransitionEngine::reset() {
 }
 
 static SDL_Rect calculate_fit_rect(int img_w, int img_h, int screen_w, int screen_h) {
-    if (img_w <= 0 || img_h <= 0) return {0, 0, screen_w, screen_h};
-    float scale = std::min((float)screen_w / img_w, (float)screen_h / img_h);
+    (void)screen_w; (void)screen_h;
     SDL_Rect rect;
-    rect.w = (int)(img_w * scale);
-    rect.h = (int)(img_h * scale);
-    rect.x = (screen_w - rect.w) / 2;
-    rect.y = (screen_h - rect.h) / 2;
+    g_renderer.calculate_fit_rect(img_w, img_h, rect);
     return rect;
 }
 

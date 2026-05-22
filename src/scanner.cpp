@@ -1,4 +1,6 @@
+#ifndef _GNU_SOURCE
 #define _GNU_SOURCE
+#endif
 #include "scanner.h"
 #include "util.h"
 #include "config.h"
@@ -44,10 +46,12 @@ std::vector<std::string> read_dir(const std::string& path) {
 }
 
 std::vector<std::string> read_dir_timeout(const std::string& path, int timeout_ms) {
+    (void)timeout_ms;
     return read_dir(path);
 }
 
 bool stat_timeout(const std::string& path, struct stat& st, int timeout_ms) {
+    (void)timeout_ms;
     return stat(path.c_str(), &st) == 0;
 }
 
@@ -108,14 +112,14 @@ bool is_in_seasonal_window(const std::string& filename, int window_days) {
         digit_groups[group_count++] = val;
     }
 
-    if (group_count < 3) return false;
-    if (i >= (int)filename.size() || filename[i] != '_') return false;
+    if (group_count < 3) return true;
+    if (i >= (int)filename.size() || filename[i] != '_') return true;
 
     int file_y = digit_groups[0];
     int file_m = digit_groups[1];
     int file_d = digit_groups[2];
-    if (file_m < 1 || file_m > 12 || file_d < 1 || file_d > 31) return false;
-    if (file_y < 1900 || file_y > 2100) return false;
+    if (file_m < 1 || file_m > 12 || file_d < 1 || file_d > 31) return true;
+    if (file_y < 1900 || file_y > 2100) return true;
 
     time_t t = std::time(nullptr);
     tm tm_buf;
@@ -261,7 +265,6 @@ bool MediaScanner::is_month_in_window(const std::string& dirname, int window_day
     tm tm_buf;
     tm* now = localtime_r(&t, &tm_buf);
     int curr_m = now->tm_mon + 1;
-    int curr_d = now->tm_mday;
     int month_diff = std::abs(curr_m - folder_m);
     if (month_diff > 6) month_diff = 12 - month_diff;
     // With window_days=5, only current month (diff=0) passes.
@@ -398,6 +401,7 @@ void MediaScanner::process_entry(const std::string& path_str,
 void scan_directory(const std::string& dir, int depth,
                     std::vector<MediaItem>& items, std::atomic<int64_t>& count,
                     std::function<void(int)> progress) {
+    (void)count;
     g_logger.info("TRACE: scan_directory dir='%s' depth=%d", dir.c_str(), depth);
     MediaScanner scanner;
     std::vector<std::string> exts = {".jpg", ".jpeg", ".png", ".webp", ".heic", ".heif", ".gif", ".bmp", ".tiff", ".mp4", ".mov", ".mkv", ".avi", ".webm"};

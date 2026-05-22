@@ -1,5 +1,16 @@
 # Changelog
 
+## v9.4.0 — Fix Wide Photo Corners & Robust Playback (May 22, 2026)
+
+### Changed
+- **Version bump** — Version updated to 9.4.0 across all codebase files.
+
+### Fixed
+- **Wide photo corner clipping** — Solved layout bug where 3D borders and side corners of horizontal (wide) photos were cut off behind the physical 1" matte. Dynamically expanded the safe-area margin by `g_cfg.border_width` inside `calculate_fit_rect` when `g_cfg.bias_lighting` is enabled. Outer border now aligns perfectly with the inner boundary of the 1" physical matte.
+- **Season-neutral seasonal scanning** — Standard date-less filenames (such as video files and standard photo files) are now correctly categorized as season-neutral instead of being filtered out when seasonal window scanning is active, ensuring mixed video/photo playback works flawlessly.
+- **Dynamic interleave pipeline** — Balanced video-to-photo interleave cycle math prevents video starvation and ensures a consistent flow of video content over small video pools.
+- **Compiler warning cleanup** — Cleaned up all unused variables, parameter warnings, and macro redefinitions, achieving a clean compile with zero warnings on the Raspberry Pi ARM64 platform.
+
 ## v9.3.0 — Legacy 3D border + seamless glow (May 22, 2026)
 
 ### Changed
