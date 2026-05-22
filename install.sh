@@ -731,7 +731,7 @@ Restart=always
 RestartSec=15
 StandardOutput=journal
 StandardError=journal
-Environment=HOME=$PRIMARY_HOME SDL_VIDEODRIVER=kmsdrm SDL_VIDEO_KMSDRM_DEVICE=/dev/dri/card1
+Environment=HOME=$PRIMARY_HOME
 
 [Install]
 WantedBy=multi-user.target
