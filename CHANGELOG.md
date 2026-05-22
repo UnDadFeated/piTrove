@@ -1,5 +1,17 @@
 # Changelog
 
+## v10.2.0 — Dynamic Core limit, Twin-Portrait Collage & Robust Media Skip (May 22, 2026)
+
+### Added
+- **Dynamic Core limit** — Overhauled the mpv video player backend to automatically detect available CPU cores using `std::thread::hardware_concurrency()` and dedicate exactly `max_cores - 1` decoding threads to video decoding, ensuring dynamic hardware compatibility and preventing overall system and background thread starvation on future or alternative hardware platforms.
+- **Twin-Portrait Split Collage Layout** — Implemented twin portrait collage mode that automatically pairs adjacent portrait-format images and displays them side-by-side in a split view. Accompanied by stacked layout filenames, smart border boundaries, double-advance support (advancing playlist by 2), and seamless texture-target rendering for smooth layout transition crossfades.
+- **Robust Missing/Corrupted Media Skip** — Added a graceful error-handling pipeline that marks missing, deleted, or corrupted photo/video files as bad in the cache database (`g_cache->mark_bad(path)`) and erases them dynamically from active playback vectors, preventing crashes and offering seamless continuous playback.
+- **Default Closed Captions & TUI Preferences** — Turned on web remote dashboard and closed caption overlays by default in config and TUI settings, ensuring high-quality accessibility out-of-the-box.
+
+### Fixed
+- **CMake build system integration** — Added missing `http_server.cpp` to the `PISTROVE_SOURCES` build definitions in `CMakeLists.txt`, resolving compiling and linking failures.
+- **slideshow loop syntax repair** — Repaired and resolved two critical compilation and syntax errors inside `src/main.cpp` caused by previous source truncations.
+
 ## v10.1.0 — Smart Content-Based Photo Filters & Clutter Skipping (May 22, 2026)
 
 ### Added

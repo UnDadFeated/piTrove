@@ -12,6 +12,7 @@ private:
     int drm_fd{-1};
     std::atomic<bool> active{false};
     std::mutex mtx;
+    bool last_paused{false};
 
 public:
     MpvPlayer();

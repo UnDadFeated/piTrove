@@ -1,7 +1,7 @@
 #ifndef PITROVE_UTIL_H
 #define PITROVE_UTIL_H
 
-#define VERSION "10.1.0"
+#define VERSION "10.2.0"
 #define APP_NAME "piTrove"
 
 #include <atomic>
@@ -12,8 +12,11 @@
 #include <thread>
 #include <cstdarg>
 
+struct MediaItem; // Forward declaration
+
 // Global atomics and sharing handles
 extern std::atomic<bool> g_running;
+extern std::atomic<bool> g_slideshow_paused;
 extern std::atomic<int> g_remote_command; // 1=Next, 2=Prev, 3=PauseToggle
 extern std::atomic<float> g_weather_temp;
 extern std::atomic<int> g_weather_code;
@@ -76,5 +79,11 @@ std::string get_timestamp();
 // slide_debug utilities
 void slide_debug(const char* fmt, ...);
 void slide_debug_close();
+
+// Media Classification & Date parsing utilities
+void classify_media_item(const MediaItem& item, bool& has_people, bool& has_animals, bool& is_doc);
+bool parse_filename_date(const std::string& filename, int& y, int& m, int& d);
+void get_modified_time_date(int64_t mtime, int& y, int& m, int& d);
+bool get_item_date(const MediaItem& item, int& y, int& m, int& d);
 
 #endif // PITROVE_UTIL_H

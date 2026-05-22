@@ -1,10 +1,14 @@
 #include "overlay.h"
 #include "util.h"
 #include "config.h"
+#include "media_item.h"
+#include "image_loader.h"
 #include <ctime>
 #include <iomanip>
 #include <sstream>
 #include <algorithm>
+#include <filesystem>
+#include <fstream>
 
 OverlayManager::OverlayManager(Renderer* renderer)
     : renderer(renderer), font_renderer(nullptr), overlay_font(nullptr) {}
@@ -71,7 +75,39 @@ void OverlayManager::draw_text_with_shadow(int x, int y, FontHandle& font, const
     font_renderer->draw_text(x, y, font, text, color.r, color.g, color.b, color.a);
 }
 
-void OverlayManager::draw_all(int current_idx, int total_items, const std::string& filename, double item_timer, bool is_video) {
+void OverlayManager::draw_text_with_outline(int x, int y, FontHandle& font, const std::string& text, GpuColor color, GpuColor outline_color) {
+    if (!font_renderer) return;
+    // Draw outline shifts: left, right, top, bottom
+    font_renderer->draw_text(x - 1, y, font, text, outline_color.r, outline_color.g, outline_color.b, outline_color.a);
+    font_renderer->draw_text(x + 1, y, font, text, outline_color.r, outline_color.g, outline_color.b, outline_color.a);
+    font_renderer->draw_text(x, y - 1, font, text, outline_color.r, outline_color.g, outline_color.b, outline_color.a);
+    font_renderer->draw_text(x, y + 1, font, text, outline_color.r, outline_color.g, outline_color.b, outline_color.a);
+    // Draw main text
+    font_renderer->draw_text(x, y, font, text, color.r, color.g, color.b, color.a);
+}
+
+void OverlayManager::get_adaptive_colors(const ImageData* img, GpuColor& text_col, GpuColor& shadow_col) {
+    bool adaptive = false;
+    {
+        std::lock_guard<std::mutex> lock(g_config_mtx);
+        adaptive = g_cfg.adaptive_text_enabled;
+    }
+    if (!adaptive || !img) {
+        text_col = {255, 255, 255, 255};
+        shadow_col = {0, 0, 0, 200};
+        return;
+    }
+    double luma = 0.2126 * img->avg_r + 0.7152 * img->avg_g + 0.0722 * img->avg_b;
+    if (luma > 140) { // bright background
+        text_col = {15, 15, 15, 255};
+        shadow_col = {255, 255, 255, 200};
+    } else { // dark background
+        text_col = {255, 255, 255, 255};
+        shadow_col = {0, 0, 0, 200};
+    }
+}
+
+void OverlayManager::draw_all(int current_idx, int total_items, const MediaItem* item, const MediaItem* twin_item, double item_timer, bool is_video, int active_fps, const ImageData* current_data, const ImageData* current_twin_data) {
     if (!font_loaded || !font_renderer || !overlay_font) return;
 
     int pad = 15;
@@ -105,6 +141,9 @@ void OverlayManager::draw_all(int current_idx, int total_items, const std::strin
     bool clock_24h = true;
     GpuColor clock_col = {255, 255, 255, 255};
 
+    bool diagnostics_hud_enabled = false;
+    bool on_this_day_enabled = false;
+
     {
         std::lock_guard<std::mutex> lock(g_config_mtx);
         date_enabled = g_cfg.date_overlay_enabled;
@@ -137,7 +176,31 @@ void OverlayManager::draw_all(int current_idx, int total_items, const std::strin
         clock_size = g_cfg.clock_font_size;
         clock_24h = g_cfg.clock_24h;
         clock_col = get_color_from_str(g_cfg.clock_color);
+
+        diagnostics_hud_enabled = g_cfg.diagnostics_hud_enabled;
+        on_this_day_enabled = g_cfg.on_this_day_enabled;
     }
+
+    // Helper to render contrast-aware text with outline or shadow
+    auto draw_contrast_text = [&](int x, int y, FontHandle& font, const std::string& text, GpuColor def_col, const ImageData* img) {
+        GpuColor txt_c = def_col;
+        GpuColor shd_c = {0, 0, 0, 200};
+        get_adaptive_colors(img, txt_c, shd_c);
+        
+        bool adaptive = false;
+        {
+            std::lock_guard<std::mutex> lock(g_config_mtx);
+            adaptive = g_cfg.adaptive_text_enabled;
+        }
+        if (adaptive) {
+            draw_text_with_outline(x, y, font, text, txt_c, shd_c);
+        } else {
+            draw_text_with_shadow(x, y, font, text, def_col);
+        }
+    };
+
+    // Overall image ref for global elements
+    const ImageData* global_img = current_data;
 
     // 1. Date Overlay
     if (date_enabled) {
@@ -149,16 +212,25 @@ void OverlayManager::draw_all(int current_idx, int total_items, const std::strin
             int dx = pad + (int)((sw - pad * 2) * date_x);
             int dy = pad + (int)((sh - pad * 2) * date_y);
             FontHandle& font = font_renderer->load_font(overlay_font->path, date_size);
-            draw_text_with_shadow(dx, dy, font, datebuf, date_col);
+            draw_contrast_text(dx, dy, font, datebuf, date_col, global_img);
         }
     }
 
     // 2. Filename Overlay
-    if (file_enabled && current_idx >= 0 && current_idx < total_items) {
+    if (file_enabled && item) {
         int fx = pad + (int)((sw - pad * 2) * file_x) - 10;
         int fy = pad + (int)((sh - pad * 2) * file_y);
         FontHandle& font = font_renderer->load_font(overlay_font->path, file_size);
-        draw_text_with_shadow(fx, fy, font, filename, {255, 255, 255, 255});
+
+        if (twin_item) {
+            // Stack both filenames vertically in lower-left
+            int th = 0, tw = 0;
+            font_renderer->measure(font, item->filename, tw, th);
+            draw_contrast_text(fx, fy - th - 4, font, item->filename, {255, 255, 255, 255}, current_data);
+            draw_contrast_text(fx, fy, font, twin_item->filename, {255, 255, 255, 255}, current_twin_data);
+        } else {
+            draw_contrast_text(fx, fy, font, item->filename, {255, 255, 255, 255}, current_data);
+        }
     }
 
     // 3. Count Overlay
@@ -171,7 +243,7 @@ void OverlayManager::draw_all(int current_idx, int total_items, const std::strin
         int tw, th;
         font_renderer->measure(font, cntbuf, tw, th);
         cx -= tw / 2;
-        draw_text_with_shadow(cx, cy, font, cntbuf, {200, 200, 200, 220});
+        draw_contrast_text(cx, cy, font, cntbuf, {200, 200, 200, 220}, global_img);
     }
 
     // 4. Timer Overlay
@@ -182,7 +254,7 @@ void OverlayManager::draw_all(int current_idx, int total_items, const std::strin
         int tx = pad + (int)((sw - pad * 2) * timer_x) + 25;
         int ty = pad + (int)((sh - pad * 2) * timer_y) - 10;
         FontHandle& font = font_renderer->load_font(overlay_font->path, timer_size);
-        draw_text_with_shadow(tx, ty, font, tbuf, timer_col);
+        draw_contrast_text(tx, ty, font, tbuf, timer_col, global_img);
     }
 
     // 5. Clock Overlay
@@ -198,7 +270,134 @@ void OverlayManager::draw_all(int current_idx, int total_items, const std::strin
             font_renderer->measure(font, clkbuf, clkw, clkh);
             int clkx = pad + (int)((sw - pad * 2) * clock_x) - clkw / 2;
             int clky = pad + (int)((sh - pad * 2) * clock_y);
-            draw_text_with_shadow(clkx, clky, font, clkbuf, clock_col);
+            draw_contrast_text(clkx, clky, font, clkbuf, clock_col, global_img);
         }
+    }
+
+    // 6. Diagnostics phosphor telemetry HUD
+    if (diagnostics_hud_enabled) {
+        float soc_temp = 0.0f;
+        {
+            std::ifstream temp_file("/sys/class/thermal/thermal_zone0/temp");
+            if (temp_file.is_open()) {
+                long long val;
+                if (temp_file >> val) {
+                    soc_temp = (float)val / 1000.0f;
+                }
+            }
+        }
+
+        std::uintmax_t db_size_kb = 0;
+        {
+            std::string db_dir = "/home/pi/piTrove/cache";
+            {
+                std::lock_guard<std::mutex> lock(g_config_mtx);
+                db_dir = g_cfg.cache_dir;
+            }
+            std::string path = db_dir + "/cache.db";
+            if (std::filesystem::exists(path)) {
+                try {
+                    db_size_kb = std::filesystem::file_size(path) / 1024;
+                } catch(...) {}
+            }
+        }
+
+        std::string res_str = "N/A";
+        if (item) {
+            res_str = std::to_string(item->width) + "x" + std::to_string(item->height);
+            if (twin_item) {
+                res_str += " | " + std::to_string(twin_item->width) + "x" + std::to_string(twin_item->height);
+            }
+        }
+
+        bool has_p = false, has_a = false, is_d = false;
+        if (item) {
+            classify_media_item(*item, has_p, has_a, is_d);
+        }
+        std::string tags = (has_p ? "PEOPLE " : "") + std::string(has_a ? "ANIMAL " : "") + std::string(is_d ? "DOCUMENT" : "");
+        if (tags.empty()) tags = "SCENERY";
+
+        std::vector<std::string> lines;
+        lines.push_back("--- TELEMETRY HUD ---");
+        lines.push_back("FPS     : " + std::to_string(active_fps));
+        lines.push_back("SOC TEMP: " + std::to_string((int)soc_temp) + " C");
+        lines.push_back("DB SIZE : " + std::to_string(db_size_kb) + " KB");
+        lines.push_back("ITEMS   : " + std::to_string(current_idx + 1) + " / " + std::to_string(total_items));
+        lines.push_back("RES     : " + res_str);
+        lines.push_back("TAGS    : " + tags);
+        if (item) {
+            std::string path = item->path;
+            if (path.length() > 30) {
+                path = "..." + path.substr(path.length() - 27);
+            }
+            lines.push_back("PATH    : " + path);
+        }
+
+        FontHandle& hud_font = font_renderer->load_font(overlay_font->path, 11);
+        int max_w = 0, total_h = 0;
+        for (const auto& line : lines) {
+            int lw, lh;
+            font_renderer->measure(hud_font, line, lw, lh);
+            max_w = std::max(max_w, lw);
+            total_h += lh + 2;
+        }
+
+        int hx = pad + 10;
+        int hy = pad + 10;
+
+        SDL_Rect container = { hx - 8, hy - 8, max_w + 16, total_h + 16 };
+        SDL_SetRenderDrawBlendMode(renderer->sdl_renderer, SDL_BLENDMODE_BLEND);
+        SDL_SetRenderDrawColor(renderer->sdl_renderer, 10, 10, 10, 200);
+        SDL_RenderFillRect(renderer->sdl_renderer, (SDL_FRect*)&container);
+        SDL_SetRenderDrawColor(renderer->sdl_renderer, 100, 100, 100, 255);
+        SDL_FRect outline = { (float)container.x, (float)container.y, (float)container.w, (float)container.h };
+        SDL_RenderRect(renderer->sdl_renderer, &outline);
+
+        int curr_y = hy;
+        for (const auto& line : lines) {
+            font_renderer->draw_text(hx, curr_y, hud_font, line, 0, 230, 0, 240); // Phosphor green
+            int lw, lh;
+            font_renderer->measure(hud_font, line, lw, lh);
+            curr_y += lh + 2;
+        }
+    }
+
+    // 7. Gold Ribbon Anniversary Banner (On This Day)
+    bool show_ribbon = false;
+    int anniversary_years = 0;
+    if (on_this_day_enabled && item) {
+        int y = 0, m = 0, d = 0;
+        if (get_item_date(*item, y, m, d)) {
+            time_t now_t = time(nullptr);
+            struct tm tm_now;
+            struct tm* tmi = localtime_r(&now_t, &tm_now);
+            if (tmi) {
+                int today_y = tmi->tm_year + 1900;
+                anniversary_years = today_y - y;
+                if (anniversary_years > 0) {
+                    show_ribbon = true;
+                }
+            }
+        }
+    }
+
+    if (show_ribbon) {
+        std::string ribbon_text = "★ " + std::to_string(anniversary_years) + (anniversary_years == 1 ? " YEAR AGO TODAY ★" : " YEARS AGO TODAY ★");
+        FontHandle& font = font_renderer->load_font(overlay_font->path, 22);
+        int tw, th;
+        font_renderer->measure(font, ribbon_text, tw, th);
+        int rx = (sw - tw) / 2;
+        int ry = pad + 15;
+
+        SDL_Rect ribbon_bg = { rx - 20, ry - 6, tw + 40, th + 12 };
+        SDL_SetRenderDrawBlendMode(renderer->sdl_renderer, SDL_BLENDMODE_BLEND);
+        SDL_SetRenderDrawColor(renderer->sdl_renderer, 218, 165, 32, 180); // Gold translucent
+        SDL_RenderFillRect(renderer->sdl_renderer, (SDL_FRect*)&ribbon_bg);
+
+        SDL_SetRenderDrawColor(renderer->sdl_renderer, 255, 223, 0, 255); // Solid gold outline
+        SDL_FRect ribbon_outline = { (float)ribbon_bg.x, (float)ribbon_bg.y, (float)ribbon_bg.w, (float)ribbon_bg.h };
+        SDL_RenderRect(renderer->sdl_renderer, &ribbon_outline);
+
+        font_renderer->draw_text(rx, ry, font, ribbon_text, 255, 255, 255, 255);
     }
 }

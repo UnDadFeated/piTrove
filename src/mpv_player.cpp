@@ -11,6 +11,7 @@
 #include <cstring>
 #include <xf86drm.h>
 #include <EGL/egl.h>
+#include <thread>
 
 MpvPlayer g_mpv_player;
 
@@ -54,6 +55,9 @@ bool MpvPlayer::play(const std::string& path, int volume) {
         video_pid = -1;
     }
 
+    // Initialize pause tracking
+    last_paused = false;
+
     // Resolve DRM fd (cached after first search)
     if (drm_fd < 0) {
         drm_fd = find_drm_fd();
@@ -68,15 +72,26 @@ bool MpvPlayer::play(const std::string& path, int volume) {
     }
 
     int matte_px = 0;
+    bool cc_enabled = true;
     {
         std::lock_guard<std::mutex> lock(g_config_mtx);
         matte_px = g_cfg.matting_size;
+        cc_enabled = g_cfg.closed_captions_enabled;
     }
 
     char margin_x_arg[64], margin_y_arg[64];
     std::snprintf(margin_x_arg, sizeof(margin_x_arg), "--osd-margin-x=%d", matte_px + 8);
     std::snprintf(margin_y_arg, sizeof(margin_y_arg), "--osd-margin-y=%d", std::max(0, matte_px - 17));
     char cmd[256];
+
+    // Dynamically calculate thread pool size based on CPU cores (max_cores - 1)
+    unsigned int max_cores = std::thread::hardware_concurrency();
+    if (max_cores == 0) max_cores = 4; // safe default fallback
+    unsigned int threads_to_use = (max_cores > 1) ? (max_cores - 1) : 1;
+    char threads_arg[64];
+    std::snprintf(threads_arg, sizeof(threads_arg), "--vd-lavc-threads=%u", threads_to_use);
+
+    g_logger.info("VIDEO_PLAY: Launching mpv with dynamic core limit: %s", threads_arg);
 
     pid_t pid = fork();
     if (pid == 0) {
@@ -93,43 +108,93 @@ bool MpvPlayer::play(const std::string& path, int volume) {
 
         if (volume > 0) {
             std::snprintf(cmd, sizeof(cmd), "--volume=%d", volume);
-            execlp("mpv", "mpv",
-                "--vo=drm",
-                "--drm-connector=HDMI-A-1",
-                "--hwdec=auto",
-                "--keepaspect=yes",
-                "--no-osc",
-                "--no-osd-bar",
-                "--osd-level=3",
-                "--osd-status-msg=${filename} - ${time-remaining}",
-                "--osd-align-x=left",
-                "--osd-align-y=bottom",
-                margin_x_arg,
-                margin_y_arg,
-                "--osd-font-size=10",
-                "--no-sub",
-                cmd,
-                path.c_str(),
-                nullptr);
+            if (cc_enabled) {
+                execlp("mpv", "mpv",
+                    "--vo=drm",
+                    "--drm-connector=HDMI-A-1",
+                    "--hwdec=auto",
+                    "--keepaspect=yes",
+                    "--no-osc",
+                    "--no-osd-bar",
+                    "--osd-level=3",
+                    "--osd-status-msg=${filename} - ${time-remaining}",
+                    "--osd-align-x=left",
+                    "--osd-align-y=bottom",
+                    margin_x_arg,
+                    margin_y_arg,
+                    "--osd-font-size=10",
+                    "--sub-auto=all",
+                    "--sub-visibility=yes",
+                    "--sid=auto",
+                    threads_arg,
+                    cmd,
+                    path.c_str(),
+                    nullptr);
+            } else {
+                execlp("mpv", "mpv",
+                    "--vo=drm",
+                    "--drm-connector=HDMI-A-1",
+                    "--hwdec=auto",
+                    "--keepaspect=yes",
+                    "--no-osc",
+                    "--no-osd-bar",
+                    "--osd-level=3",
+                    "--osd-status-msg=${filename} - ${time-remaining}",
+                    "--osd-align-x=left",
+                    "--osd-align-y=bottom",
+                    margin_x_arg,
+                    margin_y_arg,
+                    "--osd-font-size=10",
+                    "--no-sub",
+                    threads_arg,
+                    cmd,
+                    path.c_str(),
+                    nullptr);
+            }
         } else {
-            execlp("mpv", "mpv",
-                "--vo=drm",
-                "--drm-connector=HDMI-A-1",
-                "--hwdec=auto",
-                "--keepaspect=yes",
-                "--no-osc",
-                "--no-osd-bar",
-                "--osd-level=3",
-                "--osd-status-msg=${filename} - ${time-remaining}",
-                "--osd-align-x=left",
-                "--osd-align-y=bottom",
-                margin_x_arg,
-                margin_y_arg,
-                "--osd-font-size=10",
-                "--no-sub",
-                "--no-audio",
-                path.c_str(),
-                nullptr);
+            if (cc_enabled) {
+                execlp("mpv", "mpv",
+                    "--vo=drm",
+                    "--drm-connector=HDMI-A-1",
+                    "--hwdec=auto",
+                    "--keepaspect=yes",
+                    "--no-osc",
+                    "--no-osd-bar",
+                    "--osd-level=3",
+                    "--osd-status-msg=${filename} - ${time-remaining}",
+                    "--osd-align-x=left",
+                    "--osd-align-y=bottom",
+                    margin_x_arg,
+                    margin_y_arg,
+                    "--osd-font-size=10",
+                    "--sub-auto=all",
+                    "--sub-visibility=yes",
+                    "--sid=auto",
+                    threads_arg,
+                    "--no-audio",
+                    path.c_str(),
+                    nullptr);
+            } else {
+                execlp("mpv", "mpv",
+                    "--vo=drm",
+                    "--drm-connector=HDMI-A-1",
+                    "--hwdec=auto",
+                    "--keepaspect=yes",
+                    "--no-osc",
+                    "--no-osd-bar",
+                    "--osd-level=3",
+                    "--osd-status-msg=${filename} - ${time-remaining}",
+                    "--osd-align-x=left",
+                    "--osd-align-y=bottom",
+                    margin_x_arg,
+                    margin_y_arg,
+                    "--osd-font-size=10",
+                    "--no-sub",
+                    threads_arg,
+                    "--no-audio",
+                    path.c_str(),
+                    nullptr);
+            }
         }
         _exit(1); // child exit if exec fails
     } else if (pid > 0) {
@@ -177,6 +242,19 @@ bool MpvPlayer::is_active() {
 
 bool MpvPlayer::check_status() {
     if (video_pid <= 0) return false;
+
+    // Handle dynamic process pausing/resuming
+    bool current_paused = g_slideshow_paused.load();
+    if (current_paused != last_paused) {
+        if (current_paused) {
+            kill(video_pid, SIGSTOP);
+            g_logger.info("VIDEO_PAUSE: Sent SIGSTOP to child mpv (pid=%d)", video_pid);
+        } else {
+            kill(video_pid, SIGCONT);
+            g_logger.info("VIDEO_RESUME: Sent SIGCONT to child mpv (pid=%d)", video_pid);
+        }
+        last_paused = current_paused;
+    }
 
     int status;
     pid_t result = waitpid(video_pid, &status, WNOHANG);
