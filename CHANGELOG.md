@@ -1,13 +1,21 @@
 # Changelog
 
-## v9.0.12 — stb_image loader, TRACE logging, fix SDL/stb free mismatch (May 21, 2026)
+## v9.1.0 — Video interleave, overlay fixes, scan optimizations (May 21, 2026)
 
-- Replace SDL_image IMG_Load with stb_image stbi_load for all image loading
-- Copy stb pixels into malloc'd buffer to fix SDL/stb free mismatch crash
-- Add libstb-dev dependency to CMakeLists.txt
-- Add TRACE logging to all source files for debugging
-- Set g_database_complete after cache build to prevent crash purge
-- Add g_crash_cache_dir initialization in main
+### Changed
+- **Video interleave** — Photos and videos shuffled separately with same seed, interleaved at 3 videos per 10 photos
+- **Video cooldown** — Videos now respect cooldown_days like photos
+- **Overlay fix** — Added missing `g_overlay->init()` call, timer and filename now display on photos
+- **Timer position** — Moved timer to `y=0.05` (54px from top) accounting for 1" matte border
+
+### Fixed
+- **Scan window** — Fixed `scan_days` passing `0` instead of config value to scanner
+- **Month filter** — Tightened to only scan current month with `window_days=5` (was ±1 month)
+- **TOML parsing** — Added array parsing for `ignore_folders` config
+- **Per-frame TRACE** — Removed log spam from splash, overlay, and transition (30fps flooding)
+- **Present order** — Moved `draw_all` before `present()` so overlay actually renders
+
+## v9.0.1 — Fix scanner hanging on Synology @eaDir/@Recycle (May 21, 2026)
 
 ## v9.0.1 — Fix scanner hanging on Synology @eaDir/@Recycle (May 21, 2026)
 
