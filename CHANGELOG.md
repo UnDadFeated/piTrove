@@ -1,5 +1,22 @@
 # Changelog
 
+## v10.0.0 — SDL3 Migration, Aggressive Shuffle, & Precision Fallback Repairs (May 22, 2026)
+
+### Added
+- **SDL3 Migration** — Upgraded the entire core architecture from SDL2 to SDL3. Modernized all window, renderer, surface, and event loops. Leveraged high-performance SDL3 rendering routines (`SDL_RenderTexture`), floating-point layout calculations (`SDL_FRect`), and native texture sizing APIs (`SDL_GetTextureSize`).
+- **Aggressive Combined Shuffle** — Completely overhauled the media pipeline to perform a highly randomized shuffle of all eligible photos and videos using robust, unique system-level entropy seeds, ensuring a beautiful, non-repeating mix.
+- **Smart Cooldown Degradation** — Added dynamic cooldown fallback logic that decreases requirements on-the-fly when the total eligible media pool is small, preventing playlist lockouts while maintaining excellent diversity.
+- **Video Cooldown Integration** — Added full metadata and cooldown tracking for video files, forcing them to respect the configurable cooldown pool (default 330 days) in identical fashion to photos.
+
+### Changed
+- **Default Slide Delay to 120s** — Adjusted the default photo slideshow transition delay to `120.0s` inside `src/config.toml` and defaults to offer a premium, cinematic viewing pace suitable for digital frames.
+- **Unified SDL3 systemd Service** — Upgraded `install.sh` systemd service unit to supply advanced SDL3-compatible variables (`SDL_VIDEO_DRIVER=kmsdrm` and `SDL_KMSDRM_DEVICE_INDEX=1`) alongside standard environment flags to guarantee clean DRM master acquisition.
+
+### Fixed
+- **Transition Fallback Cooldown Bypass** — Fixed a bug where skipping from video playback to standard photos bypassed crossfade completion callbacks, exempting subsequent photos from the 330-day cooldown. Now, all fallback transitions explicitly invoke `mark_item_shown`.
+- **Temporal Scan Folder Boundary** — Solved an integer-division bug where folder names for adjacent months were ignored under the default `window_days = 15`. Now calculates directory spreads with precise mathematical ceiling logic.
+- **High-Precision Date Math** — Replaced the coarse `month * 30 + day` logic in `is_in_seasonal_window` with an exact cumulative day-of-year table, eliminating a 4-day drift at seasonal boundaries.
+
 ## v9.4.1 — Fix Video EOF DRM Context Crash & Lower mpv Overlay (May 22, 2026)
 
 ### Changed

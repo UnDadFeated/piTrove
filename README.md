@@ -5,9 +5,9 @@ A professional-grade digital picture frame for the Raspberry Pi. Designed for ex
 [![Platform](https://img.shields.io/badge/platform-Pi%204%20%7C%20Pi%205-blue?style=flat-square)](https://www.raspberrypi.com/)
 [![OS](https://img.shields.io/badge/OS-Trixie%20Lite%20%28Debian%2013%29-lightgreen?style=flat-square)](https://www.debian.org/)
 [![Architecture](https://img.shields.io/badge/arch-aarch64-orange?style=flat-square)](https://en.wikipedia.org/wiki/AArch64)
-[![Graphics](https://img.shields.io/badge/graphics-SDL2%20kmsdrm%20%7C%20GLES3-red?style=flat-square)](https://www.mesa3d.org/)
+[![Graphics](https://img.shields.io/badge/graphics-SDL3%20%7C%20GLES3-red?style=flat-square)](https://www.mesa3d.org/)
 [![License](https://img.shields.io/badge/license-MIT-green?style=flat-square)](LICENSE)
-[![Version](https://img.shields.io/badge/version-9.1.3-blue?style=flat-square)]()
+[![Version](https://img.shields.io/badge/version-10.0.0-blue?style=flat-square)]()
 
 ## 🚀 Quick Start
 
@@ -67,7 +67,7 @@ graph TD
 ```
 
 - **Language**: C++17 / OpenGL ES 3.0
-- **Core Libraries**: SDL2 (kmsdrm), libmpv, SQLite3, libexif, libheif.
+- **Core Libraries**: SDL3, libmpv, SQLite3, libexif, libheif.
 - **Hardware Accel**: Pi 4/5 VC4 DRM/KMS with GLES3 shaders.
 
 ## 📁 Project Structure
