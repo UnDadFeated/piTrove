@@ -621,14 +621,26 @@ void Renderer::load_splash(const std::string& path) {
 
     // FontRenderer now uses SDL_Renderer
     font_renderer = new FontRenderer(this);
-    // Find DejaVu font
-    std::string font_path = "/usr/share/fonts/truetype/dejavu/DejaVuSansMono-Bold.ttf";
-    if (!file_exists(font_path)) {
-        font_path = exe_dir + "/src/fonts/DejaVuSansMono-Bold.ttf";
+    std::string font_path = "";
+    {
+        std::lock_guard<std::mutex> lock(g_config_mtx);
+        if (g_cfg.font_path != "auto" && !g_cfg.font_path.empty()) {
+            font_path = g_cfg.font_path;
+        }
+    }
+
+    if (font_path.empty() || !file_exists(font_path)) {
+        if (!font_path.empty()) {
+            g_logger.warn("Configured font_path '%s' not found, falling back to defaults", font_path.c_str());
+        }
+        font_path = "/usr/share/fonts/truetype/dejavu/DejaVuSansMono-Bold.ttf";
         if (!file_exists(font_path)) {
-            font_path = exe_dir + "/fonts/DejaVuSansMono-Bold.ttf";
+            font_path = exe_dir + "/src/fonts/DejaVuSansMono-Bold.ttf";
             if (!file_exists(font_path)) {
-                font_path = "/usr/share/fonts/truetype/liberation/LiberationMono-Bold.ttf";
+                font_path = exe_dir + "/fonts/DejaVuSansMono-Bold.ttf";
+                if (!file_exists(font_path)) {
+                    font_path = "/usr/share/fonts/truetype/liberation/LiberationMono-Bold.ttf";
+                }
             }
         }
     }
@@ -939,7 +951,7 @@ void Renderer::render_splash(int phase, int progress, int total, int done, const
 
     // Column 4: Storage & Renderer info
     draw_splash_text("HW_DECODE: READY", col4_x, row_start_y, 14, {0, 130, 0, 220});
-    draw_splash_text("RENDERER : SDL2", col4_x, (int)(row_start_y + row_space), 14, {0, 130, 0, 220});
+    draw_splash_text("RENDERER : SDL3", col4_x, (int)(row_start_y + row_space), 14, {0, 130, 0, 220});
 
     std::snprintf(sys_buf, sizeof(sys_buf), "I/O SPEED: %d ops/s", speed);
     draw_splash_text(sys_buf, col4_x, (int)(row_start_y + row_space * 2.2f), 14, {0, 130, 0, 220});

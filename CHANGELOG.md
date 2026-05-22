@@ -1,5 +1,18 @@
 # Changelog
 
+## v10.3.0 — Dynamic Hardware Auto-Probing, Custom Typography & Robust Socket Fallbacks (May 22, 2026)
+
+### Added
+- **Dynamic DRM/KMS Auto-Probing** — Implemented a zero-config display probe that scans `/sys/class/drm/card*-*/status` to detect active connected video outputs (HDMI) and GPU index on-the-fly, programmatically injecting stable `SDL_VIDEO_KMSDRM_DEVICE` and `SDL_KMSDRM_DEVICE_INDEX` environment settings at startup without hardcoded paths.
+- **Custom Font Path Selection & System Fallback** — Added configuration and OSD engine support for customized `.ttf`/`.otf` font paths. If the font is configured as `"auto"` or invalid, the renderer gracefully falls back through standard system directories to guarantee consistent display presentation.
+- **Dynamic Audio Output Routing** — Integrated a sound device selector that directs mpv audio decoding pipelines to a configurable target identifier (e.g. HDMI, USB, or analog card) using `--audio-device=...` execution flags.
+- **Automatic TCP Socket Scavenging** — Built a resilient web controller bind retry cycle. If port `8080` is currently in use, the HTTP server scans and binds to the next available consecutive port (up to 10 attempts), updating in-memory configuration records automatically.
+- **Interactive TUI "Hardware Settings" Submenu** — Designed and integrated a brand new category (TUI Category 7) dedicated to live hardware adjustments, enabling seamless configuration of active DRM cards, connectors, custom font paths, and audio devices over SSH.
+- **Aesthetic Cleanliness** — Stripped all lingering/stale SDL2 mentions from debugging logs, initialization sequences, and splash screens to ensure clean and correct SDL3 terminology throughout the modern codebase.
+
+### Fixed
+- **mpv Subprocess Argument Safety** — Restructured child process argument building in the video player pipeline using standard `std::vector<std::string>` vectors evaluated cleanly on execution, resolving previous code redundancy and potential argument parsing bugs.
+
 ## v10.2.0 — Dynamic Core limit, Twin-Portrait Collage & Robust Media Skip (May 22, 2026)
 
 ### Added

@@ -24,13 +24,26 @@ void OverlayManager::init() {
     font_renderer = new FontRenderer(renderer);
 
     std::string exe_dir = get_exe_dir();
-    std::string font_path = "/usr/share/fonts/truetype/dejavu/DejaVuSansMono-Bold.ttf";
-    if (!file_exists(font_path)) {
-        font_path = exe_dir + "/src/fonts/DejaVuSansMono-Bold.ttf";
+    std::string font_path = "";
+    {
+        std::lock_guard<std::mutex> lock(g_config_mtx);
+        if (g_cfg.font_path != "auto" && !g_cfg.font_path.empty()) {
+            font_path = g_cfg.font_path;
+        }
+    }
+
+    if (font_path.empty() || !file_exists(font_path)) {
+        if (!font_path.empty()) {
+            g_logger.warn("Configured font_path '%s' not found, falling back to defaults", font_path.c_str());
+        }
+        font_path = "/usr/share/fonts/truetype/dejavu/DejaVuSansMono-Bold.ttf";
         if (!file_exists(font_path)) {
-            font_path = exe_dir + "/fonts/DejaVuSansMono-Bold.ttf";
+            font_path = exe_dir + "/src/fonts/DejaVuSansMono-Bold.ttf";
             if (!file_exists(font_path)) {
-                font_path = "/usr/share/fonts/truetype/liberation/LiberationMono-Bold.ttf";
+                font_path = exe_dir + "/fonts/DejaVuSansMono-Bold.ttf";
+                if (!file_exists(font_path)) {
+                    font_path = "/usr/share/fonts/truetype/liberation/LiberationMono-Bold.ttf";
+                }
             }
         }
     }

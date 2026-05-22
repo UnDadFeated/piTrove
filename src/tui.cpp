@@ -94,12 +94,16 @@ void config_wizard(const std::string& config_path) {
         f << "sleep_time = " << (g_cfg.sleep_time.empty() ? "\"\"" : "\"" + g_cfg.sleep_time + "\"") << "\n";
         f << "wake_time = " << (g_cfg.wake_time.empty() ? "\"\"" : "\"" + g_cfg.wake_time + "\"") << "\n";
         f << "filename_font_size = " << g_cfg.filename_font_size << "\n";
-        f << "count_font_size = " << g_cfg.count_font_size << "\n\n";
+        f << "count_font_size = " << g_cfg.count_font_size << "\n";
+        f << "font_path = \"" << (g_cfg.font_path.empty() ? "auto" : g_cfg.font_path) << "\"\n\n";
         
         f << "[video]\n";
         f << "volume = " << g_cfg.video_volume << "\n";
         f << "probe_timeout = " << g_cfg.video_probe_timeout << "\n";
-        f << "closed_captions_enabled = " << (g_cfg.closed_captions_enabled ? "1" : "0") << "\n\n";
+        f << "closed_captions_enabled = " << (g_cfg.closed_captions_enabled ? "1" : "0") << "\n";
+        f << "drm_connector = \"" << (g_cfg.drm_connector.empty() ? "auto" : g_cfg.drm_connector) << "\"\n";
+        f << "drm_card = \"" << (g_cfg.drm_card.empty() ? "auto" : g_cfg.drm_card) << "\"\n";
+        f << "video_audio_device = \"" << (g_cfg.video_audio_device.empty() ? "auto" : g_cfg.video_audio_device) << "\"\n\n";
         
         f << "[dashboard]\n";
         f << "weather_enabled = " << (g_cfg.weather_enabled ? "1" : "0") << "\n";
@@ -237,6 +241,12 @@ void config_wizard(const std::string& config_path) {
         {"Latitude", FLT, "Location latitude for weather API"},
         {"Longitude", FLT, "Location longitude for weather API"}
     };
+    static const CI CF[] = {
+        {"DRM Card", STR, "Parent GPU modesetting card path (e.g. '/dev/dri/card1' or 'auto')"},
+        {"DRM Connector", STR, "Active connected display connector port (e.g. 'HDMI-A-1' or 'auto')"},
+        {"Font Path", STR, "Custom path to TTF/OTF font file (or 'auto' for default search)"},
+        {"Audio Device", STR, "Custom audio device identifier for mpv video player (or 'auto')"}
+    };
     static const CI CI2[] = {
         {"Log Level", ENM, "Console verbosity (debug, info, warn, error)"},
         {"Min Brightness", INT, "Floor for auto-brightness (0-100)"},
@@ -252,6 +262,7 @@ void config_wizard(const std::string& config_path) {
         {"Slideshow", CE, 14},
         {"Scanning", CG, 8},
         {"Weather", CH, 3},
+        {"Hardware", CF, 4},
         {"Advanced", CI2, 3}
     };
 
@@ -325,6 +336,12 @@ void config_wizard(const std::string& config_path) {
             case 2: return std::to_string(g_cfg.weather_lon);
         }
         if (c == 7) switch(i) {
+            case 0: return g_cfg.drm_card;
+            case 1: return g_cfg.drm_connector;
+            case 2: return g_cfg.font_path;
+            case 3: return g_cfg.video_audio_device;
+        }
+        if (c == 8) switch(i) {
             case 0: return g_cfg.verbose?"debug":"info";
             case 1: return std::to_string(g_cfg.brightness_auto_min);
             case 2: return std::to_string(g_cfg.cache_mmap_size);
@@ -419,6 +436,12 @@ void config_wizard(const std::string& config_path) {
                 case 2:{ try { float vn=std::stof(v); if(vn>=-180.0f&&vn<=180.0f) g_cfg.weather_lon=vn; } catch(...) {} break; }
             }
             else if(c==7) switch(i){
+                case 0:g_cfg.drm_card=v;break;
+                case 1:g_cfg.drm_connector=v;break;
+                case 2:g_cfg.font_path=v;break;
+                case 3:g_cfg.video_audio_device=v;break;
+            }
+            else if(c==8) switch(i){
                 case 0:{ if(v=="debug") g_cfg.verbose=true; else g_cfg.verbose=false; }break;
                 case 1:{ try { g_cfg.brightness_auto_min=std::stoi(v); } catch(...) {} break; }
                 case 2:{ try { g_cfg.cache_mmap_size=std::stoll(v); } catch(...) {} break; }
@@ -433,7 +456,7 @@ void config_wizard(const std::string& config_path) {
         if(c==2&&i==4) return {"yellow","white","cyan","red"};
         if(c==2&&i==9) return {"yellow","white","cyan","red"};
         if(c==2&&i==10) return {"yellow","white","cyan","gray"};
-        if(c==7&&i==0) return {"debug","info","warn","error"};
+        if(c==8&&i==0) return {"debug","info","warn","error"};
         return {};
     };
 
@@ -457,7 +480,7 @@ void config_wizard(const std::string& config_path) {
 
         // Top Category Bar
         printf("  ");
-        for(int i=0; i<8; i++) {
+        for(int i=0; i<9; i++) {
             if(i==sel) printf("\033[7;33m %s \033[0m  ", CATS[i].n);
             else printf("\033[1;37m%s\033[0m  ", CATS[i].n);
         }
@@ -525,9 +548,9 @@ void config_wizard(const std::string& config_path) {
                     char seq[2];
                     if(read(STDIN_FILENO, &seq[0], 1) == 1 && read(STDIN_FILENO, &seq[1], 1) == 1) {
                         if(seq[1] == 'A') { if(sel_sub>0) sel_sub--; else if(sel>0){ sel--; sel_sub=CATS[sel].c-1; } } // UP
-                        else if(seq[1] == 'B') { if(sel_sub<CATS[sel].c-1) sel_sub++; else if(sel<7){ sel++; sel_sub=0; } } // DOWN
+                        else if(seq[1] == 'B') { if(sel_sub<CATS[sel].c-1) sel_sub++; else if(sel<8){ sel++; sel_sub=0; } } // DOWN
                         else if(seq[1] == 'D') { if(sel>0) { sel--; sel_sub=0; } } // LEFT Category
-                        else if(seq[1] == 'C') { if(sel<7) { sel++; sel_sub=0; } } // RIGHT Category
+                        else if(seq[1] == 'C') { if(sel<8) { sel++; sel_sub=0; } } // RIGHT Category
                     }
                 }
                 else if(c == '\n' || c == '\r' || c == ' ') {

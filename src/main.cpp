@@ -28,8 +28,60 @@
 #include <future>
 #include <functional>
 #include <filesystem>
+#include <fstream>
+#include <glob.h>
 
 static TransitionEngine* g_transition = nullptr;
+
+// Probe the active connected DRM connector and card path
+static std::string probe_connected_connector(std::string& out_card, int& out_card_index) {
+    out_card = "";
+    out_card_index = -1;
+    std::string connected_connector = "";
+
+    glob_t gres;
+    // Scan card*-*/status
+    if (glob("/sys/class/drm/card*-*/status", 0, nullptr, &gres) == 0) {
+        for (size_t i = 0; i < gres.gl_pathc; i++) {
+            std::string status_path = gres.gl_pathv[i];
+            std::ifstream f(status_path);
+            if (f.is_open()) {
+                std::string status;
+                std::getline(f, status);
+                // trim status
+                status.erase(status.find_last_not_of(" \t\r\n") + 1);
+                if (status == "connected") {
+                    // Extract connector and card from path.
+                    // Example path: /sys/class/drm/card1-HDMI-A-1/status
+                    size_t slash = status_path.rfind('/');
+                    if (slash != std::string::npos) {
+                        std::string dir_name = status_path.substr(slash + 1);
+                        size_t dash = dir_name.find('-');
+                        if (dash != std::string::npos) {
+                            std::string card_part = dir_name.substr(0, dash); // "card1"
+                            std::string conn_part = dir_name.substr(dash + 1); // "HDMI-A-1"
+                            
+                            if (card_part.rfind("card", 0) == 0) {
+                                try {
+                                    int card_idx = std::stoi(card_part.substr(4));
+                                    out_card = "/dev/dri/" + card_part;
+                                    out_card_index = card_idx;
+                                    connected_connector = conn_part;
+                                    break;
+                                } catch (...) {
+                                    // ignore and continue
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        globfree(&gres);
+    }
+    return connected_connector;
+}
+
 static OverlayManager* g_overlay = nullptr;
 
 // Background Watchman & Dynamic Playlist State
@@ -682,14 +734,62 @@ int main(int argc, char** argv) {
     g_logger.init(log_dir, LogLevel::DEBUG);
     g_logger.info("Media dir: %s, Cache dir: %s", media_dir.c_str(), cache_dir.c_str());
 
-    // --- SDL2 Init ---
-    g_logger.info("Initializing SDL2 (%dx%d)...", g_cfg.screen_w, g_cfg.screen_h);
+    // --- Dynamic DRM Probing and Environment Setup ---
+    {
+        std::lock_guard<std::mutex> lock(g_config_mtx);
+        std::string probed_card = "/dev/dri/card1";
+        int probed_card_index = 1;
+        std::string probed_connector = "HDMI-A-1";
+        if (g_cfg.drm_card == "auto" || g_cfg.drm_connector == "auto") {
+            std::string card;
+            int card_idx = -1;
+            std::string conn = probe_connected_connector(card, card_idx);
+            if (!conn.empty() && !card.empty() && card_idx >= 0) {
+                probed_card = card;
+                probed_card_index = card_idx;
+                probed_connector = conn;
+                g_logger.info("DRM Probe: Found active connected connector %s on %s (index %d)", conn.c_str(), card.c_str(), card_idx);
+            } else {
+                g_logger.warn("DRM Probe: No connected connector found. Using default fallbacks: %s, connector: %s", probed_card.c_str(), probed_connector.c_str());
+            }
+        }
+
+        std::string final_card = (g_cfg.drm_card == "auto") ? probed_card : g_cfg.drm_card;
+        std::string final_connector = (g_cfg.drm_connector == "auto") ? probed_connector : g_cfg.drm_connector;
+
+        setenv("SDL_VIDEO_KMSDRM_DEVICE", final_card.c_str(), 1);
+
+        std::string index_str;
+        if (g_cfg.drm_card == "auto") {
+            index_str = std::to_string(probed_card_index);
+        } else {
+            size_t last_num = g_cfg.drm_card.find_last_of("0123456789");
+            if (last_num != std::string::npos) {
+                size_t first_num = last_num;
+                while (first_num > 0 && std::isdigit(g_cfg.drm_card[first_num - 1])) {
+                    first_num--;
+                }
+                index_str = g_cfg.drm_card.substr(first_num, last_num - first_num + 1);
+            } else {
+                index_str = "1";
+            }
+        }
+        setenv("SDL_KMSDRM_DEVICE_INDEX", index_str.c_str(), 1);
+
+        g_cfg.drm_card = final_card;
+        g_cfg.drm_connector = final_connector;
+
+        g_logger.info("KMSDRM Auto-Config: Using card %s (index %s), connector %s", final_card.c_str(), index_str.c_str(), final_connector.c_str());
+    }
+
+    // --- SDL3 Init ---
+    g_logger.info("Initializing SDL3 (%dx%d)...", g_cfg.screen_w, g_cfg.screen_h);
     std::string splash_file = g_cfg.splash_file.empty() ? "src/splash.png" : g_cfg.splash_file;
 
     if (!g_renderer.init(g_cfg.screen_w, g_cfg.screen_h, g_cfg.fullscreen)) {
-        g_logger.error("SDL2 initialization failed"); return 1;
+        g_logger.error("SDL3 initialization failed"); return 1;
     }
-    g_logger.info("SDL2 context created: %dx%d", g_renderer.screen_w, g_renderer.screen_h);
+    g_logger.info("SDL3 context created: %dx%d", g_renderer.screen_w, g_renderer.screen_h);
 
     // Render 3 black frames to initialize page flipping under KMSDRM before any textures are created
     g_logger.info("Initializing EGL page flipping sweeps...");

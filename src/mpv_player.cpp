@@ -35,7 +35,7 @@ int MpvPlayer::find_drm_fd() {
             if (std::strstr(target, "/dev/dri/card")) {
                 int fd = std::atoi(entry->d_name);
                 closedir(dir);
-                g_logger.info("VIDEO_DRM: Found SDL2 DRM fd=%d → %s", fd, target);
+                g_logger.info("VIDEO_DRM: Found SDL3 DRM fd=%d → %s", fd, target);
                 return fd;
             }
         }
@@ -73,16 +73,23 @@ bool MpvPlayer::play(const std::string& path, int volume) {
 
     int matte_px = 0;
     bool cc_enabled = true;
+    std::string connector_arg = "--drm-connector=HDMI-A-1";
+    std::string audio_arg = "";
     {
         std::lock_guard<std::mutex> lock(g_config_mtx);
         matte_px = g_cfg.matting_size;
         cc_enabled = g_cfg.closed_captions_enabled;
+        if (!g_cfg.drm_connector.empty() && g_cfg.drm_connector != "auto") {
+            connector_arg = "--drm-connector=" + g_cfg.drm_connector;
+        }
+        if (!g_cfg.video_audio_device.empty() && g_cfg.video_audio_device != "auto") {
+            audio_arg = "--audio-device=" + g_cfg.video_audio_device;
+        }
     }
 
     char margin_x_arg[64], margin_y_arg[64];
     std::snprintf(margin_x_arg, sizeof(margin_x_arg), "--osd-margin-x=%d", matte_px + 8);
     std::snprintf(margin_y_arg, sizeof(margin_y_arg), "--osd-margin-y=%d", std::max(0, matte_px - 17));
-    char cmd[256];
 
     // Dynamically calculate thread pool size based on CPU cores (max_cores - 1)
     unsigned int max_cores = std::thread::hardware_concurrency();
@@ -91,7 +98,8 @@ bool MpvPlayer::play(const std::string& path, int volume) {
     char threads_arg[64];
     std::snprintf(threads_arg, sizeof(threads_arg), "--vd-lavc-threads=%u", threads_to_use);
 
-    g_logger.info("VIDEO_PLAY: Launching mpv with dynamic core limit: %s", threads_arg);
+    g_logger.info("VIDEO_PLAY: Launching mpv with dynamic core limit: %s, connector: %s, audio_device: %s",
+                  threads_arg, connector_arg.c_str(), audio_arg.empty() ? "default" : audio_arg.c_str());
 
     pid_t pid = fork();
     if (pid == 0) {
@@ -106,96 +114,52 @@ bool MpvPlayer::play(const std::string& path, int volume) {
             close(dbg);
         }
 
+        std::vector<std::string> args = {
+            "mpv",
+            "--vo=drm",
+            connector_arg,
+            "--hwdec=auto",
+            "--keepaspect=yes",
+            "--no-osc",
+            "--no-osd-bar",
+            "--osd-level=3",
+            "--osd-status-msg=${filename} - ${time-remaining}",
+            "--osd-align-x=left",
+            "--osd-align-y=bottom",
+            margin_x_arg,
+            margin_y_arg,
+            "--osd-font-size=10",
+            threads_arg
+        };
+
         if (volume > 0) {
-            std::snprintf(cmd, sizeof(cmd), "--volume=%d", volume);
-            if (cc_enabled) {
-                execlp("mpv", "mpv",
-                    "--vo=drm",
-                    "--drm-connector=HDMI-A-1",
-                    "--hwdec=auto",
-                    "--keepaspect=yes",
-                    "--no-osc",
-                    "--no-osd-bar",
-                    "--osd-level=3",
-                    "--osd-status-msg=${filename} - ${time-remaining}",
-                    "--osd-align-x=left",
-                    "--osd-align-y=bottom",
-                    margin_x_arg,
-                    margin_y_arg,
-                    "--osd-font-size=10",
-                    "--sub-auto=all",
-                    "--sub-visibility=yes",
-                    "--sid=auto",
-                    threads_arg,
-                    cmd,
-                    path.c_str(),
-                    nullptr);
-            } else {
-                execlp("mpv", "mpv",
-                    "--vo=drm",
-                    "--drm-connector=HDMI-A-1",
-                    "--hwdec=auto",
-                    "--keepaspect=yes",
-                    "--no-osc",
-                    "--no-osd-bar",
-                    "--osd-level=3",
-                    "--osd-status-msg=${filename} - ${time-remaining}",
-                    "--osd-align-x=left",
-                    "--osd-align-y=bottom",
-                    margin_x_arg,
-                    margin_y_arg,
-                    "--osd-font-size=10",
-                    "--no-sub",
-                    threads_arg,
-                    cmd,
-                    path.c_str(),
-                    nullptr);
+            args.push_back("--volume=" + std::to_string(volume));
+            if (!audio_arg.empty()) {
+                args.push_back(audio_arg);
             }
         } else {
-            if (cc_enabled) {
-                execlp("mpv", "mpv",
-                    "--vo=drm",
-                    "--drm-connector=HDMI-A-1",
-                    "--hwdec=auto",
-                    "--keepaspect=yes",
-                    "--no-osc",
-                    "--no-osd-bar",
-                    "--osd-level=3",
-                    "--osd-status-msg=${filename} - ${time-remaining}",
-                    "--osd-align-x=left",
-                    "--osd-align-y=bottom",
-                    margin_x_arg,
-                    margin_y_arg,
-                    "--osd-font-size=10",
-                    "--sub-auto=all",
-                    "--sub-visibility=yes",
-                    "--sid=auto",
-                    threads_arg,
-                    "--no-audio",
-                    path.c_str(),
-                    nullptr);
-            } else {
-                execlp("mpv", "mpv",
-                    "--vo=drm",
-                    "--drm-connector=HDMI-A-1",
-                    "--hwdec=auto",
-                    "--keepaspect=yes",
-                    "--no-osc",
-                    "--no-osd-bar",
-                    "--osd-level=3",
-                    "--osd-status-msg=${filename} - ${time-remaining}",
-                    "--osd-align-x=left",
-                    "--osd-align-y=bottom",
-                    margin_x_arg,
-                    margin_y_arg,
-                    "--osd-font-size=10",
-                    "--no-sub",
-                    threads_arg,
-                    "--no-audio",
-                    path.c_str(),
-                    nullptr);
-            }
+            args.push_back("--no-audio");
         }
+
+        if (cc_enabled) {
+            args.push_back("--sub-auto=all");
+            args.push_back("--sub-visibility=yes");
+            args.push_back("--sid=auto");
+        } else {
+            args.push_back("--no-sub");
+        }
+
+        args.push_back(path);
+
+        // Convert to char* argv array
+        std::vector<char*> argv_exec;
+        argv_exec.reserve(args.size() + 1);
+        for (const auto& a : args) {
+            argv_exec.push_back(const_cast<char*>(a.c_str()));
+        }
+        argv_exec.push_back(nullptr);
+
+        execvp("mpv", argv_exec.data());
         _exit(1); // child exit if exec fails
     } else if (pid > 0) {
         video_pid = pid;

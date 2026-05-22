@@ -716,6 +716,18 @@ chown -R $PRIMARY_USER:$PRIMARY_USER "$PRIMARY_HOME/piTrove"
 # ── systemd Service Deployment ─────────────────────────────────────────────────
 info "Installing daemon background service..."
 
+# Probe active DRM card
+PROBED_CARD=$(find /sys/class/drm/ -name "card*-*" -exec grep -q "^connected$" {}/status \; -print -quit | sed -E 's|.*/(card[0-9]+)-.*|\1|')
+if [ -z "$PROBED_CARD" ]; then
+    PROBED_CARD=$(find /sys/class/drm/ -name "card[0-9]" -print -quit | sed -E 's|.*/(card[0-9]+)|\1|')
+fi
+if [ -z "$PROBED_CARD" ]; then
+    PROBED_CARD="card1"
+fi
+PROBED_INDEX=${PROBED_CARD#card}
+
+info "Systemd: Using probed DRM GPU device /dev/dri/$PROBED_CARD (index $PROBED_INDEX)"
+
 # Sourcing correct KMSDRM parameters for stable SDL video playback
 cat > /etc/systemd/system/piTrove.service <<EOF
 [Unit]
@@ -735,8 +747,10 @@ Restart=always
 RestartSec=15
 StandardOutput=journal
 StandardError=journal
-Environment=HOME=$PRIMARY_HOME SDL_VIDEO_DRIVER=kmsdrm SDL_VIDEODRIVER=kmsdrm SDL_VIDEO_KMSDRM_DEVICE=/dev/dri/card1 SDL_KMSDRM_DEVICE_INDEX=1
+Environment=HOME=$PRIMARY_HOME SDL_VIDEO_DRIVER=kmsdrm SDL_VIDEODRIVER=kmsdrm SDL_VIDEO_KMSDRM_DEVICE=/dev/dri/$PROBED_CARD SDL_KMSDRM_DEVICE_INDEX=$PROBED_INDEX
 
+[Unit]
+# Ensure systemd service is started in standard multi-user.target
 [Install]
 WantedBy=multi-user.target
 EOF
