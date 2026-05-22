@@ -1,5 +1,14 @@
 # Changelog
 
+## v9.4.1 — Fix Video EOF DRM Context Crash & Lower mpv Overlay (May 22, 2026)
+
+### Changed
+- **Lower mpv status overlay** — Moved the mpv playback info overlay (filename and remaining time) down by 25 pixels vertically (`std::max(0, matte_px - 17)`) as requested.
+
+### Fixed
+- **DRM context crash on video EOF** — Configured systemd background service environment variables (`SDL_VIDEODRIVER=kmsdrm` and `SDL_VIDEO_KMSDRM_DEVICE=/dev/dri/card1`) to guarantee SDL2 correctly initializes the modesetting device. This ensures the DRM/KMS card interface descriptor is successfully opened, allowing the application to drop/reclaim master lock context cleanly and preventing crash-to-terminal events during subsequent photo transitions.
+- **Version bump** — Bumped project version to `9.4.1` across the codebase.
+
 ## v9.4.0 — Fix Wide Photo Corners & Robust Playback (May 22, 2026)
 
 ### Changed

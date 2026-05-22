@@ -1,29 +1,193 @@
 #!/usr/bin/env bash
-# install.sh — PiTrove v9.1.3 installer
+# install.sh — piTrove v9.4.1 Premium Graphical Installer
 # Target: Debian Trixie (13) 64-bit on Raspberry Pi 4/5
-# Features: JPEG/TIFF/PNG/WebP/HEIC robust loaders, CRT UI, multi-format support
 
-# Changed -euo to -eo to prevent crashes on unbound vars during fresh installs
 set -eo pipefail
 
-# ── Helpers ──────────────────────────────────────────────────────────────────
-RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; CYAN='\033[0;36m'; NC='\033[0m'
-info()  { echo -e "${CYAN}[INFO]${NC}   $*"; }
-warn()  { echo -e "${YELLOW}[WARN]${NC}   $*"; }
-fail()  { echo -e "${RED}[FAIL]${NC}  $*"; exit 1; }
-ok()    { echo -e "${GREEN}[OK]${NC}    $*"; }
+# ── Graphical & Color Palette (256-color and modern ANSI) ──────────────────────
+RED='\033[38;5;203m'
+GREEN='\033[38;5;120m'
+YELLOW='\033[38;5;221m'
+BLUE='\033[38;5;75m'
+MAGENTA='\033[38;5;171m'
+CYAN='\033[38;5;51m'
+WHITE='\033[38;5;231m'
+GRAY='\033[38;5;244m'
+DARK_GRAY='\033[38;5;237m'
+NC='\033[0m'
+BOLD='\033[1m'
+UNDERLINE='\033[4m'
+
+# Box drawing characters
+BOX_TL="╔"
+BOX_TR="╗"
+BOX_BL="╚"
+BOX_BR="╝"
+BOX_HL="═"
+BOX_VL="║"
+BOX_ML="╠"
+BOX_MR="╣"
+
+# ── Signal Traps for Terminal Restoration ──────────────────────────────────────
+cleanup_terminal() {
+    tput cnorm 2>/dev/null || echo -ne "\033[?25h"
+}
+trap cleanup_terminal EXIT INT TERM
+
+# ── Visual Helper Functions ───────────────────────────────────────────────────
+
+draw_line() {
+    local char=${1:-"═"}
+    local len=${2:-60}
+    for ((i=0; i<len; i++)); do echo -n "$char"; done
+}
+
+banner() {
+    clear
+    echo -e "${CYAN}╔══════════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${CYAN}║${NC}  ${BOLD}${WHITE}                  piTrove v9.4.1 Installation               ${NC}  ${CYAN}║${NC}"
+    echo -e "${CYAN}║${NC}  ${MAGENTA}               The Ultra-Premium Picture Frame              ${NC}  ${CYAN}║${NC}"
+    echo -e "${CYAN}╚══════════════════════════════════════════════════════════════╝${NC}"
+    echo
+}
+
+info()  { echo -e "   ${CYAN}[ ℹ ]${NC}  $*"; }
+warn()  { echo -e "   ${YELLOW}[ ⚠ ]${NC}  $*"; }
+ok()    { echo -e "   ${GREEN}[ ✓ ]${NC}  $*"; }
+
+fail()  { 
+    echo
+    echo -e "${RED}╔══════════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${RED}║${NC}  ${BOLD}${RED}[ ✘ ] ERROR: $*${NC}"
+    echo -e "${RED}╚══════════════════════════════════════════════════════════════╝${NC}"
+    echo
+    exit 1
+}
+
 yesno() {
-    echo -n "$* [y/N]: "
+    echo -e -n "\n   ${BOLD}${YELLOW}▸ $* [y/N]:${NC} "
     read -r resp < /dev/tty
     [[ "$resp" == [yY]* ]]
 }
 
-# ── Pre-flight checks ───────────────────────────────────────────────────────
-echo "============================================"
-  echo "  PiTrove v9.1.3 Installer"
-echo "  Target: Raspberry Pi 4/5 / ARM64"
-echo "============================================"
-echo
+# ── Dynamic Spinner (Braille Unicode Animation) ─────────────────────────────────
+show_spinner() {
+    local pid=$1
+    local label="$2"
+    local delay=0.08
+    local spin_chars=("⠋" "⠙" "⠹" "⠸" "⠼" "⠴" "⠦" "⠧" "⠇" "⠏")
+    local i=0
+    
+    tput civis 2>/dev/null || echo -ne "\033[?25l"
+    
+    while kill -0 "$pid" 2>/dev/null; do
+        local char="${spin_chars[i]}"
+        printf "\r   ${CYAN}[%s]${NC}  %s... " "$char" "$label"
+        i=$(( (i + 1) % 10 ))
+        sleep $delay
+    done
+    
+    tput cnorm 2>/dev/null || echo -ne "\033[?25h"
+    printf "\r                                                                                \r"
+}
+
+run_with_spinner() {
+    local label="$1"
+    shift
+    local log_file="/tmp/pitrove_cmd_$((100 + RANDOM % 900)).log"
+    
+    "$@" > "$log_file" 2>&1 &
+    local pid=$!
+    
+    show_spinner "$pid" "$label"
+    
+    wait "$pid"
+    local status=$?
+    if [[ "$status" -ne 0 ]]; then
+        echo -e "   ${RED}[ ✘ ]  ${label} failed!${NC}"
+        echo -e "   ${YELLOW}─────── LAST 15 LINES OF LOG: ───────${NC}"
+        tail -n 15 "$log_file" | sed 's/^/   /'
+        echo -e "   ${YELLOW}─────────────────────────────────────${NC}"
+        fail "${label} failed with exit code ${status}. Check ${log_file} for details."
+    else
+        ok "${label} completed successfully"
+        rm -f "$log_file"
+    fi
+}
+
+# ── Compilation Progress Bar Monitor ───────────────────────────────────────────
+run_compilation_with_progress() {
+    local build_dir="$1"
+    local log_file="/tmp/pitrove_compile.log"
+    rm -f "$log_file"
+    
+    cd "$build_dir"
+    
+    # Run cmake generation
+    cmake -B build -DCMAKE_BUILD_TYPE=Release > "$log_file" 2>&1 &
+    local cmake_pid=$!
+    show_spinner "$cmake_pid" "Configuring CMake build system"
+    wait "$cmake_pid"
+    local status=$?
+    if [[ "$status" -ne 0 ]]; then
+        echo -e "   ${RED}[ ✘ ]  CMake configuration failed!${NC}"
+        echo -e "   ${YELLOW}─────── CMAKE LOG: ───────${NC}"
+        tail -n 20 "$log_file" | sed 's/^/   /'
+        fail "CMake configuration failed."
+    fi
+    
+    # Start compilation in background
+    cmake --build build -j3 > "$log_file" 2>&1 &
+    local pid=$!
+    
+    local last_percent=0
+    tput civis 2>/dev/null || echo -ne "\033[?25l"
+    
+    while kill -0 "$pid" 2>/dev/null; do
+        # Extract the last percent from log file
+        local percent=$(grep -o -E "\[[ 0-9]{1,3}%\]" "$log_file" 2>/dev/null | tail -n 1 | tr -d '[]% ' || echo "")
+        if [[ -n "$percent" && "$percent" =~ ^[0-9]+$ ]]; then
+            last_percent="$percent"
+        fi
+        
+        # Draw the progress bar
+        local width=40
+        local completed=$(( last_percent * width / 100 ))
+        local remaining=$(( width - completed ))
+        
+        local bar_filled=""
+        for ((k=0; k<completed; k++)); do bar_filled="${bar_filled}█"; done
+        local bar_empty=""
+        for ((k=0; k<remaining; k++)); do bar_empty="${bar_empty}░"; done
+        
+        printf "\r   ${MAGENTA}[%3d%%]${NC} [${GREEN}%s${NC}${DARK_GRAY}%s${NC}] Compiling piTrove core..." "$last_percent" "$bar_filled" "$bar_empty"
+        sleep 0.15
+    done
+    
+    wait "$pid"
+    local status=$?
+    
+    tput cnorm 2>/dev/null || echo -ne "\033[?25h"
+    printf "\r                                                                                    \r"
+    
+    if [[ "$status" -ne 0 ]]; then
+        echo -e "   ${RED}[ ✘ ]  piTrove compilation failed!${NC}"
+        echo -e "   ${YELLOW}─────── COMPILATION ERRORS: ───────${NC}"
+        grep -E "error:|warning:" "$log_file" | tail -n 20 | sed 's/^/   /' || tail -n 20 "$log_file" | sed 's/^/   /'
+        echo -e "   ${YELLOW}───────────────────────────────────${NC}"
+        fail "piTrove build failed. Check ${log_file} for full details."
+    else
+        # 100% complete bar
+        local width=40
+        local bar_filled=""
+        for ((k=0; k<width; k++)); do bar_filled="${bar_filled}█"; done
+        printf "   ${GREEN}[100%%] [${GREEN}%s${NC}] piTrove compilation completed!${NC}\n" "$bar_filled"
+        rm -f "$log_file"
+    fi
+}
+
+# ── Render Initial Screen ─────────────────────────────────────────────────────
+banner
 
 # 1. Detect primary user (fallback if UID 1000 is modified)
 PRIMARY_USER=$(getent passwd 1000 | cut -d: -f1 || true)
@@ -35,13 +199,11 @@ if [[ "$PRIMARY_USER" == "root" ]]; then
     fail "Installer detected 'root'. Please run from a standard user account with sudo."
 fi
 PRIMARY_HOME="/home/$PRIMARY_USER"
-info "Primary user: $PRIMARY_USER ($PRIMARY_HOME)"
+info "Primary user: ${BOLD}${WHITE}$PRIMARY_USER${NC} (${CYAN}$PRIMARY_HOME${NC})"
 
 # 2. Bootstrap packages (git, lsb_release, pkg-config, curl needed below)
-info "Installing bootstrap packages..."
-apt-get update -qq || fail "apt-get update failed"
-apt-get install -y -qq git curl lsb-release pkg-config || fail "Bootstrap install failed"
-ok "Bootstrap packages ready"
+run_with_spinner "Updating system package repositories" apt-get update -qq
+run_with_spinner "Installing bootstrap tools" apt-get install -y -qq git curl lsb-release pkg-config
 
 # 3. OS check
 if [[ "$(lsb_release -si)" != "Debian" ]]; then
@@ -53,65 +215,59 @@ fi
 if [[ "$(uname -m)" != "aarch64" ]]; then
     fail "This installer requires ARM64 (aarch64), found $(uname -m)"
 fi
-ok "Debian Trixie 64-bit confirmed"
+ok "Debian Trixie 64-bit validated successfully"
 
 # 4. Root check
 if [[ "$(id -u)" -ne 0 ]]; then
     fail "This script must be run as root (sudo)"
 fi
 
-# 5. Kill any conflicting display servers (NEVER disable ssh)
-info "Checking for conflicting display servers..."
+# 5. Kill conflicting display servers
 for svc in labwc-tty1 seatd; do
     if systemctl is-active --quiet "$svc" 2>/dev/null; then
-        systemctl stop "$svc"
-        systemctl disable "$svc"
-        info "Stopped and disabled $svc"
+        run_with_spinner "Stopping conflicting display service ($svc)" systemctl stop "$svc"
+        run_with_spinner "Disabling conflicting display service ($svc)" systemctl disable "$svc"
     fi
 done
 
-# 5a. Kill existing piTrove processes and stop/disable systemd service to prevent locks
-info "Stopping and disabling existing piTrove service..."
+# 5a. Kill existing processes and stop services
 if systemctl is-active --quiet piTrove.service 2>/dev/null; then
-    systemctl stop piTrove.service || true
-    info "Stopped active piTrove.service"
+    run_with_spinner "Stopping active piTrove.service" systemctl stop piTrove.service
 fi
 if systemctl is-enabled --quiet piTrove.service 2>/dev/null; then
-    systemctl disable piTrove.service || true
-    info "Disabled piTrove.service"
+    run_with_spinner "Disabling piTrove.service" systemctl disable piTrove.service
 fi
 
-info "Killing any running piTrove processes..."
+info "Clearing existing process conflicts..."
 pkill -9 piTrove || true
 
-info "Removing old user autostart configurations..."
+info "Removing deprecated desktop autostarts..."
 rm -f "$PRIMARY_HOME/.config/autostart/piTrove.desktop" 2>/dev/null || true
 rm -f "/etc/xdg/autostart/piTrove.desktop" 2>/dev/null || true
 
-# 5b. Ensure SSH is still alive — critical safeguard
+# 5b. Safeguard SSH
 if ! systemctl is-active --quiet ssh 2>/dev/null; then
-    warn "SSH service is not active, attempting to start..."
+    warn "SSH service is inactive! Restoring to prevent lockout..."
     apt-get install -y -qq openssh-server 2>/dev/null || true
     systemctl enable ssh 2>/dev/null || true
     systemctl start ssh 2>/dev/null || true
     if systemctl is-active --quiet ssh 2>/dev/null; then
-        info "SSH service restored"
+        ok "SSH safeguard restored successfully"
     else
-        warn "WARNING: Could not start SSH service — reboot and check manually"
+        warn "Could not start SSH service! Verify SSH manually."
     fi
 fi
 
-# 6. Space check
+# 6. Disk space check
 AVAIL=$(df --output=avail / | tail -n 1 | tr -d ' ')
 if [[ "$AVAIL" -lt 5242880 ]]; then
-    warn "Only ${AVAIL}KB free on / (need 5GB for build + SQLite cache)"
+    warn "Low disk space: Only $((AVAIL / 1024))MB free on / (recommended: 5GB for cache/compiling)"
+else
+    ok "Disk space check passed ($((AVAIL / 1024 / 1024))GB available)"
 fi
-ok "Disk space OK: ${AVAIL}KB available"
 
-# ── Install packages ─────────────────────────────────────────────────────────
-info "Installing dependencies (this may take a few minutes)..."
-
-apt-get install -y -qq \
+# ── Install comprehensive system packages ──────────────────────────────────────
+run_with_spinner "Installing core system dependencies (SDL2, MPV, FFmpeg, EXIF)" apt-get install -y -qq \
     build-essential cmake git curl pkg-config \
     libsdl2-dev libsdl2-image-dev libsdl2-ttf-dev \
     libsqlite3-dev libexif-dev libjpeg-dev libpng-dev libtiff-dev libheif-dev libwebp-dev \
@@ -121,43 +277,44 @@ apt-get install -y -qq \
     imagemagick exiftool \
     dav1d ffmpeg \
     cifs-utils \
-    mpv libmpv-dev \
-    || fail "apt-get install failed"
+    mpv libmpv-dev
 
-ok "Dependencies installed"
+# ── DRM group configuration ────────────────────────────────────────────────────
+run_with_spinner "Adding $PRIMARY_USER to video/render groups for DRM permission" usermod -aG video,render "$PRIMARY_USER"
 
-# ── DRM group membership ──────────────────────────────────────────────────────
-info "Adding $PRIMARY_USER to DRM/video groups..."
-usermod -aG video,render "$PRIMARY_USER"
-ok "$PRIMARY_USER added to video and render groups (DRM access)"
-# ── DRM/KMS configuration (Pi 4/5) ────────────────────────────────────────────
-
-info "Configuring DRM/KMS..."
-
+# ── DRM/KMS firmware configuration (Pi 4/5) ───────────────────────────────────
 BOOT_CFG="/boot/firmware/config.txt"
 if [[ -f "$BOOT_CFG" ]]; then
     if ! grep -q "dtoverlay=vc4-kms-v3d" "$BOOT_CFG"; then
         echo "" >> "$BOOT_CFG"
-        echo "# PiTrove DRM/KMS" >> "$BOOT_CFG"
+        echo "# piTrove DRM/KMS Display Configuration" >> "$BOOT_CFG"
         echo "dtoverlay=vc4-kms-v3d,cma-256" >> "$BOOT_CFG"
         echo "gpu_mem=128" >> "$BOOT_CFG"
-        ok "Added vc4-kms-v3d overlay to $BOOT_CFG"
+        ok "Configured vc4-kms-v3d overlay & gpu_mem in $BOOT_CFG"
     else
-        info "vc4-kms-v3d already in $BOOT_CFG"
+        ok "vc4-kms-v3d already configured in $BOOT_CFG"
     fi
 else
-    warn "$BOOT_CFG not found — manually add: dtoverlay=vc4-kms-v3d,cma-256"
+    warn "$BOOT_CFG not found. Manually verify vc4-kms-v3d overlay is loaded."
 fi
 
-# ── Storage selection (NAS / Local / Network drive) ──────────────────────────
+# ── Storage Selection Dialog ───────────────────────────────────────────────────
 echo
-info "=== Storage Configuration ==="
+echo -e "${CYAN}╔══════════════════════════════════════════════════════════════╗${NC}"
+echo -e "${CYAN}║${NC}  ${BOLD}${WHITE}               SELECT STORAGE MODE                          ${NC}  ${CYAN}║${NC}"
+echo -e "${CYAN}╠══════════════════════════════════════════════════════════════╣${NC}"
+echo -e "${CYAN}║${NC}  ${BOLD}${GREEN}1)${NC} ${WHITE}NAS (SMB/CIFS Network Share)${NC}                          ${CYAN}║${NC}"
+echo -e "${CYAN}║${NC}     - Mounts your remote server's archive to /mnt/nas        ${CYAN}║${NC}"
+echo -e "${CYAN}║${NC}                                                              ${CYAN}║${NC}"
+echo -e "${CYAN}║${NC}  ${BOLD}${GREEN}2)${NC} ${WHITE}Local Drive (USB / MicroSD)${NC}                           ${CYAN}║${NC}"
+echo -e "${CYAN}║${NC}     - Keeps all assets stored locally on the Pi             ${CYAN}║${NC}"
+echo -e "${CYAN}║${NC}                                                              ${CYAN}║${NC}"
+echo -e "${CYAN}║${NC}  ${BOLD}${GREEN}3)${NC} ${WHITE}Other Network Drive (NFS/Custom)${NC}                         ${CYAN}║${NC}"
+echo -e "${CYAN}║${NC}     - Custom setup options for NFS or other mounts           ${CYAN}║${NC}"
+echo -e "${CYAN}╚══════════════════════════════════════════════════════════════╝${NC}"
 echo
-echo "  1) NAS (SMB/CIFS network share)"
-echo "  2) Local drive (USB/SD card mounted locally)"
-echo "  3) Other network drive (NFS/SMB/CIFS)"
-echo
-read -r -p "Choose storage type [1-3]: " storage_choice < /dev/tty
+echo -n -e "   ${BOLD}${YELLOW}▸ Enter your choice [1-3]:${NC} "
+read -r storage_choice < /dev/tty
 
 USE_NAS=0
 SHARE_IP=""
@@ -168,39 +325,49 @@ SHARE_PROTOCOL="cifs"
 case "$storage_choice" in
     1)
         USE_NAS=1
-   read -r -p "NAS IP address: " SHARE_IP < /dev/tty
-    if [[ -z "$SHARE_IP" ]] || ! echo "$SHARE_IP" | grep -qE '^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$'; then
-        fail "Invalid IP format: '$SHARE_IP'. Must be dotted-quad (e.g. 192.168.4.111)"
-    fi
-       read -r -p "Share path [default: /Home/Archive]: " SHARE_PATH < /dev/tty
+        echo -n -e "\n   ${BOLD}${CYAN}▸ NAS IP Address:${NC} "
+        read -r SHARE_IP < /dev/tty
+        if [[ -z "$SHARE_IP" ]] || ! echo "$SHARE_IP" | grep -qE '^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$'; then
+            fail "Invalid IP format: '$SHARE_IP'. Must be dotted-quad (e.g. 192.168.4.111)"
+        fi
+        echo -n -e "   ${BOLD}${CYAN}▸ Share path [default: /Home/Archive]:${NC} "
+        read -r SHARE_PATH < /dev/tty
         SHARE_PATH="${SHARE_PATH:-/Home/Archive}"
         SHARE_PROTOCOL="cifs"
         ;;
     2)
-        info "Local drive mode — no NAS mount will be created."
-        info "Set your local drive mount path in config.toml after installation."
+        info "Local drive mode selected. Default local mount point: ${BOLD}/mnt/media${NC}"
         SHARE_MOUNT="/mnt/media"
         mkdir -p "$SHARE_MOUNT"
-        ok "Local mount point created: $SHARE_MOUNT"
+        ok "Local media directory initialized at $SHARE_MOUNT"
         ;;
     3)
         echo
-        echo "  a) SMB/CIFS"
-        echo "  b) NFS"
+        echo -e "   ${CYAN}╔══════════════════════════════════════════════════════════════╗${NC}"
+        echo -e "   ${CYAN}║${NC}  ${BOLD}${WHITE}               SELECT PROTOCOL                              ${NC}  ${CYAN}║${NC}"
+        echo -e "   ${CYAN}╠══════════════════════════════════════════════════════════════╣${NC}"
+        echo -e "   ${CYAN}║${NC}  ${BOLD}${GREEN}a)${NC} ${WHITE}SMB/CIFS Network Share${NC}                                ${CYAN}║${NC}"
+        echo -e "   ${CYAN}║${NC}  ${BOLD}${GREEN}b)${NC} ${WHITE}NFS Network Share${NC}                                     ${CYAN}║${NC}"
+        echo -e "   ${CYAN}╚══════════════════════════════════════════════════════════════╝${NC}"
         echo
-        read -r -p "Choose protocol [a-b]: " proto_choice < /dev/tty
+        echo -n -e "      ${BOLD}${YELLOW}▸ Select protocol [a-b]:${NC} "
+        read -r proto_choice < /dev/tty
         case "$proto_choice" in
             a)
                 SHARE_PROTOCOL="cifs"
-                read -r -p "Network drive IP address: " SHARE_IP < /dev/tty
-                read -r -p "Share path [default: /Shared]: " SHARE_PATH < /dev/tty
+                echo -n -e "\n      ${BOLD}${CYAN}▸ SMB Server IP Address:${NC} "
+                read -r SHARE_IP < /dev/tty
+                echo -n -e "      ${BOLD}${CYAN}▸ SMB Share path [default: /Shared]:${NC} "
+                read -r SHARE_PATH < /dev/tty
                 SHARE_PATH="${SHARE_PATH:-/Shared}"
                 ;;
             b)
                 SHARE_PROTOCOL="nfs"
-                read -r -p "NFS server IP [default: 192.168.4.111]: " SHARE_IP < /dev/tty
+                echo -n -e "\n      ${BOLD}${CYAN}▸ NFS Server IP Address [default: 192.168.4.111]:${NC} "
+                read -r SHARE_IP < /dev/tty
                 SHARE_IP="${SHARE_IP:-192.168.4.111}"
-                read -r -p "NFS export path [/mnt/nas]: " SHARE_PATH < /dev/tty
+                echo -n -e "      ${BOLD}${CYAN}▸ NFS Export path [default: /mnt/nas]:${NC} "
+                read -r SHARE_PATH < /dev/tty
                 SHARE_PATH="${SHARE_PATH:-/mnt/nas}"
                 ;;
             *)
@@ -209,346 +376,254 @@ case "$storage_choice" in
         esac
         ;;
     *)
-        fail "Invalid storage choice"
+        fail "Invalid storage selection"
         ;;
 esac
 
-# ── NAS/Network drive setup ──────────────────────────────────────────────────
+# ── NAS/Network Mount Setup ────────────────────────────────────────────────────
+NAS_MOUNT_SUCCESS=0
 if [[ "$USE_NAS" -eq 1 ]] || [[ "$storage_choice" == "3" ]]; then
-    info "Configuring $SHARE_PROTOCOL mount..."
+    info "Configuring network service mount point..."
 
-    # Check network connectivity
+    # Check network connection
     if ! ping -c 1 -W 2 "$SHARE_IP" &>/dev/null; then
-        warn "$SHARE_IP is not reachable — verify network connection"
+        warn "Host $SHARE_IP is not reachable! Continuing anyway, but double-check your network."
     else
-        ok "$SHARE_IP is reachable"
+        ok "Host $SHARE_IP is online"
     fi
 
-    # CIFS: prompt for credentials
-    mount_creds_ok=0
+    # CIFS Credentials setup
     if [[ "$SHARE_PROTOCOL" == "cifs" ]]; then
         mkdir -p "$PRIMARY_HOME"
         CRED_FILE="$PRIMARY_HOME/nas.cred"
         if [[ ! -f "$CRED_FILE" ]]; then
-            read -r -p "Username: " nas_user < /dev/tty
-            read -rs -p "Password: " nas_pass < /dev/tty
+            echo -n -e "\n   ${BOLD}${YELLOW}▸ Username:${NC} "
+            read -r nas_user < /dev/tty
+            echo -n -e "   ${BOLD}${YELLOW}▸ Password:${NC} "
+            read -rs nas_pass < /dev/tty
             echo
             printf 'username=%s\npassword=%s\n' "$nas_user" "$nas_pass" > "$CRED_FILE"
             chmod 600 "$CRED_FILE"
             chown $PRIMARY_USER:$PRIMARY_USER "$CRED_FILE"
-            info "Created $CRED_FILE (mode 600)"
-            mount_creds_ok=1
+            ok "Created credentials configuration file: $CRED_FILE"
         else
-            info "NAS credentials already exist at $CRED_FILE"
-            # Validate credential file contents
-            if ! grep -q "^username=" "$CRED_FILE" 2>/dev/null; then
-                warn "nas.cred missing username — re-entering credentials"
-                read -r -p "Username: " nas_user < /dev/tty
-                read -rs -p "Password: " nas_pass < /dev/tty
+            info "NAS credential file already exists at $CRED_FILE"
+            if ! grep -q "^username=" "$CRED_FILE" 2>/dev/null || ! grep -q "^password=" "$CRED_FILE" 2>/dev/null; then
+                warn "Credential file is incomplete. Re-entering credentials..."
+                echo -n -e "   ${BOLD}${YELLOW}▸ Username:${NC} "
+                read -r nas_user < /dev/tty
+                echo -n -e "   ${BOLD}${YELLOW}▸ Password:${NC} "
+                read -rs nas_pass < /dev/tty
                 echo
                 printf 'username=%s\npassword=%s\n' "$nas_user" "$nas_pass" > "$CRED_FILE"
                 chmod 600 "$CRED_FILE"
                 chown $PRIMARY_USER:$PRIMARY_USER "$CRED_FILE"
-            elif ! grep -q "^password=" "$CRED_FILE" 2>/dev/null; then
-                warn "nas.cred missing password — re-entering credentials"
-                read -r -p "Username: " nas_user < /dev/tty
-                read -rs -p "Password: " nas_pass < /dev/tty
-                echo
-                printf 'username=%s\npassword=%s\n' "$nas_user" "$nas_pass" > "$CRED_FILE"
-                chmod 600 "$CRED_FILE"
-                chown $PRIMARY_USER:$PRIMARY_USER "$CRED_FILE"
-            else
-                mount_creds_ok=1
             fi
         fi
     fi
 
-    # Build fstab entry — use uid/gid 1000 to always map to primary user
-    # NOTE: _netdev ensures systemd waits for network; nofail prevents boot hang
+    # Format fstab configuration row
     if [[ "$SHARE_PROTOCOL" == "cifs" ]]; then
-        FSTAB_LINE="# PiTrove $SHARE_PROTOCOL mount
+        FSTAB_LINE="# piTrove Network Share
 //$SHARE_IP/${SHARE_PATH#/} $SHARE_MOUNT cifs credentials=$PRIMARY_HOME/nas.cred,ro,uid=1000,gid=1000,vers=3.0,_netdev,nofail 0 0"
     elif [[ "$SHARE_PROTOCOL" == "nfs" ]]; then
-        FSTAB_LINE="# PiTrove $SHARE_PROTOCOL mount
+        FSTAB_LINE="# piTrove Network Share
 $SHARE_IP:$SHARE_PATH $SHARE_MOUNT $SHARE_PROTOCOL defaults,_netdev,timeo=10,retrans=3,nofail 0 0"
     fi
 
-    # --- CLEAN OLD ENTRIES ---
-    # Always remove old cifs/nfs entries for this share before adding new one
-    # This prevents duplicate/old entries with deprecated options (e.g. intr, x-systemd.device-timeout)
+    # Clean old entries
+    sed -i '/# piTrove /d' /etc/fstab
     sed -i '/# PiTrove /d' /etc/fstab
-    # Safely remove only our specific share path, not all entries from same IP
     if [[ "$SHARE_PROTOCOL" == "cifs" ]]; then
         ESCAPED_PATH=$(echo "${SHARE_PATH#/}" | sed 's/[\/]/\\&/g')
         sed -i "/^\/\/${SHARE_IP}\/${ESCAPED_PATH}/d" /etc/fstab 2>/dev/null || true
     else
         sed -i "/^${SHARE_IP}:${SHARE_PATH}/d" /etc/fstab 2>/dev/null || true
     fi
-    # Add to fstab (always overwrite)
+
     mkdir -p "$SHARE_MOUNT"
-    echo "fstab entry to add:"
-    echo "  $FSTAB_LINE"
     echo "$FSTAB_LINE" >> /etc/fstab
     systemctl daemon-reload 2>/dev/null || true
-    info "Added $SHARE_PROTOCOL mount to /etc/fstab"
+    ok "Added fstab mounting entry for $SHARE_MOUNT"
 
-    # Mount with retry loop
+    # Mount retry handler
     CLEAN_SHARE="${SHARE_PATH#/}"
-    info "Mounting //$SHARE_IP/$CLEAN_SHARE at $SHARE_MOUNT..."
+    MOUNT_OK=0
 
-    # Check if already mounted — skip if so
     if mountpoint -q "$SHARE_MOUNT" 2>/dev/null; then
         if ls "$SHARE_MOUNT" >/dev/null 2>&1; then
-            ok "$SHARE_MOUNT already mounted, skipping mount"
+            ok "$SHARE_MOUNT is already active and mounted"
             MOUNT_OK=1
-        else
-            warn "$SHARE_MOUNT is a mount point but empty — attempting remount"
+            NAS_MOUNT_SUCCESS=1
         fi
     fi
 
-    # Only run mount loop if not already mounted
     if [[ "$MOUNT_OK" -eq 0 ]]; then
         MOUNT_ATTEMPTS=0
         while [[ "$MOUNT_ATTEMPTS" -lt 3 ]]; do
-            # Unmount any stale mount before retrying
             if mountpoint -q "$SHARE_MOUNT" 2>/dev/null; then
-                umount "$SHARE_MOUNT" 2>/dev/null && info "Unmounted stale mount"
+                umount "$SHARE_MOUNT" 2>/dev/null || true
             fi
-
+            
             MOUNT_ATTEMPTS=$((MOUNT_ATTEMPTS + 1))
-            if mount -t "$SHARE_PROTOCOL" "$SHARE_MOUNT"; then
-                ok "Mounted successfully!"
+            info "Mounting Share (Attempt $MOUNT_ATTEMPTS/3)..."
+            
+            if mount "$SHARE_MOUNT" 2>/dev/null; then
+                ok "Mount completed successfully!"
                 if [[ -d "$SHARE_MOUNT" ]] && ls "$SHARE_MOUNT" >/dev/null 2>&1; then
-                    info "Files found:"
-                    ls "$SHARE_MOUNT" 2>/dev/null | head -10
+                    info "First few files detected:"
+                    ls "$SHARE_MOUNT" 2>/dev/null | head -5 | sed 's/^/     • /'
                 fi
                 MOUNT_OK=1
+                NAS_MOUNT_SUCCESS=1
                 break
             fi
 
-            echo
             warn "Mount failed (attempt $MOUNT_ATTEMPTS/3)"
             echo
-
-            if [[ "$SHARE_PROTOCOL" == "cifs" ]]; then
-                if [[ "$MOUNT_ATTEMPTS" -eq 3 ]]; then
-                    info "After 3 failed attempts, try:"
-                    info "  sudo mount -t cifs //${SHARE_IP}/${SHARE_PATH} $SHARE_MOUNT"
-                    warn "Make sure credentials in $PRIMARY_HOME/nas.cred are correct"
-                fi
+            if [[ "$MOUNT_ATTEMPTS" -eq 3 ]]; then
+                warn "Cannot mount network share automatically."
+                echo -e "   ${CYAN}╔══════════════════════════════════════════════════════════════╗${NC}"
+                echo -e "   ${CYAN}║${NC}  ${BOLD}${WHITE}               MOUNT FAIL OPTIONS                           ${NC}  ${CYAN}║${NC}"
+                echo -e "   ${CYAN}╠══════════════════════════════════════════════════════════════╣${NC}"
+                echo -e "   ${CYAN}║${NC}  ${BOLD}${GREEN}1)${NC} Retry connection                                          ${CYAN}║${NC}"
+                echo -e "   ${CYAN}║${NC}  ${BOLD}${GREEN}2)${NC} Re-enter path configuration                                ${CYAN}║${NC}"
+                echo -e "   ${CYAN}║${NC}  ${BOLD}${GREEN}3)${NC} Re-enter username & password                               ${CYAN}║${NC}"
+                echo -e "   ${CYAN}║${NC}  ${BOLD}${GREEN}4)${NC} Skip and mount manually later                              ${CYAN}║${NC}"
+                echo -e "   ${CYAN}╚══════════════════════════════════════════════════════════════╝${NC}"
                 echo
-                echo "  1) Retry mount"
-                echo "  2) Change mount details"
-                echo "  3) Re-enter credentials (password may be wrong)"
-                echo "  4) Skip mount"
-                echo
-                read -r -p "Choose [1-4]: " mount_opt < /dev/tty
+                echo -n -e "      ${BOLD}${YELLOW}▸ Choose option [1-4]:${NC} "
+                read -r mount_opt < /dev/tty
                 case "$mount_opt" in
-                    1) continue ;;
+                    1) MOUNT_ATTEMPTS=0; continue ;;
                     2)
-                        read -r -p "NAS IP [$SHARE_IP]: " _tmp < /dev/tty
-                        SHARE_IP="${_tmp:-$SHARE_IP}"
-                        read -r -p "Share path [$SHARE_PATH]: " _tmp < /dev/tty
-                        SHARE_PATH="${_tmp:-$SHARE_PATH}"
-                        read -r -p "Mount point [$SHARE_MOUNT]: " _tmp < /dev/tty
-                        SHARE_MOUNT="${_tmp:-/mnt/nas}"
+                        echo -n -e "      ${BOLD}${CYAN}▸ NAS IP [$SHARE_IP]:${NC} "
+                        read -r _tmp < /dev/tty; SHARE_IP="${_tmp:-$SHARE_IP}"
+                        echo -n -e "      ${BOLD}${CYAN}▸ Share Path [$SHARE_PATH]:${NC} "
+                        read -r _tmp < /dev/tty; SHARE_PATH="${_tmp:-$SHARE_PATH}"
                         if [[ "$SHARE_PROTOCOL" == "cifs" ]]; then
-                            FSTAB_LINE="# PiTrove $SHARE_PROTOCOL mount
+                            FSTAB_LINE="# piTrove Network Share
 //$SHARE_IP/${SHARE_PATH#/} $SHARE_MOUNT cifs credentials=$PRIMARY_HOME/nas.cred,ro,uid=1000,gid=1000,vers=3.0,_netdev,nofail 0 0"
-                        elif [[ "$SHARE_PROTOCOL" == "nfs" ]]; then
-                            FSTAB_LINE="# PiTrove $SHARE_PROTOCOL mount
+                        else
+                            FSTAB_LINE="# piTrove Network Share
 $SHARE_IP:$SHARE_PATH $SHARE_MOUNT $SHARE_PROTOCOL defaults,_netdev,timeo=10,retrans=3,nofail 0 0"
                         fi
-                        # Clean and rewrite fstab
-                        sed -i '/# PiTrove /d' /etc/fstab
-                        if [[ "$SHARE_PROTOCOL" == "cifs" ]]; then
-                            ESCAPED_PATH=$(echo "${SHARE_PATH#/}" | sed 's/[\/]/\\&/g')
-                            sed -i "/^\/\/${SHARE_IP}\/${ESCAPED_PATH}/d" /etc/fstab 2>/dev/null || true
-                        else
-                            sed -i "/^${SHARE_IP}:${SHARE_PATH}/d" /etc/fstab 2>/dev/null || true
-                        fi
+                        sed -i '/# piTrove /d' /etc/fstab
                         echo "$FSTAB_LINE" >> /etc/fstab
                         systemctl daemon-reload 2>/dev/null || true
-                        info "Updated fstab, retrying..."
+                        MOUNT_ATTEMPTS=0
                         continue
                         ;;
                     3)
-                        read -r -p "Username: " nas_user < /dev/tty
-                        read -rs -p "Password: " nas_pass < /dev/tty
-                        echo
-                        printf 'username=%s\npassword=%s\n' "$nas_user" "$nas_pass" > "$PRIMARY_HOME/nas.cred"
-                        chmod 600 "$PRIMARY_HOME/nas.cred"
-                        chown $PRIMARY_USER:$PRIMARY_USER "$PRIMARY_HOME/nas.cred"
-                        info "Updated credentials, retrying..."
+                        if [[ "$SHARE_PROTOCOL" == "cifs" ]]; then
+                            echo -n -e "      ${BOLD}${YELLOW}▸ Username:${NC} "
+                            read -r nas_user < /dev/tty
+                            echo -n -e "      ${BOLD}${YELLOW}▸ Password:${NC} "
+                            read -rs nas_pass < /dev/tty
+                            echo
+                            printf 'username=%s\npassword=%s\n' "$nas_user" "$nas_pass" > "$PRIMARY_HOME/nas.cred"
+                            chmod 600 "$PRIMARY_HOME/nas.cred"
+                            chown $PRIMARY_USER:$PRIMARY_USER "$PRIMARY_HOME/nas.cred"
+                        fi
+                        MOUNT_ATTEMPTS=0
                         continue
                         ;;
                     4)
-                        warn "Skipping mount"
-                        MOUNT_OK=0
+                        warn "Skipping active mount check. Remount later using 'sudo mount -a'"
                         break
                         ;;
                     *)
-                        warn "Invalid option"
-                        continue
-                        ;;
-                esac
-            elif [[ "$SHARE_PROTOCOL" == "nfs" ]]; then
-                echo
-                echo "  1) Retry mount"
-                echo "  2) Change mount details"
-                echo "  3) Skip mount"
-                echo
-                read -r -p "Choose [1-3]: " mount_opt < /dev/tty
-                case "$mount_opt" in
-                    1) continue ;;
-                    2)
-                        read -r -p "NFS Server IP [$SHARE_IP]: " _tmp < /dev/tty
-                        SHARE_IP="${_tmp:-$SHARE_IP}"
-                        read -r -p "Share path [$SHARE_PATH]: " _tmp < /dev/tty
-                        SHARE_PATH="${_tmp:-$SHARE_PATH}"
-                        read -r -p "Mount point [$SHARE_MOUNT]: " _tmp < /dev/tty
-                        SHARE_MOUNT="${_tmp:-/mnt/nas}"
-                        if [[ "$SHARE_PROTOCOL" == "nfs" ]]; then
-                            FSTAB_LINE="# PiTrove $SHARE_PROTOCOL mount
-$SHARE_IP:$SHARE_PATH $SHARE_MOUNT $SHARE_PROTOCOL defaults,_netdev,timeo=10,retrans=3,nofail 0 0"
-                        fi
-                        # Clean and rewrite fstab
-                        sed -i '/# PiTrove /d' /etc/fstab
-                        sed -i "/^${SHARE_IP}:${SHARE_PATH}/d" /etc/fstab 2>/dev/null || true
-                        echo "$FSTAB_LINE" >> /etc/fstab
-                        systemctl daemon-reload 2>/dev/null || true
-                        info "Updated fstab, retrying..."
-                        continue
-                        ;;
-                    3)
-                        warn "Skipping mount"
-                        MOUNT_OK=0
+                        warn "Invalid option. Skipping..."
                         break
-                        ;;
-                    *)
-                        warn "Invalid option"
-                        continue
                         ;;
                 esac
             fi
         done
     fi
-
-    if [[ "$MOUNT_OK" -eq 0 ]]; then
-        warn "Could not mount $SHARE_IP:$SHARE_PATH at $SHARE_MOUNT after 3 attempts"
-        if [[ "$SHARE_PROTOCOL" == "cifs" ]]; then
-            warn "Manual mount command:"
-            warn "  sudo mount -t cifs //${SHARE_IP}/${SHARE_PATH} $SHARE_MOUNT"
-        fi
-        warn "You can set it up manually later"
-    else
-        ok "$SHARE_PROTOCOL mount ready at $SHARE_MOUNT"
-        NAS_MOUNT_SUCCESS=1
-    fi
 fi
 
-# ── Git clone (if needed) ────────────────────────────────────────────────────
-info "Cloning repositories..."
-
+# ── Clone / Update Git Repository ──────────────────────────────────────────────
+info "Setting up piTrove repository clone..."
 if [[ ! -d "$PRIMARY_HOME/piTrove/.git" ]]; then
-    git clone https://github.com/UnDadFeated/piTrove.git "$PRIMARY_HOME/piTrove"
-    info "Cloned piTrove repository"
+    run_with_spinner "Cloning piTrove production repository" git clone https://github.com/UnDadFeated/piTrove.git "$PRIMARY_HOME/piTrove"
 else
-    info "piTrove repository already exists (updating)"
+    info "Repository exists. Updating source..."
     cd "$PRIMARY_HOME/piTrove"
-    git pull || warn "Git pull failed"
+    git pull || warn "Repository update failed. Using active local copy."
 fi
 chown -R $PRIMARY_USER:$PRIMARY_USER "$PRIMARY_HOME/piTrove"
 
-# SDL2 migration complete — no raylib required
-
-# ── Install fonts ────────────────────────────────────────────────────────────
-info "Installing CRT overlay fonts..."
-
-   if [[ -d "$PRIMARY_HOME/piTrove/src/fonts" ]]; then
-        mkdir -p /usr/share/fonts/truetype/dejavu
-        if [[ ! -f /usr/share/fonts/truetype/dejavu/DejaVuSansMono-Bold.ttf ]]; then
-            cp "$PRIMARY_HOME/piTrove/src/fonts/DejaVuSansMono-Bold.ttf" /usr/share/fonts/truetype/dejavu/
-            ok "Installed DejaVu Sans Mono Bold"
-    else
-        info "Font already installed (skipping)"
+# ── Font Setup ────────────────────────────────────────────────────────────────
+info "Configuring application typography..."
+if [[ -d "$PRIMARY_HOME/piTrove/src/fonts" ]]; then
+    mkdir -p /usr/share/fonts/truetype/dejavu
+    if [[ ! -f /usr/share/fonts/truetype/dejavu/DejaVuSansMono-Bold.ttf ]]; then
+        cp "$PRIMARY_HOME/piTrove/src/fonts/DejaVuSansMono-Bold.ttf" /usr/share/fonts/truetype/dejavu/
+        ok "Loaded DejaVu Sans Mono Bold font"
     fi
-    fc-cache -fv 2>/dev/null || true
+    fc-cache -fv &>/dev/null || true
 fi
+ok "Fonts system configuration complete"
 
-ok "Fonts installed"
+# ── Build piTrove Binary ───────────────────────────────────────────────────────
+info "Compiling executable target..."
+run_compilation_with_progress "$PRIMARY_HOME/piTrove/src"
 
-# Raylib build removed for SDL2 migration
+# Copy binary to canonical location
+cp "$PRIMARY_HOME/piTrove/src/build/piTrove" "$PRIMARY_HOME/piTrove/piTrove"
+chown $PRIMARY_USER:$PRIMARY_USER "$PRIMARY_HOME/piTrove/piTrove"
+ok "Installed piTrove executable target"
 
-# ── Build piTrove ────────────────────────────────────────────────────────────
-info "Building piTrove..."
-
-cd "$PRIMARY_HOME/piTrove/src"
-rm -rf build
-cmake -B build -DCMAKE_BUILD_TYPE=Release
-cmake --build build -j3 || fail "piTrove build failed"
-
-cp ./build/piTrove $PRIMARY_HOME/piTrove/piTrove
-chown $PRIMARY_USER:$PRIMARY_USER $PRIMARY_HOME/piTrove/piTrove
-info "Installed piTrove to $PRIMARY_HOME/piTrove/piTrove"
-
-# Install shaders
+# Install active shaders
 mkdir -p "$PRIMARY_HOME/piTrove/shaders"
 cp -r "$PRIMARY_HOME/piTrove/src/shaders/"* "$PRIMARY_HOME/piTrove/shaders/"
 chown -R $PRIMARY_USER:$PRIMARY_USER "$PRIMARY_HOME/piTrove/shaders"
-info "Installed shaders to $PRIMARY_HOME/piTrove/shaders/"
+ok "Shaders assets loaded successfully"
 
-cd "$PRIMARY_HOME/piTrove"
-
-# ── Splash image ─────────────────────────────────────────────────────────────
-# Splash stays in src/ — config.toml points to it directly
-info "Splash image is in src/splash.png"
-
-# ── Directory structure ──────────────────────────────────────────────────────
-info "Creating directory structure..."
-
+# ── Create Directories ────────────────────────────────────────────────────────
+info "Creating internal directory tree..."
 mkdir -p "$PRIMARY_HOME/piTrove/cache" "$PRIMARY_HOME/piTrove/config"
 mkdir -p "$PRIMARY_HOME/piTrove/src/config"
 mkdir -p "$PRIMARY_HOME/piTrove/logs"
 mkdir -p "$PRIMARY_HOME/piTrove/src/fonts"
-mkdir -p "$SHARE_MOUNT"
 
-# ── Scan window selection ────────────────────────────────────────────────────
-read -r -p "Temporal window (=/- days from today, year agnostic, 0=disable) [default: 15]: " scan_input < /dev/tty
+# ── Scan Window Setup ──────────────────────────────────────────────────────────
+echo
+echo -n -e "   ${BOLD}${YELLOW}▸ Temporal window (current month +/- days, 0=disable) [default: 15]:${NC} "
+read -r scan_input < /dev/tty
 
 if [[ -z "$scan_input" ]]; then
     SCAN_WINDOW_DAYS=15
 elif [[ "$scan_input" =~ ^[0-9]+$ ]]; then
     SCAN_WINDOW_DAYS="$scan_input"
 else
-    warn "Invalid input — using default: 15 days"
+    warn "Invalid format. Defaulting to 15 days."
     SCAN_WINDOW_DAYS=15
 fi
+ok "Scan window initialized to $SCAN_WINDOW_DAYS days"
 
-ok "Scan window set to: $SCAN_WINDOW_DAYS days"
+# ── Configuration TOML ─────────────────────────────────────────────────────────
+info "Writing configuration options..."
+CONFIG_FILE="$PRIMARY_HOME/piTrove/src/config/config.toml"
 
-# ── Write config ─────────────────────────────────────────────────────────────
-info "Writing config..."
-
-# Warn if existing config would be overwritten, backup first
-if [[ -f "$PRIMARY_HOME/piTrove/src/config/config.toml" ]]; then
-    warn "Existing config.toml found — backing up and replacing with defaults"
-    cp "$PRIMARY_HOME/piTrove/src/config/config.toml" "$PRIMARY_HOME/piTrove/src/config/config.toml.bak.$(date +%Y%m%d%H%M%S)"
+if [[ -f "$CONFIG_FILE" ]]; then
+    warn "Existing config.toml detected. Backing up..."
+    cp "$CONFIG_FILE" "$CONFIG_FILE.bak.$(date +%Y%m%d%H%M%S)"
 fi
 
-cat > "$PRIMARY_HOME/piTrove/src/config/config.toml" <<EOF
+cat > "$CONFIG_FILE" <<EOF
 # ==========================================
-# piTrove Configuration File (v9.1.3)
+# piTrove Configuration File (v9.4.1)
 # ==========================================
 
 [paths]
-media_dir = $SHARE_MOUNT
-cache_dir = $PRIMARY_HOME/piTrove/cache
-log_dir = $PRIMARY_HOME/piTrove/logs
+media_dir = "$SHARE_MOUNT"
+cache_dir = "$PRIMARY_HOME/piTrove/cache"
+log_dir = "$PRIMARY_HOME/piTrove/logs"
 
 [display]
 rotation = 0
-splash_file = src/splash.png
+splash_file = "src/splash.png"
 splash_overlay_y = 0.5
 
 [slideshow]
@@ -565,13 +640,13 @@ brightness_auto = 0
 brightness_auto_min = 50
 brightness_auto_max = 100
 bias_lighting = 1
- bias_anim_speed = 0.5
- bias_anim_style = "edge_glow"
- bias_color_mode = "auto"
- ken_burns_zoom = 0.15
- bias_strength = 110
- 
- [scan]
+bias_anim_speed = 0.5
+bias_anim_style = "edge_glow"
+bias_color_mode = "auto"
+ken_burns_zoom = 0.15
+bias_strength = 110
+
+[scan]
 recursive = 1
 depth = 10
 max_concurrent = 4
@@ -582,14 +657,14 @@ ignore_folders = ["@eaDir", "@Recycle", "Thumbs.db"]
 mmap_size = 67108864
 
 [log]
-level = info
+level = "info"
 
 [overlay]
 timer_enabled = 1
 timer_x = 0.94
 timer_y = 0.03
 timer_font_size = 12
-timer_color = yellow
+timer_color = "yellow"
 filename_enabled = 1
 filename_x = 0.04
 filename_y = 0.966
@@ -604,7 +679,7 @@ text = "%Y-%m-%d"
 x = 0.1
 y = 0.08
 font_size = 20
-color = cyan
+color = "cyan"
 
 [touch]
 enabled = 0
@@ -629,23 +704,15 @@ http_port = 8080
 EOF
 
 chown -R $PRIMARY_USER:$PRIMARY_USER "$PRIMARY_HOME/piTrove/src/config"
-ok "Config written to $PRIMARY_HOME/piTrove/src/config/config.toml"
+ok "Default production config.toml generated"
 
-# ── Ensure all directories have correct ownership ──
-mkdir -p "$PRIMARY_HOME/piTrove/cache" "$PRIMARY_HOME/piTrove/config"
+# Double check ownerships
 chown -R $PRIMARY_USER:$PRIMARY_USER "$PRIMARY_HOME/piTrove"
 
-# Warn if media_dir points to unmounted path
-if [[ "$USE_NAS" -eq 1 || "$storage_choice" == "3" ]]; then
-    if [[ "$NAS_MOUNT_SUCCESS" -ne 1 ]]; then
-        warn "media_dir ($SHARE_MOUNT) may be inaccessible — NAS not mounted"
-        warn "  After manual mount, update media_dir in config.toml or run: sudo mount -a"
-    fi
-fi
+# ── systemd Service Deployment ─────────────────────────────────────────────────
+info "Installing daemon background service..."
 
-# ── systemd service ──────────────────────────────────────────────────────────
-info "Installing systemd service..."
-
+# Sourcing correct KMSDRM parameters for stable SDL video playback
 cat > /etc/systemd/system/piTrove.service <<EOF
 [Unit]
 Description=PiTrove Digital Picture Frame
@@ -664,62 +731,58 @@ Restart=always
 RestartSec=15
 StandardOutput=journal
 StandardError=journal
-Environment=HOME=$PRIMARY_HOME
+Environment=HOME=$PRIMARY_HOME SDL_VIDEODRIVER=kmsdrm SDL_VIDEO_KMSDRM_DEVICE=/dev/dri/card1
 
 [Install]
 WantedBy=multi-user.target
 EOF
 
 systemctl daemon-reload
-systemctl enable piTrove.service
-info "Service installed: piTrove.service (enabled)"
+systemctl enable piTrove.service &>/dev/null
+ok "piTrove.service successfully registered & enabled on system boot"
 
- # ── Done ─────────────────────────────────────────────────────────────────────
-echo
-echo "============================================"
- echo "  PiTrove v9.1.3 installation complete!"
-echo "============================================"
-echo
-
-# Conditional next steps based on mount outcome
-echo "  Next steps:"
-if [[ "$storage_choice" -eq 2 ]]; then
-    echo "    NAS: ✓ Local storage"
-    echo "    1. Start UI: piTrove --config (runs TUI wizard)"
-    echo "    2. Auto-start is enabled (reboot to test)"
-elif [[ "$USE_NAS" -eq 1 || "$storage_choice" == "3" ]]; then
-    if [[ "$NAS_MOUNT_SUCCESS" -eq 1 ]]; then
-        echo "    NAS: ✓ Already mounted at /mnt/nas"
-        echo "    1. Start UI: piTrove --config (runs TUI wizard)"
-        echo "    2. Auto-start is enabled (reboot to test)"
-    else
-        echo "    NAS: ✗ Not mounted — configure manually"
-        echo "    1. Add to /etc/fstab"
-        echo "       Example: //192.168.4.111/Home/Archive /mnt/nas cifs credentials=$PRIMARY_HOME/nas.cred,ro,uid=1000,gid=1000,vers=3.0,_netdev,nofail 0 0"
-        echo "    2. Run: sudo mount -a"
-        echo "    3. Start UI: piTrove --config (runs TUI wizard)"
-        echo "    4. Auto-start is enabled (reboot to test)"
-    fi
-fi
-echo
-echo "  Directories:"
-echo "  Config:       $PRIMARY_HOME/piTrove/src/config/config.toml"
-echo "  Source:       $PRIMARY_HOME/piTrove/src/"
-echo "  Cache:        $PRIMARY_HOME/piTrove/cache/"
-echo "  Logs:         $PRIMARY_HOME/piTrove/logs/"
-echo
-
-# ── Cleanup build artifacts ───────────────────────────────────────────────────
-# raylib-src cleanup removed
-
-# ── Self-cleanup: remove ~/install.sh (one-time bootstrap copy) ──────────────
-# After install, the canonical copy lives in ~/piTrove/install.sh (from git clone).
-# Remove the one-off ~/install.sh so install.sh only exists in ~/piTrove.
+# ── Cleanup Bootstrap File ─────────────────────────────────────────────────────
 BOOTSTRAP="$PRIMARY_HOME/install.sh"
 if [[ -f "$BOOTSTRAP" ]]; then
     rm -f "$BOOTSTRAP"
-    info "Removed bootstrap copy ($BOOTSTRAP)"
+    info "Removed temporary bootstrap copy"
 fi
 
-echo "============================================"
+# ── Successful Completion Dashboard ───────────────────────────────────────────
+clear
+banner
+
+print_success_card() {
+    echo -e "${GREEN}╔══════════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${GREEN}║${NC}  ${BOLD}${GREEN}✔  INSTALLATION COMPLETED SUCCESSFULLY!                     ${NC}  ${GREEN}║${NC}"
+    echo -e "${GREEN}╠══════════════════════════════════════════════════════════════╣${NC}"
+    echo -e "${GREEN}║${NC}  ${BOLD}${WHITE}Path Locations:${NC}                                             ${GREEN}║${NC}"
+    echo -e "${GREEN}║${NC}   • Binary & Script: ${CYAN}$PRIMARY_HOME/piTrove/${NC}                    ${GREEN}║${NC}"
+    echo -e "${GREEN}║${NC}   • Configuration:   ${CYAN}src/config/config.toml${NC}                  ${GREEN}║${NC}"
+    echo -e "${GREEN}║${NC}   • SQLite Cache:    ${CYAN}cache/cache.db${NC}                          ${GREEN}║${NC}"
+    echo -e "${GREEN}║${NC}   • Service Logs:    ${CYAN}logs/piTrove_*.log${NC}                      ${GREEN}║${NC}"
+    echo -e "${GREEN}║${NC}                                                              ${GREEN}║${NC}"
+    echo -e "${GREEN}║${NC}  ${BOLD}${WHITE}How to Manage & Control:${NC}                                    ${GREEN}║${NC}"
+    echo -e "${GREEN}║${NC}   • ${BOLD}${YELLOW}piTrove --config${NC}   Runs the 8-tab interactive settings    ${GREEN}║${NC}"
+    echo -e "${GREEN}║${NC}                        wizard in your terminal console.       ${GREEN}║${NC}"
+    echo -e "${GREEN}║${NC}   • ${BOLD}${YELLOW}piTrove --restart${NC}  Reboots the background daemon process  ${GREEN}║${NC}"
+    echo -e "${GREEN}║${NC}                        safely if configuration is modified.   ${GREEN}║${NC}"
+    echo -e "${GREEN}║${NC}                                                              ${GREEN}║${NC}"
+    echo -e "${GREEN}║${NC}  ${BOLD}${WHITE}Service Status:${NC}                                             ${GREEN}║${NC}"
+    echo -e "${GREEN}║${NC}   • Systemd unit is installed and set to launch on boot.     ${GREEN}║${NC}"
+    
+    if [[ "$storage_choice" -eq 2 ]]; then
+        echo -e "${GREEN}║${NC}   • Storage: ${CYAN}Local drive mode enabled.${NC}                      ${GREEN}║${NC}"
+    elif [[ "$USE_NAS" -eq 1 || "$storage_choice" == "3" ]]; then
+        if [[ "$NAS_MOUNT_SUCCESS" -eq 1 ]]; then
+            echo -e "${GREEN}║${NC}   • Storage: ${CYAN}NAS Share successfully mounted at $SHARE_MOUNT.${NC}    ${GREEN}║${NC}"
+        else
+            echo -e "${GREEN}║${NC}   • ${RED}Storage Warning: NAS mount failed.${NC}                       ${GREEN}║${NC}"
+            echo -e "${GREEN}║${NC}     Manually add to /etc/fstab and run 'sudo mount -a'       ${GREEN}║${NC}"
+        fi
+    fi
+    echo -e "${GREEN}╚══════════════════════════════════════════════════════════════╝${NC}"
+}
+
+print_success_card
 echo
