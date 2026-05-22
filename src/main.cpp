@@ -389,8 +389,8 @@ int main(int argc, char** argv) {
 
     if (run_config) {
         if (config_path.empty()) {
-            const char* candidates[] = {"config/config.toml", "src/config/config.toml",
-                "/home/pi/piTrove/src/config/config.toml", "./src/config/config.toml"};
+            const char* candidates[] = {"src/config/config.toml", "/home/pi/piTrove/src/config/config.toml",
+                "config/config.toml", "./src/config/config.toml"};
             for (const auto& c : candidates) {
                 if (file_exists(c)) { config_path = c; break; }
             }
@@ -431,8 +431,8 @@ int main(int argc, char** argv) {
     // --- Config ---
     g_cfg.parse_args(argc, argv);
     if (config_path.empty()) {
-        const char* candidates[] = {"config/config.toml", "src/config/config.toml",
-            "/home/pi/piTrove/src/config/config.toml", "./src/config/config.toml"};
+        const char* candidates[] = {"src/config/config.toml", "/home/pi/piTrove/src/config/config.toml",
+            "config/config.toml", "./src/config/config.toml"};
         for (const auto& c : candidates) {
             if (file_exists(c)) { config_path = c; break; }
         }
