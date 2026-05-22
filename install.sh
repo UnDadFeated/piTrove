@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# install.sh — PiTrove v9.0.12 installer
+# install.sh — PiTrove v9.1.0 installer
 # Target: Debian Trixie (13) 64-bit on Raspberry Pi 5
 # Features: JPEG/TIFF/PNG/WebP/HEIC robust loaders, CRT UI, multi-format support
 
@@ -20,7 +20,7 @@ yesno() {
 
 # ── Pre-flight checks ───────────────────────────────────────────────────────
 echo "============================================"
-  echo "  PiTrove v9.0.12 Installer"
+  echo "  PiTrove v9.1.0 Installer"
 echo "  Target: Raspberry Pi 5 / ARM64"
 echo "============================================"
 echo
@@ -538,7 +538,7 @@ fi
 
 cat > "$PRIMARY_HOME/piTrove/src/config/config.toml" <<EOF
 # ==========================================
-# piTrove Configuration File (v9.0.12)
+# piTrove Configuration File (v9.1.0)
 # ==========================================
 
 [paths]
@@ -677,7 +677,7 @@ info "Service installed: piTrove.service (enabled)"
  # ── Done ─────────────────────────────────────────────────────────────────────
 echo
 echo "============================================"
- echo "  PiTrove v9.0.12 installation complete!"
+ echo "  PiTrove v9.1.0 installation complete!"
 echo "============================================"
 echo
 
