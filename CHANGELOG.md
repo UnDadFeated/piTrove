@@ -1,5 +1,16 @@
 # Changelog
 
+## v10.3.6 — Subtitles Folder, No Consecutive Videos, Classification Fix (May 22, 2026)
+
+### Added
+- **Centralized Subtitles Folder** — New `subtitles_dir` config option (default `/home/pi/piTrove/subtitles/`). Drop `.srt` files here matching video basenames (e.g., `family_trip.srt` for `family_trip.mp4`) and mpv loads them automatically. No match = video plays without external subs. Editable via TUI → Videos → Subtitles Dir.
+- **install.sh Subtitles Folder** — `mkdir -p /home/pi/piTrove/subtitles` added to installer.
+
+### Fixed
+- **No consecutive videos** — Video EOF now skips any consecutive videos in the playlist to reach a photo, eliminating 30-second black screen gaps. Skipped videos are NOT marked as shown (not added to cooldown), so they play later in the cycle.
+- **Interleave guard** — Playlist organization now stops placing videos when photos run out, guaranteeing at least 1 photo between any two videos.
+- **Classification gap** — Camera photo hash distribution changed from 75/20/5 to 90/10 — eliminated the 5% "unclassified" gap where camera photos slipped through the people/animals filter.
+
 ## v10.3.4 — Dead Code Cleanup, Real Transitions, CPU Metric Fix (May 22, 2026)
 
 ### Fixed
