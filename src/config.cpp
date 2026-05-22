@@ -64,6 +64,10 @@ bool Config::load(const std::string& path) {
         else if (key == "adaptive_text_enabled") this->adaptive_text_enabled = !(val == "0" || val == "false");
         else if (key == "twin_portrait_enabled") this->twin_portrait_enabled = !(val == "0" || val == "false");
         else if (key == "closed_captions_enabled") this->closed_captions_enabled = !(val == "0" || val == "false");
+        else if (key == "drm_connector")     this->drm_connector = val;
+        else if (key == "drm_card")          this->drm_card = val;
+        else if (key == "font_path")         this->font_path = val;
+        else if (key == "video_audio_device")this->video_audio_device = val;
         else if (key == "sleep_time")        this->sleep_time = val;
 
         else if (key == "wake_time")         this->wake_time = val;

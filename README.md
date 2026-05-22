@@ -7,7 +7,7 @@ A professional-grade digital picture frame for the Raspberry Pi. Designed for ex
 [![Architecture](https://img.shields.io/badge/arch-aarch64-orange?style=flat-square)](https://en.wikipedia.org/wiki/AArch64)
 [![Graphics](https://img.shields.io/badge/graphics-SDL3-red?style=flat-square)](https://www.libsdl.org/)
 [![License](https://img.shields.io/badge/license-MIT-green?style=flat-square)](LICENSE)
-[![Version](https://img.shields.io/badge/version-10.2.0-blue?style=flat-square)]()
+[![Version](https://img.shields.io/badge/version-10.3.0-blue?style=flat-square)]()
 
 ## 🚀 Quick Start
 
@@ -51,9 +51,10 @@ wget -qO- https://raw.githubusercontent.com/UnDadFeated/piTrove/main/install.sh 
 
 ### 🛠️ System & Control
 - **Headless Design**: Operates via DRM/KMS (native framebuffer). No X11 or Wayland required.
+- **Dynamic Display & GPU Probing**: Programmatically queries active connected DRM/KMS connector outputs and indices (sysfs `card*-*/status`), auto-configuring stable KMSDRM environments before SDL3 starts up.
 - **Low Power**: Scheduled display sleep/wake times and automatic backlight dimming.
-- **Remote Control**: Built-in HTTP API for remote navigation (`/api/next`, `/api/prev`, `/api/pause`).
-- **TUI Configurator**: A robust, adaptive terminal-based wizard for configuring all aspects of the engine over SSH.
+- **Remote Control & Dynamic Port Fallback**: Built-in HTTP API for remote navigation, with robust TCP socket collision scavenging that automatically checks consecutive ports (starting from `8080` up to 10 retries) if the port is already bound.
+- **TUI Hardware & Config Wizard**: A robust, terminal-based configurator menu over SSH featuring a dedicated `"Hardware Settings"` menu to dynamically configure DRM connectors, GPU card paths, custom system font overlays, and custom audio device output mapping.
 
 ---
 

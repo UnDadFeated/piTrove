@@ -368,7 +368,7 @@ static const std::string DASHBOARD_HTML = R"HTML(
         <!-- Header -->
         <header>
             <h1>piTrove controller</h1>
-            <div class="subtitle">v10.2.0 glassmorphic system</div>
+            <div class="subtitle">v10.3.0 glassmorphic system</div>
         </header>
 
         <!-- Live Preview -->
@@ -699,26 +699,46 @@ static void handle_preview(int fd) {
 
 static void server_loop(int port) {
     struct sockaddr_in server_addr;
-    g_listen_fd = socket(AF_INET, SOCK_STREAM, 0);
-    if (g_listen_fd < 0) {
-        g_logger.error("HTTP: Failed to open stream socket.");
+    int current_port = port;
+    int max_attempts = 10;
+    bool bound = false;
+
+    for (int attempt = 0; attempt < max_attempts; attempt++) {
+        g_listen_fd = socket(AF_INET, SOCK_STREAM, 0);
+        if (g_listen_fd < 0) {
+            g_logger.error("HTTP: Failed to open stream socket.");
+            return;
+        }
+
+        // Set SO_REUSEADDR to avoid address in use crashes on quick restart
+        int optval = 1;
+        setsockopt(g_listen_fd, SOL_SOCKET, SO_REUSEADDR, &optval, sizeof(optval));
+
+        std::memset(&server_addr, 0, sizeof(server_addr));
+        server_addr.sin_family = AF_INET;
+        server_addr.sin_addr.s_addr = INADDR_ANY;
+        server_addr.sin_port = htons(current_port);
+
+        if (bind(g_listen_fd, (struct sockaddr*)&server_addr, sizeof(server_addr)) >= 0) {
+            bound = true;
+            break;
+        }
+
+        g_logger.warn("HTTP: Port %d was in use, trying next port...", current_port);
+        close(g_listen_fd);
+        g_listen_fd = -1;
+        current_port++;
+    }
+
+    if (!bound) {
+        g_logger.error("HTTP: Failed to bind to any port after %d attempts starting from %d.", max_attempts, port);
         return;
     }
 
-    // Set SO_REUSEADDR to avoid address in use crashes on quick restart
-    int optval = 1;
-    setsockopt(g_listen_fd, SOL_SOCKET, SO_REUSEADDR, &optval, sizeof(optval));
-
-    std::memset(&server_addr, 0, sizeof(server_addr));
-    server_addr.sin_family = AF_INET;
-    server_addr.sin_addr.s_addr = INADDR_ANY;
-    server_addr.sin_port = htons(port);
-
-    if (bind(g_listen_fd, (struct sockaddr*)&server_addr, sizeof(server_addr)) < 0) {
-        g_logger.error("HTTP: Bind call failed on port %d.", port);
-        close(g_listen_fd);
-        g_listen_fd = -1;
-        return;
+    if (current_port != port) {
+        g_logger.warn("HTTP: Port %d was in use. Dynamic fallback bound to port %d", port, current_port);
+        std::lock_guard<std::mutex> lock(g_config_mtx);
+        g_cfg.http_port = current_port;
     }
 
     if (listen(g_listen_fd, 10) < 0) {

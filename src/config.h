@@ -60,6 +60,12 @@ struct Config {
     bool    twin_portrait_enabled{true};
     bool    closed_captions_enabled{true};
 
+    // New features v10.3.0 (Dynamic Hardware/OS Fallbacks)
+    std::string drm_connector{"auto"};
+    std::string drm_card{"auto"};
+    std::string font_path{"auto"};
+    std::string video_audio_device{"auto"};
+
 
     // [slideshow] advanced
     std::string sleep_time{""};

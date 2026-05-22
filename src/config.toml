@@ -48,6 +48,7 @@ mmap_size = 67108864
 level = info
 
 [overlay]
+font_path = "auto"
 timer_enabled = 1
 timer_x = 0.94
 timer_y = 0.03
@@ -85,6 +86,9 @@ rows = 2
 volume = 0
 probe_timeout = 5
 closed_captions_enabled = 1
+drm_connector = "auto"
+drm_card = "auto"
+video_audio_device = "auto"
 
 [dashboard]
 weather_enabled = 0
