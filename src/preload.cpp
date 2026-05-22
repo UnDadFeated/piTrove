@@ -95,6 +95,14 @@ std::shared_ptr<ImageData> PreloadQueue::try_dequeue() {
                     data->avg_r = avg.r;
                     data->avg_g = avg.g;
                     data->avg_b = avg.b;
+
+                    // Sample 4 edge colors for bias gradient
+                    for (int e = 0; e < 4; e++) {
+                        GpuColor ec = Renderer::get_edge_average_color(data->surface, 8, e);
+                        data->edge_r[e] = ec.r;
+                        data->edge_g[e] = ec.g;
+                        data->edge_b[e] = ec.b;
+                    }
                 }
             }
         }

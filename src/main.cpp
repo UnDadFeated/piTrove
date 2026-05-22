@@ -752,7 +752,12 @@ int main(int argc, char** argv) {
         } else {
             if (current_tex) {
                 g_renderer.clear(0, 0, 0, 255);
-                if (g_cfg.matting) g_renderer.draw_matte_borders(fit_rect);
+                if (g_cfg.bias_lighting && current_data) {
+                    g_renderer.draw_bias_lighting(fit_rect, current_data->edge_r, current_data->edge_g, current_data->edge_b,
+                        g_cfg.bias_strength, (float)item_timer, g_cfg.bias_anim_speed, g_cfg.bias_anim_style);
+                } else if (g_cfg.matting) {
+                    g_renderer.draw_matte_borders(fit_rect);
+                }
                 SDL_Rect dst = {fit_rect.x, fit_rect.y, fit_rect.w, fit_rect.h};
                 SDL_RenderCopy(g_renderer.sdl_renderer, current_tex, nullptr, &dst);
 

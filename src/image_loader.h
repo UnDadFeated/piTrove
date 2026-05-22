@@ -66,6 +66,10 @@ struct ImageData {
     SDL_Texture* texture = nullptr;
     // Average color for bias lighting
     uint8_t avg_r = 0, avg_g = 0, avg_b = 0;
+    // Per-edge colors for bias gradient
+    uint8_t edge_r[4] = {0, 0, 0, 0};
+    uint8_t edge_g[4] = {0, 0, 0, 0};
+    uint8_t edge_b[4] = {0, 0, 0, 0};
 
     ImageData() = default;
 
