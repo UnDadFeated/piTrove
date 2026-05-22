@@ -107,9 +107,9 @@ bool Config::load(const std::string& path) {
         else if (key == "bias_anim_style")   this->bias_anim_style = val;
         else if (key == "bias_color_mode")   this->bias_color_mode = val;
         else if (key == "cooldown_days")     this->cooldown_days = safe_stoi(val, this->cooldown_days);
-        else if (key == "auto" || key == "brightness_auto") this->brightness_auto = (val == "1" || val == "true");
-        else if (key == "auto_min" || key == "brightness_auto_min") this->brightness_auto_min = safe_stoi(val, this->brightness_auto_min);
-        else if (key == "auto_max" || key == "brightness_auto_max") this->brightness_auto_max = safe_stoi(val, this->brightness_auto_max);
+        else if (key == "brightness_auto") this->brightness_auto = (val == "1" || val == "true");
+        else if (key == "brightness_auto_min") this->brightness_auto_min = safe_stoi(val, this->brightness_auto_min);
+        else if (key == "brightness_auto_max") this->brightness_auto_max = safe_stoi(val, this->brightness_auto_max);
         else if (key == "border_enabled")    this->border_enabled = (val == "1" || val == "true");
         else if (key == "border_width")      this->border_width = safe_stoi(val, this->border_width);
         else if (key == "vignette_enabled")  this->vignette_enabled = (val == "1" || val == "true");

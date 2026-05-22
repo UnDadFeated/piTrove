@@ -1,5 +1,24 @@
 # Changelog
 
+## v10.3.2 — Code Scan Fixes (May 22, 2026)
+
+### Fixed
+- **Transition trace spam** — Removed per-frame TRACE logging from `TransitionEngine::render()` (~80 log lines per 1.5s transition)
+- **Blocking CPU usage** — Replaced `usleep(500000)` in `read_cpu_usage()` with non-blocking instantaneous `/proc/stat` read
+- **Double SDL_Quit()** — Added guard flag to `cleanup()` to prevent double SDL_Quit() on init error paths
+- **g_cache null dereference** — Added null checks for `g_cache` in slideshow loop cache operations
+- **Scan timeout ignored** — `read_dir_timeout()` and `stat_timeout()` now implement actual alarm-based timeout for NFS/CIFS safety
+- **drmSetMaster race** — `MpvPlayer::check_status()` now acquires mutex before calling `drmSetMaster()` to prevent race with `stop()`
+- **Preload mutex ordering** — Changed `lock_guard` to `scoped_lock` in worker thread queue check
+- **Config key ambiguity** — Removed `key == "auto"` fallback; only matches `brightness_auto` exactly
+- **Trim underflow** — Added `end < start` guard in `trim()` to prevent unsigned underflow
+
+## v10.3.1 — Balanced Skew Video Interleaving (May 22, 2026)
+
+### Added
+- **Balanced Skew Video Interleaving** — Implemented an automatic photo-to-video pool capping ratio constraint (`max_videos = photos.size() * (videos_per_photos / 10.0)`) to cleanly resolve heavy media pool skews. Shuffled media item pools are now mathematical-interleave capped and dynamically resized, completely eliminating long consecutive runs of videos (clustering) in slideshow play queues.
+- **Service Deployment Verification** — Enforced proper compilation checks and remote daemon service restarts to ensure the running binary is always identical to the latest compiled local workspace improvements.
+
 ## v10.3.0 — Dynamic Hardware Auto-Probing, Custom Typography & Robust Socket Fallbacks (May 22, 2026)
 
 ### Added

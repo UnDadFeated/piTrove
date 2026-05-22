@@ -40,36 +40,24 @@ static float read_ram_usage() {
 }
 
 static float read_cpu_usage() {
-    // Cached value — /proc/stat delta requires 1s sleep, too slow for per-frame use
+    // Non-blocking: read instantaneous /proc/stat total vs idle to get approximate CPU usage
     static float cached_val = 0.0f;
     static time_t cached_ts = 0;
     time_t now = time(nullptr);
     if (now == cached_ts) return cached_val;
 
-    std::ifstream stat1("/proc/stat");
-    if (!stat1.is_open()) return 0.0f;
+    std::ifstream stat("/proc/stat");
+    if (!stat.is_open()) return 0.0f;
 
     char label[32];
-    long long user1, nice1, system1, idle1, iowait1, irq1, softirq1;
-    stat1 >> label >> user1 >> nice1 >> system1 >> idle1 >> iowait1 >> irq1 >> softirq1;
-    stat1.close();
+    long long user, nice, system, idle, iowait, irq, softirq;
+    stat >> label >> user >> nice >> system >> idle >> iowait >> irq >> softirq;
+    stat.close();
 
-    usleep(500000); // 500ms instead of 1s
-
-    std::ifstream stat2("/proc/stat");
-    if (!stat2.is_open()) return 0.0f;
-
-    long long user2, nice2, system2, idle2, iowait2, irq2, softirq2;
-    stat2 >> label >> user2 >> nice2 >> system2 >> idle2 >> iowait2 >> irq2 >> softirq2;
-    stat2.close();
-    
-    long long total1 = user1 + nice1 + system1 + idle1 + iowait1 + irq1 + softirq1;
-    long long total2 = user2 + nice2 + system2 + idle2 + iowait2 + irq2 + softirq2;
-    long long total_diff = total2 - total1;
-    long long idle_diff = idle2 - idle1;
-    
-    if (total_diff == 0) { cached_val = 0.0f; cached_ts = now; return 0.0f; }
-    cached_val = ((float)(total_diff - idle_diff) / (float)total_diff) * 100.0f;
+    long long total = user + nice + system + idle + iowait + irq + softirq;
+    long long busy = total - idle;
+    if (total == 0) { cached_val = 0.0f; cached_ts = now; return 0.0f; }
+    cached_val = ((float)busy / (float)total) * 100.0f;
     cached_ts = now;
     return cached_val;
 }
@@ -187,6 +175,9 @@ bool Renderer::init(int w, int h, bool fullscreen) {
 
 void Renderer::cleanup() {
     g_logger.info("[TRACE] Renderer::cleanup");
+    static bool already_cleaned = false;
+    if (already_cleaned) return;
+    already_cleaned = true;
     cleanup_splash();
 
     if (sdl_renderer) {

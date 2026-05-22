@@ -12,7 +12,7 @@ TransitionEngine::~TransitionEngine() {
 }
 
 void TransitionEngine::start(TransitionEffect effect, float duration, int direction, float ken_burns_zoom) {
-    g_logger.info("TRACE: TransitionEngine::start effect=%d duration=%f", (int)effect, duration);
+    g_logger.debug("TRACE: TransitionEngine::start effect=%d duration=%f", (int)effect, duration);
     reset();
     config.effect = effect;
     config.duration = duration;
@@ -35,7 +35,6 @@ void TransitionEngine::update(float delta_time) {
 }
 
 void TransitionEngine::render(SDL_Texture* prev_tex, SDL_Texture* next_tex, int screen_w, int screen_h) {
-    g_logger.info("TRACE: TransitionEngine::render active=%d effect=%d", active, (int)config.effect);
     if (!renderer || !active) return;
     
     switch (config.effect) {
@@ -63,7 +62,6 @@ void TransitionEngine::render(SDL_Texture* prev_tex, SDL_Texture* next_tex, int 
 }
 
 void TransitionEngine::reset() {
-    g_logger.info("TRACE: TransitionEngine::reset");
     active = false;
     config.progress = 0.0f;
     elapsed = 0.0f;

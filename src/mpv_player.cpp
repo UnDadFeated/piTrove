@@ -230,19 +230,20 @@ bool MpvPlayer::check_status() {
     int status;
     pid_t result = waitpid(video_pid, &status, WNOHANG);
     if (result > 0) {
-        // Child process finished
-        g_logger.info("VIDEO_EOF: mpv (pid=%d) finished playback (status=%d)", video_pid,
-                      WIFEXITED(status) ? WEXITSTATUS(status) : -1);
+        // Child process finished — lock to prevent race with stop()
+        std::lock_guard<std::mutex> lk(mtx);
         video_pid = -1;
         active.store(false);
+        g_logger.info("VIDEO_EOF: mpv (pid=%d) finished playback (status=%d)", result,
+                      WIFEXITED(status) ? WEXITSTATUS(status) : -1);
 
         // Reclaim DRM master context for SDL
         if (drm_fd >= 0) {
             int rc = drmSetMaster(drm_fd);
             g_logger.info("VIDEO_DRM: drmSetMaster(fd=%d) = %d", drm_fd, rc);
-            eglGetError(); // clear stale EGL context flags
+            eglGetError();
         }
         return false;
     }
-    return true; // Still playing
+    return true;
 }
