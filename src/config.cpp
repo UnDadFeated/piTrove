@@ -156,6 +156,9 @@ bool Config::load(const std::string& path) {
                 this->screen_h = safe_stoi(val.substr(comma + 1), this->screen_h);
             }
         }
+        else {
+            g_logger.warn("UNRECOGNIZED_KEY: [%s] '%s' in config.toml", section.c_str(), key.c_str());
+        }
     }
 
     return true;

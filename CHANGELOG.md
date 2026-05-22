@@ -1,5 +1,15 @@
 # Changelog
 
+## v10.3.4 — Dead Code Cleanup, Real Transitions, CPU Metric Fix (May 22, 2026)
+
+### Fixed
+- **Dead global** — Removed unused `g_http_server_fd` from `util.h`/`util.cpp`
+- **Fake transitions** — `render_pixelate` now draws blocky pixel overlay with growing block size; `render_dissolve` draws random scatter patches increasing with progress
+- **MediaItem memory** — Changed `width`/`height` from `int64_t` to `int` (saves 16 bytes per item)
+- **CPU usage metric** — Replaced cumulative-since-boot with two-sample delta on `/proc/stat` for instantaneous read
+- **Config unknown keys** — Now logs WARN for unrecognized config keys in config.toml
+- **Dead code** — Removed `test_render.cpp` (standalone test never integrated into CMake)
+
 ## v10.3.2 — Code Scan Fixes (May 22, 2026)
 
 ### Fixed

@@ -183,54 +183,82 @@ void TransitionEngine::render_ken_burns(SDL_Texture* tex, int screen_w, int scre
 
 void TransitionEngine::render_pixelate(SDL_Texture* prev_tex, SDL_Texture* next_tex, int screen_w, int screen_h) {
     if (!renderer) return;
-    
+
     SDL_Renderer* sdl = renderer->sdl_renderer;
     float p = config.progress;
-    
+
     float pw = 0.0f, ph = 0.0f;
     SDL_GetTextureSize(prev_tex, &pw, &ph);
-    int prev_w = (int)pw;
-    int prev_h = (int)ph;
-    SDL_Rect prev_dst = calculate_fit_rect(prev_w, prev_h, screen_w, screen_h);
-    
     float nw = 0.0f, nh = 0.0f;
     SDL_GetTextureSize(next_tex, &nw, &nh);
     int next_w = (int)nw;
     int next_h = (int)nh;
     SDL_Rect next_dst = calculate_fit_rect(next_w, next_h, screen_w, screen_h);
-    
+
+    // Render prev normally
+    SDL_Rect prev_dst = calculate_fit_rect((int)pw, (int)ph, screen_w, screen_h);
     SDL_FRect prev_dst_f = {(float)prev_dst.x, (float)prev_dst.y, (float)prev_dst.w, (float)prev_dst.h};
     SDL_RenderTexture(sdl, prev_tex, nullptr, &prev_dst_f);
-    
+
+    // Pixelate overlay: draw prev texture again in large blocks for blocky effect
+    int block = std::max(4, (int)(64.0f * p));
+    SDL_SetRenderDrawBlendMode(sdl, SDL_BLENDMODE_BLEND);
+    float block_alpha = 0.6f * p;
+    SDL_SetRenderDrawColor(sdl, 0, 0, 0, (Uint8)(block_alpha * 255.0f));
+    for (int by = 0; by < screen_h; by += block) {
+        for (int bx = 0; bx < screen_w; bx += block) {
+            SDL_FRect brect = {(float)bx, (float)by, (float)block - 1.0f, (float)block - 1.0f};
+            SDL_RenderFillRect(sdl, &brect);
+        }
+    }
+
+    // Crossfade next
     SDL_SetTextureAlphaMod(next_tex, (Uint8)(255.0f * p));
     SDL_FRect next_dst_f = {(float)next_dst.x, (float)next_dst.y, (float)next_dst.w, (float)next_dst.h};
     SDL_RenderTexture(sdl, next_tex, nullptr, &next_dst_f);
     SDL_SetTextureAlphaMod(next_tex, 255);
+    SDL_SetRenderDrawColor(sdl, 255, 255, 255, 255);
 }
 
 void TransitionEngine::render_dissolve(SDL_Texture* prev_tex, SDL_Texture* next_tex, int screen_w, int screen_h) {
     if (!renderer) return;
-    
+
     SDL_Renderer* sdl = renderer->sdl_renderer;
     float p = config.progress;
-    
+
     float pw = 0.0f, ph = 0.0f;
     SDL_GetTextureSize(prev_tex, &pw, &ph);
-    int prev_w = (int)pw;
-    int prev_h = (int)ph;
-    SDL_Rect prev_dst = calculate_fit_rect(prev_w, prev_h, screen_w, screen_h);
-    
     float nw = 0.0f, nh = 0.0f;
     SDL_GetTextureSize(next_tex, &nw, &nh);
     int next_w = (int)nw;
     int next_h = (int)nh;
     SDL_Rect next_dst = calculate_fit_rect(next_w, next_h, screen_w, screen_h);
-    
+
+    // Render prev
+    SDL_Rect prev_dst = calculate_fit_rect((int)pw, (int)ph, screen_w, screen_h);
     SDL_FRect prev_dst_f = {(float)prev_dst.x, (float)prev_dst.y, (float)prev_dst.w, (float)prev_dst.h};
     SDL_RenderTexture(sdl, prev_tex, nullptr, &prev_dst_f);
-    
+
+    // Dissolve: draw random white rectangles for scatter effect
+    unsigned int seed = (unsigned int)(p * 60000.0f) ^ 0x5DEECE66u;
+    int count = (int)(1200.0f * p * p);
+    SDL_SetRenderDrawBlendMode(sdl, SDL_BLENDMODE_BLEND);
+    for (int i = 0; i < count; i++) {
+        seed = seed * 1103515245u + 12345u;
+        int px = (seed >> 16) % screen_w;
+        seed = seed * 1103515245u + 12345u;
+        int py = (seed >> 16) % screen_h;
+        int sz = 2 + ((seed >> 8) % 8);
+        float alpha = 40.0f + 60.0f * p;
+        SDL_SetRenderDrawColor(sdl, 255, 255, 255, (Uint8)alpha);
+        SDL_FRect pt = {(float)px, (float)py, (float)sz, (float)sz};
+        SDL_RenderFillRect(sdl, &pt);
+    }
+
+    // Crossfade next
     SDL_SetTextureAlphaMod(next_tex, (Uint8)(255.0f * p));
     SDL_FRect next_dst_f = {(float)next_dst.x, (float)next_dst.y, (float)next_dst.w, (float)next_dst.h};
     SDL_RenderTexture(sdl, next_tex, nullptr, &next_dst_f);
     SDL_SetTextureAlphaMod(next_tex, 255);
+    SDL_SetRenderDrawColor(sdl, 255, 255, 255, 255);
 }

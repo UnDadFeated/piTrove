@@ -40,26 +40,31 @@ static float read_ram_usage() {
 }
 
 static float read_cpu_usage() {
-    // Non-blocking: read instantaneous /proc/stat total vs idle to get approximate CPU usage
-    static float cached_val = 0.0f;
-    static time_t cached_ts = 0;
-    time_t now = time(nullptr);
-    if (now == cached_ts) return cached_val;
+    // Instantaneous CPU usage via two-sample delta on /proc/stat
+    struct Sample { long long total; long long idle; };
 
-    std::ifstream stat("/proc/stat");
-    if (!stat.is_open()) return 0.0f;
+    auto read_sample = []() -> Sample {
+        std::ifstream stat("/proc/stat");
+        char label[32];
+        long long user, nice, system, idle, iowait, irq, softirq;
+        stat >> label >> user >> nice >> system >> idle >> iowait >> irq >> softirq;
+        long long total = user + nice + system + idle + iowait + irq + softirq;
+        return {total, idle};
+    };
 
-    char label[32];
-    long long user, nice, system, idle, iowait, irq, softirq;
-    stat >> label >> user >> nice >> system >> idle >> iowait >> irq >> softirq;
-    stat.close();
+    static Sample prev = {};
+    if (prev.total == 0) {
+        prev = read_sample();
+        return 0.0f;
+    }
 
-    long long total = user + nice + system + idle + iowait + irq + softirq;
-    long long busy = total - idle;
-    if (total == 0) { cached_val = 0.0f; cached_ts = now; return 0.0f; }
-    cached_val = ((float)busy / (float)total) * 100.0f;
-    cached_ts = now;
-    return cached_val;
+    Sample cur = read_sample();
+    long long d_total = cur.total - prev.total;
+    long long d_busy = d_total - (cur.idle - prev.idle);
+    prev = cur;
+
+    if (d_total == 0) return 0.0f;
+    return ((float)d_busy / (float)d_total) * 100.0f;
 }
 
 static float read_cpu_freq() {
