@@ -37,7 +37,7 @@ struct Config {
 
     // ---- Timer System ----
     bool    timer_enabled{true};
-    float   timer_x{0.94f}, timer_y{0.03f};
+    float   timer_x{0.94f}, timer_y{0.05f};
     int     timer_font_size{12};
     std::string timer_color{"yellow"};
     bool    filename_enabled{true};

@@ -726,12 +726,13 @@ int main(int argc, char** argv) {
                 if (g_cfg.matting) g_renderer.draw_matte_borders(fit_rect);
                 SDL_Rect dst = {fit_rect.x, fit_rect.y, fit_rect.w, fit_rect.h};
                 SDL_RenderCopy(g_renderer.sdl_renderer, current_tex, nullptr, &dst);
-                g_renderer.present();
-            }
 
-            if (g_overlay) {
-                g_overlay->draw_all(current_idx, (int)g_eligible.size(),
-                    g_eligible[current_idx].filename, item_timer, false);
+                if (g_overlay) {
+                    g_overlay->draw_all(current_idx, (int)g_eligible.size(),
+                        g_eligible[current_idx].filename, item_timer, false);
+                }
+
+                g_renderer.present();
             }
 
             if (item_timer >= g_cfg.transition_delay) {
