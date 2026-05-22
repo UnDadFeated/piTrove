@@ -267,8 +267,24 @@ GpuColor Renderer::get_edge_average_color(SDL_Surface* surface, int depth, int w
 
 void Renderer::calculate_fit_rect(int img_w, int img_h, SDL_Rect& out_rect) {
     int area_w = screen_w, area_h = screen_h;
-    if (g_cfg.matting || g_cfg.bias_lighting) {
-        int mat = g_cfg.matting_size;
+    
+    bool has_matting = false;
+    bool has_bias = false;
+    int mat_size = 0;
+    int border_w = 0;
+    {
+        std::lock_guard<std::mutex> lock(g_config_mtx);
+        has_matting = g_cfg.matting;
+        has_bias = g_cfg.bias_lighting;
+        mat_size = g_cfg.matting_size;
+        border_w = g_cfg.border_width;
+    }
+
+    if (has_matting || has_bias) {
+        int mat = mat_size;
+        if (has_bias) {
+            mat += border_w;
+        }
         area_w = screen_w - mat * 2;
         area_h = screen_h - mat * 2;
         if (area_w < 1) area_w = 1;
@@ -363,16 +379,6 @@ void Renderer::draw_bias_lighting(const SDL_Rect& fit_rect, Uint8 avg_r, Uint8 a
             for (int row = 0; row < bw; row++) {
                 int fill_w = row + 1;
                 SDL_Rect tr = {cx + bw - fill_w, cy + row, fill_w, 1};
-                SDL_RenderFillRect(sdl_renderer, &tr);
-            }
-        };
-
-        // Fill lo triangle scanline: vertices (cx,cy+bw), (cx+bw,cy+bw), (cx+bw,cy)
-        auto fill_tri_tr = [&](int cx, int cy, Uint8 r, Uint8 g, Uint8 b) {
-            SDL_SetRenderDrawColor(sdl_renderer, r, g, b, 255);
-            for (int row = 0; row < bw; row++) {
-                int fill_w = row + 1;
-                SDL_Rect tr = {cx + bw - fill_w, cy + bw - 1 - row, fill_w, 1};
                 SDL_RenderFillRect(sdl_renderer, &tr);
             }
         };
@@ -760,6 +766,7 @@ void Renderer::draw_splash_progress_bar(int x, int y, int w, int h, float pct) {
 }
 
 void Renderer::render_splash(int phase, int progress, int total, int done, const char* label, int dot_counter, const char* filename, bool animated) {
+    (void)label;
     if (filename) { current_cache_file = filename; }
     int sw = screen_w;
     int sh = screen_h;

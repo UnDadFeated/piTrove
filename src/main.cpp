@@ -27,7 +27,6 @@
 #include <functional>
 #include <filesystem>
 
-static PreloadQueue* g_preload = nullptr;
 static TransitionEngine* g_transition = nullptr;
 static OverlayManager* g_overlay = nullptr;
 
@@ -102,6 +101,65 @@ static std::vector<MediaItem> filter_playlist(const std::vector<MediaItem>& item
     return filtered;
 }
 
+static void organize_playlist(std::vector<MediaItem>& eligible, int videos_per_photos, bool play_just_photos, bool play_just_videos, bool shuffle_enabled) {
+    if (eligible.empty()) return;
+
+    if (videos_per_photos <= 0 || play_just_photos) {
+        std::vector<MediaItem> photos;
+        for (auto& item : eligible) {
+            if (item.type != "video") photos.push_back(std::move(item));
+        }
+        eligible = std::move(photos);
+        if (shuffle_enabled) {
+            unsigned long long seed = make_entropy_seed();
+            std::mt19937_64 rng(seed);
+            std::shuffle(eligible.begin(), eligible.end(), rng);
+        }
+    } else if (play_just_videos) {
+        std::vector<MediaItem> videos;
+        for (auto& item : eligible) {
+            if (item.type == "video") videos.push_back(std::move(item));
+        }
+        eligible = std::move(videos);
+        if (shuffle_enabled) {
+            unsigned long long seed = make_entropy_seed();
+            std::mt19937_64 rng(seed);
+            std::shuffle(eligible.begin(), eligible.end(), rng);
+        }
+    } else {
+        std::vector<MediaItem> photos, videos;
+        for (auto& item : eligible) {
+            if (item.type == "video") videos.push_back(std::move(item));
+            else photos.push_back(std::move(item));
+        }
+
+        if (shuffle_enabled) {
+            unsigned long long seed = make_entropy_seed();
+            std::mt19937_64 rng_photo(seed);
+            std::shuffle(photos.begin(), photos.end(), rng_photo);
+            std::mt19937_64 rng_video(seed);
+            std::shuffle(videos.begin(), videos.end(), rng_video);
+        }
+
+        int cycle_size = std::max(4, videos_per_photos);
+        int photos_per_cycle = cycle_size - 3;
+        
+        eligible.clear();
+        size_t p_idx = 0, v_idx = 0;
+        while (p_idx < photos.size() || v_idx < videos.size()) {
+            for (int i = 0; i < photos_per_cycle && p_idx < photos.size(); i++) {
+                eligible.push_back(std::move(photos[p_idx++]));
+            }
+            for (int i = 0; i < 3 && v_idx < videos.size(); i++) {
+                eligible.push_back(std::move(videos[v_idx++]));
+            }
+        }
+
+        g_logger.info("Playlist organized: %zu photos + %zu videos = %zu total (ratio: 3 videos per %d cycle)",
+            photos.size(), videos.size(), eligible.size(), cycle_size);
+    }
+}
+
 static void watchman_loop() {
     g_logger.info("Watchman: Background watchman thread started.");
     
@@ -141,13 +199,16 @@ static void watchman_loop() {
             g_logger.info("Watchman: New seasonal window calculation: %zu / %zu items eligible", new_eligible.size(), g_scanned_items.size());
             
             if (!new_eligible.empty()) {
-                // Shuffle
-                if (shuffle_enabled) {
-                    unsigned long long seed = make_entropy_seed();
-                    std::mt19937_64 rng(seed);
-                    std::shuffle(new_eligible.begin(), new_eligible.end(), rng);
-                    g_logger.info("Watchman: Shuffled new playlist with seed: 0x%llx", seed);
+                bool play_just_photos = false;
+                bool play_just_videos = false;
+                int videos_per_photos = 10;
+                {
+                    std::lock_guard<std::mutex> lock(g_config_mtx);
+                    play_just_photos = g_cfg.play_just_photos;
+                    play_just_videos = g_cfg.play_just_videos;
+                    videos_per_photos = g_cfg.videos_per_photos;
                 }
+                organize_playlist(new_eligible, videos_per_photos, play_just_photos, play_just_videos, shuffle_enabled);
                 
                 // Swap seamlessly under mutex
                 {
@@ -186,17 +247,6 @@ static void draw_phase_splash(int phase, int progress, int total, int done, cons
     g_renderer.render_splash(phase, progress, total, done, label, dot_counter, filename, animated);
 }
 
-static std::vector<MediaItem> filter_by_cooldown(const std::vector<MediaItem>& items, int cooldown_days) {
-    std::vector<MediaItem> filtered;
-    int64_t now = static_cast<int64_t>(std::time(nullptr));
-    int64_t cutoff = now - (static_cast<int64_t>(cooldown_days) * 86400);
-    for (const auto& item : items) {
-        if (item.last_shown < cutoff) {
-            filtered.push_back(item);
-        }
-    }
-    return filtered;
-}
 
 int main(int argc, char** argv) {
     // --- Single-instance lock ---
@@ -265,7 +315,6 @@ int main(int argc, char** argv) {
     g_logger.info("Loading splash screen...");
     g_renderer.load_splash(splash_file);
     g_logger.info("Splash loaded");
-    fprintf(stderr, "TRACE: after load_splash\n"); fflush(stderr);
 
     // Render initial splash immediately
     for (int i = 0; i < 3; i++) {
@@ -274,16 +323,12 @@ int main(int argc, char** argv) {
     }
 
     // --- Fast-path: skip scan+cache if DB already exists ---
-    fprintf(stderr, "TRACE: before cache check\n"); fflush(stderr);
     std::string db_path = cache_dir + "/cache.db";
     struct stat db_stat{};
     bool db_exists = (stat(db_path.c_str(), &db_stat) == 0 && db_stat.st_size > 0);
-    fprintf(stderr, "TRACE: db_exists=%d\n", db_exists); fflush(stderr);
 
     if (db_exists) {
-        fprintf(stderr, "TRACE: verify_database\n"); fflush(stderr);
         bool db_ok = verify_database(db_path);
-        fprintf(stderr, "TRACE: db_ok=%d\n", db_ok); fflush(stderr);
         if (!db_ok) {
             g_logger.error("CORRUPT DB: cache.db is corrupted — removing and will rebuild");
             std::filesystem::remove(db_path);
@@ -291,18 +336,13 @@ int main(int argc, char** argv) {
         }
     }
     if (db_exists) {
-        fprintf(stderr, "TRACE: new CacheManager\n"); fflush(stderr);
         CacheManager* fast_cache = new CacheManager();
-        fprintf(stderr, "TRACE: fast_cache->open\n"); fflush(stderr);
         if (fast_cache->open(cache_dir)) {
-            fprintf(stderr, "TRACE: cache opened, loading items\n"); fflush(stderr);
             g_cache = fast_cache;
             sqlite3_stmt* stmt = nullptr;
-            fprintf(stderr, "TRACE: prepare SELECT\n"); fflush(stderr);
             int load_rc = sqlite3_prepare_v2(fast_cache->db,
                 "SELECT path, type, w, h, duration, exif, last_shown FROM cache WHERE bad = 0;",
                 -1, &stmt, nullptr);
-            fprintf(stderr, "TRACE: prepare rc=%d\n", load_rc); fflush(stderr);
             if (load_rc == SQLITE_OK) {
                 int row_count = 0;
                 while (sqlite3_step(stmt) == SQLITE_ROW) {
@@ -325,15 +365,11 @@ int main(int argc, char** argv) {
                     mi.cached = true;
                     g_scanned_items.push_back(mi);
                 }
-                 fprintf(stderr, "TRACE: loaded %d rows\n", row_count); fflush(stderr);
             }
             sqlite3_finalize(stmt);
 
-            fprintf(stderr, "TRACE: count_if photos\n"); fflush(stderr);
             int photos = std::count_if(g_scanned_items.begin(), g_scanned_items.end(), [](const MediaItem& i){ return i.type == "image"; });
-            fprintf(stderr, "TRACE: count_if videos\n"); fflush(stderr);
             int videos = std::count_if(g_scanned_items.begin(), g_scanned_items.end(), [](const MediaItem& i){ return i.type == "video"; });
-            fprintf(stderr, "TRACE: photos=%d videos=%d\n", photos, videos); fflush(stderr);
             g_logger.info("Loaded %d items from cache DB (photos=%d videos=%d)", (int)g_scanned_items.size(), photos, videos);
 
             if (photos > 0 || videos > 0) {
@@ -349,8 +385,6 @@ int main(int argc, char** argv) {
             delete fast_cache;
         }
     }
-
-    fprintf(stderr, "TRACE: after DB block, items=%d\n", (int)g_scanned_items.size()); fflush(stderr);
 
     // --- PHASE 1: SCAN (simple filesystem walk, like legacy) ---
     // (skip if fast-path cache was valid)
@@ -458,9 +492,7 @@ int main(int argc, char** argv) {
     }
 
     // --- Dynamic Seasonal & Cooldown filter ---
-    fprintf(stderr, "TRACE: before filter_playlist\n"); fflush(stderr);
     g_eligible = filter_playlist(g_scanned_items, g_cfg.cooldown_days, g_cfg.scan_window_days);
-    fprintf(stderr, "TRACE: after filter_playlist, eligible=%d\n", (int)g_eligible.size()); fflush(stderr);
     g_logger.info("Initial Dynamic Playlist Setup: %d items eligible (cooldown=%d days, seasonal window=%d days)",
         (int)g_eligible.size(), g_cfg.cooldown_days, g_cfg.scan_window_days);
 
@@ -474,56 +506,29 @@ int main(int argc, char** argv) {
         return 0;
     }
 
-    // --- Shuffle photos & videos separately, interleave 3 videos per 10 photos ---
-    if (g_cfg.shuffle) {
-        unsigned long long seed = make_entropy_seed();
-        g_logger.info("Playlist shuffled with seed: 0x%llx", (unsigned long long)seed);
-
-        std::vector<MediaItem> photos, videos;
-        for (auto& item : g_eligible) {
-            if (item.type == "video") videos.push_back(std::move(item));
-            else photos.push_back(std::move(item));
+    // --- Organize playlist (shuffle and interleave photos & videos per configuration) ---
+    {
+        bool play_just_photos = false;
+        bool play_just_videos = false;
+        int videos_per_photos = 10;
+        bool shuffle_enabled = true;
+        {
+            std::lock_guard<std::mutex> lock(g_config_mtx);
+            play_just_photos = g_cfg.play_just_photos;
+            play_just_videos = g_cfg.play_just_videos;
+            videos_per_photos = g_cfg.videos_per_photos;
+            shuffle_enabled = g_cfg.shuffle;
         }
-
-        std::mt19937_64 rng_photo(seed);
-        std::shuffle(photos.begin(), photos.end(), rng_photo);
-        std::mt19937_64 rng_video(seed);
-        std::shuffle(videos.begin(), videos.end(), rng_video);
-
-        // Interleave: for every 10 photos, add 3 videos
-        g_eligible.clear();
-        int vi = 0; // video index
-        for (int pi = 0; pi < (int)photos.size(); pi++) {
-            // Insert 3 videos after every group of 10 photos
-            if ((pi > 0 && pi % 10 == 0) && vi + 3 <= (int)videos.size()) {
-                g_eligible.push_back(std::move(videos[vi++]));
-                g_eligible.push_back(std::move(videos[vi++]));
-                g_eligible.push_back(std::move(videos[vi++]));
-            }
-            g_eligible.push_back(std::move(photos[pi]));
-        }
-        // Append remaining videos
-        while (vi < (int)videos.size()) {
-            g_eligible.push_back(std::move(videos[vi++]));
-        }
-
-        g_logger.info("Interleaved: %d photos + %d videos = %d total (3 videos per 10 photos)",
-            (int)photos.size(), (int)videos.size(), (int)g_eligible.size());
+        organize_playlist(g_eligible, videos_per_photos, play_just_photos, play_just_videos, shuffle_enabled);
     }
 
-    fprintf(stderr, "TRACE: before slideshow start\n"); fflush(stderr);
-    g_logger.info("Starting slideshow with %d items", (int)g_eligible.size());
+    g_logger.info("Starting slideshow with %zu items", g_eligible.size());
 
-    fprintf(stderr, "TRACE: g_eligible[0].path size=%zu path=%s\n", g_eligible[0].path.size(), g_eligible[0].path.c_str()); fflush(stderr);
-
-    fprintf(stderr, "TRACE: new TransitionEngine\n"); fflush(stderr);
     g_transition = new TransitionEngine();
     g_transition->set_renderer(&g_renderer);
-    fprintf(stderr, "TRACE: new OverlayManager\n"); fflush(stderr);
     g_overlay = new OverlayManager(&g_renderer);
     g_overlay->init();
-    fprintf(stderr, "TRACE: g_logger.info\n"); fflush(stderr);
-    g_logger.info("Starting slideshow loop with %d items", (int)g_eligible.size());
+    g_logger.info("Starting slideshow loop with %zu items", g_eligible.size());
 
     // --- Main slideshow loop setup ---
     current_idx = 0;

@@ -1,4 +1,6 @@
+#ifndef _GNU_SOURCE
 #define _GNU_SOURCE
+#endif
 #include "image_loader.h"
 #include "renderer.h"
 #include "util.h"
@@ -120,7 +122,6 @@ std::shared_ptr<ImageData> ImageLoader::load(const std::string& path) {
 
         // Bottom edge
         result->edge_bot_rgb.resize(sw * 3);
-        uint8_t* brow = px + (sh - 1) * pitch;
         for (int x = 0; x < sw; x++) {
             int ar = 0, ag = 0, ab = 0, ac = 0;
             for (int d = -1; d <= 1; d++) {
