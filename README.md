@@ -68,7 +68,7 @@ graph TD
 
 - **Language**: C++17 / OpenGL ES 3.0
 - **Core Libraries**: SDL2 (kmsdrm), libmpv, SQLite3, libexif, libheif.
-- **Hardware Accel**: Pi 5 VC4 DRM/KMS with GLES3 shaders.
+- **Hardware Accel**: Pi 4/5 VC4 DRM/KMS with GLES3 shaders.
 
 ## 📁 Project Structure
 ```
