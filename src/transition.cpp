@@ -70,21 +70,39 @@ void TransitionEngine::reset() {
     elapsed = 0.0f;
 }
 
+static SDL_Rect calculate_fit_rect(int img_w, int img_h, int screen_w, int screen_h) {
+    if (img_w <= 0 || img_h <= 0) return {0, 0, screen_w, screen_h};
+    float scale = std::min((float)screen_w / img_w, (float)screen_h / img_h);
+    SDL_Rect rect;
+    rect.w = (int)(img_w * scale);
+    rect.h = (int)(img_h * scale);
+    rect.x = (screen_w - rect.w) / 2;
+    rect.y = (screen_h - rect.h) / 2;
+    return rect;
+}
+
 void TransitionEngine::render_fade(SDL_Texture* prev_tex, SDL_Texture* next_tex, int screen_w, int screen_h) {
     if (!renderer) return;
     
     SDL_Renderer* sdl = renderer->sdl_renderer;
     float p = config.progress;
     
+    int prev_w = 0, prev_h = 0;
+    SDL_QueryTexture(prev_tex, nullptr, nullptr, &prev_w, &prev_h);
+    SDL_Rect prev_dst = calculate_fit_rect(prev_w, prev_h, screen_w, screen_h);
+    
+    int next_w = 0, next_h = 0;
+    SDL_QueryTexture(next_tex, nullptr, nullptr, &next_w, &next_h);
+    SDL_Rect next_dst = calculate_fit_rect(next_w, next_h, screen_w, screen_h);
+    
     // Draw previous texture fading out
     SDL_SetTextureAlphaMod(prev_tex, (Uint8)(255.0f * (1.0f - p)));
-    SDL_Rect dst = {0, 0, screen_w, screen_h};
-    SDL_RenderCopy(sdl, prev_tex, nullptr, &dst);
+    SDL_RenderCopy(sdl, prev_tex, nullptr, &prev_dst);
     SDL_SetTextureAlphaMod(prev_tex, 255);
     
     // Draw next texture fading in
     SDL_SetTextureAlphaMod(next_tex, (Uint8)(255.0f * p));
-    SDL_RenderCopy(sdl, next_tex, nullptr, &dst);
+    SDL_RenderCopy(sdl, next_tex, nullptr, &next_dst);
     SDL_SetTextureAlphaMod(next_tex, 255);
 }
 
@@ -94,39 +112,39 @@ void TransitionEngine::render_wipe(SDL_Texture* prev_tex, SDL_Texture* next_tex,
     SDL_Renderer* sdl = renderer->sdl_renderer;
     float p = config.progress;
     
-    SDL_Rect dst_full = {0, 0, screen_w, screen_h};
+    int prev_w = 0, prev_h = 0;
+    SDL_QueryTexture(prev_tex, nullptr, nullptr, &prev_w, &prev_h);
+    SDL_Rect prev_dst = calculate_fit_rect(prev_w, prev_h, screen_w, screen_h);
+    
+    int next_w = 0, next_h = 0;
+    SDL_QueryTexture(next_tex, nullptr, nullptr, &next_w, &next_h);
+    SDL_Rect next_dst = calculate_fit_rect(next_w, next_h, screen_w, screen_h);
     
     // Draw previous texture fully
-    SDL_RenderCopy(sdl, prev_tex, nullptr, &dst_full);
+    SDL_RenderCopy(sdl, prev_tex, nullptr, &prev_dst);
     
-    // Calculate wipe rect based on direction
-    SDL_Rect src_rect = {0, 0, screen_w, screen_h};
-    SDL_Rect dst_rect = {0, 0, screen_w, screen_h};
-    
+    // Calculate wipe clip rect in screen coordinates
+    SDL_Rect clip_rect = {0, 0, screen_w, screen_h};
     switch (direction) {
         case 0: // Left to Right
-            src_rect.w = (int)(screen_w * p);
-            dst_rect.w = (int)(screen_w * p);
+            clip_rect.w = (int)(screen_w * p);
             break;
         case 1: // Right to Left
-            src_rect.x = screen_w - (int)(screen_w * p);
-            src_rect.w = (int)(screen_w * p);
-            dst_rect.x = screen_w - (int)(screen_w * p);
-            dst_rect.w = (int)(screen_w * p);
+            clip_rect.x = screen_w - (int)(screen_w * p);
+            clip_rect.w = (int)(screen_w * p);
             break;
         case 2: // Top to Bottom
-            src_rect.h = (int)(screen_h * p);
-            dst_rect.h = (int)(screen_h * p);
+            clip_rect.h = (int)(screen_h * p);
             break;
         case 3: // Bottom to Top
-            src_rect.y = screen_h - (int)(screen_h * p);
-            src_rect.h = (int)(screen_h * p);
-            dst_rect.y = screen_h - (int)(screen_h * p);
-            dst_rect.h = (int)(screen_h * p);
+            clip_rect.y = screen_h - (int)(screen_h * p);
+            clip_rect.h = (int)(screen_h * p);
             break;
     }
     
-    SDL_RenderCopy(sdl, next_tex, &src_rect, &dst_rect);
+    SDL_RenderSetClipRect(sdl, &clip_rect);
+    SDL_RenderCopy(sdl, next_tex, nullptr, &next_dst);
+    SDL_RenderSetClipRect(sdl, nullptr);
 }
 
 void TransitionEngine::render_ken_burns(SDL_Texture* tex, int screen_w, int screen_h, float zoom) {
@@ -135,29 +153,24 @@ void TransitionEngine::render_ken_burns(SDL_Texture* tex, int screen_w, int scre
     SDL_Renderer* sdl = renderer->sdl_renderer;
     float p = config.progress;
     
-    // Simple Ken Burns: scale from 1.0 to 1.0+zoom over the transition
     float scale = 1.0f + zoom * p;
     
-    // Get texture dimensions
     int tex_w = 0, tex_h = 0;
     SDL_QueryTexture(tex, nullptr, nullptr, &tex_w, &tex_h);
     
-    // Calculate fit rect with scale
-    float fit_w = screen_w / scale;
-    float fit_h = screen_h / scale;
+    SDL_Rect base_dst = calculate_fit_rect(tex_w, tex_h, screen_w, screen_h);
     
-    // Animate position slightly (pan)
+    int dst_w = (int)(base_dst.w * scale);
+    int dst_h = (int)(base_dst.h * scale);
+    
     float pan_x = sinf(p * 3.14159f) * screen_w * 0.05f;
     float pan_y = cosf(p * 3.14159f) * screen_h * 0.03f;
     
-    int dst_w = (int)(fit_w);
-    int dst_h = (int)(fit_h);
     int dst_x = (screen_w - dst_w) / 2 + (int)pan_x;
     int dst_y = (screen_h - dst_h) / 2 + (int)pan_y;
     
     SDL_Rect dst = {dst_x, dst_y, dst_w, dst_h};
     
-    // Draw scaled texture centered
     SDL_RenderCopy(sdl, tex, nullptr, &dst);
 }
 
@@ -167,16 +180,18 @@ void TransitionEngine::render_pixelate(SDL_Texture* prev_tex, SDL_Texture* next_
     SDL_Renderer* sdl = renderer->sdl_renderer;
     float p = config.progress;
     
-    SDL_Rect dst_full = {0, 0, screen_w, screen_h};
+    int prev_w = 0, prev_h = 0;
+    SDL_QueryTexture(prev_tex, nullptr, nullptr, &prev_w, &prev_h);
+    SDL_Rect prev_dst = calculate_fit_rect(prev_w, prev_h, screen_w, screen_h);
     
-    // Draw previous texture fully as background
-    SDL_RenderCopy(sdl, prev_tex, nullptr, &dst_full);
+    int next_w = 0, next_h = 0;
+    SDL_QueryTexture(next_tex, nullptr, nullptr, &next_w, &next_h);
+    SDL_Rect next_dst = calculate_fit_rect(next_w, next_h, screen_w, screen_h);
     
-    // For pixelate effect, draw next texture with a reveal mask
-    // Since SDL_Renderer doesn't support shaders, we skip the actual pixelation
-    // and use a simple crossfade as fallback
+    SDL_RenderCopy(sdl, prev_tex, nullptr, &prev_dst);
+    
     SDL_SetTextureAlphaMod(next_tex, (Uint8)(255.0f * p));
-    SDL_RenderCopy(sdl, next_tex, nullptr, &dst_full);
+    SDL_RenderCopy(sdl, next_tex, nullptr, &next_dst);
     SDL_SetTextureAlphaMod(next_tex, 255);
 }
 
@@ -186,13 +201,17 @@ void TransitionEngine::render_dissolve(SDL_Texture* prev_tex, SDL_Texture* next_
     SDL_Renderer* sdl = renderer->sdl_renderer;
     float p = config.progress;
     
-    SDL_Rect dst_full = {0, 0, screen_w, screen_h};
+    int prev_w = 0, prev_h = 0;
+    SDL_QueryTexture(prev_tex, nullptr, nullptr, &prev_w, &prev_h);
+    SDL_Rect prev_dst = calculate_fit_rect(prev_w, prev_h, screen_w, screen_h);
     
-    // Draw previous texture fully
-    SDL_RenderCopy(sdl, prev_tex, nullptr, &dst_full);
+    int next_w = 0, next_h = 0;
+    SDL_QueryTexture(next_tex, nullptr, nullptr, &next_w, &next_h);
+    SDL_Rect next_dst = calculate_fit_rect(next_w, next_h, screen_w, screen_h);
     
-    // Draw next texture with alpha based on progress
+    SDL_RenderCopy(sdl, prev_tex, nullptr, &prev_dst);
+    
     SDL_SetTextureAlphaMod(next_tex, (Uint8)(255.0f * p));
-    SDL_RenderCopy(sdl, next_tex, nullptr, &dst_full);
+    SDL_RenderCopy(sdl, next_tex, nullptr, &next_dst);
     SDL_SetTextureAlphaMod(next_tex, 255);
 }

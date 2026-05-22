@@ -408,7 +408,7 @@ void scan_directory(const std::string& dir, int depth,
         ignore_f = g_cfg.ignore_folders;
     }
 
-    auto media_files = scanner.scan(dir, exts, scan_days, depth, ignore_f, progress);
+    auto media_files = scanner.scan(dir, exts, 0, depth, ignore_f, progress);
     g_logger.info("TRACE: scan returned %d media files", (int)media_files.size());
 
     items = std::move(media_files);

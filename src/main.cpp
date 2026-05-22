@@ -31,6 +31,157 @@ static PreloadQueue* g_preload = nullptr;
 static TransitionEngine* g_transition = nullptr;
 static OverlayManager* g_overlay = nullptr;
 
+// Background Watchman & Dynamic Playlist State
+static std::mutex g_playlist_mtx;
+static std::vector<MediaItem> g_scanned_items;
+static std::vector<MediaItem> g_eligible;
+static int current_idx = 0;
+static std::thread g_watchman_thread;
+static std::atomic<bool> g_watchman_running{false};
+
+static bool is_item_in_seasonal_window(const MediaItem& item, int window_days) {
+    if (window_days <= 0) return true;
+
+    // 1. Check parent folder name for month-spread filter
+    std::filesystem::path p(item.path);
+    std::string parent_name = p.parent_path().filename().string();
+    
+    int groups[2] = {0, 0};
+    int gc = 0;
+    size_t i = 0;
+    while (i < parent_name.size() && gc < 2) {
+        while (i < parent_name.size() && !isdigit(parent_name[i])) i++;
+        if (i >= parent_name.size()) break;
+        int val = 0;
+        while (i < parent_name.size() && isdigit(parent_name[i])) {
+            val = val * 10 + (parent_name[i] - '0');
+            i++;
+        }
+        groups[gc++] = val;
+        if (gc == 1 && i < parent_name.size() && (parent_name[i] == '-' || parent_name[i] == '_')) i++;
+    }
+
+    if (gc >= 2) {
+        int folder_m = groups[1];
+        if (folder_m >= 1 && folder_m <= 12) {
+            time_t t = std::time(nullptr);
+            struct tm tm_buf;
+            struct tm* now = localtime_r(&t, &tm_buf);
+            int curr_m = now->tm_mon + 1;
+            
+            int max_month_spread = std::ceil(window_days / 30.0);
+            int diff = std::abs(curr_m - folder_m);
+            if (diff > 6) diff = 12 - diff;
+            
+            if (diff > max_month_spread) {
+                return false;
+            }
+        }
+    }
+
+    // 2. Check filename for seasonal window
+    return is_in_seasonal_window(item.filename, window_days);
+}
+
+static std::vector<MediaItem> filter_playlist(const std::vector<MediaItem>& items, int cooldown_days, int window_days) {
+    std::vector<MediaItem> filtered;
+    int64_t now = static_cast<int64_t>(std::time(nullptr));
+    int64_t cutoff = now - (static_cast<int64_t>(cooldown_days) * 86400);
+    
+    for (const auto& item : items) {
+        // 1. Cooldown filter
+        if (item.last_shown >= cutoff) {
+            continue;
+        }
+        // 2. Seasonal window filter
+        if (!is_item_in_seasonal_window(item, window_days)) {
+            continue;
+        }
+        filtered.push_back(item);
+    }
+    return filtered;
+}
+
+static void watchman_loop() {
+    g_logger.info("Watchman: Background watchman thread started.");
+    
+    // Get current day of year
+    time_t last_check_time = std::time(nullptr);
+    struct tm tm_buf;
+    struct tm* last_check_tm = localtime_r(&last_check_time, &tm_buf);
+    int last_yday = last_check_tm->tm_yday;
+    
+    while (g_watchman_running.load()) {
+        // Sleep for 10 seconds between checks (quick responsive exit checks)
+        for (int i = 0; i < 10 && g_watchman_running.load(); i++) {
+            std::this_thread::sleep_for(std::chrono::seconds(1));
+        }
+        if (!g_watchman_running.load()) break;
+        
+        time_t now = std::time(nullptr);
+        struct tm curr_tm;
+        localtime_r(&now, &curr_tm);
+        
+        if (curr_tm.tm_yday != last_yday) {
+            g_logger.info("Watchman: Midnight detected! Shifting temporal window. Old day=%d, New day=%d", last_yday, curr_tm.tm_yday);
+            last_yday = curr_tm.tm_yday;
+            
+            // Re-filter playlist
+            int cooldown_days = 0;
+            int window_days = 0;
+            bool shuffle_enabled = true;
+            {
+                std::lock_guard<std::mutex> lock(g_config_mtx);
+                cooldown_days = g_cfg.cooldown_days;
+                window_days = g_cfg.scan_window_days;
+                shuffle_enabled = g_cfg.shuffle;
+            }
+            
+            std::vector<MediaItem> new_eligible = filter_playlist(g_scanned_items, cooldown_days, window_days);
+            g_logger.info("Watchman: New seasonal window calculation: %zu / %zu items eligible", new_eligible.size(), g_scanned_items.size());
+            
+            if (!new_eligible.empty()) {
+                // Shuffle
+                if (shuffle_enabled) {
+                    unsigned long long seed = make_entropy_seed();
+                    std::mt19937_64 rng(seed);
+                    std::shuffle(new_eligible.begin(), new_eligible.end(), rng);
+                    g_logger.info("Watchman: Shuffled new playlist with seed: 0x%llx", seed);
+                }
+                
+                // Swap seamlessly under mutex
+                {
+                    std::lock_guard<std::mutex> playlist_lock(g_playlist_mtx);
+                    
+                    // Try to preserve current playing item
+                    std::string current_path = "";
+                    if (current_idx >= 0 && current_idx < (int)g_eligible.size()) {
+                        current_path = g_eligible[current_idx].path;
+                    }
+                    
+                    g_eligible = std::move(new_eligible);
+                    
+                    // Find if current path is in new playlist
+                    int new_idx = 0;
+                    if (!current_path.empty()) {
+                        for (int idx = 0; idx < (int)g_eligible.size(); idx++) {
+                            if (g_eligible[idx].path == current_path) {
+                                new_idx = idx;
+                                break;
+                            }
+                        }
+                    }
+                    current_idx = new_idx;
+                    g_logger.info("Watchman: Playlist swapped seamlessly. New size=%zu, current_idx=%d", g_eligible.size(), current_idx);
+                }
+            } else {
+                g_logger.warn("Watchman: New playlist is empty. Keeping old playlist to prevent interruption.");
+            }
+        }
+    }
+    g_logger.info("Watchman: Background watchman thread exiting.");
+}
+
 static void draw_phase_splash(int phase, int progress, int total, int done, const char* label, int dot_counter, const char* filename = nullptr, bool animated = true) {
     g_logger.info("[TRACE] draw_phase_splash phase=%d progress=%d total=%d done=%d label=%s", phase, progress, total, done, label);
     g_renderer.render_splash(phase, progress, total, done, label, dot_counter, filename, animated);
@@ -125,7 +276,6 @@ int main(int argc, char** argv) {
 
     // --- Fast-path: skip scan+cache if DB already exists ---
     fprintf(stderr, "TRACE: before cache check\n"); fflush(stderr);
-    std::vector<MediaItem> scanned_items;
     std::string db_path = cache_dir + "/cache.db";
     struct stat db_stat{};
     bool db_exists = (stat(db_path.c_str(), &db_stat) == 0 && db_stat.st_size > 0);
@@ -174,18 +324,18 @@ int main(int argc, char** argv) {
                     auto dot = mi.filename.find_last_of('.');
                     mi.ext = (dot != std::string::npos && dot < mi.filename.size() - 1) ? mi.filename.substr(dot + 1) : "";
                     mi.cached = true;
-                    scanned_items.push_back(mi);
+                    g_scanned_items.push_back(mi);
                 }
                  fprintf(stderr, "TRACE: loaded %d rows\n", row_count); fflush(stderr);
             }
             sqlite3_finalize(stmt);
 
             fprintf(stderr, "TRACE: count_if photos\n"); fflush(stderr);
-            int photos = std::count_if(scanned_items.begin(), scanned_items.end(), [](const MediaItem& i){ return i.type == "image"; });
+            int photos = std::count_if(g_scanned_items.begin(), g_scanned_items.end(), [](const MediaItem& i){ return i.type == "image"; });
             fprintf(stderr, "TRACE: count_if videos\n"); fflush(stderr);
-            int videos = std::count_if(scanned_items.begin(), scanned_items.end(), [](const MediaItem& i){ return i.type == "video"; });
+            int videos = std::count_if(g_scanned_items.begin(), g_scanned_items.end(), [](const MediaItem& i){ return i.type == "video"; });
             fprintf(stderr, "TRACE: photos=%d videos=%d\n", photos, videos); fflush(stderr);
-            g_logger.info("Loaded %d items from cache DB (photos=%d videos=%d)", (int)scanned_items.size(), photos, videos);
+            g_logger.info("Loaded %d items from cache DB (photos=%d videos=%d)", (int)g_scanned_items.size(), photos, videos);
 
             if (photos > 0 || videos > 0) {
                 g_logger.info("Fast-path: skipping scan, going directly to slideshow");
@@ -201,11 +351,11 @@ int main(int argc, char** argv) {
         }
     }
 
-    fprintf(stderr, "TRACE: after DB block, items=%d\n", (int)scanned_items.size()); fflush(stderr);
+    fprintf(stderr, "TRACE: after DB block, items=%d\n", (int)g_scanned_items.size()); fflush(stderr);
 
-   // --- PHASE 1: SCAN (simple filesystem walk, like legacy) ---
+    // --- PHASE 1: SCAN (simple filesystem walk, like legacy) ---
     // (skip if fast-path cache was valid)
-    bool do_scan = scanned_items.empty();
+    bool do_scan = g_scanned_items.empty();
     int dot_counter = 0;
 
     if (do_scan) {
@@ -225,7 +375,7 @@ int main(int argc, char** argv) {
         { std::lock_guard<std::mutex> lk(g_config_mtx); depth = g_cfg.scan_depth; }
 
         std::thread scan_thread([&]() {
-            scan_directory(media_dir, depth, scanned_items, scan_count, safe_progress_callback);
+            scan_directory(media_dir, depth, g_scanned_items, scan_count, safe_progress_callback);
             scan_done.store(true);
         });
 
@@ -242,7 +392,7 @@ int main(int argc, char** argv) {
 
         auto scan_end = std::chrono::steady_clock::now();
         auto scan_ms = std::chrono::duration_cast<std::chrono::milliseconds>(scan_end - scan_start).count();
-        g_logger.info("Scan complete: %d items in %ld ms", (int)scanned_items.size(), (long)scan_ms);
+        g_logger.info("Scan complete: %d items in %ld ms", (int)g_scanned_items.size(), (long)scan_ms);
     }
 
     // --- PHASE 2: CACHE (bulk transaction, render at 0.1s intervals) ---
@@ -273,11 +423,11 @@ int main(int argc, char** argv) {
         int cached = 0;
         auto last_render = std::chrono::steady_clock::now();
 
-        int total_scanned = (int)scanned_items.size();
+        int total_scanned = (int)g_scanned_items.size();
         draw_phase_splash(3, total_scanned, total_scanned, 0, "CACHING", ++dot_counter, nullptr, false);
 
         for (int i = 0; i < total_scanned; i++) {
-            auto& mi = scanned_items[i];
+            auto& mi = g_scanned_items[i];
 
             if (g_cache->load_cached(mi)) {
                 mi.cached = true;
@@ -308,14 +458,15 @@ int main(int argc, char** argv) {
         g_database_complete.store(true);
     }
 
-   // --- Cooldown filter ---
-    fprintf(stderr, "TRACE: before cooldown filter\n"); fflush(stderr);
-    std::vector<MediaItem> eligible = filter_by_cooldown(scanned_items, g_cfg.cooldown_days);
-    fprintf(stderr, "TRACE: after cooldown, eligible=%d\n", (int)eligible.size()); fflush(stderr);
-    g_logger.info("After cooldown (%d days): %d eligible", g_cfg.cooldown_days, (int)eligible.size());
+    // --- Dynamic Seasonal & Cooldown filter ---
+    fprintf(stderr, "TRACE: before filter_playlist\n"); fflush(stderr);
+    g_eligible = filter_playlist(g_scanned_items, g_cfg.cooldown_days, g_cfg.scan_window_days);
+    fprintf(stderr, "TRACE: after filter_playlist, eligible=%d\n", (int)g_eligible.size()); fflush(stderr);
+    g_logger.info("Initial Dynamic Playlist Setup: %d items eligible (cooldown=%d days, seasonal window=%d days)",
+        (int)g_eligible.size(), g_cfg.cooldown_days, g_cfg.scan_window_days);
 
-    if (eligible.empty()) {
-        g_logger.warn("No eligible items after cooldown filter");
+    if (g_eligible.empty()) {
+        g_logger.warn("No eligible items after dynamic filters");
         draw_phase_splash(4, 0, 0, 0, "DONE", ++dot_counter, nullptr, false);
         SDL_Delay(3000);
         g_renderer.cleanup_splash(); g_renderer.cleanup();
@@ -328,15 +479,14 @@ int main(int argc, char** argv) {
     if (g_cfg.shuffle) {
         unsigned long long seed = make_entropy_seed();
         std::mt19937_64 rng(seed);
-   std::shuffle(eligible.begin(), eligible.end(), rng);
+        std::shuffle(g_eligible.begin(), g_eligible.end(), rng);
         g_logger.info("Playlist shuffled with seed: 0x%llx", (unsigned long long)seed);
     }
 
     fprintf(stderr, "TRACE: before slideshow start\n"); fflush(stderr);
-    g_logger.info("Starting slideshow with %d items", (int)eligible.size());
-    // eligible already set from cooldown filter, don't overwrite
+    g_logger.info("Starting slideshow with %d items", (int)g_eligible.size());
 
-    fprintf(stderr, "TRACE: eligible[0].path size=%zu path=%s\n", eligible[0].path.size(), eligible[0].path.c_str()); fflush(stderr);
+    fprintf(stderr, "TRACE: g_eligible[0].path size=%zu path=%s\n", g_eligible[0].path.size(), g_eligible[0].path.c_str()); fflush(stderr);
 
     fprintf(stderr, "TRACE: new TransitionEngine\n"); fflush(stderr);
     g_transition = new TransitionEngine();
@@ -344,42 +494,68 @@ int main(int argc, char** argv) {
     fprintf(stderr, "TRACE: new OverlayManager\n"); fflush(stderr);
     g_overlay = new OverlayManager(&g_renderer);
     fprintf(stderr, "TRACE: g_logger.info\n"); fflush(stderr);
-    g_logger.info("Starting slideshow loop with %d items", (int)eligible.size());
+    g_logger.info("Starting slideshow loop with %d items", (int)g_eligible.size());
 
-    // --- Main slideshow loop ---
-    int current_idx = 0;
+    // --- Main slideshow loop setup ---
+    current_idx = 0;
     double item_timer = 0.0;
     auto last_frame_time = std::chrono::steady_clock::now();
 
-    fprintf(stderr, "TRACE: make_shared ImageData\n"); fflush(stderr);
-    std::shared_ptr<ImageData> current_data = std::make_shared<ImageData>();
+    std::shared_ptr<ImageData> current_data = nullptr;
     std::shared_ptr<ImageData> next_data = nullptr;
-    fprintf(stderr, "TRACE: start load loop\n"); fflush(stderr);
-    int load_attempts = 0;
-    while (load_attempts < 10) {
-        fprintf(stderr, "TRACE: attempt %d load %s\n", load_attempts, eligible[current_idx].path.c_str()); fflush(stderr);
-        current_data = ImageLoader::load(eligible[current_idx].path);
-        fprintf(stderr, "TRACE: load returned valid=%d\n", current_data->valid); fflush(stderr);
-        if (current_data && current_data->valid) break;
-        g_cache->mark_bad(eligible[current_idx].path);
-        g_logger.warn("Bad first image, skipping: %s", eligible[current_idx].path.c_str());
-        current_idx = (current_idx + 1) % (int)eligible.size();
-        load_attempts++;
-    }
+    SDL_Texture* current_tex = nullptr;
+    SDL_Rect fit_rect{0, 0, 0, 0};
 
-    if (current_data && current_data->valid) {
-        ImageLoader::load_texture(current_data.get(), g_renderer.sdl_renderer);
-        g_cache->mark_shown(eligible[current_idx].path);
+    // Find the first valid item to display
+    int load_attempts = 0;
+    while (load_attempts < (int)g_eligible.size() && load_attempts < 20) {
+        if (g_eligible[current_idx].type == "video") {
+            // First item is a video, let the main loop play it!
+            g_logger.info("First item in playlist is a video: %s", g_eligible[current_idx].path.c_str());
+            break;
+        } else {
+            // First item is an image, load it!
+            current_data = ImageLoader::load(g_eligible[current_idx].path);
+            if (current_data && current_data->valid) {
+                ImageLoader::load_texture(current_data.get(), g_renderer.sdl_renderer);
+                current_tex = current_data->texture;
+                g_cache->mark_shown(g_eligible[current_idx].path);
+
+                // Update in-memory item metadata with actual dimensions and EXIF rotation
+                g_eligible[current_idx].width = current_data->width;
+                g_eligible[current_idx].height = current_data->height;
+                g_eligible[current_idx].exif_rotation = current_data->exif_rotation;
+                for (auto& item : g_scanned_items) {
+                    if (item.path == g_eligible[current_idx].path) {
+                        item.width = current_data->width;
+                        item.height = current_data->height;
+                        item.exif_rotation = current_data->exif_rotation;
+                        break;
+                    }
+                }
+                // Persist the actual values to the cache database
+                g_cache->upsert(g_eligible[current_idx], 0);
+
+                g_renderer.calculate_fit_rect(g_eligible[current_idx].width, g_eligible[current_idx].height, fit_rect);
+                g_logger.info("First item is an image, loaded successfully: %s (%dx%d)", g_eligible[current_idx].path.c_str(), g_eligible[current_idx].width, g_eligible[current_idx].height);
+                break;
+            } else {
+                g_cache->mark_bad(g_eligible[current_idx].path);
+                g_logger.warn("Bad first image, skipping: %s", g_eligible[current_idx].path.c_str());
+                current_idx = (current_idx + 1) % (int)g_eligible.size();
+                load_attempts++;
+            }
+        }
     }
 
     bool transitioning = false;
     double transition_timer = 0.0;
     std::string transition_effect = g_cfg.transition_effect;
 
-    SDL_Texture* current_tex = nullptr;
-    if (current_data && current_data->texture) current_tex = current_data->texture;
-
-    SDL_Rect fit_rect{0, 0, 0, 0};
+    // --- Start Background Watchman Thread ---
+    g_watchman_running.store(true);
+    g_watchman_thread = std::thread(watchman_loop);
+    g_logger.info("Watchman: Background watchman thread spawned successfully.");
 
     while (g_running.load()) {
         auto now = std::chrono::steady_clock::now();
@@ -403,12 +579,28 @@ int main(int argc, char** argv) {
         }
 
         int cmd = g_remote_command.exchange(0);
-        if (cmd == 1) {
+
+        // --- Mutex-Guarded playlist lookup & manipulation ---
+        std::unique_lock<std::mutex> playlist_lock(g_playlist_mtx);
+
+        if (g_eligible.empty()) {
+            playlist_lock.unlock();
+            SDL_Delay(100);
+            continue;
+        }
+
+        // Apply Skip Arrow commands
+        if (cmd == 1 || cmd == 2) {
+            if (g_mpv_player.is_active()) {
+                g_logger.info("Interrupted video playback via skip request: stopping mpv.");
+                g_mpv_player.stop();
+            }
             transitioning = true; transition_timer = 0.0;
-            current_idx = (current_idx + 1) % (int)eligible.size();
-        } else if (cmd == 2) {
-            transitioning = true; transition_timer = 0.0;
-            current_idx = (current_idx - 1 + (int)eligible.size()) % (int)eligible.size();
+            if (cmd == 1) {
+                current_idx = (current_idx + 1) % (int)g_eligible.size();
+            } else {
+                current_idx = (current_idx - 1 + (int)g_eligible.size()) % (int)g_eligible.size();
+            }
         }
 
         if (transitioning && !g_transition->is_active()) {
@@ -419,40 +611,79 @@ int main(int argc, char** argv) {
             g_transition->start(effect, g_cfg.transition_duration, 0, g_cfg.ken_burns_zoom);
         }
 
-        // --- Video ---
-        if (eligible[current_idx].type == "video") {
+        // --- Video Player Handling ---
+        if (g_eligible[current_idx].type == "video") {
             if (g_mpv_player.is_active()) {
                 if (!g_mpv_player.check_status()) {
+                    // Video EOF: stop transition and advance to next
+                    g_logger.info("Video EOF detected: advancing playlist.");
                     transitioning = true; transition_timer = 0.0;
-                    current_idx = (current_idx + 1) % (int)eligible.size();
+                    current_idx = (current_idx + 1) % (int)g_eligible.size();
                 }
+                playlist_lock.unlock(); // Unlock before delay sleep
                 SDL_Delay(50); continue;
             }
             int volume;
             { std::lock_guard<std::mutex> lock(g_config_mtx); volume = g_cfg.video_volume; }
-            g_logger.info("Playing video: %s", eligible[current_idx].path.c_str());
-            if (!g_mpv_player.play(eligible[current_idx].path, volume)) {
-                g_logger.error("Failed to play video, skipping");
+            
+            std::string video_path = g_eligible[current_idx].path;
+            g_logger.info("Playing video: %s", video_path.c_str());
+            
+            playlist_lock.unlock(); // Unlock while launching the mpv process
+            if (!g_mpv_player.play(video_path, volume)) {
+                g_logger.error("Failed to play video, skipping to next.");
+                playlist_lock.lock(); // Re-lock
                 transitioning = true; transition_timer = 0.0;
-                current_idx = (current_idx + 1) % (int)eligible.size();
+                current_idx = (current_idx + 1) % (int)g_eligible.size();
+                playlist_lock.unlock();
                 continue;
+            } else {
+                playlist_lock.lock(); // Re-lock to safely free image texture VRAM during playback
+                if (current_data) {
+                    current_data = nullptr;
+                    current_tex = nullptr;
+                }
+                if (next_data) {
+                    next_data = nullptr;
+                }
+                transitioning = false; // Bypass transitioning during video rendering
+                playlist_lock.unlock();
             }
             SDL_Delay(50); continue;
         }
 
-        // --- Image ---
+        // --- Image Rendering Handling ---
         item_timer += dt;
 
         if (transitioning) {
             transition_timer += dt;
-            double trans_duration = g_cfg.transition_duration;
 
             // Load next_data exactly once at the beginning of the transition
             if (!next_data) {
-                int next_idx = current_idx % (int)eligible.size();
-                next_data = ImageLoader::load(eligible[next_idx].path);
+                int next_idx = current_idx % (int)g_eligible.size();
+                std::string next_path = g_eligible[next_idx].path;
+                
+                playlist_lock.unlock(); // Unlock while performing blocking filesystem loading
+                next_data = ImageLoader::load(next_path);
+                playlist_lock.lock(); // Re-lock
+                
                 if (next_data && next_data->valid) {
                     ImageLoader::load_texture(next_data.get(), g_renderer.sdl_renderer);
+
+                    // Update in-memory item metadata with actual loaded/rotated dimensions and EXIF
+                    g_eligible[next_idx].width = next_data->width;
+                    g_eligible[next_idx].height = next_data->height;
+                    g_eligible[next_idx].exif_rotation = next_data->exif_rotation;
+                    for (auto& item : g_scanned_items) {
+                        if (item.path == next_path) {
+                            item.width = next_data->width;
+                            item.height = next_data->height;
+                            item.exif_rotation = next_data->exif_rotation;
+                            break;
+                        }
+                    }
+                    // Persist the actual values to the cache database
+                    g_cache->upsert(g_eligible[next_idx], 0);
                 }
             }
 
@@ -475,18 +706,18 @@ int main(int argc, char** argv) {
                     next_data = nullptr;
                     current_tex = current_data->texture;
 
-                    g_cache->mark_shown(eligible[current_idx].path);
-                    g_renderer.calculate_fit_rect(eligible[current_idx].width, eligible[current_idx].height, fit_rect);
+                    g_cache->mark_shown(g_eligible[current_idx].path);
+                    g_renderer.calculate_fit_rect(g_eligible[current_idx].width, g_eligible[current_idx].height, fit_rect);
                 }
             } else {
-                // If loading next image failed, abort transition and jump directly to next
+                // If loading next image failed or prev_tex is null (swapping from video), abort transition and display immediately
                 transitioning = false; 
                 item_timer = 0.0;
                 if (next_data) {
                     current_data = next_data;
                     next_data = nullptr;
                     current_tex = current_data->texture;
-                    g_renderer.calculate_fit_rect(eligible[current_idx].width, eligible[current_idx].height, fit_rect);
+                    g_renderer.calculate_fit_rect(g_eligible[current_idx].width, g_eligible[current_idx].height, fit_rect);
                 }
             }
         } else {
@@ -499,25 +730,34 @@ int main(int argc, char** argv) {
             }
 
             if (g_overlay) {
-                g_overlay->draw_all(current_idx, (int)eligible.size(),
-                    eligible[current_idx].filename, item_timer, false);
+                g_overlay->draw_all(current_idx, (int)g_eligible.size(),
+                    g_eligible[current_idx].filename, item_timer, false);
             }
 
             if (item_timer >= g_cfg.transition_delay) {
                 transitioning = true; transition_timer = 0.0;
-                current_idx = (current_idx + 1) % (int)eligible.size();
+                current_idx = (current_idx + 1) % (int)g_eligible.size();
             }
         }
 
+        playlist_lock.unlock(); // Unlock before frame sleep throttling
         SDL_Delay(16);
     }
 
     // --- Cleanup ---
     g_logger.info("Shutting down...");
+    
+    // Stop background watchman thread safely
+    g_watchman_running.store(false);
+    if (g_watchman_thread.joinable()) {
+        g_watchman_thread.join();
+        g_logger.info("Watchman: Background watchman thread stopped successfully.");
+    }
+
     if (g_mpv_player.is_active()) g_mpv_player.stop();
     if (g_transition) { g_transition->reset(); delete g_transition; }
     if (g_overlay) { g_overlay->cleanup(); delete g_overlay; }
-    if (current_data) ImageLoader::unload(current_data.get());
+    if (current_data) { current_data = nullptr; }
     if (g_cache) { g_cache->close(); delete g_cache; }
     g_renderer.cleanup();
 

@@ -70,10 +70,19 @@ std::shared_ptr<ImageData> ImageLoader::load(const std::string& path) {
     memcpy(surf->pixels, pixels, psize);
     stbi_image_free(pixels);
 
+    int exif = read_exif_rotation(path.c_str());
+    if (exif >= 2 && exif <= 8) {
+        SDL_Surface* rotated = apply_exif_rotation(surf, exif);
+        if (rotated) {
+            SDL_FreeSurface(surf);
+            surf = rotated;
+        }
+    }
+
     result->surface = surf;
-    result->width = w;
-    result->height = h;
-    result->exif_rotation = 1;
+    result->width = surf->w;
+    result->height = surf->h;
+    result->exif_rotation = exif;
     result->valid = true;
 
     GpuColor avg = Renderer::get_average_color(surf);
@@ -174,34 +183,19 @@ SDL_Surface* ImageLoader::apply_exif_rotation(SDL_Surface* surface, int exif) {
             break;
         }
         case 3: {
-            SDL_Surface* tmp = nullptr;
-            {
-                SDL_Surface* dst = SDL_CreateRGBSurfaceWithFormat(0, surface->w, surface->h, 32, surface->format->format);
-                if (dst) {
-                    int bpp = surface->format->BytesPerPixel;
-                    uint8_t* src_px = (uint8_t*)surface->pixels;
-                    uint8_t* dst_px = (uint8_t*)dst->pixels;
-                    for (int y = 0; y < surface->h; y++) {
-                        uint8_t* src_row = src_px + y * surface->pitch;
-                        uint8_t* dst_row = dst_px + y * dst->pitch;
-                        for (int x = 0; x < surface->w; x++) {
-                            memcpy(dst_row + x * bpp, src_row + (surface->w - 1 - x) * bpp, bpp);
-                        }
+            SDL_Surface* dst = SDL_CreateRGBSurfaceWithFormat(0, surface->w, surface->h, 32, surface->format->format);
+            if (dst) {
+                int bpp = surface->format->BytesPerPixel;
+                uint8_t* src_px = (uint8_t*)surface->pixels;
+                uint8_t* dst_px = (uint8_t*)dst->pixels;
+                for (int y = 0; y < surface->h; y++) {
+                    uint8_t* src_row = src_px + y * surface->pitch;
+                    uint8_t* dst_row = dst_px + (surface->h - 1 - y) * dst->pitch;
+                    for (int x = 0; x < surface->w; x++) {
+                        memcpy(dst_row + (surface->w - 1 - x) * bpp, src_row + x * bpp, bpp);
                     }
-                    tmp = dst;
                 }
-            }
-            if (tmp) {
-                SDL_Surface* dst = SDL_CreateRGBSurfaceWithFormat(0, tmp->w, tmp->h, 32, tmp->format->format);
-                if (dst) {
-                    uint8_t* src_px = (uint8_t*)tmp->pixels;
-                    uint8_t* dst_px = (uint8_t*)dst->pixels;
-                    for (int y = 0; y < tmp->h; y++) {
-                        memcpy(dst_px + y * dst->pitch, src_px + (tmp->h - 1 - y) * tmp->pitch, tmp->pitch);
-                    }
-                    rotated = dst;
-                }
-                SDL_FreeSurface(tmp);
+                rotated = dst;
             }
             break;
         }
@@ -218,39 +212,19 @@ SDL_Surface* ImageLoader::apply_exif_rotation(SDL_Surface* surface, int exif) {
             break;
         }
         case 5: {
-            SDL_Surface* tmp = nullptr;
-            {
-                SDL_Surface* dst = SDL_CreateRGBSurfaceWithFormat(0, surface->h, surface->w, 32, surface->format->format);
-                if (dst) {
-                    int bpp = surface->format->BytesPerPixel;
-                    uint8_t* src_px = (uint8_t*)surface->pixels;
-                    uint8_t* dst_px = (uint8_t*)dst->pixels;
-                    for (int y = 0; y < surface->h; y++) {
-                        uint8_t* src_row = src_px + y * surface->pitch;
-                        for (int x = 0; x < surface->w; x++) {
-                            uint8_t* dst_pixel = dst_px + x * dst->pitch + (surface->h - 1 - y) * bpp;
-                            memcpy(dst_pixel, src_row + x * bpp, bpp);
-                        }
+            SDL_Surface* dst = SDL_CreateRGBSurfaceWithFormat(0, surface->h, surface->w, 32, surface->format->format);
+            if (dst) {
+                int bpp = surface->format->BytesPerPixel;
+                uint8_t* src_px = (uint8_t*)surface->pixels;
+                uint8_t* dst_px = (uint8_t*)dst->pixels;
+                for (int y = 0; y < surface->h; y++) {
+                    uint8_t* src_row = src_px + y * surface->pitch;
+                    for (int x = 0; x < surface->w; x++) {
+                        uint8_t* dst_pixel = dst_px + x * dst->pitch + y * bpp;
+                        memcpy(dst_pixel, src_row + x * bpp, bpp);
                     }
-                    tmp = dst;
                 }
-            }
-            if (tmp) {
-                SDL_Surface* dst = SDL_CreateRGBSurfaceWithFormat(0, tmp->w, tmp->h, 32, tmp->format->format);
-                if (dst) {
-                    int bpp = tmp->format->BytesPerPixel;
-                    uint8_t* src_px = (uint8_t*)tmp->pixels;
-                    uint8_t* dst_px = (uint8_t*)dst->pixels;
-                    for (int y = 0; y < tmp->h; y++) {
-                        uint8_t* src_row = src_px + y * tmp->pitch;
-                        for (int x = 0; x < tmp->w; x++) {
-                            uint8_t* dst_pixel = dst_px + x * bpp + (tmp->w - 1 - y) * bpp;
-                            memcpy(dst_pixel, src_row + x * bpp, bpp);
-                        }
-                    }
-                    rotated = dst;
-                }
-                SDL_FreeSurface(tmp);
+                rotated = dst;
             }
             break;
         }
@@ -272,39 +246,19 @@ SDL_Surface* ImageLoader::apply_exif_rotation(SDL_Surface* surface, int exif) {
             break;
         }
         case 7: {
-            SDL_Surface* tmp = nullptr;
-            {
-                SDL_Surface* dst = SDL_CreateRGBSurfaceWithFormat(0, surface->h, surface->w, 32, surface->format->format);
-                if (dst) {
-                    int bpp = surface->format->BytesPerPixel;
-                    uint8_t* src_px = (uint8_t*)surface->pixels;
-                    uint8_t* dst_px = (uint8_t*)dst->pixels;
-                    for (int y = 0; y < surface->h; y++) {
-                        uint8_t* src_row = src_px + y * surface->pitch;
-                        for (int x = 0; x < surface->w; x++) {
-                            uint8_t* dst_pixel = dst_px + x * dst->pitch + y * bpp;
-                            memcpy(dst_pixel, src_row + x * bpp, bpp);
-                        }
+            SDL_Surface* dst = SDL_CreateRGBSurfaceWithFormat(0, surface->h, surface->w, 32, surface->format->format);
+            if (dst) {
+                int bpp = surface->format->BytesPerPixel;
+                uint8_t* src_px = (uint8_t*)surface->pixels;
+                uint8_t* dst_px = (uint8_t*)dst->pixels;
+                for (int y = 0; y < surface->h; y++) {
+                    uint8_t* src_row = src_px + y * surface->pitch;
+                    for (int x = 0; x < surface->w; x++) {
+                        uint8_t* dst_pixel = dst_px + (surface->w - 1 - x) * dst->pitch + (surface->h - 1 - y) * bpp;
+                        memcpy(dst_pixel, src_row + x * bpp, bpp);
                     }
-                    tmp = dst;
                 }
-            }
-            if (tmp) {
-                SDL_Surface* dst = SDL_CreateRGBSurfaceWithFormat(0, tmp->w, tmp->h, 32, tmp->format->format);
-                if (dst) {
-                    int bpp = tmp->format->BytesPerPixel;
-                    uint8_t* src_px = (uint8_t*)tmp->pixels;
-                    uint8_t* dst_px = (uint8_t*)dst->pixels;
-                    for (int y = 0; y < tmp->h; y++) {
-                        uint8_t* src_row = src_px + y * tmp->pitch;
-                        for (int x = 0; x < tmp->w; x++) {
-                            uint8_t* dst_pixel = dst_px + x * bpp + (tmp->w - 1 - y) * bpp;
-                            memcpy(dst_pixel, src_row + x * bpp, bpp);
-                        }
-                    }
-                    rotated = dst;
-                }
-                SDL_FreeSurface(tmp);
+                rotated = dst;
             }
             break;
         }
@@ -317,7 +271,7 @@ SDL_Surface* ImageLoader::apply_exif_rotation(SDL_Surface* surface, int exif) {
                 for (int y = 0; y < surface->h; y++) {
                     uint8_t* src_row = src_px + y * surface->pitch;
                     for (int x = 0; x < surface->w; x++) {
-                        uint8_t* dst_pixel = dst_px + x * bpp + y * bpp;
+                        uint8_t* dst_pixel = dst_px + (surface->w - 1 - x) * dst->pitch + y * bpp;
                         memcpy(dst_pixel, src_row + x * bpp, bpp);
                     }
                 }
