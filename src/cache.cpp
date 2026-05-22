@@ -9,6 +9,7 @@
 CacheManager* g_cache = nullptr;
 
 bool CacheManager::open(const std::string& dir) {
+    g_logger.info("[TRACE] CacheManager::open dir=%s", dir.c_str());
     std::filesystem::create_directories(dir);
 
     std::string path = dir + "/cache.db";
@@ -119,6 +120,7 @@ bool CacheManager::open(const std::string& dir) {
 }
 
 void CacheManager::close() {
+    g_logger.info("[TRACE] CacheManager::close");
     if (stmt_upsert) { sqlite3_finalize(stmt_upsert); stmt_upsert = nullptr; }
     if (stmt_load) { sqlite3_finalize(stmt_load); stmt_load = nullptr; }
     if (stmt_mark) { sqlite3_finalize(stmt_mark); stmt_mark = nullptr; }
@@ -168,6 +170,7 @@ void CacheManager::upsert(const MediaItem& mi, int bad) {
 }
 
 void CacheManager::mark_shown(const std::string& path) {
+    g_logger.info("[TRACE] CacheManager::mark_shown path=%s", path.c_str());
     if (!stmt_mark) return;
     std::lock_guard<std::mutex> lk(db_mutex);
     sqlite3_bind_int64(stmt_mark, 1, time(nullptr));
@@ -180,6 +183,7 @@ void CacheManager::mark_shown(const std::string& path) {
 }
 
 void CacheManager::mark_bad(const std::string& filepath) {
+    g_logger.info("[TRACE] CacheManager::mark_bad path=%s", filepath.c_str());
     if (!db) return;
     std::lock_guard<std::mutex> lk(db_mutex);
     const char* sql = "UPDATE cache SET bad = 1 WHERE path = ?;";
@@ -201,4 +205,20 @@ void CacheManager::commit_transaction() {
     if (!db) return;
     std::lock_guard<std::mutex> lk(db_mutex);
     sqlite3_exec(db, "COMMIT;", nullptr, nullptr, nullptr);
+}
+
+bool verify_database(const std::string& path) {
+    sqlite3* db = nullptr;
+    sqlite3_stmt* stmt = nullptr;
+    bool ok = false;
+    if (sqlite3_open_v2(path.c_str(), &db, SQLITE_OPEN_READWRITE, nullptr) != SQLITE_OK) return false;
+    if (sqlite3_prepare_v2(db, "SELECT name FROM sqlite_master WHERE type='table' AND name='cache';", -1, &stmt, nullptr) == SQLITE_OK) {
+        if (sqlite3_step(stmt) == SQLITE_ROW) {
+            const char* tn = (const char*)sqlite3_column_text(stmt, 0);
+            if (tn && std::string(tn) == "cache") ok = true;
+        }
+        sqlite3_finalize(stmt);
+    }
+    sqlite3_close(db);
+    return ok;
 }

@@ -13,9 +13,14 @@
 #include <ctime>
 
 static float read_ram_usage() {
+    static float cached_val = 0.0f;
+    static time_t cached_ts = 0;
+    time_t now = time(nullptr);
+    if (now == cached_ts) return cached_val;
+
     std::ifstream meminfo("/proc/meminfo");
     if (!meminfo.is_open()) return 0.0f;
-    
+
     long total = 0, available = 0;
     std::string line;
     while (std::getline(meminfo, line)) {
@@ -26,25 +31,33 @@ static float read_ram_usage() {
         }
     }
     meminfo.close();
-    
-    if (total <= 0) return 0.0f;
-    return ((total - available) / (float)total) * 100.0f;
+
+    if (total <= 0) { cached_val = 0.0f; cached_ts = now; return 0.0f; }
+    cached_val = ((total - available) / (float)total) * 100.0f;
+    cached_ts = now;
+    return cached_val;
 }
 
 static float read_cpu_usage() {
+    // Cached value — /proc/stat delta requires 1s sleep, too slow for per-frame use
+    static float cached_val = 0.0f;
+    static time_t cached_ts = 0;
+    time_t now = time(nullptr);
+    if (now == cached_ts) return cached_val;
+
     std::ifstream stat1("/proc/stat");
     if (!stat1.is_open()) return 0.0f;
-    
+
     char label[32];
     long long user1, nice1, system1, idle1, iowait1, irq1, softirq1;
     stat1 >> label >> user1 >> nice1 >> system1 >> idle1 >> iowait1 >> irq1 >> softirq1;
     stat1.close();
-    
-    usleep(1000000);
-    
+
+    usleep(500000); // 500ms instead of 1s
+
     std::ifstream stat2("/proc/stat");
     if (!stat2.is_open()) return 0.0f;
-    
+
     long long user2, nice2, system2, idle2, iowait2, irq2, softirq2;
     stat2 >> label >> user2 >> nice2 >> system2 >> idle2 >> iowait2 >> irq2 >> softirq2;
     stat2.close();
@@ -54,8 +67,10 @@ static float read_cpu_usage() {
     long long total_diff = total2 - total1;
     long long idle_diff = idle2 - idle1;
     
-    if (total_diff == 0) return 0.0f;
-    return ((float)(total_diff - idle_diff) / (float)total_diff) * 100.0f;
+    if (total_diff == 0) { cached_val = 0.0f; cached_ts = now; return 0.0f; }
+    cached_val = ((float)(total_diff - idle_diff) / (float)total_diff) * 100.0f;
+    cached_ts = now;
+    return cached_val;
 }
 
 static float read_cpu_freq() {
@@ -121,10 +136,19 @@ Renderer::~Renderer() {
 }
 
 bool Renderer::init(int w, int h, bool fullscreen) {
+    g_logger.info("[TRACE] Renderer::init w=%d h=%d fullscreen=%d", w, h, fullscreen);
     if (SDL_Init(SDL_INIT_VIDEO) != 0) {
         g_logger.error("SDL_Init failed: %s", SDL_GetError());
         return false;
     }
+    g_logger.info("[TRACE] SDL_Init OK");
+
+    if (IMG_Init(IMG_INIT_JPG | IMG_INIT_PNG) == 0) {
+        g_logger.error("IMG_Init failed: %s", IMG_GetError());
+        SDL_Quit();
+        return false;
+    }
+    g_logger.info("[TRACE] IMG_Init OK");
 
     Uint32 flags = 0;
     if (fullscreen) {
@@ -145,14 +169,14 @@ bool Renderer::init(int w, int h, bool fullscreen) {
         SDL_Quit();
         return false;
     }
+    g_logger.info("[TRACE] SDL_CreateWindow OK window=%p", (void*)window);
 
     SDL_GL_SetSwapInterval(1);
+    g_logger.info("[TRACE] SDL_GL context created (implicit from CreateWindow)");
 
-    // Query physical size
     SDL_GetWindowSize(window, &screen_w, &screen_h);
     g_logger.info("SDL Context & Window created successfully (%dx%d)", screen_w, screen_h);
 
-    // Create SDL_Renderer
     sdl_renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_TARGETTEXTURE);
     if (!sdl_renderer) {
         g_logger.error("SDL_CreateRenderer failed: %s", SDL_GetError());
@@ -160,13 +184,15 @@ bool Renderer::init(int w, int h, bool fullscreen) {
         SDL_Quit();
         return false;
     }
+    g_logger.info("[TRACE] SDL_CreateRenderer OK renderer=%p", (void*)sdl_renderer);
 
     SDL_SetRenderDrawBlendMode(sdl_renderer, SDL_BLENDMODE_BLEND);
-
+    g_logger.info("[TRACE] Renderer::init complete");
     return true;
 }
 
 void Renderer::cleanup() {
+    g_logger.info("[TRACE] Renderer::cleanup");
     cleanup_splash();
 
     if (sdl_renderer) {
@@ -181,6 +207,7 @@ void Renderer::cleanup() {
         SDL_DestroyWindow(window);
         window = nullptr;
     }
+    IMG_Quit();
     SDL_Quit();
 }
 
@@ -326,6 +353,7 @@ std::string Renderer::folder_and_file(const std::string& path) {
 }
 
 void Renderer::load_splash(const std::string& path) {
+    g_logger.info("[TRACE] Renderer::load_splash path=%s", path.c_str());
     cleanup_splash();
 
     std::string exe_dir = get_exe_dir();
@@ -498,7 +526,8 @@ void Renderer::draw_splash_progress_bar(int x, int y, int w, int h, float pct) {
     SDL_RenderFillRect(sdl_renderer, &rect);
 }
 
-void Renderer::render_splash(int phase, int progress, int total, int done, const char* label, int dot_counter) {
+void Renderer::render_splash(int phase, int progress, int total, int done, const char* label, int dot_counter, const char* filename, bool animated) {
+    if (filename) { current_cache_file = filename; }
     int sw = screen_w;
     int sh = screen_h;
 
@@ -526,14 +555,7 @@ void Renderer::render_splash(int phase, int progress, int total, int done, const
     int bottom_matte_padding = sh * 0.06f;
     int black_area_end = sh - bottom_matte_padding;
 
-    // 2. Animated scanlines for top white/graphics area
-    for (int y = 0; y < terminal_start_y; y += 4) {
-        float wave = sinf((float)y * 0.02f - (float)uptime * 3.0f) * 0.5f + 0.5f;
-        uint8_t alpha = (uint8_t)(20.0f + (wave * 30.0f));
-        SDL_SetRenderDrawColor(sdl_renderer, 0, 0, 0, alpha);
-        SDL_Rect rect = {0, y, sw, 2};
-        SDL_RenderFillRect(sdl_renderer, &rect);
-    }
+    // 2. Animated scanlines for top white/graphics area (removed for performance)
 
     // 3. UI Box dimensions
     int box_w = sw * 0.90f;
@@ -543,7 +565,7 @@ void Renderer::render_splash(int phase, int progress, int total, int done, const
 
     draw_splash_box(box_x, box_y, box_w, box_h);
 
-    // 4. Dense Phosphorous Green Scanlines over bottom area
+   // 4. Dense Phosphorous Green Scanlines over bottom area (CRT effect)
     int scanline_start = terminal_start_y - (sh * 0.02f);
     int scanline_end = black_area_end + (sh * 0.03f);
 
@@ -602,21 +624,26 @@ void Renderer::render_splash(int phase, int progress, int total, int done, const
     float cpu_usage = read_cpu_usage();
     float cpu_freq = read_cpu_freq();
     double sys_uptime = get_uptime();
-    int mem_mb = 0;
-    {
-        std::ifstream meminfo("/proc/meminfo");
-        if (meminfo.is_open()) {
-            char label[32];
-            long val;
-            while (meminfo >> label >> val) {
-                if (std::strcmp(label, "MemAvailable:") == 0) {
-                    mem_mb = val / 1024;
-                    break;
+    static int cached_mem_mb = 0;
+    static time_t mem_ts = 0;
+    time_t cur_time = time(nullptr);
+    if (cur_time != mem_ts) {
+        {
+            std::ifstream meminfo("/proc/meminfo");
+            if (meminfo.is_open()) {
+                char label[32];
+                long val;
+                while (meminfo >> label >> val) {
+                    if (std::strcmp(label, "MemAvailable:") == 0) {
+                        cached_mem_mb = val / 1024;
+                        break;
+                    }
                 }
             }
-            meminfo.close();
         }
+        mem_ts = cur_time;
     }
+    int mem_mb = cached_mem_mb;
     
     int speed = uptime > 0.001 ? (int)(progress / uptime) : 0;
     int latency = (phase <= 2) ? (rand() % 13 + 2) : 0;
@@ -801,11 +828,7 @@ void Renderer::render_splash(int phase, int progress, int total, int done, const
             draw_splash_text(pct_buf, text_x + bar_w + 15, bar_y, 16, theme_color);
 
             if (!current_cache_file.empty()) {
-                std::string cf = current_cache_file;
-                if ((int)cf.size() > 70) {
-                    cf = "..." + cf.substr(cf.size() - 67);
-                }
-                draw_splash_text(cf, text_x, bar_y + 28, 14, theme_dim);
+                draw_splash_text(current_cache_file, text_x, bar_y + 28, 14, theme_dim);
             }
         }
     } else if (phase >= 4) { // Success
@@ -836,8 +859,8 @@ void Renderer::render_splash(int phase, int progress, int total, int done, const
         draw_splash_text("[000%]", text_x + bar_w + 15, bar_y, 16, theme_dim);
     }
 
-    // CRT screen curvature vignette at 4px steps
-    {
+    // CRT screen curvature vignette at 4px steps (skip during scanning for performance)
+    if (animated && phase > 2) {
         float screen_h_f = (float)sh;
         for (int y = 0; y < sh; y += 4) {
             float edge = 1.0f - 0.3f * (1.0f - (2.0f * (float)y / screen_h_f - 1.0f) * (2.0f * (float)y / screen_h_f - 1.0f));

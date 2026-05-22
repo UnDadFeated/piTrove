@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(piTrove VERSION 9.0.1 LANGUAGES CXX)
+project(piTrove VERSION 9.0.12 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -35,6 +35,9 @@ pkg_check_modules(SQLITE3 REQUIRED sqlite3)
 
 # EXIF
 find_library(EXIF_LIBRARY NAMES exif REQUIRED)
+
+# STB image
+pkg_check_modules(STB stb)
 
 # MPV (optional — for video)
 option(ENABLE_MPV "Enable mpv video playback" ON)
@@ -79,6 +82,7 @@ target_include_directories(piTrove PRIVATE
     ${SDL2_IMAGE_INCLUDE_DIRS}
     ${SDL2_TTF_INCLUDE_DIRS}
     ${SQLITE3_INCLUDE_DIRS}
+    ${STB_INCLUDE_DIRS}
     /usr/include/drm
     .
 )
@@ -94,6 +98,7 @@ target_link_libraries(piTrove PRIVATE
     ${GLES2_LIBRARY}
     ${SQLITE3_LIBRARIES}
     ${EXIF_LIBRARY}
+    ${STB_LIBRARIES}
     png16
     jpeg
     webp

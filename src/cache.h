@@ -24,6 +24,9 @@ struct CacheManager {
     ~CacheManager();
 };
 
+// Verify database integrity before use (legacy pattern)
+bool verify_database(const std::string& path);
+
 extern CacheManager* g_cache;
 
 #endif // PITROVE_CACHE_H

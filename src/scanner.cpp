@@ -324,7 +324,8 @@ std::vector<std::string> MediaScanner::scan(const std::string& directory,
                                            const std::vector<std::string>& exts,
                                            int window_days,
                                            int max_depth,
-                                           const std::vector<std::string>& ignore_folders) {
+                                           const std::vector<std::string>& ignore_folders,
+                                           std::function<void(int)> progress) {
     live_found_count.store(0);
     std::vector<std::string> all_files;
     std::mutex list_mutex;
@@ -352,9 +353,9 @@ std::vector<std::string> MediaScanner::scan(const std::string& directory,
         }
     }
 
-    auto worker = [&](int start_idx, int step) {
+    auto worker = [&](int start_idx, int end_idx) {
         try {
-            for (size_t i = start_idx; i < subdirs.size(); i += step) {
+            for (int i = start_idx; i < end_idx; i++) {
                 std::string target_dir = subdirs[i];
                 std::function<void(const std::string&, int)> rec;
                 rec = [&](const std::string& dir, int d) {
@@ -374,6 +375,7 @@ std::vector<std::string> MediaScanner::scan(const std::string& directory,
                             rec(p, d + 1);
                         } else if (S_ISREG(st.st_mode)) {
                             process_entry(p, exts, window_days, list_mutex, all_files);
+                            if (progress) progress(live_found_count.load());
                         }
                     }
                 };
@@ -384,13 +386,28 @@ std::vector<std::string> MediaScanner::scan(const std::string& directory,
 
     for (const auto& p : root_files) {
         process_entry(p, exts, window_days, list_mutex, all_files);
+        if (progress) progress(live_found_count.load());
     }
 
-    std::thread t1(worker, 0, 3);
-    std::thread t2(worker, 1, 3);
-    std::thread t3(worker, 2, 3);
-    t1.join(); t2.join(); t3.join();
+    g_logger.info("scan: %d root_entries, %d root_files, %d subdirs", (int)root_entries.size(), (int)root_files.size(), (int)subdirs.size());
 
+    // Use hardware threads (like legacy) for max throughput
+    int hw_cores = std::max(1, (int)std::thread::hardware_concurrency());
+    int num_threads = std::min(hw_cores - 1, (int)subdirs.size());
+    if (num_threads < 1) num_threads = 1;
+
+    int chunk = std::max(1, (int)subdirs.size() / num_threads);
+    std::vector<std::thread> threads;
+    for (int t = 0; t < num_threads; t++) {
+        int start = t * chunk;
+        int end = (t == num_threads - 1) ? (int)subdirs.size() : start + chunk;
+        threads.emplace_back(worker, start, end);
+    }
+    for (auto& th : threads) {
+        if (th.joinable()) th.join();
+    }
+
+    if (progress) progress(live_found_count.load());
     return all_files;
 }
 
@@ -419,7 +436,8 @@ void MediaScanner::process_entry(const std::string& path_str,
 }
 
 void scan_directory(const std::string& dir, int depth,
-                    std::vector<MediaItem>& items, std::atomic<int64_t>& count) {
+                    std::vector<MediaItem>& items, std::atomic<int64_t>& count,
+                    std::function<void(int)> progress) {
     g_logger.info("scan_directory: dir=%s depth=%d", dir.c_str(), depth);
     MediaScanner scanner;
     std::vector<std::string> exts = {".jpg", ".jpeg", ".png", ".webp", ".heic", ".heif", ".gif", ".bmp", ".tiff", ".mp4", ".mov", ".mkv", ".avi", ".webm"};
@@ -430,7 +448,8 @@ void scan_directory(const std::string& dir, int depth,
         scan_days = g_cfg.scan_window_days;
         ignore_f = g_cfg.ignore_folders;
     }
-    auto media_files = scanner.scan(dir, exts, scan_days, depth, ignore_f);
+
+    auto media_files = scanner.scan(dir, exts, scan_days, depth, ignore_f, progress);
 
     for (auto& filepath : media_files) {
         auto fname = filepath.substr(filepath.find_last_of('/') + 1);

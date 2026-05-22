@@ -11,6 +11,7 @@
 #include <sstream>
 #include <iomanip>
 #include <filesystem>
+#include <functional>
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <fcntl.h>
@@ -48,12 +49,13 @@ public:
 
     MediaScanner() = default;
 
-   bool is_month_in_window(const std::string& dirname, int window_days);
+  bool is_month_in_window(const std::string& dirname, int window_days);
     std::vector<std::string> scan(const std::string& directory,
-                                  const std::vector<std::string>& exts,
-                                  int window_days,
-                                  int max_depth,
-                                  const std::vector<std::string>& ignore_folders);
+                                   const std::vector<std::string>& exts,
+                                   int window_days,
+                                   int max_depth,
+                                   const std::vector<std::string>& ignore_folders,
+                                   std::function<void(int)> progress = nullptr);
     int get_count();
 
 private:
@@ -66,7 +68,8 @@ private:
 
 // Global scanner interface
 void scan_directory(const std::string& dir, int depth,
-                    std::vector<MediaItem>& items, std::atomic<int64_t>& count);
+                    std::vector<MediaItem>& items, std::atomic<int64_t>& count,
+                    std::function<void(int)> progress = nullptr);
 
 // Triple-entropy/playlist helpers
 unsigned long long make_entropy_seed();

@@ -67,7 +67,7 @@ public:
     // Splash Screen methods
     void load_splash(const std::string& path);
     void cleanup_splash();
-    void render_splash(int phase, int progress, int total, int done, const char* label, int dot_counter);
+    void render_splash(int phase, int progress, int total, int done, const char* label, int dot_counter, const char* filename = nullptr, bool animated = true);
     void add_splash_log(const std::string& line);
     void draw_splash_box(int x, int y, int w, int h);
     void draw_splash_text(const std::string& text, int x, int y, int size, GpuColor color);
