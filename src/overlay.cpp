@@ -14,6 +14,7 @@ OverlayManager::~OverlayManager() {
 }
 
 void OverlayManager::init() {
+    g_logger.info("TRACE: OverlayManager::init start");
     cleanup();
 
     font_renderer = new FontRenderer(renderer);
@@ -42,6 +43,7 @@ void OverlayManager::init() {
 }
 
 void OverlayManager::cleanup() {
+    g_logger.info("TRACE: OverlayManager::cleanup");
     if (font_renderer) {
         delete font_renderer;
         font_renderer = nullptr;
@@ -70,6 +72,7 @@ void OverlayManager::draw_text_with_shadow(int x, int y, FontHandle& font, const
 }
 
 void OverlayManager::draw_all(int current_idx, int total_items, const std::string& filename, double item_timer, bool is_video) {
+    g_logger.info("TRACE: OverlayManager::draw_all idx=%d/%d video=%d", current_idx, total_items, is_video);
     if (!font_loaded || !font_renderer || !overlay_font) return;
 
     int pad = 15;

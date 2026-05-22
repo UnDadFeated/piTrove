@@ -42,6 +42,7 @@ void PreloadQueue::shutdown() {
 }
 
 void PreloadQueue::enqueue(const std::string& path) {
+    g_logger.info("TRACE: PreloadQueue::enqueue '%s'", path.c_str());
     if (path.empty()) return;
     {
         std::lock_guard<std::mutex> lock(work_mutex);
@@ -55,6 +56,7 @@ void PreloadQueue::enqueue(const std::string& path) {
 }
 
 std::shared_ptr<ImageData> PreloadQueue::try_dequeue() {
+    g_logger.info("TRACE: PreloadQueue::try_dequeue queue_size=%d", (int)loaded_queue.size());
     std::shared_ptr<ImageData> data = nullptr;
     {
         std::lock_guard<std::mutex> lock(queue_mutex);

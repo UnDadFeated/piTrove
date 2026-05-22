@@ -30,6 +30,7 @@ ssize_t get_dents64(int fd, char* buf, size_t bufsz) {
 }
 
 std::vector<std::string> read_dir(const std::string& path) {
+    g_logger.info("TRACE: read_dir '%s'", path.c_str());
     std::vector<std::string> entries;
     DIR* dir = opendir(path.c_str());
     if (!dir) return entries;
@@ -50,6 +51,7 @@ struct TimeoutState {
 };
 
 std::vector<std::string> read_dir_timeout(const std::string& path, int timeout_ms) {
+    g_logger.info("TRACE: read_dir_timeout '%s' timeout=%dms", path.c_str(), timeout_ms);
     auto entries = std::make_shared<std::vector<std::string>>();
     auto state = std::make_shared<TimeoutState>();
 
@@ -75,7 +77,8 @@ std::vector<std::string> read_dir_timeout(const std::string& path, int timeout_m
     }
 }
 
-bool stat_timeout(const std::string& path, struct stat& st, int timeout_ms) {
+   bool stat_timeout(const std::string& path, struct stat& st, int timeout_ms) {
+    g_logger.info("TRACE: stat_timeout '%s'", path.c_str());
     auto result = std::make_shared<int>(-1);
     auto st_ptr = std::make_shared<struct stat>();
     auto state = std::make_shared<TimeoutState>();
@@ -330,6 +333,7 @@ std::vector<std::string> MediaScanner::scan(const std::string& directory,
     std::vector<std::string> all_files;
     std::mutex list_mutex;
 
+    g_logger.info("TRACE: scan start dir='%s' exts=%d window=%d depth=%d ignore=%d", directory.c_str(), (int)exts.size(), window_days, max_depth, (int)ignore_folders.size());
     std::vector<std::string> subdirs;
     std::vector<std::string> root_files;
     std::vector<std::string> root_entries = read_dir_timeout(directory, 15000);
@@ -389,7 +393,7 @@ std::vector<std::string> MediaScanner::scan(const std::string& directory,
         if (progress) progress(live_found_count.load());
     }
 
-    g_logger.info("scan: %d root_entries, %d root_files, %d subdirs", (int)root_entries.size(), (int)root_files.size(), (int)subdirs.size());
+    g_logger.info("TRACE: scan root done: entries=%d files=%d subdirs=%d", (int)root_entries.size(), (int)root_files.size(), (int)subdirs.size());
 
     // Use hardware threads (like legacy) for max throughput
     int hw_cores = std::max(1, (int)std::thread::hardware_concurrency());
@@ -407,6 +411,7 @@ std::vector<std::string> MediaScanner::scan(const std::string& directory,
         if (th.joinable()) th.join();
     }
 
+    g_logger.info("TRACE: scan threads joined, total=%d", (int)all_files.size());
     if (progress) progress(live_found_count.load());
     return all_files;
 }
@@ -438,7 +443,7 @@ void MediaScanner::process_entry(const std::string& path_str,
 void scan_directory(const std::string& dir, int depth,
                     std::vector<MediaItem>& items, std::atomic<int64_t>& count,
                     std::function<void(int)> progress) {
-    g_logger.info("scan_directory: dir=%s depth=%d", dir.c_str(), depth);
+    g_logger.info("TRACE: scan_directory dir='%s' depth=%d", dir.c_str(), depth);
     MediaScanner scanner;
     std::vector<std::string> exts = {".jpg", ".jpeg", ".png", ".webp", ".heic", ".heif", ".gif", ".bmp", ".tiff", ".mp4", ".mov", ".mkv", ".avi", ".webm"};
     int scan_days;
@@ -450,6 +455,7 @@ void scan_directory(const std::string& dir, int depth,
     }
 
     auto media_files = scanner.scan(dir, exts, scan_days, depth, ignore_f, progress);
+    g_logger.info("TRACE: scan returned %d media files", (int)media_files.size());
 
     for (auto& filepath : media_files) {
         auto fname = filepath.substr(filepath.find_last_of('/') + 1);

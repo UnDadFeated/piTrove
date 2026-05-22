@@ -4,6 +4,7 @@
 #include <stdexcept>
 
 FontRenderer::FontRenderer(Renderer* renderer) : renderer(renderer) {
+    g_logger.info("TRACE: FontRenderer::ctor TTF_WasInit=%d", TTF_WasInit());
     if (TTF_WasInit() == 0) {
         if (TTF_Init() != 0) {
             g_logger.error("TTF_Init failed: %s", TTF_GetError());
@@ -13,6 +14,7 @@ FontRenderer::FontRenderer(Renderer* renderer) : renderer(renderer) {
 }
 
 FontRenderer::~FontRenderer() {
+    g_logger.info("TRACE: FontRenderer::dtor fonts=%d", (int)fonts.size());
     for (auto& pair : fonts) {
         if (pair.second && pair.second->font) {
             TTF_CloseFont(pair.second->font);
