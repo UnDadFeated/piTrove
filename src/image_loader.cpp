@@ -223,7 +223,11 @@ int ImageLoader::read_exif_rotation(const char* path) {
     ExifData* ed = exif_data_new_from_file(path);
     if (!ed) return rotation;
 
+    // Check IFD_0 first, then IFD_EXIF (some cameras write orientation there)
     ExifEntry* entry = exif_content_get_entry(ed->ifd[EXIF_IFD_0], EXIF_TAG_ORIENTATION);
+    if (!entry || entry->size < 2 || entry->format != EXIF_FORMAT_SHORT) {
+        entry = exif_content_get_entry(ed->ifd[EXIF_IFD_EXIF], EXIF_TAG_ORIENTATION);
+    }
     if (!entry || entry->size < 2 || entry->format != EXIF_FORMAT_SHORT) {
         exif_data_unref(ed);
         return rotation;
@@ -233,6 +237,24 @@ int ImageLoader::read_exif_rotation(const char* path) {
     if (val >= 1 && val <= 8) rotation = val;
     exif_data_unref(ed);
     return rotation;
+}
+
+bool ImageLoader::has_camera_exif(const char* path) {
+    ExifData* ed = exif_data_new_from_file(path);
+    if (!ed) return false;
+
+    // Check for camera-specific EXIF tags that screenshots don't have
+    ExifEntry* make = exif_content_get_entry(ed->ifd[EXIF_IFD_EXIF], EXIF_TAG_MAKE);
+    ExifEntry* model = exif_content_get_entry(ed->ifd[EXIF_IFD_EXIF], EXIF_TAG_MODEL);
+    ExifEntry* exposure = exif_content_get_entry(ed->ifd[EXIF_IFD_EXIF], EXIF_TAG_EXPOSURE_TIME);
+    ExifEntry* fnumber = exif_content_get_entry(ed->ifd[EXIF_IFD_EXIF], EXIF_TAG_FNUMBER);
+    ExifEntry* datetime = exif_content_get_entry(ed->ifd[EXIF_IFD_EXIF], EXIF_TAG_DATE_TIME_ORIGINAL);
+
+    exif_data_unref(ed);
+
+    // Require at least 2 camera-specific tags (screenshots rarely have more than 1)
+    int count = (make ? 1 : 0) + (model ? 1 : 0) + (exposure ? 1 : 0) + (fnumber ? 1 : 0) + (datetime ? 1 : 0);
+    return count >= 2;
 }
 
 SDL_Surface* ImageLoader::apply_exif_rotation(SDL_Surface* surface, int exif) {

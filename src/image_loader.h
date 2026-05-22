@@ -167,6 +167,9 @@ public:
 
     // Read EXIF orientation from file
     static int read_exif_rotation(const char* path);
+
+    // Check if file has camera EXIF tags (not screenshot/screen grab)
+    static bool has_camera_exif(const char* path);
 };
 
 #endif // PITROVE_IMAGE_LOADER_H
