@@ -156,6 +156,7 @@ bool Renderer::init(int w, int h, bool fullscreen) {
         flags |= SDL_WINDOW_FULLSCREEN_DESKTOP;
     }
     const char* driver = SDL_GetCurrentVideoDriver();
+    g_logger.info("SDL Selected Video Driver: %s", driver ? driver : "UNKNOWN");
     if (driver && std::strcmp(driver, "kmsdrm") == 0) {
         flags |= SDL_WINDOW_FULLSCREEN;
     }
