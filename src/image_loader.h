@@ -6,7 +6,7 @@
 #include <cstdint>
 #include <cstring>
 #include <vector>
-#include <SDL.h>
+#include <SDL3/SDL.h>
 
 enum class ImageFormat { Unknown, RGBA32, RGB24, BGRA32, BGR24 };
 
@@ -85,7 +85,7 @@ struct ImageData {
             texture = nullptr;
         }
         if (surface) {
-            SDL_FreeSurface(surface);
+            SDL_DestroySurface(surface);
             surface = nullptr;
         }
     }
@@ -120,7 +120,7 @@ struct ImageData {
     ImageData& operator=(ImageData&& other) noexcept {
         if (this != &other) {
             if (texture) SDL_DestroyTexture(texture);
-            if (surface) SDL_FreeSurface(surface);
+            if (surface) SDL_DestroySurface(surface);
             width = other.width;
             height = other.height;
             exif_rotation = other.exif_rotation;

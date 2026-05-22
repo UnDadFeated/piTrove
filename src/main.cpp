@@ -11,9 +11,9 @@
 #include "mpv_player.h"
 #include "tui.h"
 
-#include <SDL.h>
-#include <SDL_image.h>
-#include <SDL_ttf.h>
+#include <SDL3/SDL.h>
+#include <SDL3_image/SDL_image.h>
+#include <SDL3_ttf/SDL_ttf.h>
 #include <sys/file.h>
 #include <unistd.h>
 #include <csignal>
@@ -86,19 +86,46 @@ static bool is_item_in_seasonal_window(const MediaItem& item, int window_days) {
 static std::vector<MediaItem> filter_playlist(const std::vector<MediaItem>& items, int cooldown_days, int window_days) {
     std::vector<MediaItem> filtered;
     int64_t now = static_cast<int64_t>(std::time(nullptr));
-    int64_t cutoff = now - (static_cast<int64_t>(cooldown_days) * 86400);
     
+    int seasonal_count = 0;
     for (const auto& item : items) {
-        // 1. Cooldown filter
-        if (item.last_shown >= cutoff) {
-            continue;
+        if (is_item_in_seasonal_window(item, window_days)) {
+            seasonal_count++;
         }
-        // 2. Seasonal window filter
-        if (!is_item_in_seasonal_window(item, window_days)) {
-            continue;
-        }
-        filtered.push_back(item);
     }
+    
+    int target_min = std::min(15, seasonal_count);
+    int current_cooldown = cooldown_days;
+    
+    while (true) {
+        filtered.clear();
+        int64_t cutoff = now - (static_cast<int64_t>(current_cooldown) * 86400);
+        for (const auto& item : items) {
+            // 1. Cooldown filter
+            if (current_cooldown > 0 && item.last_shown >= cutoff) {
+                continue;
+            }
+            // 2. Seasonal window filter
+            if (!is_item_in_seasonal_window(item, window_days)) {
+                continue;
+            }
+            filtered.push_back(item);
+        }
+        
+        if ((int)filtered.size() >= target_min || current_cooldown <= 0) {
+            break;
+        }
+        
+        int next_cooldown = current_cooldown / 2;
+        if (next_cooldown == current_cooldown || next_cooldown < 1) {
+            current_cooldown = 0;
+        } else {
+            current_cooldown = next_cooldown;
+        }
+        g_logger.info("filter_playlist: Cooldown of %d days resulted in only %zu items. Degrading to %d days to maintain variety.",
+            cooldown_days, filtered.size(), current_cooldown);
+    }
+    
     return filtered;
 }
 
@@ -157,6 +184,80 @@ static void organize_playlist(std::vector<MediaItem>& eligible, int videos_per_p
 
         g_logger.info("Playlist organized: %zu photos + %zu videos = %zu total (ratio: 3 videos per %d cycle)",
             photos.size(), videos.size(), eligible.size(), cycle_size);
+    }
+
+    // Unified aggressive shuffle of the final combined/interleaved list to avoid rigid repeating patterns
+    if (shuffle_enabled) {
+        std::mt19937_64 rng(make_entropy_seed());
+        std::shuffle(eligible.begin(), eligible.end(), rng);
+    }
+}
+
+static void mark_item_shown(const std::string& path, bool lock_playlist = true) {
+    int64_t now = static_cast<int64_t>(std::time(nullptr));
+    g_cache->mark_shown(path);
+    
+    std::unique_lock<std::mutex> lock(g_playlist_mtx, std::defer_lock);
+    if (lock_playlist) {
+        lock.lock();
+    }
+    
+    // Update last_shown in g_eligible
+    for (auto& item : g_eligible) {
+        if (item.path == path) {
+            item.last_shown = now;
+        }
+    }
+    // Update last_shown in g_scanned_items
+    for (auto& item : g_scanned_items) {
+        if (item.path == path) {
+            item.last_shown = now;
+        }
+    }
+}
+
+static void advance_playlist(int direction = 1) {
+    if (g_eligible.empty()) return;
+    
+    if (direction == 1) {
+        int next_idx = current_idx + 1;
+        if (next_idx >= (int)g_eligible.size()) {
+            g_logger.info("Playlist reached end. Re-filtering and re-shuffling to prevent repetition...");
+            
+            int cooldown_days = 330;
+            int window_days = 15;
+            bool play_just_photos = false;
+            bool play_just_videos = false;
+            int videos_per_photos = 10;
+            bool shuffle_enabled = true;
+            {
+                std::lock_guard<std::mutex> lock(g_config_mtx);
+                cooldown_days = g_cfg.cooldown_days;
+                window_days = g_cfg.scan_window_days;
+                play_just_photos = g_cfg.play_just_photos;
+                play_just_videos = g_cfg.play_just_videos;
+                videos_per_photos = g_cfg.videos_per_photos;
+                shuffle_enabled = g_cfg.shuffle;
+            }
+            
+            std::vector<MediaItem> new_eligible = filter_playlist(g_scanned_items, cooldown_days, window_days);
+            if (!new_eligible.empty()) {
+                organize_playlist(new_eligible, videos_per_photos, play_just_photos, play_just_videos, shuffle_enabled);
+                
+                std::string prev_path = g_eligible[current_idx].path;
+                g_eligible = std::move(new_eligible);
+                
+                // Avoid immediate repetition if the new first item matches the previous item
+                if (g_eligible.size() > 1 && g_eligible[0].path == prev_path) {
+                    std::swap(g_eligible[0], g_eligible[1]);
+                }
+            }
+            current_idx = 0;
+        } else {
+            current_idx = next_idx;
+        }
+    } else {
+        current_idx = (current_idx - 1 + (int)g_eligible.size()) % (int)g_eligible.size();
     }
 }
 
@@ -610,7 +711,7 @@ int main(int argc, char** argv) {
             if (current_data && current_data->valid) {
                 ImageLoader::load_texture(current_data.get(), g_renderer.sdl_renderer);
                 current_tex = current_data->texture;
-                g_cache->mark_shown(g_eligible[current_idx].path);
+                mark_item_shown(g_eligible[current_idx].path, false);
 
                 // Update in-memory item metadata with actual dimensions and EXIF rotation
                 g_eligible[current_idx].width = current_data->width;
@@ -656,16 +757,16 @@ int main(int argc, char** argv) {
         SDL_Event event;
         while (SDL_PollEvent(&event)) {
             switch (event.type) {
-                case SDL_QUIT: g_running.store(false); break;
-                case SDL_KEYDOWN:
-                    switch (event.key.keysym.sym) {
-                        case SDLK_ESCAPE: case SDLK_q: g_running.store(false); break;
+                case SDL_EVENT_QUIT: g_running.store(false); break;
+                case SDL_EVENT_KEY_DOWN:
+                    switch (event.key.key) {
+                        case SDLK_ESCAPE: case SDLK_Q: g_running.store(false); break;
                         case SDLK_RIGHT: case SDLK_SPACE: g_remote_command.store(1); break;
                         case SDLK_LEFT: g_remote_command.store(2); break;
-                        case SDLK_p: g_remote_command.store(3); break;
+                        case SDLK_P: g_remote_command.store(3); break;
                     }
                     break;
-                case SDL_MOUSEBUTTONDOWN: g_remote_command.store(1); break;
+                case SDL_EVENT_MOUSE_BUTTON_DOWN: g_remote_command.store(1); break;
             }
         }
 
@@ -691,9 +792,9 @@ int main(int argc, char** argv) {
             }
             transitioning = true; transition_timer = 0.0;
             if (cmd == 1) {
-                current_idx = (current_idx + 1) % (int)g_eligible.size();
+                advance_playlist(1);
             } else {
-                current_idx = (current_idx - 1 + (int)g_eligible.size()) % (int)g_eligible.size();
+                advance_playlist(-1);
             }
         }
 
@@ -712,7 +813,7 @@ int main(int argc, char** argv) {
                     // Video EOF: stop transition and advance to next
                     g_logger.info("Video EOF detected: advancing playlist.");
                     transitioning = true; transition_timer = 0.0;
-                    current_idx = (current_idx + 1) % (int)g_eligible.size();
+                    advance_playlist(1);
                 }
                 playlist_lock.unlock(); // Unlock before delay sleep
                 SDL_Delay(50); continue;
@@ -728,11 +829,12 @@ int main(int argc, char** argv) {
                 g_logger.error("Failed to play video, skipping to next.");
                 playlist_lock.lock(); // Re-lock
                 transitioning = true; transition_timer = 0.0;
-                current_idx = (current_idx + 1) % (int)g_eligible.size();
+                advance_playlist(1);
                 playlist_lock.unlock();
                 continue;
             } else {
                 playlist_lock.lock(); // Re-lock to safely free image texture VRAM during playback
+                mark_item_shown(video_path, false); // Mark the video as shown for cooldown
                 if (current_data) {
                     current_data = nullptr;
                     current_tex = nullptr;
@@ -802,8 +904,7 @@ int main(int argc, char** argv) {
                     current_data = next_data;
                     next_data = nullptr;
                     current_tex = current_data->texture;
-
-                    g_cache->mark_shown(g_eligible[current_idx].path);
+                    mark_item_shown(g_eligible[current_idx].path, false);
                     g_renderer.calculate_fit_rect(g_eligible[current_idx].width, g_eligible[current_idx].height, fit_rect);
                 }
             } else {
@@ -817,6 +918,7 @@ int main(int argc, char** argv) {
                     current_data = next_data;
                     next_data = nullptr;
                     current_tex = current_data->texture;
+                    mark_item_shown(g_eligible[current_idx].path, false);
                     g_renderer.calculate_fit_rect(g_eligible[current_idx].width, g_eligible[current_idx].height, fit_rect);
                 }
             }
@@ -830,20 +932,20 @@ int main(int argc, char** argv) {
                 } else if (g_cfg.matting) {
                     g_renderer.draw_matte_borders(fit_rect);
                 }
-                SDL_Rect dst = {fit_rect.x, fit_rect.y, fit_rect.w, fit_rect.h};
-                SDL_RenderCopy(g_renderer.sdl_renderer, current_tex, nullptr, &dst);
-
+                SDL_FRect dst = {(float)fit_rect.x, (float)fit_rect.y, (float)fit_rect.w, (float)fit_rect.h};
+                SDL_RenderTexture(g_renderer.sdl_renderer, current_tex, nullptr, &dst);
+ 
                 if (g_overlay) {
                     g_overlay->draw_all(current_idx, (int)g_eligible.size(),
                         g_eligible[current_idx].filename, item_timer, false);
                 }
-
+ 
                 g_renderer.present();
             }
-
+ 
             if (item_timer >= g_cfg.transition_delay) {
                 transitioning = true; transition_timer = 0.0;
-                current_idx = (current_idx + 1) % (int)g_eligible.size();
+                advance_playlist(1);
             }
         }
 

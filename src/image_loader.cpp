@@ -4,7 +4,7 @@
 #include "image_loader.h"
 #include "renderer.h"
 #include "util.h"
-#include <SDL_image.h>
+#include <SDL3_image/SDL_image.h>
 #include <stb_image.h>
 #include <algorithm>
 #include <stdexcept>
@@ -61,10 +61,10 @@ std::shared_ptr<ImageData> ImageLoader::load(const std::string& path) {
         return result;
     }
 
-    SDL_Surface* surf = SDL_CreateRGBSurfaceWithFormat(0, w, h, 32, SDL_PIXELFORMAT_RGBA32);
+    SDL_Surface* surf = SDL_CreateSurface(w, h, SDL_PIXELFORMAT_RGBA32);
     if (!surf) {
         stbi_image_free(pixels);
-        g_logger.error("SDL_CreateRGBSurfaceWithFormat failed for: %s", path.c_str());
+        g_logger.error("SDL_CreateSurface failed for: %s", path.c_str());
         return result;
     }
 
@@ -76,7 +76,7 @@ std::shared_ptr<ImageData> ImageLoader::load(const std::string& path) {
     if (exif >= 2 && exif <= 8) {
         SDL_Surface* rotated = apply_exif_rotation(surf, exif);
         if (rotated) {
-            SDL_FreeSurface(surf);
+            SDL_DestroySurface(surf);
             surf = rotated;
         }
     }
@@ -103,7 +103,7 @@ std::shared_ptr<ImageData> ImageLoader::load(const std::string& path) {
     // Per-pixel edge strips: average 3px deep per position
     {
         uint8_t* px = (uint8_t*)surf->pixels;
-        int bpp = surf->format->BytesPerPixel;
+        int bpp = SDL_BYTESPERPIXEL(surf->format);
         int sw = surf->w, sh = surf->h;
         int pitch = surf->pitch;
 
@@ -177,12 +177,12 @@ void ImageLoader::load_texture(ImageData* data, SDL_Renderer* renderer) {
         int nw = std::max(1, (int)(data->width * scale));
         int nh = std::max(1, (int)(data->height * scale));
 
-        SDL_Surface* scaled = SDL_CreateRGBSurfaceWithFormat(0, nw, nh, 32, data->surface->format->format);
+        SDL_Surface* scaled = SDL_CreateSurface(nw, nh, data->surface->format);
         if (scaled) {
             SDL_Rect src_rect = {0, 0, data->width, data->height};
             SDL_Rect dst_rect = {0, 0, nw, nh};
-            SDL_BlitScaled(data->surface, &src_rect, scaled, &dst_rect);
-            SDL_FreeSurface(data->surface);
+            SDL_BlitSurfaceScaled(data->surface, &src_rect, scaled, &dst_rect, SDL_SCALEMODE_LINEAR);
+            SDL_DestroySurface(data->surface);
             data->surface = scaled;
             data->width = nw;
             data->height = nh;
@@ -193,10 +193,10 @@ void ImageLoader::load_texture(ImageData* data, SDL_Renderer* renderer) {
     if (!data->texture) {
         g_logger.error("Failed to create texture from surface: %s", SDL_GetError());
     } else {
-        SDL_SetTextureScaleMode(data->texture, SDL_ScaleModeLinear);
+        SDL_SetTextureScaleMode(data->texture, SDL_SCALEMODE_LINEAR);
     }
 
-    SDL_FreeSurface(data->surface);
+    SDL_DestroySurface(data->surface);
     data->surface = nullptr;
 }
 
@@ -212,7 +212,7 @@ void ImageLoader::unload(ImageData* data) {
     if (!data) return;
     unload_texture(data);
     if (data->surface) {
-        SDL_FreeSurface(data->surface);
+        SDL_DestroySurface(data->surface);
         data->surface = nullptr;
     }
     data->valid = false;
@@ -240,9 +240,9 @@ SDL_Surface* ImageLoader::apply_exif_rotation(SDL_Surface* surface, int exif) {
     SDL_Surface* rotated = nullptr;
     switch (exif) {
         case 2: {
-            SDL_Surface* dst = SDL_CreateRGBSurfaceWithFormat(0, surface->w, surface->h, 32, surface->format->format);
+            SDL_Surface* dst = SDL_CreateSurface(surface->w, surface->h, surface->format);
             if (dst) {
-                int bpp = surface->format->BytesPerPixel;
+                int bpp = SDL_BYTESPERPIXEL(surface->format);
                 uint8_t* src_px = (uint8_t*)surface->pixels;
                 uint8_t* dst_px = (uint8_t*)dst->pixels;
                 for (int y = 0; y < surface->h; y++) {
@@ -257,9 +257,9 @@ SDL_Surface* ImageLoader::apply_exif_rotation(SDL_Surface* surface, int exif) {
             break;
         }
         case 3: {
-            SDL_Surface* dst = SDL_CreateRGBSurfaceWithFormat(0, surface->w, surface->h, 32, surface->format->format);
+            SDL_Surface* dst = SDL_CreateSurface(surface->w, surface->h, surface->format);
             if (dst) {
-                int bpp = surface->format->BytesPerPixel;
+                int bpp = SDL_BYTESPERPIXEL(surface->format);
                 uint8_t* src_px = (uint8_t*)surface->pixels;
                 uint8_t* dst_px = (uint8_t*)dst->pixels;
                 for (int y = 0; y < surface->h; y++) {
@@ -274,7 +274,7 @@ SDL_Surface* ImageLoader::apply_exif_rotation(SDL_Surface* surface, int exif) {
             break;
         }
         case 4: {
-            SDL_Surface* dst = SDL_CreateRGBSurfaceWithFormat(0, surface->w, surface->h, 32, surface->format->format);
+            SDL_Surface* dst = SDL_CreateSurface(surface->w, surface->h, surface->format);
             if (dst) {
                 uint8_t* src_px = (uint8_t*)surface->pixels;
                 uint8_t* dst_px = (uint8_t*)dst->pixels;
@@ -286,9 +286,9 @@ SDL_Surface* ImageLoader::apply_exif_rotation(SDL_Surface* surface, int exif) {
             break;
         }
         case 5: {
-            SDL_Surface* dst = SDL_CreateRGBSurfaceWithFormat(0, surface->h, surface->w, 32, surface->format->format);
+            SDL_Surface* dst = SDL_CreateSurface(surface->h, surface->w, surface->format);
             if (dst) {
-                int bpp = surface->format->BytesPerPixel;
+                int bpp = SDL_BYTESPERPIXEL(surface->format);
                 uint8_t* src_px = (uint8_t*)surface->pixels;
                 uint8_t* dst_px = (uint8_t*)dst->pixels;
                 for (int y = 0; y < surface->h; y++) {
@@ -303,9 +303,9 @@ SDL_Surface* ImageLoader::apply_exif_rotation(SDL_Surface* surface, int exif) {
             break;
         }
         case 6: {
-            SDL_Surface* dst = SDL_CreateRGBSurfaceWithFormat(0, surface->h, surface->w, 32, surface->format->format);
+            SDL_Surface* dst = SDL_CreateSurface(surface->h, surface->w, surface->format);
             if (dst) {
-                int bpp = surface->format->BytesPerPixel;
+                int bpp = SDL_BYTESPERPIXEL(surface->format);
                 uint8_t* src_px = (uint8_t*)surface->pixels;
                 uint8_t* dst_px = (uint8_t*)dst->pixels;
                 for (int y = 0; y < surface->h; y++) {
@@ -320,9 +320,9 @@ SDL_Surface* ImageLoader::apply_exif_rotation(SDL_Surface* surface, int exif) {
             break;
         }
         case 7: {
-            SDL_Surface* dst = SDL_CreateRGBSurfaceWithFormat(0, surface->h, surface->w, 32, surface->format->format);
+            SDL_Surface* dst = SDL_CreateSurface(surface->h, surface->w, surface->format);
             if (dst) {
-                int bpp = surface->format->BytesPerPixel;
+                int bpp = SDL_BYTESPERPIXEL(surface->format);
                 uint8_t* src_px = (uint8_t*)surface->pixels;
                 uint8_t* dst_px = (uint8_t*)dst->pixels;
                 for (int y = 0; y < surface->h; y++) {
@@ -337,9 +337,9 @@ SDL_Surface* ImageLoader::apply_exif_rotation(SDL_Surface* surface, int exif) {
             break;
         }
         case 8: {
-            SDL_Surface* dst = SDL_CreateRGBSurfaceWithFormat(0, surface->h, surface->w, 32, surface->format->format);
+            SDL_Surface* dst = SDL_CreateSurface(surface->h, surface->w, surface->format);
             if (dst) {
-                int bpp = surface->format->BytesPerPixel;
+                int bpp = SDL_BYTESPERPIXEL(surface->format);
                 uint8_t* src_px = (uint8_t*)surface->pixels;
                 uint8_t* dst_px = (uint8_t*)dst->pixels;
                 for (int y = 0; y < surface->h; y++) {

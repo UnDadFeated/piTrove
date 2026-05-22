@@ -1,5 +1,5 @@
-#include <SDL2/SDL.h>
-#include <SDL2/SDL_image.h>
+#include <SDL3/SDL.h>
+#include <SDL3_image/SDL_image.h>
 #include <iostream>
 #include <string>
 #include <thread>
@@ -37,23 +37,21 @@ int find_drm_fd() {
 }
 
 void render_photo(const std::string& path) {
-    if (SDL_Init(SDL_INIT_VIDEO) < 0) {
+    if (!SDL_Init(SDL_INIT_VIDEO)) {
         std::cerr << "[ERROR] SDL_Init failed: " << SDL_GetError() << std::endl;
         return;
     }
-    IMG_Init(IMG_INIT_JPG | IMG_INIT_PNG | IMG_INIT_WEBP);
 
     std::cout << "[INFO] Initializing fullscreen KMSDRM window..." << std::endl;
     SDL_Window* window = SDL_CreateWindow("piTrove Test Standalone",
-                                          SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED,
-                                          0, 0, SDL_WINDOW_FULLSCREEN_DESKTOP);
+                                          0, 0, SDL_WINDOW_FULLSCREEN);
     if (!window) {
         std::cerr << "[ERROR] SDL_CreateWindow failed: " << SDL_GetError() << std::endl;
         SDL_Quit();
         return;
     }
 
-    SDL_Renderer* renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
+    SDL_Renderer* renderer = SDL_CreateRenderer(window, nullptr);
     if (!renderer) {
         std::cerr << "[ERROR] SDL_CreateRenderer failed: " << SDL_GetError() << std::endl;
         SDL_DestroyWindow(window);
@@ -68,7 +66,7 @@ void render_photo(const std::string& path) {
     std::cout << "[INFO] Loading image: " << path << std::endl;
     SDL_Surface* surface = IMG_Load(path.c_str());
     if (!surface) {
-        std::cerr << "[ERROR] Failed to load image: " << IMG_GetError() << std::endl;
+        std::cerr << "[ERROR] Failed to load image: " << SDL_GetError() << std::endl;
         SDL_DestroyRenderer(renderer);
         SDL_DestroyWindow(window);
         SDL_Quit();
@@ -76,7 +74,7 @@ void render_photo(const std::string& path) {
     }
 
     SDL_Texture* texture = SDL_CreateTextureFromSurface(renderer, surface);
-    SDL_FreeSurface(surface);
+    SDL_DestroySurface(surface);
     if (!texture) {
         std::cerr << "[ERROR] Failed to create texture: " << SDL_GetError() << std::endl;
         SDL_DestroyRenderer(renderer);
@@ -86,22 +84,22 @@ void render_photo(const std::string& path) {
     }
 
     // Centered aspect-ratio fitting
-    int img_w, img_h;
-    SDL_QueryTexture(texture, nullptr, nullptr, &img_w, &img_h);
+    float img_w, img_h;
+    SDL_GetTextureSize(texture, &img_w, &img_h);
     double aspect_img = (double)img_w / img_h;
     double aspect_screen = (double)w / h;
     
-    SDL_Rect dst;
+    SDL_FRect dst;
     if (aspect_img > aspect_screen) {
-        dst.w = w;
-        dst.h = (int)(w / aspect_img);
-        dst.x = 0;
-        dst.y = (h - dst.h) / 2;
+        dst.w = (float)w;
+        dst.h = (float)(w / aspect_img);
+        dst.x = 0.0f;
+        dst.y = (float)(h - dst.h) / 2.0f;
     } else {
-        dst.h = h;
-        dst.w = (int)(h * aspect_img);
-        dst.y = 0;
-        dst.x = (w - dst.w) / 2;
+        dst.h = (float)h;
+        dst.w = (float)(h * aspect_img);
+        dst.y = 0.0f;
+        dst.x = (float)(w - dst.w) / 2.0f;
     }
 
     std::cout << "[INFO] Rendering photo to: x=" << dst.x << ", y=" << dst.y << ", w=" << dst.w << ", h=" << dst.h << std::endl;
@@ -111,29 +109,27 @@ void render_photo(const std::string& path) {
     while (std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now() - start).count() < 5) {
         SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255); // Matte borders
         SDL_RenderClear(renderer);
-        SDL_RenderCopy(renderer, texture, nullptr, &dst);
+        SDL_RenderTexture(renderer, texture, nullptr, &dst);
         SDL_RenderPresent(renderer);
         SDL_Delay(16);
     }
 
-    std::cout << "[INFO] Cleaning up SDL2..." << std::endl;
+    std::cout << "[INFO] Cleaning up SDL3..." << std::endl;
     SDL_DestroyTexture(texture);
     SDL_DestroyRenderer(renderer);
     SDL_DestroyWindow(window);
-    IMG_Quit();
     SDL_Quit();
 }
 
 void play_video(const std::string& path) {
-    if (SDL_Init(SDL_INIT_VIDEO) < 0) {
+    if (!SDL_Init(SDL_INIT_VIDEO)) {
         std::cerr << "[ERROR] SDL_Init failed: " << SDL_GetError() << std::endl;
         return;
     }
 
     std::cout << "[INFO] Opening KMSDRM window to claim DRM master..." << std::endl;
     SDL_Window* window = SDL_CreateWindow("piTrove Video Test",
-                                          SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED,
-                                          0, 0, SDL_WINDOW_FULLSCREEN_DESKTOP);
+                                          0, 0, SDL_WINDOW_FULLSCREEN);
     if (!window) {
         std::cerr << "[ERROR] SDL_CreateWindow failed: " << SDL_GetError() << std::endl;
         SDL_Quit();
@@ -178,7 +174,7 @@ void play_video(const std::string& path) {
 
     if (drm_fd >= 0) {
         int rc = drmSetMaster(drm_fd);
-        std::cout << "[INFO] drmSetMaster(fd=" << drm_fd << ") = " << rc << " (Reclaimed DRM master for SDL2)" << std::endl;
+        std::cout << "[INFO] drmSetMaster(fd=" << drm_fd << ") = " << rc << " (Reclaimed DRM master for SDL3)" << std::endl;
     }
 
     SDL_DestroyWindow(window);

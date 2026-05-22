@@ -1,7 +1,7 @@
 #ifndef PITROVE_OVERLAY_H
 #define PITROVE_OVERLAY_H
 
-#include <SDL.h>
+#include <SDL3/SDL.h>
 #include <string>
 #include "font_render.h"
 #include "renderer.h"

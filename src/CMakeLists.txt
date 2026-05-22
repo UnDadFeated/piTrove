@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(piTrove VERSION 9.4.1 LANGUAGES CXX)
+project(piTrove VERSION 10.0.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -18,10 +18,10 @@ endif()
 
 find_package(PkgConfig REQUIRED)
 
-# SDL2 + image + ttf
-pkg_check_modules(SDL2 REQUIRED sdl2)
-pkg_check_modules(SDL2_IMAGE REQUIRED SDL2_image)
-pkg_check_modules(SDL2_TTF REQUIRED SDL2_ttf)
+# SDL3 + image + ttf
+pkg_check_modules(SDL3 REQUIRED sdl3)
+pkg_check_modules(SDL3_IMAGE REQUIRED sdl3-image)
+pkg_check_modules(SDL3_TTF REQUIRED sdl3-ttf)
 
 # DRM/GLES/EGL/GBM (system libraries on Pi)
 find_library(DRM_LIBRARY NAMES drm REQUIRED)
@@ -79,9 +79,9 @@ endif()
 add_executable(piTrove ${PISTROVE_SOURCES})
 
 target_include_directories(piTrove PRIVATE
-    ${SDL2_INCLUDE_DIRS}
-    ${SDL2_IMAGE_INCLUDE_DIRS}
-    ${SDL2_TTF_INCLUDE_DIRS}
+    ${SDL3_INCLUDE_DIRS}
+    ${SDL3_IMAGE_INCLUDE_DIRS}
+    ${SDL3_TTF_INCLUDE_DIRS}
     ${SQLITE3_INCLUDE_DIRS}
     ${STB_INCLUDE_DIRS}
     /usr/include/drm
@@ -89,9 +89,9 @@ target_include_directories(piTrove PRIVATE
 )
 
 target_link_libraries(piTrove PRIVATE
-    ${SDL2_LIBRARIES}
-    ${SDL2_IMAGE_LIBRARIES}
-    ${SDL2_TTF_LIBRARIES}
+    ${SDL3_LIBRARIES}
+    ${SDL3_IMAGE_LIBRARIES}
+    ${SDL3_TTF_LIBRARIES}
     ${LIBMPV}
     ${DRM_LIBRARY}
     ${GBM_LIBRARY}

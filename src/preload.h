@@ -10,7 +10,7 @@
 #include <memory>
 #include <string>
 #include <vector>
-#include <SDL.h>
+#include <SDL3/SDL.h>
 #include "image_loader.h"
 
 // Preloaded item: raw pixels + path from worker, surface created on main thread

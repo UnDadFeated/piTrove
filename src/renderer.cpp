@@ -1,7 +1,7 @@
 #include "renderer.h"
 #include "util.h"
 #include "config.h"
-#include <SDL_image.h>
+#include <SDL3_image/SDL_image.h>
 #include <stb_image.h>
 #include <iostream>
 #include <fstream>
@@ -107,7 +107,7 @@ static GpuColor get_pixel_color(SDL_Surface* surface, int x, int y) {
         return {0, 0, 0, 255};
     }
 
-    int bpp = surface->format->BytesPerPixel;
+    int bpp = SDL_BYTESPERPIXEL(surface->format);
     uint8_t* p = (uint8_t*)surface->pixels + y * surface->pitch + x * bpp;
 
     uint32_t pixel = 0;
@@ -126,7 +126,10 @@ static GpuColor get_pixel_color(SDL_Surface* surface, int x, int y) {
     }
 
     uint8_t r = 0, g = 0, b = 0, a = 255;
-    SDL_GetRGBA(pixel, surface->format, &r, &g, &b, &a);
+    const SDL_PixelFormatDetails* details = SDL_GetPixelFormatDetails(surface->format);
+    if (details) {
+        SDL_GetRGBA(pixel, details, nullptr, &r, &g, &b, &a);
+    }
     return {r, g, b, a};
 }
 
@@ -138,33 +141,21 @@ Renderer::~Renderer() {
 
 bool Renderer::init(int w, int h, bool fullscreen) {
     g_logger.info("[TRACE] Renderer::init w=%d h=%d fullscreen=%d", w, h, fullscreen);
-    if (SDL_Init(SDL_INIT_VIDEO) != 0) {
+    if (!SDL_Init(SDL_INIT_VIDEO)) {
         g_logger.error("SDL_Init failed: %s", SDL_GetError());
         return false;
     }
     g_logger.info("[TRACE] SDL_Init OK");
 
-    if (IMG_Init(IMG_INIT_JPG | IMG_INIT_PNG) == 0) {
-        g_logger.error("IMG_Init failed: %s", IMG_GetError());
-        SDL_Quit();
-        return false;
-    }
-    g_logger.info("[TRACE] IMG_Init OK");
-
-    Uint32 flags = SDL_WINDOW_OPENGL | SDL_WINDOW_SHOWN;
+    Uint32 flags = SDL_WINDOW_OPENGL;
     if (fullscreen) {
-        flags |= SDL_WINDOW_FULLSCREEN_DESKTOP;
+        flags |= SDL_WINDOW_FULLSCREEN;
     }
     const char* driver = SDL_GetCurrentVideoDriver();
     g_logger.info("SDL Selected Video Driver: %s", driver ? driver : "UNKNOWN");
-    if (driver && std::strcmp(driver, "kmsdrm") == 0) {
-        flags |= SDL_WINDOW_FULLSCREEN;
-    }
 
     window = SDL_CreateWindow(
         APP_NAME " v" VERSION,
-        SDL_WINDOWPOS_UNDEFINED,
-        SDL_WINDOWPOS_UNDEFINED,
         w,
         h,
         flags
@@ -177,13 +168,10 @@ bool Renderer::init(int w, int h, bool fullscreen) {
     }
     g_logger.info("[TRACE] SDL_CreateWindow OK window=%p", (void*)window);
 
-    SDL_GL_SetSwapInterval(1);
-    g_logger.info("[TRACE] SDL_GL context created (implicit from CreateWindow)");
-
     SDL_GetWindowSize(window, &screen_w, &screen_h);
     g_logger.info("SDL Context & Window created successfully (%dx%d)", screen_w, screen_h);
 
-    sdl_renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_TARGETTEXTURE);
+    sdl_renderer = SDL_CreateRenderer(window, nullptr);
     if (!sdl_renderer) {
         g_logger.error("SDL_CreateRenderer failed: %s", SDL_GetError());
         SDL_DestroyWindow(window);
@@ -205,15 +193,10 @@ void Renderer::cleanup() {
         SDL_DestroyRenderer(sdl_renderer);
         sdl_renderer = nullptr;
     }
-    if (gl_context) {
-        SDL_GL_DeleteContext(gl_context);
-        gl_context = nullptr;
-    }
     if (window) {
         SDL_DestroyWindow(window);
         window = nullptr;
     }
-    IMG_Quit();
     SDL_Quit();
 }
 
@@ -312,24 +295,24 @@ void Renderer::draw_matte_borders(const SDL_Rect& fit_rect) {
     
     // Left border
     if (fit_rect.x > 0) {
-        SDL_Rect left = {0, 0, fit_rect.x, screen_h};
+        SDL_FRect left = {0.0f, 0.0f, (float)fit_rect.x, (float)screen_h};
         SDL_RenderFillRect(sdl_renderer, &left);
     }
     // Right border
     if (fit_rect.x + fit_rect.w < screen_w) {
         int right_w = screen_w - (fit_rect.x + fit_rect.w);
-        SDL_Rect right = {fit_rect.x + fit_rect.w, 0, right_w, screen_h};
+        SDL_FRect right = {(float)(fit_rect.x + fit_rect.w), 0.0f, (float)right_w, (float)screen_h};
         SDL_RenderFillRect(sdl_renderer, &right);
     }
     // Top border
     if (fit_rect.y > 0) {
-        SDL_Rect top = {0, 0, screen_w, fit_rect.y};
+        SDL_FRect top = {0.0f, 0.0f, (float)screen_w, (float)fit_rect.y};
         SDL_RenderFillRect(sdl_renderer, &top);
     }
     // Bottom border
     if (fit_rect.y + fit_rect.h < screen_h) {
         int bottom_h = screen_h - (fit_rect.y + fit_rect.h);
-        SDL_Rect bottom = {0, fit_rect.y + fit_rect.h, screen_w, bottom_h};
+        SDL_FRect bottom = {0.0f, (float)(fit_rect.y + fit_rect.h), (float)screen_w, (float)bottom_h};
         SDL_RenderFillRect(sdl_renderer, &bottom);
     }
 }
@@ -379,7 +362,7 @@ void Renderer::draw_bias_lighting(const SDL_Rect& fit_rect, Uint8 avg_r, Uint8 a
             SDL_SetRenderDrawColor(sdl_renderer, r, g, b, 255);
             for (int row = 0; row < bw; row++) {
                 int fill_w = row + 1;
-                SDL_Rect tr = {cx + bw - fill_w, cy + row, fill_w, 1};
+                SDL_FRect tr = {(float)(cx + bw - fill_w), (float)(cy + row), (float)fill_w, 1.0f};
                 SDL_RenderFillRect(sdl_renderer, &tr);
             }
         };
@@ -387,74 +370,74 @@ void Renderer::draw_bias_lighting(const SDL_Rect& fit_rect, Uint8 avg_r, Uint8 a
         // ── Side faces (full-width, full-height — overlaps corners) ──
         if (iy1 > 0) {
             SDL_SetRenderDrawColor(sdl_renderer, hi_r, hi_g, hi_b, 255);
-            SDL_Rect r = {ix1, iy1 - bw, ix2 - ix1, bw};
+            SDL_FRect r = {(float)ix1, (float)(iy1 - bw), (float)(ix2 - ix1), (float)bw};
             SDL_RenderFillRect(sdl_renderer, &r);
         }
         if (iy2 + bw <= sh) {
             SDL_SetRenderDrawColor(sdl_renderer, lo_r, lo_g, lo_b, 255);
-            SDL_Rect r = {ix1, iy2, ix2 - ix1, bw};
+            SDL_FRect r = {(float)ix1, (float)iy2, (float)(ix2 - ix1), (float)bw};
             SDL_RenderFillRect(sdl_renderer, &r);
         }
         if (ix1 > 0) {
             SDL_SetRenderDrawColor(sdl_renderer, hi_r, hi_g, hi_b, 255);
-            SDL_Rect r = {ix1 - bw, iy1, bw, iy2 - iy1};
+            SDL_FRect r = {(float)(ix1 - bw), (float)iy1, (float)bw, (float)(iy2 - iy1)};
             SDL_RenderFillRect(sdl_renderer, &r);
         }
         if (ix2 + bw <= sw) {
             SDL_SetRenderDrawColor(sdl_renderer, lo_r, lo_g, lo_b, 255);
-            SDL_Rect r = {ix2, iy1, bw, iy2 - iy1};
+            SDL_FRect r = {(float)ix2, (float)iy1, (float)bw, (float)(iy2 - iy1)};
             SDL_RenderFillRect(sdl_renderer, &r);
         }
 
         // ── TL corner (miter) — solid hi + dark crease ──
         {
             SDL_SetRenderDrawColor(sdl_renderer, hi_r, hi_g, hi_b, 255);
-            SDL_Rect r = {ix1 - bw, iy1 - bw, bw, bw};
+            SDL_FRect r = {(float)(ix1 - bw), (float)(iy1 - bw), (float)bw, (float)bw};
             SDL_RenderFillRect(sdl_renderer, &r);
             SDL_SetRenderDrawColor(sdl_renderer, tl_seam_r, tl_seam_g, tl_seam_b, 215);
-            SDL_RenderDrawLine(sdl_renderer, ix1 - 1, iy1 - 1, ix1 - bw + 1, iy1 - bw + 1);
+            SDL_RenderLine(sdl_renderer, (float)(ix1 - 1), (float)(iy1 - 1), (float)(ix1 - bw + 1), (float)(iy1 - bw + 1));
         }
 
         // ── TR corner — solid hi base + lo triangle overlay + bright glint ──
         {
             SDL_SetRenderDrawColor(sdl_renderer, hi_r, hi_g, hi_b, 255);
-            SDL_Rect r = {ix2, iy1 - bw, bw, bw};
+            SDL_FRect r = {(float)ix2, (float)(iy1 - bw), (float)bw, (float)bw};
             SDL_RenderFillRect(sdl_renderer, &r);
             fill_tri_br(ix2, iy1 - bw, lo_r, lo_g, lo_b);
             SDL_SetRenderDrawColor(sdl_renderer, glint_r, glint_g, glint_b, 255);
-            SDL_RenderDrawLine(sdl_renderer, ix2 + 1, iy1 - 1, ix2 + bw - 1, iy1 - bw + 1);
+            SDL_RenderLine(sdl_renderer, (float)(ix2 + 1), (float)(iy1 - 1), (float)(ix2 + bw - 1), (float)(iy1 - bw + 1));
         }
 
         // ── BL corner — solid hi base + lo triangle overlay + bright glint ──
         {
             SDL_SetRenderDrawColor(sdl_renderer, hi_r, hi_g, hi_b, 255);
-            SDL_Rect r = {ix1 - bw, iy2, bw, bw};
+            SDL_FRect r = {(float)(ix1 - bw), (float)iy2, (float)bw, (float)bw};
             SDL_RenderFillRect(sdl_renderer, &r);
             // lo triangle: top row narrow → bottom row full (adjacent to lo bottom edge)
             SDL_SetRenderDrawColor(sdl_renderer, lo_r, lo_g, lo_b, 255);
             for (int row = 0; row < bw; row++) {
                 int fill_w = row + 1;
-                SDL_Rect tr = {ix1 - fill_w, iy2 + row, fill_w, 1};
+                SDL_FRect tr = {(float)(ix1 - fill_w), (float)(iy2 + row), (float)fill_w, 1.0f};
                 SDL_RenderFillRect(sdl_renderer, &tr);
             }
             SDL_SetRenderDrawColor(sdl_renderer, glint_r, glint_g, glint_b, 255);
-            SDL_RenderDrawLine(sdl_renderer, ix1 - 1, iy2 + 1, ix1 - bw + 1, iy2 + bw - 1);
+            SDL_RenderLine(sdl_renderer, (float)(ix1 - 1), (float)(iy2 + 1), (float)(ix1 - bw + 1), (float)(iy2 + bw - 1));
         }
 
         // ── BR corner (miter) — solid lo + near-black crease ──
         {
             SDL_SetRenderDrawColor(sdl_renderer, lo_r, lo_g, lo_b, 255);
-            SDL_Rect r = {ix2, iy2, bw, bw};
+            SDL_FRect r = {(float)ix2, (float)iy2, (float)bw, (float)bw};
             SDL_RenderFillRect(sdl_renderer, &r);
             SDL_SetRenderDrawColor(sdl_renderer, br_seam_r, br_seam_g, br_seam_b, 215);
-            SDL_RenderDrawLine(sdl_renderer, ix2 + 1, iy2 + 1, ix2 + bw - 1, iy2 + bw - 1);
+            SDL_RenderLine(sdl_renderer, (float)(ix2 + 1), (float)(iy2 + 1), (float)(ix2 + bw - 1), (float)(iy2 + bw - 1));
         }
 
         // 1px outline at exact photo boundary
         {
             SDL_SetRenderDrawColor(sdl_renderer, 0, 0, 0, 180);
-            SDL_Rect r = {ix1 - 1, iy1 - 1, (ix2 - ix1 + 2), (iy2 - iy1 + 2)};
-            SDL_RenderDrawRect(sdl_renderer, &r);
+            SDL_FRect r = {(float)(ix1 - 1), (float)(iy1 - 1), (float)(ix2 - ix1 + 2), (float)(iy2 - iy1 + 2)};
+            SDL_RenderRect(sdl_renderer, &r);
         }
     }
 
@@ -466,7 +449,7 @@ void Renderer::draw_bias_lighting(const SDL_Rect& fit_rect, Uint8 avg_r, Uint8 a
             if (alpha_f < 0.01f) break;
             Uint8 aa = (Uint8)(alpha_f * 255.0f);
             SDL_SetRenderDrawColor(sdl_renderer, avg_r, avg_g, avg_b, aa);
-            SDL_Rect r = {gx, gy - s, gw, 1};
+            SDL_FRect r = {(float)gx, (float)(gy - s), (float)gw, 1.0f};
             SDL_RenderFillRect(sdl_renderer, &r);
         }
     };
@@ -477,7 +460,7 @@ void Renderer::draw_bias_lighting(const SDL_Rect& fit_rect, Uint8 avg_r, Uint8 a
             if (alpha_f < 0.01f) break;
             Uint8 aa = (Uint8)(alpha_f * 255.0f);
             SDL_SetRenderDrawColor(sdl_renderer, avg_r, avg_g, avg_b, aa);
-            SDL_Rect r = {gx, gy + s, gw, 1};
+            SDL_FRect r = {(float)gx, (float)(gy + s), (float)gw, 1.0f};
             SDL_RenderFillRect(sdl_renderer, &r);
         }
     };
@@ -488,7 +471,7 @@ void Renderer::draw_bias_lighting(const SDL_Rect& fit_rect, Uint8 avg_r, Uint8 a
             if (alpha_f < 0.01f) break;
             Uint8 aa = (Uint8)(alpha_f * 255.0f);
             SDL_SetRenderDrawColor(sdl_renderer, avg_r, avg_g, avg_b, aa);
-            SDL_Rect r = {gx - s, gy, 1, gh};
+            SDL_FRect r = {(float)(gx - s), (float)gy, 1.0f, (float)gh};
             SDL_RenderFillRect(sdl_renderer, &r);
         }
     };
@@ -499,7 +482,7 @@ void Renderer::draw_bias_lighting(const SDL_Rect& fit_rect, Uint8 avg_r, Uint8 a
             if (alpha_f < 0.01f) break;
             Uint8 aa = (Uint8)(alpha_f * 255.0f);
             SDL_SetRenderDrawColor(sdl_renderer, avg_r, avg_g, avg_b, aa);
-            SDL_Rect r = {gx + s, gy, 1, gh};
+            SDL_FRect r = {(float)(gx + s), (float)gy, 1.0f, (float)gh};
             SDL_RenderFillRect(sdl_renderer, &r);
         }
     };
@@ -524,7 +507,7 @@ void Renderer::draw_bias_lighting(const SDL_Rect& fit_rect, Uint8 avg_r, Uint8 a
                 if (alpha_f < 0.02f) continue;
                 Uint8 aa = (Uint8)(alpha_f * 255.0f);
                 SDL_SetRenderDrawColor(sdl_renderer, avg_r, avg_g, avg_b, aa);
-                SDL_Rect r = {px + i * dx, py + j * dy, 1, 1};
+                SDL_FRect r = {(float)(px + i * dx), (float)(py + j * dy), 1.0f, 1.0f};
                 SDL_RenderFillRect(sdl_renderer, &r);
             }
         }
@@ -542,19 +525,19 @@ void Renderer::draw_solid_border(int width, uint8_t r, uint8_t g, uint8_t b) {
     SDL_SetRenderDrawColor(sdl_renderer, r, g, b, 255);
     
     // Top
-    SDL_Rect top = {0, 0, screen_w, width};
+    SDL_FRect top = {0.0f, 0.0f, (float)screen_w, (float)width};
     SDL_RenderFillRect(sdl_renderer, &top);
     
     // Bottom
-    SDL_Rect bottom = {0, screen_h - width, screen_w, width};
+    SDL_FRect bottom = {0.0f, (float)(screen_h - width), (float)screen_w, (float)width};
     SDL_RenderFillRect(sdl_renderer, &bottom);
     
     // Left
-    SDL_Rect left = {0, 0, width, screen_h};
+    SDL_FRect left = {0.0f, 0.0f, (float)width, (float)screen_h};
     SDL_RenderFillRect(sdl_renderer, &left);
     
     // Right
-    SDL_Rect right = {screen_w - width, 0, width, screen_h};
+    SDL_FRect right = {(float)(screen_w - width), 0.0f, (float)width, (float)screen_h};
     SDL_RenderFillRect(sdl_renderer, &right);
 }
 
@@ -614,7 +597,7 @@ void Renderer::load_splash(const std::string& path) {
         int w = 0, h = 0, ch = 0;
         uint8_t* pixels = stbi_load(splash_path.c_str(), &w, &h, &ch, 4); // Force RGBA32
         if (pixels) {
-            SDL_Surface* surface = SDL_CreateRGBSurfaceWithFormat(0, w, h, 32, SDL_PIXELFORMAT_RGBA32);
+            SDL_Surface* surface = SDL_CreateSurface(w, h, SDL_PIXELFORMAT_RGBA32);
             if (surface) {
                 memcpy(surface->pixels, pixels, (size_t)w * h * 4);
                 splash_logo = SDL_CreateTextureFromSurface(sdl_renderer, surface);
@@ -624,7 +607,7 @@ void Renderer::load_splash(const std::string& path) {
                     splash_logo_loaded = true;
                     g_logger.info("Splash image loaded: %s (%dx%d)", splash_path.c_str(), splash_logo_w, splash_logo_h);
                 }
-                SDL_FreeSurface(surface);
+                SDL_DestroySurface(surface);
             }
             stbi_image_free(pixels);
         } else {
@@ -686,34 +669,34 @@ void Renderer::draw_splash_box(int x, int y, int w, int h) {
     // Outer border
     SDL_SetRenderDrawColor(sdl_renderer, 0, 200, 0, 240);
     
-    SDL_Rect rect;
+    SDL_FRect rect;
     // Top
-    rect = {x, y, w, 2};
+    rect = {(float)x, (float)y, (float)w, 2.0f};
     SDL_RenderFillRect(sdl_renderer, &rect);
     // Bottom
-    rect = {x, y + h - 2, w, 2};
+    rect = {(float)x, (float)(y + h - 2), (float)w, 2.0f};
     SDL_RenderFillRect(sdl_renderer, &rect);
     // Left
-    rect = {x, y, 2, h};
+    rect = {(float)x, (float)y, 2.0f, (float)h};
     SDL_RenderFillRect(sdl_renderer, &rect);
     // Right
-    rect = {x + w - 2, y, 2, h};
+    rect = {(float)(x + w - 2), (float)y, 2.0f, (float)h};
     SDL_RenderFillRect(sdl_renderer, &rect);
 
     // Inner shadow border
     SDL_SetRenderDrawColor(sdl_renderer, 0, 130, 0, 220);
-    int ix = x + 4, iy = y + 4, iw = w - 8, ih = h - 8;
+    float ix = (float)x + 4.0f, iy = (float)y + 4.0f, iw = (float)w - 8.0f, ih = (float)h - 8.0f;
     // Top
-    rect = {ix, iy, iw, 1};
+    rect = {ix, iy, iw, 1.0f};
     SDL_RenderFillRect(sdl_renderer, &rect);
     // Bottom
-    rect = {ix, iy + ih - 1, iw, 1};
+    rect = {ix, iy + ih - 1.0f, iw, 1.0f};
     SDL_RenderFillRect(sdl_renderer, &rect);
     // Left
-    rect = {ix, iy, 1, ih};
+    rect = {ix, iy, 1.0f, ih};
     SDL_RenderFillRect(sdl_renderer, &rect);
     // Right
-    rect = {ix + iw - 1, iy, 1, ih};
+    rect = {ix + iw - 1.0f, iy, 1.0f, ih};
     SDL_RenderFillRect(sdl_renderer, &rect);
 
     // Title box
@@ -725,7 +708,7 @@ void Renderer::draw_splash_box(int x, int y, int w, int h) {
     }
     
     SDL_SetRenderDrawColor(sdl_renderer, 0, 0, 0, 255);
-    rect = {x + 15, y - 2, title_w + 10, 6};
+    rect = {(float)(x + 15), (float)(y - 2), (float)(title_w + 10), 6.0f};
     SDL_RenderFillRect(sdl_renderer, &rect);
 
     draw_splash_text(APP_NAME, x + 20, y - 10, title_size, {0, 200, 0, 240});
@@ -753,16 +736,16 @@ void Renderer::draw_splash_text(const std::string& text, int x, int y, int size,
 
 void Renderer::draw_splash_progress_bar(int x, int y, int w, int h, float pct) {
     pct = std::max(0.0f, std::min(1.0f, pct));
-    int bar_w = (int)(w * 0.9f);
-    int filled = (int)(bar_w * pct);
+    float bar_w = w * 0.9f;
+    float filled = bar_w * pct;
     if (filled > bar_w) filled = bar_w;
 
     SDL_SetRenderDrawColor(sdl_renderer, 0, 40, 0, 200);
-    SDL_Rect rect = {x, y, w, h};
+    SDL_FRect rect = {(float)x, (float)y, (float)w, (float)h};
     SDL_RenderFillRect(sdl_renderer, &rect);
 
     SDL_SetRenderDrawColor(sdl_renderer, 0, 200, 0, 240);
-    rect = {x, y, filled, h};
+    rect = {(float)x, (float)y, filled, (float)h};
     SDL_RenderFillRect(sdl_renderer, &rect);
 }
 
@@ -784,8 +767,8 @@ void Renderer::render_splash(int phase, int progress, int total, int done, const
         int dest_x = (sw - dest_w) / 2;
         int dest_y = (sh - dest_h) / 2;
         
-        SDL_Rect dst = {dest_x, dest_y, dest_w, dest_h};
-        SDL_RenderCopy(sdl_renderer, splash_logo, nullptr, &dst);
+        SDL_FRect dst = {(float)dest_x, (float)dest_y, (float)dest_w, (float)dest_h};
+        SDL_RenderTexture(sdl_renderer, splash_logo, nullptr, &dst);
     }
 
     // Live Uptime tracking
@@ -813,25 +796,25 @@ void Renderer::render_splash(int phase, int progress, int total, int done, const
     for (int sy = scanline_start; sy < scanline_end; sy += 3) {
         // Core phosphor bleed
         SDL_SetRenderDrawColor(sdl_renderer, 0, 255, 0, 10);
-        SDL_Rect rect = {0, sy - 1, sw, 2};
+        SDL_FRect rect = {0.0f, (float)(sy - 1), (float)sw, 2.0f};
         SDL_RenderFillRect(sdl_renderer, &rect);
         
         // Sharp scanline
         SDL_SetRenderDrawColor(sdl_renderer, 0, 255, 0, 38);
-        rect = {0, sy, sw, 1};
+        rect = {0.0f, (float)sy, (float)sw, 1.0f};
         SDL_RenderFillRect(sdl_renderer, &rect);
     }
 
     // Main Horizontal Center Box Divider
     SDL_SetRenderDrawColor(sdl_renderer, 0, 200, 0, 240);
     int mid_y = box_y + (box_h / 2);
-    SDL_Rect rect = {box_x, mid_y - 1, box_w, 2};
+    SDL_FRect rect = {(float)box_x, (float)(mid_y - 1), (float)box_w, 2.0f};
     SDL_RenderFillRect(sdl_renderer, &rect);
 
     SDL_SetRenderDrawColor(sdl_renderer, 0, 130, 0, 220);
-    rect = {box_x + 4, mid_y - 5, box_w - 8, 1};
+    rect = {(float)(box_x + 4), (float)(mid_y - 5), (float)(box_w - 8), 1.0f};
     SDL_RenderFillRect(sdl_renderer, &rect);
-    rect = {box_x + 4, mid_y + 4, box_w - 8, 1};
+    rect = {(float)(box_x + 4), (float)(mid_y + 4), (float)(box_w - 8), 1.0f};
     SDL_RenderFillRect(sdl_renderer, &rect);
 
     // Grid Math for Columns
@@ -846,14 +829,14 @@ void Renderer::render_splash(int phase, int progress, int total, int done, const
     int top_inner_h = (box_h / 2) - 41;
     
     SDL_SetRenderDrawColor(sdl_renderer, 0, 255, 0, 76);
-    rect = {box_x + 10, inner_y_offset, box_w - 20, 1};
+    rect = {(float)(box_x + 10), (float)inner_y_offset, (float)(box_w - 20), 1.0f};
     SDL_RenderFillRect(sdl_renderer, &rect);
 
-    rect = {box_x + col_w, inner_y_offset, 1, top_inner_h};
+    rect = {(float)(box_x + col_w), (float)inner_y_offset, 1.0f, (float)top_inner_h};
     SDL_RenderFillRect(sdl_renderer, &rect);
-    rect = {box_x + col_w * 2, inner_y_offset, 1, top_inner_h};
+    rect = {(float)(box_x + col_w * 2), (float)inner_y_offset, 1.0f, (float)top_inner_h};
     SDL_RenderFillRect(sdl_renderer, &rect);
-    rect = {box_x + col_w * 3, inner_y_offset, 1, top_inner_h};
+    rect = {(float)(box_x + col_w * 3), (float)inner_y_offset, 1.0f, (float)top_inner_h};
     SDL_RenderFillRect(sdl_renderer, &rect);
 
     int dots = (dot_counter / 15) % 4;
@@ -972,15 +955,15 @@ void Renderer::render_splash(int phase, int progress, int total, int done, const
      // Divider under bottom title
     int bot_inner_y_offset = mid_y + 38;
     SDL_SetRenderDrawColor(sdl_renderer, 0, 255, 0, 76);
-    rect = {box_x + 10, bot_inner_y_offset, box_w - 20, 1};
+    rect = {(float)(box_x + 10), (float)bot_inner_y_offset, (float)(box_w - 20), 1.0f};
     SDL_RenderFillRect(sdl_renderer, &rect);
 
     int bot_inner_h = 75;
-    rect = {box_x + col_w, bot_inner_y_offset, 1, bot_inner_h};
+    rect = {(float)(box_x + col_w), (float)bot_inner_y_offset, 1.0f, (float)bot_inner_h};
     SDL_RenderFillRect(sdl_renderer, &rect);
-    rect = {box_x + col_w * 2, bot_inner_y_offset, 1, bot_inner_h};
+    rect = {(float)(box_x + col_w * 2), (float)bot_inner_y_offset, 1.0f, (float)bot_inner_h};
     SDL_RenderFillRect(sdl_renderer, &rect);
-    rect = {box_x + col_w * 3, bot_inner_y_offset, 1, bot_inner_h};
+    rect = {(float)(box_x + col_w * 3), (float)bot_inner_y_offset, 1.0f, (float)bot_inner_h};
     SDL_RenderFillRect(sdl_renderer, &rect);
 
     int bot_row_start_y = bot_inner_y_offset + 10;
@@ -1053,15 +1036,15 @@ void Renderer::render_splash(int phase, int progress, int total, int done, const
             int bar_w = box_w - 120;
 
             SDL_SetRenderDrawColor(sdl_renderer, 0, 130, 0, 100);
-            SDL_Rect rect = {text_x, bar_y, bar_w, 18};
-            SDL_RenderFillRect(sdl_renderer, &rect);
+            SDL_FRect bar_rect = {(float)text_x, (float)bar_y, (float)bar_w, 18.0f};
+            SDL_RenderFillRect(sdl_renderer, &bar_rect);
 
             int fill_w = (int)((bar_w - 4) * pct);
             for (int bx = 2; bx < fill_w; bx += 10) {
                 int w = std::min(8, fill_w - bx);
                 SDL_SetRenderDrawColor(sdl_renderer, 0, 200, 0, 240);
-                rect = {text_x + bx, bar_y + 2, w, 14};
-                SDL_RenderFillRect(sdl_renderer, &rect);
+                SDL_FRect chunk_rect = {(float)(text_x + bx), (float)(bar_y + 2), (float)w, 14.0f};
+                SDL_RenderFillRect(sdl_renderer, &chunk_rect);
             }
 
             char pct_buf[32];
@@ -1079,12 +1062,12 @@ void Renderer::render_splash(int phase, int progress, int total, int done, const
         int bar_w = box_w - 120;
         
         SDL_SetRenderDrawColor(sdl_renderer, 0, 130, 0, 220);
-        SDL_Rect rect = {text_x, bar_y, bar_w, 18};
-        SDL_RenderFillRect(sdl_renderer, &rect);
+        SDL_FRect bar_rect = {(float)text_x, (float)bar_y, (float)bar_w, 18.0f};
+        SDL_RenderFillRect(sdl_renderer, &bar_rect);
 
         SDL_SetRenderDrawColor(sdl_renderer, 0, 200, 0, 240);
-        rect = {text_x + 2, bar_y + 2, bar_w - 4, 14};
-        SDL_RenderFillRect(sdl_renderer, &rect);
+        bar_rect = {(float)(text_x + 2), (float)(bar_y + 2), (float)(bar_w - 4), 14.0f};
+        SDL_RenderFillRect(sdl_renderer, &bar_rect);
 
         draw_splash_text("[100%]", text_x + bar_w + 15, bar_y, 16, theme_dim);
     } else {
@@ -1095,8 +1078,8 @@ void Renderer::render_splash(int phase, int progress, int total, int done, const
         int bar_w = box_w - 120;
         
         SDL_SetRenderDrawColor(sdl_renderer, 0, 130, 0, 76);
-        SDL_Rect rect = {text_x, bar_y, bar_w, 18};
-        SDL_RenderFillRect(sdl_renderer, &rect);
+        SDL_FRect bar_rect = {(float)text_x, (float)bar_y, (float)bar_w, 18.0f};
+        SDL_RenderFillRect(sdl_renderer, &bar_rect);
         draw_splash_text("[000%]", text_x + bar_w + 15, bar_y, 16, theme_dim);
     }
 
@@ -1108,8 +1091,8 @@ void Renderer::render_splash(int phase, int progress, int total, int done, const
             if (edge < 0.7f) {
                 uint8_t alpha = (uint8_t)(255.0f * (1.0f - edge));
                 SDL_SetRenderDrawColor(sdl_renderer, 0, 0, 0, alpha);
-                SDL_Rect rect = {0, y, sw, 4};
-                SDL_RenderFillRect(sdl_renderer, &rect);
+                SDL_FRect vignette_rect = {0.0f, (float)y, (float)sw, 4.0f};
+                SDL_RenderFillRect(sdl_renderer, &vignette_rect);
             }
         }
     }
