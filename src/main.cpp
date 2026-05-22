@@ -442,6 +442,15 @@ static void organize_playlist(std::vector<MediaItem>& eligible, int videos_per_p
             std::shuffle(videos.begin(), videos.end(), rng_video);
         }
 
+        // Cap the number of videos based on videos_per_photos ratio to prevent clustering when pools are highly skewed
+        if (!photos.empty() && !videos.empty()) {
+            double target_video_ratio = static_cast<double>(videos_per_photos) / 10.0;
+            size_t max_videos = static_cast<size_t>(std::ceil(static_cast<double>(photos.size()) * target_video_ratio));
+            if (videos.size() > max_videos) {
+                videos.resize(max_videos);
+            }
+        }
+
         eligible.clear();
         if (videos.empty()) {
             eligible = std::move(photos);
@@ -1388,11 +1397,13 @@ int main(int argc, char** argv) {
                         g_eligible[next_idx_twin].height = next_twin_data->height;
                         g_eligible[next_idx_twin].exif_rotation = next_twin_data->exif_rotation;
 
-                        g_cache->upsert(g_eligible[next_idx], 0);
-                        g_cache->upsert(g_eligible[next_idx_twin], 0);
+                        if (g_cache) {
+                            g_cache->upsert(g_eligible[next_idx], 0);
+                            g_cache->upsert(g_eligible[next_idx_twin], 0);
+                        }
                     } else {
-                        if (next_data && !next_data->valid) g_cache->mark_bad(next_path);
-                        if (next_twin_data && !next_twin_data->valid) g_cache->mark_bad(next_path_twin);
+                        if (g_cache && next_data && !next_data->valid) g_cache->mark_bad(next_path);
+                        if (g_cache && next_twin_data && !next_twin_data->valid) g_cache->mark_bad(next_path_twin);
                         next_data = nullptr;
                         next_twin_data = nullptr;
                     }
@@ -1411,9 +1422,9 @@ int main(int argc, char** argv) {
                         g_eligible[next_idx].height = next_data->height;
                         g_eligible[next_idx].exif_rotation = next_data->exif_rotation;
 
-                        g_cache->upsert(g_eligible[next_idx], 0);
+                        if (g_cache) g_cache->upsert(g_eligible[next_idx], 0);
                     } else {
-                        if (next_data) g_cache->mark_bad(next_path);
+                        if (g_cache && next_data) g_cache->mark_bad(next_path);
                         next_data = nullptr;
                         next_twin_data = nullptr;
                     }

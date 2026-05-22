@@ -217,7 +217,7 @@ void PreloadQueue::worker_thread(int thread_id) {
                 bool has_work = !work_queue.empty();
                 bool space_available = false;
                 {
-                    std::lock_guard<std::mutex> qlk(queue_mutex);
+                    std::scoped_lock qlk(queue_mutex);
                     space_available = (int)loaded_queue.size() < max_size;
                 }
                 return (has_work && space_available) || !running.load();

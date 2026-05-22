@@ -60,7 +60,7 @@ struct Config {
     bool    twin_portrait_enabled{true};
     bool    closed_captions_enabled{true};
 
-    // New features v10.3.0 (Dynamic Hardware/OS Fallbacks)
+    // New features v10.3.1 (Balanced Interleaving & OS Fallbacks)
     std::string drm_connector{"auto"};
     std::string drm_card{"auto"};
     std::string font_path{"auto"};
