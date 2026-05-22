@@ -1,5 +1,11 @@
 # Changelog
 
+## v10.3.7 — Graceful Shutdown & Collage Filename Fix (May 22, 2026)
+
+### Fixed
+- **Graceful SIGTERM shutdown** — `pkill piTrove` or `systemctl stop` now triggers clean exit: mpv child process is stopped, DRM master reclaimed, resources freed. No more orphaned mpv processes leaving black screens on restart.
+- **Collage twin filename styling** — Second filename in twin-portrait collage now uses the same adaptive color/outline/shadow as the primary filename (both derive from the primary image instead of each image individually).
+
 ## v10.3.6 — Subtitles Folder, No Consecutive Videos, Classification Fix (May 22, 2026)
 
 ### Added
