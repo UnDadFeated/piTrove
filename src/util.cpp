@@ -1,5 +1,6 @@
 #include "util.h"
 #include "media_item.h"
+#include "image_loader.h"
 #include <iostream>
 #include <chrono>
 #include <filesystem>
@@ -474,19 +475,26 @@ void classify_media_item(const MediaItem& item, bool& has_people, bool& has_anim
     }
 
     if (is_camera_roll) {
-        // Deterministically distribute: 90% people/faces, 10% pets/animals — eliminate "scenery" gap
-        unsigned int hash = 5381;
-        for (char c : item.filename) {
-            hash = ((hash << 5) + hash) + c;
-        }
-        unsigned int score = hash % 100;
-        if (score < 90) {
-            has_people = true;
+        // Only apply 90/10 heuristic if EXIF confirms it's a real camera photo
+        // Screenshots saved as .jpg lack camera EXIF and would otherwise slip through
+        if (ImageLoader::has_camera_exif(item.path.c_str())) {
+            // Deterministically distribute: 90% people/faces, 10% pets/animals
+            unsigned int hash = 5381;
+            for (char c : item.filename) {
+                hash = ((hash << 5) + hash) + c;
+            }
+            unsigned int score = hash % 100;
+            if (score < 90) {
+                has_people = true;
+            } else {
+                has_animals = true;
+            }
         } else {
-            has_animals = true;
+            // No camera EXIF — likely screenshot, classify as document
+            is_doc = true;
         }
     } else {
-        // Non-camera, non-keyworded files: classify as document/scenery to be safe
+        // Non-camera, non-keyworded files: classify as document
         is_doc = true;
     }
 }
