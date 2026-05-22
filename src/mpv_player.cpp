@@ -2,6 +2,7 @@
 #include "util.h"
 #include "config.h"
 #include <dirent.h>
+#include <algorithm>
 #include <unistd.h>
 #include <sys/wait.h>
 #include <sys/stat.h>
@@ -74,7 +75,7 @@ bool MpvPlayer::play(const std::string& path, int volume) {
 
     char margin_x_arg[64], margin_y_arg[64];
     std::snprintf(margin_x_arg, sizeof(margin_x_arg), "--osd-margin-x=%d", matte_px + 8);
-    std::snprintf(margin_y_arg, sizeof(margin_y_arg), "--osd-margin-y=%d", matte_px + 8);
+    std::snprintf(margin_y_arg, sizeof(margin_y_arg), "--osd-margin-y=%d", std::max(0, matte_px - 17));
     char cmd[256];
 
     pid_t pid = fork();

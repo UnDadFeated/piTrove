@@ -9,6 +9,7 @@
 #include "overlay.h"
 #include "preload.h"
 #include "mpv_player.h"
+#include "tui.h"
 
 #include <SDL.h>
 #include <SDL_image.h>
@@ -249,14 +250,76 @@ static void draw_phase_splash(int phase, int progress, int total, int done, cons
 
 
 int main(int argc, char** argv) {
+    bool run_config = false;
+    bool run_restart = false;
+    std::string config_path;
+
+    for (int i = 1; i < argc; i++) {
+        std::string arg = argv[i];
+        if (arg == "--config") {
+            if (i + 1 < argc && argv[i + 1][0] != '-') {
+                config_path = argv[i + 1];
+                i++;
+            } else {
+                run_config = true;
+            }
+        } else if (arg == "--restart") {
+            run_restart = true;
+        }
+    }
+
+    std::string exe_dir = get_exe_dir();
+    std::string lock_path = exe_dir + "/piTrove.lock";
+
+    if (run_restart) {
+        FILE* lf = fopen(lock_path.c_str(), "r");
+        if (lf) {
+            pid_t old_pid = 0;
+            if (fscanf(lf, "%d", &old_pid) == 1 && old_pid > 0 && old_pid != getpid()) {
+                printf("\033[1;33m[INFO]\033[0m Gracefully terminating running instance (PID %d)...\n", old_pid);
+                kill(old_pid, SIGTERM);
+                usleep(800000); // Give it a moment to release sockets/files/VRAM
+            }
+            fclose(lf);
+        }
+        printf("\033[1;32m[OK]\033[0m Restarting piTrove background service...\n");
+        system("sudo systemctl restart piTrove.service 2>/dev/null || true");
+        return 0;
+    }
+
+    if (run_config) {
+        if (config_path.empty()) {
+            const char* candidates[] = {"config/config.toml", "src/config/config.toml",
+                "/home/pi/piTrove/src/config/config.toml", "./src/config/config.toml"};
+            for (const auto& c : candidates) {
+                if (file_exists(c)) { config_path = c; break; }
+            }
+            if (config_path.empty()) {
+                config_path = "/home/pi/piTrove/src/config/config.toml";
+            }
+        }
+        
+        g_cfg.load(config_path);
+        config_wizard(config_path);
+        
+        if (g_config_changed.load()) {
+            printf("\n  \033[1;32m[OK]\033[0m Configuration updated successfully.\n");
+            printf("  \033[1;33m[NOTICE]\033[0m Use \033[1;36mpiTrove --restart\033[0m to apply your new settings.\n\n");
+        }
+        return 0;
+    }
+
     // --- Single-instance lock ---
-    std::string lock_path = get_exe_dir() + "/piTrove.lock";
     int lock_fd = open(lock_path.c_str(), O_CREAT | O_RDWR, 0644);
     if (lock_fd < 0) { fprintf(stderr, "Failed to open lock file\n"); return 1; }
     if (flock(lock_fd, LOCK_EX | LOCK_NB) != 0) {
         fprintf(stderr, "Another instance is already running\n");
         close(lock_fd); return 1;
     }
+    
+    // Write our PID into the lock file for future --restart usage
+    ftruncate(lock_fd, 0);
+    dprintf(lock_fd, "%d\n", getpid());
 
     signal(SIGSEGV, crash_handler);
     signal(SIGABRT, crash_handler);
@@ -267,11 +330,6 @@ int main(int argc, char** argv) {
 
     // --- Config ---
     g_cfg.parse_args(argc, argv);
-    std::string config_path;
-    for (int i = 1; i < argc; i++) {
-        std::string arg = argv[i];
-        if (arg == "--config" && i + 1 < argc) config_path = argv[++i];
-    }
     if (config_path.empty()) {
         const char* candidates[] = {"config/config.toml", "src/config/config.toml",
             "/home/pi/piTrove/src/config/config.toml", "./src/config/config.toml"};
