@@ -1,5 +1,5 @@
 # ==========================================
-# piTrove Configuration File (v10.0.0)
+# piTrove Configuration File (v10.1.0)
 # ==========================================
 
 [paths]
@@ -60,6 +60,8 @@ count_enabled = 0
 videos_per_photos = 10
 play_just_photos = 0
 play_just_videos = 0
+show_people_faces = 1
+keep_animals = 1
 sleep_time = ""
 wake_time = ""
 

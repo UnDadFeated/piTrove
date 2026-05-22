@@ -49,6 +49,8 @@ struct Config {
     int     video_probe_timeout{3};
     bool    play_just_photos{false};
     bool    play_just_videos{false};
+    bool    show_people_faces{true};
+    bool    keep_animals{true};
 
     // [slideshow] advanced
     std::string sleep_time{""};

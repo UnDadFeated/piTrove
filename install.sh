@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# install.sh — piTrove v10.0.0 Premium Graphical Installer
+# install.sh — piTrove v10.1.0 Premium Graphical Installer
 # Target: Debian Trixie (13) 64-bit on Raspberry Pi 4/5
 
 set -eo pipefail
@@ -45,7 +45,7 @@ draw_line() {
 banner() {
     clear
     echo -e "${CYAN}╔══════════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${CYAN}║${NC}  ${BOLD}${WHITE}                  piTrove v10.0.0 Installation               ${NC}  ${CYAN}║${NC}"
+    echo -e "${CYAN}║${NC}  ${BOLD}${WHITE}                  piTrove v10.1.0 Installation               ${NC}  ${CYAN}║${NC}"
     echo -e "${CYAN}║${NC}  ${MAGENTA}               The Ultra-Premium Picture Frame              ${NC}  ${CYAN}║${NC}"
     echo -e "${CYAN}╚══════════════════════════════════════════════════════════════╝${NC}"
     echo
@@ -613,7 +613,7 @@ fi
 
 cat > "$CONFIG_FILE" <<EOF
 # ==========================================
-# piTrove Configuration File (v10.0.0)
+# piTrove Configuration File (v10.1.0)
 # ==========================================
 
 [paths]
@@ -670,6 +670,10 @@ filename_x = 0.04
 filename_y = 0.966
 count_enabled = 0
 videos_per_photos = 3
+play_just_photos = 0
+play_just_videos = 0
+show_people_faces = 1
+keep_animals = 1
 sleep_time = ""
 wake_time = ""
 

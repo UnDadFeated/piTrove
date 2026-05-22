@@ -56,6 +56,8 @@ bool Config::load(const std::string& path) {
         }
         else if (key == "play_just_photos")  this->play_just_photos = (val == "1" || val == "true");
         else if (key == "play_just_videos")  this->play_just_videos = (val == "1" || val == "true");
+        else if (key == "show_people_faces") this->show_people_faces = !(val == "0" || val == "false");
+        else if (key == "keep_animals")      this->keep_animals = !(val == "0" || val == "false");
         else if (key == "sleep_time")        this->sleep_time = val;
         else if (key == "wake_time")         this->wake_time = val;
         else if (key == "weather_enabled")   this->weather_enabled = (val == "1" || val == "true");

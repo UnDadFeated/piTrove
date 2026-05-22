@@ -7,7 +7,7 @@ A professional-grade digital picture frame for the Raspberry Pi. Designed for ex
 [![Architecture](https://img.shields.io/badge/arch-aarch64-orange?style=flat-square)](https://en.wikipedia.org/wiki/AArch64)
 [![Graphics](https://img.shields.io/badge/graphics-SDL3-red?style=flat-square)](https://www.libsdl.org/)
 [![License](https://img.shields.io/badge/license-MIT-green?style=flat-square)](LICENSE)
-[![Version](https://img.shields.io/badge/version-10.0.0-blue?style=flat-square)]()
+[![Version](https://img.shields.io/badge/version-10.1.0-blue?style=flat-square)]()
 
 ## 🚀 Quick Start
 
@@ -38,6 +38,7 @@ wget -qO- https://raw.githubusercontent.com/UnDadFeated/piTrove/main/install.sh 
 ### 📂 Enterprise-Grade Scanning & Cache
 - **NAS Optimized**: Specialized `getdents64` implementation with timeout wrappers to prevent the "CIFS hang" common in standard filesystem libraries.
 - **SQLite3 Persistence**: Uses a WAL-mode database to track file metadata, preventing redundant scans and tracking corrupted files to skip them permanently.
+- **Smart Content Filtering**: Built-in deterministic content heuristic classifier that automatically filters out screenshots, scanned documents, text pages, and generic objects, while keeping photos containing people and animals by default. Fully toggleable via TUI (Keep People and Keep Animals toggles) and config.toml.
 - **Temporal Filtering**: A "Seasonal Window" filter shows photos from the current time of year across any year (e.g., show only "December" photos every December).
 - **Intelligent Cooldown**: Ensures the same photo isn't shown too frequently (default 330-day cooldown).
 

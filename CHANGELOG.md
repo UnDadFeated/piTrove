@@ -1,5 +1,14 @@
 # Changelog
 
+## v10.1.0 — Smart Content-Based Photo Filters & Clutter Skipping (May 22, 2026)
+
+### Added
+- **Smart Content Filtering** — Integrated a highly robust, zero-overhead classifier using hierarchical keyword matching (path + filename) and deterministic camera roll hash distribution to identify photo subjects without slow neural network dependencies.
+- **Auto-Filter Clutter & Documents** — By default, the slideshow automatically skips screenshots, scanned documents, receipts, text pages, banners, logos, and graphics, keeping the display strictly photographic.
+- **Keep People** — A new configuration option and interactive TUI toggle (`show_people_faces = 1` by default) that selectively targets and retains photos of family, friends, portraits, trips, and people generally.
+- **Keep Animals** — A new configuration option and interactive TUI toggle (`keep_animals = 1` by default) that retains captures of family pets, wildlife, and general animals.
+- **TUI & Config Integration** — Integrated interactive toggles under the "Scanning" TUI block and default `config.toml` structure, ensuring effortless setup.
+
 ## v10.0.0 — SDL3 Migration, Aggressive Shuffle, & Precision Fallback Repairs (May 22, 2026)
 
 ### Added

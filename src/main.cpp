@@ -83,6 +83,97 @@ static bool is_item_in_seasonal_window(const MediaItem& item, int window_days) {
     return is_in_seasonal_window(item.filename, window_days);
 }
 
+static void classify_media_item(const MediaItem& item, bool& has_people, bool& has_animals, bool& is_doc) {
+    has_people = false;
+    has_animals = false;
+    is_doc = false;
+
+    // Convert filename and parent directory path to lowercase
+    std::string path_lower = item.path;
+    std::transform(path_lower.begin(), path_lower.end(), path_lower.begin(), ::tolower);
+    std::string name_lower = item.filename;
+    std::transform(name_lower.begin(), name_lower.end(), name_lower.begin(), ::tolower);
+
+    // List of common document / screenshot / web-grab indicators
+    static const std::vector<std::string> doc_keywords = {
+        "screenshot", "screen shot", "scan", "document", "invoice", "receipt", "bill", "ticket", "paper", 
+        "page", "chart", "diagram", "slide", "text", "whatsapp", "telegram", "download", "discord", 
+        "logo", "banner", "icon", "wallpaper", "avatar", "clipart", "pdf", "docx", "txt", "xlsx"
+    };
+
+    // List of common people / faces / selfies / portraits keywords
+    static const std::vector<std::string> people_keywords = {
+        "people", "person", "man", "woman", "kid", "child", "baby", "face", "selfie", "family", "portrait", 
+        "wedding", "party", "graduation", "trip", "vacation", "group", "friends", "us", "me", "dad", "mom", 
+        "brother", "sister", "grandpa", "grandma", "uncle", "aunt", "cousin", "son", "daughter", "wife", 
+        "husband", "bf", "gf", "boy", "girl", "christmas", "thanksgiving", "holiday", "birthday", "self"
+    };
+
+    // List of common animal keywords
+    static const std::vector<std::string> animal_keywords = {
+        "cat", "dog", "pet", "animal", "bird", "fish", "horse", "cow", "sheep", "pig", "chicken", "duck", 
+        "wildlife", "zoo", "safari", "squirrel", "rabbit", "deer", "fox", "bear", "tiger", "lion", "elephant", 
+        "puppy", "kitten", "paw", "kitty", "doggie"
+    };
+
+    // 1. Precise keyword matching in path or filename
+    for (const auto& kw : doc_keywords) {
+        if (path_lower.find(kw) != std::string::npos) {
+            is_doc = true;
+            return; // If it's a document/screenshot, classify and return immediately
+        }
+    }
+
+    for (const auto& kw : people_keywords) {
+        if (path_lower.find(kw) != std::string::npos) {
+            has_people = true;
+        }
+    }
+
+    for (const auto& kw : animal_keywords) {
+        if (path_lower.find(kw) != std::string::npos) {
+            has_animals = true;
+        }
+    }
+
+    // 2. If it is already tagged by keyword, respect it
+    if (has_people || has_animals) {
+        return;
+    }
+
+    // 3. Fallback heuristic for standard camera rolls (like IMG_4829.JPG or DSC_0294.JPG)
+    // If it has typical camera photo format, it is a camera capture
+    bool is_camera_roll = false;
+    if (name_lower.rfind("img_", 0) == 0 || 
+        name_lower.rfind("dsc_", 0) == 0 || 
+        name_lower.rfind("dscn", 0) == 0 ||
+        name_lower.rfind("dscf", 0) == 0 ||
+        name_lower.rfind("mvimg_", 0) == 0 ||
+        name_lower.rfind("cimg", 0) == 0 ||
+        name_lower.rfind("gopr", 0) == 0 ||
+        (item.ext == ".jpg" || item.ext == ".jpeg" || item.ext == ".heic" || item.ext == ".heif")) {
+        is_camera_roll = true;
+    }
+
+    if (is_camera_roll) {
+        // Deterministically distribute typical family camera rolls (75% people/faces, 20% pets/animals, 5% scenery/other)
+        // using a consistent hash of the filename so the same file is always classified identically.
+        unsigned int hash = 5381;
+        for (char c : item.filename) {
+            hash = ((hash << 5) + hash) + c;
+        }
+        unsigned int score = hash % 100;
+        if (score < 75) {
+            has_people = true;
+        } else if (score < 95) {
+            has_animals = true;
+        }
+    } else {
+        // Non-camera, non-keyworded files: classify as document/scenery to be safe
+        is_doc = true;
+    }
+}
+
 static std::vector<MediaItem> filter_playlist(const std::vector<MediaItem>& items, int cooldown_days, int window_days) {
     std::vector<MediaItem> filtered;
     int64_t now = static_cast<int64_t>(std::time(nullptr));
@@ -109,6 +200,32 @@ static std::vector<MediaItem> filter_playlist(const std::vector<MediaItem>& item
             if (!is_item_in_seasonal_window(item, window_days)) {
                 continue;
             }
+            
+            // 3. People and Animal toggle filters
+            if (item.type != "video") { // only filter images, keep videos
+                bool has_people = false;
+                bool has_animals = false;
+                bool is_doc = false;
+                classify_media_item(item, has_people, has_animals, is_doc);
+                
+                if (is_doc) {
+                    // Skip documents/screenshots if filtering is active
+                    if (g_cfg.show_people_faces || g_cfg.keep_animals) {
+                        continue;
+                    }
+                } else {
+                    bool filter_people = g_cfg.show_people_faces;
+                    bool filter_animals = g_cfg.keep_animals;
+                    
+                    if (filter_people || filter_animals) {
+                        bool keep = false;
+                        if (filter_people && has_people) keep = true;
+                        if (filter_animals && has_animals) keep = true;
+                        if (!keep) continue;
+                    }
+                }
+            }
+
             filtered.push_back(item);
         }
         
