@@ -64,30 +64,39 @@ std::string trim(const std::string& s) {
     return s.substr(start, end - start + 1);
 }
 
-// Signal / crash handling
+// Signal / crash handling — ONLY async-signal-safe functions
 void crash_handler(int sig) {
     const char* msg = "\n[CRITICAL ERROR] piTrove intercepted a terminal fault / crash signal.\n";
     write(STDERR_FILENO, msg, strlen(msg));
+
+    // Signal-safe purge: construct paths into stack buffer, use unlink()
     if (!g_database_complete.load() && !g_crash_cache_dir.empty()) {
-        const char* purge_msg = "[CRITICAL] Database compilation was incomplete. Purging partial database records to protect state integrity...\n";
+        const char* purge_msg = "[CRITICAL] Database incomplete — purging partial cache.\n";
         write(STDERR_FILENO, purge_msg, strlen(purge_msg));
-        std::string db_file = g_crash_cache_dir + "/cache.db";
-        std::remove(db_file.c_str());
-        std::remove((db_file + "-wal").c_str());
-        std::remove((db_file + "-shm").c_str());
+
+        char path[512];
+        int n = snprintf(path, sizeof(path), "%s/cache.db", g_crash_cache_dir.c_str());
+        if (n > 0 && (size_t)n < sizeof(path)) unlink(path);
+        strcat(path, "-wal");
+        unlink(path);
+        strcpy(path + strlen(path) - 3, "shm");
+        unlink(path);
     }
+
     signal(sig, SIG_DFL);
     raise(sig);
 }
 
 void terminate_handler() {
-    fprintf(stderr, "\n[CRITICAL ERROR] piTrove exited due to an unhandled C++ runtime exception.\n");
+    fprintf(stderr, "\n[CRITICAL ERROR] piTrove unhandled exception.\n");
     if (!g_database_complete.load() && !g_crash_cache_dir.empty()) {
-        fprintf(stderr, "[CRITICAL] Database compilation incomplete. Purging partial database records...\n");
-        std::string db_file = g_crash_cache_dir + "/cache.db";
-        std::remove(db_file.c_str());
-        std::remove((db_file + "-wal").c_str());
-        std::remove((db_file + "-shm").c_str());
+        char path[512];
+        int n = snprintf(path, sizeof(path), "%s/cache.db", g_crash_cache_dir.c_str());
+        if (n > 0 && (size_t)n < sizeof(path)) unlink(path);
+        strcat(path, "-wal");
+        unlink(path);
+        strcpy(path + strlen(path) - 3, "shm");
+        unlink(path);
     }
     std::abort();
 }
@@ -127,6 +136,13 @@ void Logger::flush_loop() {
         }
         if (!back_queue.empty()) {
             FILE* f = fopen(log_file_path.c_str(), "a");
+            if (!f) {
+                static std::once_flag warn_once;
+                std::call_once(warn_once, []() {
+                    const char* m = "[WARN] Cannot open log file, logging to stdout only.\n";
+                    write(STDOUT_FILENO, m, strlen(m));
+                });
+            }
             for (const auto& msg : back_queue) {
                 write(STDOUT_FILENO, msg.c_str(), msg.size());
                 if (f) fprintf(f, "%s", msg.c_str());
@@ -209,7 +225,7 @@ void Logger::log(LogLevel lvl, const char* fmt, ...) {
     struct tm tm_buf2;
     std::strftime(header, sizeof(header), "%Y-%m-%d %H:%M:%S", localtime_r(&t, &tm_buf2));
 
-    char line[512];
+    char line[2048];
     int n = std::snprintf(line, sizeof(line), "v%s %s.%03ld [%s] ", VERSION, header, (long)ms.count(), tag);
 
     va_list ap;

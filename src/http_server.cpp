@@ -368,7 +368,7 @@ static const std::string DASHBOARD_HTML = R"HTML(
         <!-- Header -->
         <header>
             <h1>piTrove controller</h1>
-            <div class="subtitle">v10.3.1 glassmorphic system</div>
+            <div class="subtitle">v10.3.2 glassmorphic system</div>
         </header>
 
         <!-- Live Preview -->
@@ -635,7 +635,14 @@ static void send_response(int fd, const std::string& status_line, const std::str
         << "Connection: close\r\n\r\n"
         << body;
     std::string response = oss.str();
-    write(fd, response.data(), response.size());
+    ssize_t remain = response.size();
+    const char* ptr = response.data();
+    while (remain > 0) {
+        ssize_t w = write(fd, ptr, remain);
+        if (w <= 0) break;
+        ptr += w;
+        remain -= w;
+    }
 }
 
 static void handle_preview(int fd) {
@@ -692,7 +699,8 @@ static void handle_preview(int fd) {
         file.read(buffer, sizeof(buffer));
         std::streamsize bytes = file.gcount();
         if (bytes > 0) {
-            write(fd, buffer, bytes);
+            ssize_t w = write(fd, buffer, bytes);
+            if (w <= 0) break; // client disconnected
         }
     }
 }
