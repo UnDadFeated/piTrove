@@ -44,7 +44,7 @@ struct Config {
     float   filename_x{0.04f}, filename_y{0.966f};
     bool    count_enabled{false};
     float   count_x{0.5f}, count_y{0.02f};
-    int     videos_per_photos{3};
+    int     videos_per_photos{10};
     int     video_volume{0};
     int     video_probe_timeout{3};
     bool    play_just_photos{false};
