@@ -85,7 +85,7 @@ std::shared_ptr<ImageData> ImageLoader::load(const std::string& path) {
     result->exif_rotation = exif;
     result->valid = true;
 
-    GpuColor avg = Renderer::get_average_color(surf);
+   GpuColor avg = Renderer::get_average_color(surf);
     result->avg_r = avg.r;
     result->avg_g = avg.g;
     result->avg_b = avg.b;
@@ -96,6 +96,71 @@ std::shared_ptr<ImageData> ImageLoader::load(const std::string& path) {
         result->edge_r[e] = ec.r;
         result->edge_g[e] = ec.g;
         result->edge_b[e] = ec.b;
+    }
+
+    // Per-pixel edge strips: average 3px deep per position
+    {
+        uint8_t* px = (uint8_t*)surf->pixels;
+        int bpp = surf->format->BytesPerPixel;
+        int sw = surf->w, sh = surf->h;
+        int pitch = surf->pitch;
+
+        // Top edge: one RGB per column
+        result->edge_top_rgb.resize(sw * 3);
+        for (int x = 0; x < sw; x++) {
+            int ar = 0, ag = 0, ab = 0, ac = 0;
+            for (int d = 0; d < 3; d++) {
+                const uint8_t* dp = px + x * bpp + d * pitch;
+                ar += dp[0]; ag += dp[1]; ab += dp[2]; ac++;
+            }
+            result->edge_top_rgb[x * 3 + 0] = (uint8_t)(ar / ac);
+            result->edge_top_rgb[x * 3 + 1] = (uint8_t)(ag / ac);
+            result->edge_top_rgb[x * 3 + 2] = (uint8_t)(ab / ac);
+        }
+
+        // Bottom edge
+        result->edge_bot_rgb.resize(sw * 3);
+        uint8_t* brow = px + (sh - 1) * pitch;
+        for (int x = 0; x < sw; x++) {
+            int ar = 0, ag = 0, ab = 0, ac = 0;
+            for (int d = -1; d <= 1; d++) {
+                int ry = sh - 1 + d;
+                if (ry >= 0 && ry < sh) {
+                    const uint8_t* dp = px + x * bpp + ry * pitch;
+                    ar += dp[0]; ag += dp[1]; ab += dp[2]; ac++;
+                }
+            }
+            result->edge_bot_rgb[x * 3 + 0] = (uint8_t)(ar / ac);
+            result->edge_bot_rgb[x * 3 + 1] = (uint8_t)(ag / ac);
+            result->edge_bot_rgb[x * 3 + 2] = (uint8_t)(ab / ac);
+        }
+
+        // Left edge: one RGB per row
+        result->edge_lft_rgb.resize(sh * 3);
+        for (int y = 0; y < sh; y++) {
+            const uint8_t* p = px + y * pitch;
+            int ar = 0, ag = 0, ab = 0, ac = 0;
+            for (int w = 0; w < 3 && w < sw; w++) {
+                ar += p[w * bpp + 0]; ag += p[w * bpp + 1]; ab += p[w * bpp + 2]; ac++;
+            }
+            result->edge_lft_rgb[y * 3 + 0] = (uint8_t)(ar / ac);
+            result->edge_lft_rgb[y * 3 + 1] = (uint8_t)(ag / ac);
+            result->edge_lft_rgb[y * 3 + 2] = (uint8_t)(ab / ac);
+        }
+
+        // Right edge
+        result->edge_rgt_rgb.resize(sh * 3);
+        for (int y = 0; y < sh; y++) {
+            const uint8_t* p = px + y * pitch;
+            int ar = 0, ag = 0, ab = 0, ac = 0;
+            for (int w = 0; w < 3; w++) {
+                int wc = sw - 1 - w;
+                if (wc >= 0) { ar += p[wc * bpp + 0]; ag += p[wc * bpp + 1]; ab += p[wc * bpp + 2]; ac++; }
+            }
+            result->edge_rgt_rgb[y * 3 + 0] = (uint8_t)(ar / ac);
+            result->edge_rgt_rgb[y * 3 + 1] = (uint8_t)(ag / ac);
+            result->edge_rgt_rgb[y * 3 + 2] = (uint8_t)(ab / ac);
+        }
     }
 
     return result;

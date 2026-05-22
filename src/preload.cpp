@@ -1,6 +1,9 @@
 #include "preload.h"
 #include "renderer.h"
 #include "util.h"
+#include "image_loader.h"
+#include <algorithm>
+#include <cstring>
 #include <unordered_set>
 
 PreloadQueue::PreloadQueue(int max_size, int num_threads, SDL_Renderer* sdl_renderer)
@@ -102,6 +105,66 @@ std::shared_ptr<ImageData> PreloadQueue::try_dequeue() {
                         data->edge_r[e] = ec.r;
                         data->edge_g[e] = ec.g;
                         data->edge_b[e] = ec.b;
+                    }
+
+                    // Per-pixel edge strips: average 3px deep per position
+                    {
+                        uint8_t* px = (uint8_t*)data->surface->pixels;
+                        int bpp = data->surface->format->BytesPerPixel;
+                        int sw = data->surface->w, sh = data->surface->h;
+                        int pitch = data->surface->pitch;
+
+                        data->edge_top_rgb.resize(sw * 3);
+                        for (int x = 0; x < sw; x++) {
+                            int ar = 0, ag = 0, ab = 0, ac = 0;
+                            for (int d = 0; d < 3; d++) {
+                                const uint8_t* dp = px + x * bpp + d * pitch;
+                                ar += dp[0]; ag += dp[1]; ab += dp[2]; ac++;
+                            }
+                            data->edge_top_rgb[x * 3 + 0] = (uint8_t)(ar / ac);
+                            data->edge_top_rgb[x * 3 + 1] = (uint8_t)(ag / ac);
+                            data->edge_top_rgb[x * 3 + 2] = (uint8_t)(ab / ac);
+                        }
+
+                        data->edge_bot_rgb.resize(sw * 3);
+                        for (int x = 0; x < sw; x++) {
+                            int ar = 0, ag = 0, ab = 0, ac = 0;
+                            for (int d = -1; d <= 1; d++) {
+                                int ry = sh - 1 + d;
+                                if (ry >= 0 && ry < sh) {
+                                    const uint8_t* dp = px + x * bpp + ry * pitch;
+                                    ar += dp[0]; ag += dp[1]; ab += dp[2]; ac++;
+                                }
+                            }
+                            data->edge_bot_rgb[x * 3 + 0] = (uint8_t)(ar / ac);
+                            data->edge_bot_rgb[x * 3 + 1] = (uint8_t)(ag / ac);
+                            data->edge_bot_rgb[x * 3 + 2] = (uint8_t)(ab / ac);
+                        }
+
+                        data->edge_lft_rgb.resize(sh * 3);
+                        for (int y = 0; y < sh; y++) {
+                            const uint8_t* p = px + y * pitch;
+                            int ar = 0, ag = 0, ab = 0, ac = 0;
+                            for (int w = 0; w < 3 && w < sw; w++) {
+                                ar += p[w * bpp + 0]; ag += p[w * bpp + 1]; ab += p[w * bpp + 2]; ac++;
+                            }
+                            data->edge_lft_rgb[y * 3 + 0] = (uint8_t)(ar / ac);
+                            data->edge_lft_rgb[y * 3 + 1] = (uint8_t)(ag / ac);
+                            data->edge_lft_rgb[y * 3 + 2] = (uint8_t)(ab / ac);
+                        }
+
+                        data->edge_rgt_rgb.resize(sh * 3);
+                        for (int y = 0; y < sh; y++) {
+                            const uint8_t* p = px + y * pitch;
+                            int ar = 0, ag = 0, ab = 0, ac = 0;
+                            for (int w = 0; w < 3; w++) {
+                                int wc = sw - 1 - w;
+                                if (wc >= 0) { ar += p[wc * bpp + 0]; ag += p[wc * bpp + 1]; ab += p[wc * bpp + 2]; ac++; }
+                            }
+                            data->edge_rgt_rgb[y * 3 + 0] = (uint8_t)(ar / ac);
+                            data->edge_rgt_rgb[y * 3 + 1] = (uint8_t)(ag / ac);
+                            data->edge_rgt_rgb[y * 3 + 2] = (uint8_t)(ab / ac);
+                        }
                     }
                 }
             }

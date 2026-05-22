@@ -266,7 +266,15 @@ GpuColor Renderer::get_edge_average_color(SDL_Surface* surface, int depth, int w
 }
 
 void Renderer::calculate_fit_rect(int img_w, int img_h, SDL_Rect& out_rect) {
-    float scale = std::min((float)screen_w / img_w, (float)screen_h / img_h);
+    int area_w = screen_w, area_h = screen_h;
+    if (g_cfg.matting || g_cfg.bias_lighting) {
+        int mat = g_cfg.matting_size;
+        area_w = screen_w - mat * 2;
+        area_h = screen_h - mat * 2;
+        if (area_w < 1) area_w = 1;
+        if (area_h < 1) area_h = 1;
+    }
+    float scale = std::min((float)area_w / img_w, (float)area_h / img_h);
     out_rect.w = (int)(img_w * scale);
     out_rect.h = (int)(img_h * scale);
     out_rect.x = (screen_w - out_rect.w) / 2;
@@ -309,80 +317,216 @@ void Renderer::draw_matte_borders(const SDL_Rect& fit_rect) {
     }
 }
 
-void Renderer::draw_bias_lighting(const SDL_Rect& fit_rect, const uint8_t edge_r[4], const uint8_t edge_g[4], const uint8_t edge_b[4], int bias_strength, float item_timer, float anim_speed, const std::string& style) {
+void Renderer::draw_bias_lighting(const SDL_Rect& fit_rect, Uint8 avg_r, Uint8 avg_g, Uint8 avg_b,
+        int bias_strength, float item_timer, float anim_speed, const std::string& style, int border_width) {
     if (!sdl_renderer) return;
     int sw = screen_w, sh = screen_h;
-    int steps = 8;
+    int bw = border_width; // use config border_width (default 10)
+    int glow_steps = 16; // glow fade depth
+    float sf = (float)std::max(0, std::min(bias_strength, 200)) / 150.0f;
     float pulse = 1.0f;
     if (style == "pulse" || style == "edge_glow" || style == "breathe") {
         float t = item_timer * anim_speed;
         if (style == "breathe") {
             pulse = 0.7f + 0.3f * (0.5f + 0.5f * sinf(t * 3.14159f));
         } else {
-            pulse = 0.8f + 0.2f * (0.5f + 0.5f * sinf(t * 3.14159f * 2));
+            pulse = 0.85f + 0.15f * (0.5f + 0.5f * sinf(t * 3.14159f * 2));
         }
     }
-    int strength = (bias_strength * pulse) / 100;
-    // Top gradient (edge 0)
-    if (fit_rect.y > 0) {
-        int mat_h = fit_rect.y;
-        for (int s = 0; s < steps; s++) {
-            float t2 = (float)s / steps;
-            int alpha = (int)(255.0f * (1.0f - t2) * (strength / 255.0f));
-            if (alpha <= 0) break;
-            int band_h = (mat_h + steps - 1 - s) / steps;
-            if (band_h <= 0) band_h = 1;
-            int y = fit_rect.y - s * band_h;
-            SDL_SetRenderDrawColor(sdl_renderer, (uint8_t)(edge_r[0] * strength / 255), (uint8_t)(edge_g[0] * strength / 255), (uint8_t)(edge_b[0] * strength / 255), alpha);
-            SDL_Rect r = {0, y, sw, band_h};
+
+  // 3D picture-frame border — Dynamic Colors based on Photo (legacy v8.7.0)
+    {
+        Uint8 hi_r = (Uint8)std::min(255, (int)avg_r + 65);
+        Uint8 hi_g = (Uint8)std::min(255, (int)avg_g + 65);
+        Uint8 hi_b = (Uint8)std::min(255, (int)avg_b + 65);
+        Uint8 lo_r = (Uint8)(avg_r * 0.25f);
+        Uint8 lo_g = (Uint8)(avg_g * 0.25f);
+        Uint8 lo_b = (Uint8)(avg_b * 0.25f);
+
+        // Seam colors
+        Uint8 tl_seam_r = (Uint8)std::max(0, (int)avg_r - 35);
+        Uint8 tl_seam_g = (Uint8)std::max(0, (int)avg_g - 35);
+        Uint8 tl_seam_b = (Uint8)std::max(0, (int)avg_b - 35);
+        Uint8 br_seam_r = (Uint8)(avg_r * 0.18f);
+        Uint8 br_seam_g = (Uint8)(avg_g * 0.18f);
+        Uint8 br_seam_b = (Uint8)(avg_b * 0.18f);
+        Uint8 glint_r = (Uint8)std::min(255, (int)avg_r + 85);
+        Uint8 glint_g = (Uint8)std::min(255, (int)avg_g + 85);
+        Uint8 glint_b = (Uint8)std::min(255, (int)avg_b + 85);
+
+        int ix1 = fit_rect.x, iy1 = fit_rect.y;
+        int ix2 = fit_rect.x + fit_rect.w, iy2 = fit_rect.y + fit_rect.h;
+
+        // Fill lo triangle scanline: vertices (cx+bw,cy), (cx+bw,cy+bw), (cx,cy+bw)
+        auto fill_tri_br = [&](int cx, int cy, Uint8 r, Uint8 g, Uint8 b) {
+            SDL_SetRenderDrawColor(sdl_renderer, r, g, b, 255);
+            for (int row = 0; row < bw; row++) {
+                int fill_w = row + 1;
+                SDL_Rect tr = {cx + bw - fill_w, cy + row, fill_w, 1};
+                SDL_RenderFillRect(sdl_renderer, &tr);
+            }
+        };
+
+        // Fill lo triangle scanline: vertices (cx,cy+bw), (cx+bw,cy+bw), (cx+bw,cy)
+        auto fill_tri_tr = [&](int cx, int cy, Uint8 r, Uint8 g, Uint8 b) {
+            SDL_SetRenderDrawColor(sdl_renderer, r, g, b, 255);
+            for (int row = 0; row < bw; row++) {
+                int fill_w = row + 1;
+                SDL_Rect tr = {cx + bw - fill_w, cy + bw - 1 - row, fill_w, 1};
+                SDL_RenderFillRect(sdl_renderer, &tr);
+            }
+        };
+
+        // ── Side faces (full-width, full-height — overlaps corners) ──
+        if (iy1 > 0) {
+            SDL_SetRenderDrawColor(sdl_renderer, hi_r, hi_g, hi_b, 255);
+            SDL_Rect r = {ix1, iy1 - bw, ix2 - ix1, bw};
             SDL_RenderFillRect(sdl_renderer, &r);
         }
-    }
-    // Bottom gradient (edge 1)
-    if (fit_rect.y + fit_rect.h < sh) {
-        int mat_h = sh - (fit_rect.y + fit_rect.h);
-        for (int s = 0; s < steps; s++) {
-            float t2 = (float)s / steps;
-            int alpha = (int)(255.0f * (1.0f - t2) * (strength / 255.0f));
-            if (alpha <= 0) break;
-            int band_h = (mat_h + steps - 1 - s) / steps;
-            if (band_h <= 0) band_h = 1;
-            int y = fit_rect.y + fit_rect.h + s * band_h;
-            SDL_SetRenderDrawColor(sdl_renderer, (uint8_t)(edge_r[1] * strength / 255), (uint8_t)(edge_g[1] * strength / 255), (uint8_t)(edge_b[1] * strength / 255), alpha);
-            SDL_Rect r = {0, y, sw, band_h};
+        if (iy2 + bw <= sh) {
+            SDL_SetRenderDrawColor(sdl_renderer, lo_r, lo_g, lo_b, 255);
+            SDL_Rect r = {ix1, iy2, ix2 - ix1, bw};
             SDL_RenderFillRect(sdl_renderer, &r);
         }
-    }
-    // Left gradient (edge 2)
-    if (fit_rect.x > 0) {
-        int mat_w = fit_rect.x;
-        for (int s = 0; s < steps; s++) {
-            float t2 = (float)s / steps;
-            int alpha = (int)(255.0f * (1.0f - t2) * (strength / 255.0f));
-            if (alpha <= 0) break;
-            int band_w = (mat_w + steps - 1 - s) / steps;
-            if (band_w <= 0) band_w = 1;
-            int x = fit_rect.x - s * band_w;
-            SDL_SetRenderDrawColor(sdl_renderer, (uint8_t)(edge_r[2] * strength / 255), (uint8_t)(edge_g[2] * strength / 255), (uint8_t)(edge_b[2] * strength / 255), alpha);
-            SDL_Rect r = {x, 0, band_w, sh};
+        if (ix1 > 0) {
+            SDL_SetRenderDrawColor(sdl_renderer, hi_r, hi_g, hi_b, 255);
+            SDL_Rect r = {ix1 - bw, iy1, bw, iy2 - iy1};
             SDL_RenderFillRect(sdl_renderer, &r);
         }
-    }
-    // Right gradient (edge 3)
-    if (fit_rect.x + fit_rect.w < sw) {
-        int mat_w = sw - (fit_rect.x + fit_rect.w);
-        for (int s = 0; s < steps; s++) {
-            float t2 = (float)s / steps;
-            int alpha = (int)(255.0f * (1.0f - t2) * (strength / 255.0f));
-            if (alpha <= 0) break;
-            int band_w = (mat_w + steps - 1 - s) / steps;
-            if (band_w <= 0) band_w = 1;
-            int x = fit_rect.x + fit_rect.w + s * band_w;
-            SDL_SetRenderDrawColor(sdl_renderer, (uint8_t)(edge_r[3] * strength / 255), (uint8_t)(edge_g[3] * strength / 255), (uint8_t)(edge_b[3] * strength / 255), alpha);
-            SDL_Rect r = {x, 0, band_w, sh};
+        if (ix2 + bw <= sw) {
+            SDL_SetRenderDrawColor(sdl_renderer, lo_r, lo_g, lo_b, 255);
+            SDL_Rect r = {ix2, iy1, bw, iy2 - iy1};
             SDL_RenderFillRect(sdl_renderer, &r);
         }
+
+        // ── TL corner (miter) — solid hi + dark crease ──
+        {
+            SDL_SetRenderDrawColor(sdl_renderer, hi_r, hi_g, hi_b, 255);
+            SDL_Rect r = {ix1 - bw, iy1 - bw, bw, bw};
+            SDL_RenderFillRect(sdl_renderer, &r);
+            SDL_SetRenderDrawColor(sdl_renderer, tl_seam_r, tl_seam_g, tl_seam_b, 215);
+            SDL_RenderDrawLine(sdl_renderer, ix1 - 1, iy1 - 1, ix1 - bw + 1, iy1 - bw + 1);
+        }
+
+        // ── TR corner — solid hi base + lo triangle overlay + bright glint ──
+        {
+            SDL_SetRenderDrawColor(sdl_renderer, hi_r, hi_g, hi_b, 255);
+            SDL_Rect r = {ix2, iy1 - bw, bw, bw};
+            SDL_RenderFillRect(sdl_renderer, &r);
+            fill_tri_br(ix2, iy1 - bw, lo_r, lo_g, lo_b);
+            SDL_SetRenderDrawColor(sdl_renderer, glint_r, glint_g, glint_b, 255);
+            SDL_RenderDrawLine(sdl_renderer, ix2 + 1, iy1 - 1, ix2 + bw - 1, iy1 - bw + 1);
+        }
+
+        // ── BL corner — solid hi base + lo triangle overlay + bright glint ──
+        {
+            SDL_SetRenderDrawColor(sdl_renderer, hi_r, hi_g, hi_b, 255);
+            SDL_Rect r = {ix1 - bw, iy2, bw, bw};
+            SDL_RenderFillRect(sdl_renderer, &r);
+            // lo triangle: top row narrow → bottom row full (adjacent to lo bottom edge)
+            SDL_SetRenderDrawColor(sdl_renderer, lo_r, lo_g, lo_b, 255);
+            for (int row = 0; row < bw; row++) {
+                int fill_w = row + 1;
+                SDL_Rect tr = {ix1 - fill_w, iy2 + row, fill_w, 1};
+                SDL_RenderFillRect(sdl_renderer, &tr);
+            }
+            SDL_SetRenderDrawColor(sdl_renderer, glint_r, glint_g, glint_b, 255);
+            SDL_RenderDrawLine(sdl_renderer, ix1 - 1, iy2 + 1, ix1 - bw + 1, iy2 + bw - 1);
+        }
+
+        // ── BR corner (miter) — solid lo + near-black crease ──
+        {
+            SDL_SetRenderDrawColor(sdl_renderer, lo_r, lo_g, lo_b, 255);
+            SDL_Rect r = {ix2, iy2, bw, bw};
+            SDL_RenderFillRect(sdl_renderer, &r);
+            SDL_SetRenderDrawColor(sdl_renderer, br_seam_r, br_seam_g, br_seam_b, 215);
+            SDL_RenderDrawLine(sdl_renderer, ix2 + 1, iy2 + 1, ix2 + bw - 1, iy2 + bw - 1);
+        }
+
+        // 1px outline at exact photo boundary
+        {
+            SDL_SetRenderDrawColor(sdl_renderer, 0, 0, 0, 180);
+            SDL_Rect r = {ix1 - 1, iy1 - 1, (ix2 - ix1 + 2), (iy2 - iy1 + 2)};
+            SDL_RenderDrawRect(sdl_renderer, &r);
+        }
     }
+
+    // Glow: gradient strips outward from border, brightest at border edge, fading into matte
+    auto glow_up = [&](int gx, int gy, int gw, int max_depth) {
+        for (int s = 0; s < max_depth && s < glow_steps; s++) {
+            float t2 = (float)s / glow_steps;
+            float alpha_f = std::expf(-2.5f * t2 * t2) * sf * pulse;
+            if (alpha_f < 0.01f) break;
+            Uint8 aa = (Uint8)(alpha_f * 255.0f);
+            SDL_SetRenderDrawColor(sdl_renderer, avg_r, avg_g, avg_b, aa);
+            SDL_Rect r = {gx, gy - s, gw, 1};
+            SDL_RenderFillRect(sdl_renderer, &r);
+        }
+    };
+    auto glow_down = [&](int gx, int gy, int gw, int max_depth) {
+        for (int s = 0; s < max_depth && s < glow_steps; s++) {
+            float t2 = (float)s / glow_steps;
+            float alpha_f = std::expf(-2.5f * t2 * t2) * sf * pulse;
+            if (alpha_f < 0.01f) break;
+            Uint8 aa = (Uint8)(alpha_f * 255.0f);
+            SDL_SetRenderDrawColor(sdl_renderer, avg_r, avg_g, avg_b, aa);
+            SDL_Rect r = {gx, gy + s, gw, 1};
+            SDL_RenderFillRect(sdl_renderer, &r);
+        }
+    };
+    auto glow_left = [&](int gx, int gy, int max_depth, int gh) {
+        for (int s = 0; s < max_depth && s < glow_steps; s++) {
+            float t2 = (float)s / glow_steps;
+            float alpha_f = std::expf(-2.5f * t2 * t2) * sf * pulse;
+            if (alpha_f < 0.01f) break;
+            Uint8 aa = (Uint8)(alpha_f * 255.0f);
+            SDL_SetRenderDrawColor(sdl_renderer, avg_r, avg_g, avg_b, aa);
+            SDL_Rect r = {gx - s, gy, 1, gh};
+            SDL_RenderFillRect(sdl_renderer, &r);
+        }
+    };
+    auto glow_right = [&](int gx, int gy, int max_depth, int gh) {
+        for (int s = 0; s < max_depth && s < glow_steps; s++) {
+            float t2 = (float)s / glow_steps;
+            float alpha_f = std::expf(-2.5f * t2 * t2) * sf * pulse;
+            if (alpha_f < 0.01f) break;
+            Uint8 aa = (Uint8)(alpha_f * 255.0f);
+            SDL_SetRenderDrawColor(sdl_renderer, avg_r, avg_g, avg_b, aa);
+            SDL_Rect r = {gx + s, gy, 1, gh};
+            SDL_RenderFillRect(sdl_renderer, &r);
+        }
+    };
+
+      // Edge glow: runs from corner to corner + 1px to cover border corner pixel
+    // Top: extends 1px past right corner so strip covers x = fit_rect.x + fit_rect.w + bw
+    { int depth = fit_rect.y - bw; if (depth > 0) glow_up(fit_rect.x - bw, fit_rect.y - bw, fit_rect.w + 2*bw + 1, depth); }
+    // Bottom
+    { int depth = sh - (fit_rect.y + fit_rect.h + bw); if (depth > 0) glow_down(fit_rect.x - bw, fit_rect.y + fit_rect.h + bw, fit_rect.w + 2*bw + 1, depth); }
+    // Left: extends 1px past bottom corner so strip covers y = fit_rect.y + fit_rect.h + bw
+    { int depth = fit_rect.x - bw; if (depth > 0) glow_left(fit_rect.x - bw, fit_rect.y - bw, depth, fit_rect.h + 2*bw + 1); }
+    // Right
+    { int depth = sw - (fit_rect.x + fit_rect.w + bw); if (depth > 0) glow_right(fit_rect.x + fit_rect.w + bw, fit_rect.y - bw, depth, fit_rect.h + 2*bw + 1); }
+
+    // Corner glow: fills diagonal area only (skip i==0 or j==0 — edge glow covers straight edge)
+    auto glow_corner = [&](int px, int py, int dx, int dy, int region_w, int region_h) {
+        for (int i = 1; i <= region_w; i++) {
+            for (int j = 1; j <= region_h; j++) {
+                float dist = std::sqrtf((float)(i * i + j * j));
+                float t2 = dist / glow_steps;
+                float alpha_f = std::expf(-2.5f * t2 * t2) * sf * pulse;
+                if (alpha_f < 0.02f) continue;
+                Uint8 aa = (Uint8)(alpha_f * 255.0f);
+                SDL_SetRenderDrawColor(sdl_renderer, avg_r, avg_g, avg_b, aa);
+                SDL_Rect r = {px + i * dx, py + j * dy, 1, 1};
+                SDL_RenderFillRect(sdl_renderer, &r);
+            }
+        }
+    };
+
+    { int rw = fit_rect.x - bw, rh = fit_rect.y - bw; if (rw > 0 && rh > 0) glow_corner(fit_rect.x - bw, fit_rect.y - bw, -1, -1, rw, rh); }
+    { int rw = sw - (fit_rect.x + fit_rect.w + bw), rh = fit_rect.y - bw; if (rw > 0 && rh > 0) glow_corner(fit_rect.x + fit_rect.w + bw, fit_rect.y - bw, 1, -1, rw + 1, rh); }
+    { int rw = fit_rect.x - bw, rh = sh - (fit_rect.y + fit_rect.h + bw); if (rw > 0 && rh > 0) glow_corner(fit_rect.x - bw, fit_rect.y + fit_rect.h + bw, -1, 1, rw, rh + 1); }
+    { int rw = sw - (fit_rect.x + fit_rect.w + bw), rh = sh - (fit_rect.y + fit_rect.h + bw); if (rw > 0 && rh > 0) glow_corner(fit_rect.x + fit_rect.w + bw, fit_rect.y + fit_rect.h + bw, 1, 1, rw + 1, rh + 1); }
 }
 
 void Renderer::draw_solid_border(int width, uint8_t r, uint8_t g, uint8_t b) {

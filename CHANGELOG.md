@@ -1,5 +1,18 @@
 # Changelog
 
+## v9.3.0 — Legacy 3D border + seamless glow (May 22, 2026)
+
+### Changed
+- **3D picture-frame border** — Replaced custom per-row corner triangles with legacy v8.7.0 approach: solid hi/lo squares + triangle overlays + seam lines (hi=avg+65, lo=avg×0.25, TL dark crease, TR/BL bright glint, BR near-black crease)
+- **Configurable border width** — Border now uses `border_width` from config (default 10px) instead of hardcoded 3px
+- **Seamless glow** — Edge glow strips extend full corner-to-corner, corner glow fills diagonal area (i≥1, j≥1) with no overlap gap, eliminating 1px bright/dark seams
+- **1px photo outline** — Added black outline at exact photo boundary for crisp separation
+
+## v9.1.4 — Gradient stops: chunked edge color sampling for bias lighting (May 21, 2026)
+
+### Changed
+- **Bias lighting gradient stops** — Replaced single-color-per-edge with up to 24 gradient stops per edge. Each stop averages a chunk of ~80 pixels (width/24) × 5 pixels deep, capturing color variation along edges. Drawn as 12 alpha fade layers × 24 colored segments per edge, producing smooth multi-color gradients from photo to matte.
+
 ## v9.1.2 — Bias lighting: per-edge color gradient from photo to black matte (May 21, 2026)
 
 ### Added
