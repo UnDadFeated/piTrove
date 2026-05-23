@@ -1336,21 +1336,15 @@ int main(int argc, char** argv) {
         // --- Video Player Handling ---
         if (g_eligible[current_idx].type == "video") {
             if (g_mpv_player.is_active()) {
-                if (!g_mpv_player.check_status()) {
-                    // Video EOF: stop transition and advance to next, skipping any consecutive videos
+                // Peek if the next item is a video
+                int next_idx = (current_idx + 1) % (int)g_eligible.size();
+                bool next_is_video = (g_eligible[next_idx].type == "video");
+
+                // If the next item is also a video, tell check_status not to reclaim DRM master context
+                if (!g_mpv_player.check_status(!next_is_video)) {
                     g_logger.info("Video EOF detected: advancing playlist.");
                     transitioning = true; transition_timer = 0.0;
                     advance_playlist(1);
-                    // Skip any consecutive videos to prevent black screen gaps
-                    int skipped = 0;
-                    while (current_idx >= 0 && current_idx < (int)g_eligible.size() &&
-                           g_eligible[current_idx].type == "video") {
-                        g_logger.info("Skipping consecutive video: %s (will not add to cooldown)", g_eligible[current_idx].path.c_str());
-                        advance_playlist(1);
-                        skipped++;
-                        if (skipped > (int)g_eligible.size()) break; // safety
-                    }
-                    if (skipped > 0) g_logger.info("Skipped %d consecutive video(s), now on photo", skipped);
                 }
                 playlist_lock.unlock(); // Unlock before delay sleep
                 SDL_Delay(50); continue;
