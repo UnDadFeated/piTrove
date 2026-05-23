@@ -1,5 +1,12 @@
 # Changelog
 
+## v11.1.1 — Display Sleep Recovery & Signal Safety Fail-Safes (May 23, 2026)
+
+### Added
+- **SIGINT Graceful Intercept** — Registered `SIGINT` (Ctrl+C) to trigger graceful shutdowns, restoring physical display backlights and closing the SQLite cache database safely.
+- **Normal Exit Backlight Restoration** — Added physical display backlight power restoration (`vcgencmd display_power 1`) inside the main cleanup block of `main.cpp` to ensure the screen is powered back on during standard application terminations.
+- **Boot Service Autofire** — Configured `install.sh` to immediately trigger and start the `piTrove.service` daemon after successful system registration, removing manual post-install steps.
+
 ## v11.1.0 — MQTT Integration & Interleaving Ratio Optimization (May 23, 2026)
 
 ### Added
