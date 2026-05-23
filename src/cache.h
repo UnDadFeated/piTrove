@@ -12,6 +12,7 @@ struct CacheManager {
     sqlite3_stmt* stmt_upsert{nullptr};
     sqlite3_stmt* stmt_load{nullptr};
     sqlite3_stmt* stmt_mark{nullptr};
+    bool in_transaction{false};
 
     bool open(const std::string& dir);
     void close();

@@ -856,7 +856,7 @@ int main(int argc, char** argv) {
             g_cache = fast_cache;
             sqlite3_stmt* stmt = nullptr;
             int load_rc = sqlite3_prepare_v2(fast_cache->db,
-                "SELECT path, type, w, h, duration, exif, last_shown FROM cache WHERE bad = 0;",
+                "SELECT path, type, w, h, duration, exif, last_shown, is_camera FROM cache WHERE bad = 0;",
                 -1, &stmt, nullptr);
             if (load_rc == SQLITE_OK) {
                 int row_count = 0;
@@ -873,6 +873,7 @@ int main(int argc, char** argv) {
                     mi.duration = sqlite3_column_double(stmt, 4);
                     mi.exif_rotation = sqlite3_column_int(stmt, 5);
                     mi.last_shown = sqlite3_column_int64(stmt, 6);
+                    mi.is_camera = sqlite3_column_int(stmt, 7);
                     auto slash = mi.path.rfind('/');
                     mi.filename = (slash != std::string::npos) ? mi.path.substr(slash + 1) : mi.path;
                     auto dot = mi.filename.find_last_of('.');

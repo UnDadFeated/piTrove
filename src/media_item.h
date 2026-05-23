@@ -17,6 +17,7 @@ struct MediaItem {
     int64_t     modified_time{0};
     bool        cached{false};
     int64_t     last_shown{0};
+    int         is_camera{-1}; // -1 = unknown, 0 = no camera EXIF (screenshot), 1 = has camera EXIF
 };
 
 #endif // PITROVE_MEDIA_ITEM_H

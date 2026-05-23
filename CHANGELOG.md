@@ -1,5 +1,16 @@
 # Changelog
 
+## v10.3.13 — Metadata-Cached Camera EXIF Checking (May 22, 2026)
+
+### Added
+- **EXIF Caching Layer** — Extended the SQLite metadata cache and `MediaItem` struct with an `is_camera` column to track camera EXIF status (`-1` = unknown, `0` = screenshot/document, `1` = camera photo). The `ImageLoader::has_camera_exif` filesystem check is now executed exactly once per file and permanently cached, eliminating synchronous network NAS reads during playlist generation. This completely resolves the remote mount connection hangs (kernel `D` state blocks in `cifs_strict_readv`) and ensures instant, robust application startup.
+
+## v10.3.12 — Precise Word-Boundary Keyword Matching (May 22, 2026)
+
+### Fixed
+- **Screenshot False Positive Leak** — Discovered and fixed a subtle bug in the media classifier's keyword matching logic. Short keywords (like `"me"` and `"us"`) were triggering false positives on common words (e.g. `"me"` matching inside `"Chrome"` and `"Messages"` in file paths like `/mnt/nas/Photos/..._Chrome.jpg`), bypassing optical EXIF checks and leaking screenshots into the slideshow. Added strict alphanumeric word-boundary checks for these short tokens.
+- **Fast-Path Cache Extension Mismatch** — Normalized file extension comparisons between the filesystem scanner (which returns `".jpg"` with a leading dot) and the database fast-path loader (which extracts `"jpg"` dotless), ensuring uniform classification in both modes.
+
 ## v10.3.11 — Seamless Video-to-Video Transitions (May 22, 2026)
 
 ### Added

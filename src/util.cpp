@@ -1,6 +1,7 @@
 #include "util.h"
 #include "media_item.h"
 #include "image_loader.h"
+#include "cache.h"
 #include <iostream>
 #include <chrono>
 #include <filesystem>
@@ -402,6 +403,35 @@ void slide_debug_close() {
     }
 }
 
+static bool match_keyword(const std::string& str, const std::string& kw) {
+    size_t pos = str.find(kw);
+    if (pos == std::string::npos) return false;
+
+    // For very short keywords prone to false positives, enforce strict word boundary checks
+    if (kw == "me" || kw == "us") {
+        pos = 0;
+        while ((pos = str.find(kw, pos)) != std::string::npos) {
+            bool before_ok = true;
+            if (pos > 0) {
+                char c = str[pos - 1];
+                if (std::isalnum(c)) before_ok = false;
+            }
+            bool after_ok = true;
+            if (pos + kw.size() < str.size()) {
+                char c = str[pos + kw.size()];
+                if (std::isalnum(c)) after_ok = false;
+            }
+            if (before_ok && after_ok) {
+                return true;
+            }
+            pos += kw.size();
+        }
+        return false;
+    }
+
+    return true;
+}
+
 void classify_media_item(const MediaItem& item, bool& has_people, bool& has_animals, bool& is_doc) {
     has_people = false;
     has_animals = false;
@@ -437,20 +467,20 @@ void classify_media_item(const MediaItem& item, bool& has_people, bool& has_anim
 
     // 1. Precise keyword matching in path or filename
     for (const auto& kw : doc_keywords) {
-        if (path_lower.find(kw) != std::string::npos) {
+        if (match_keyword(path_lower, kw)) {
             is_doc = true;
             return; // If it's a document/screenshot, classify and return immediately
         }
     }
 
     for (const auto& kw : people_keywords) {
-        if (path_lower.find(kw) != std::string::npos) {
+        if (match_keyword(path_lower, kw)) {
             has_people = true;
         }
     }
 
     for (const auto& kw : animal_keywords) {
-        if (path_lower.find(kw) != std::string::npos) {
+        if (match_keyword(path_lower, kw)) {
             has_animals = true;
         }
     }
@@ -463,6 +493,11 @@ void classify_media_item(const MediaItem& item, bool& has_people, bool& has_anim
     // 3. Fallback heuristic for standard camera rolls (like IMG_4829.JPG or DSC_0294.JPG)
     // If it has typical camera photo format, it is a camera capture
     bool is_camera_roll = false;
+    std::string ext_clean = item.ext;
+    if (!ext_clean.empty() && ext_clean.front() == '.') {
+        ext_clean = ext_clean.substr(1);
+    }
+    
     if (name_lower.rfind("img_", 0) == 0 ||
         name_lower.rfind("dsc_", 0) == 0 ||
         name_lower.rfind("dscn", 0) == 0 ||
@@ -470,14 +505,25 @@ void classify_media_item(const MediaItem& item, bool& has_people, bool& has_anim
         name_lower.rfind("mvimg_", 0) == 0 ||
         name_lower.rfind("cimg", 0) == 0 ||
         name_lower.rfind("gopr", 0) == 0 ||
-        (item.ext == ".jpg" || item.ext == ".jpeg" || item.ext == ".heic" || item.ext == ".heif")) {
+        (ext_clean == "jpg" || ext_clean == "jpeg" || ext_clean == "heic" || ext_clean == "heif")) {
         is_camera_roll = true;
     }
 
     if (is_camera_roll) {
         // Only apply 90/10 heuristic if EXIF confirms it's a real camera photo
         // Screenshots saved as .jpg lack camera EXIF and would otherwise slip through
-        if (ImageLoader::has_camera_exif(item.path.c_str())) {
+        bool has_cam = true;
+        if (item.is_camera == 1) {
+            has_cam = true;
+        } else if (item.is_camera == 0) {
+            has_cam = false;
+        } else {
+            // Unknown (-1). Temporarily assume true to avoid synchronous disk I/O on startup.
+            // It will be resolved and cached asynchronously when loaded/displayed in the slideshow.
+            has_cam = true;
+        }
+
+        if (has_cam) {
             // Deterministically distribute: 90% people/faces, 10% pets/animals
             unsigned int hash = 5381;
             for (char c : item.filename) {
