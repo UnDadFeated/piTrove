@@ -1,5 +1,20 @@
 # Changelog
 
+## v11.0.0 — Enterprise Docker Containerization Migration (May 23, 2026)
+
+### Added
+- **Multi-Stage Dockerfile** — Created a multi-stage Docker build process based on Debian Trixie (matching user-space Mesa/GL graphics version with host OS) that builds the C++ code inside a builder stage and exports a lightweight, highly optimized minimal runtime image.
+- **Docker Compose Orchestration** — Integrated a unified `docker-compose.yml` to define persistent volumes (`cache`, `config`, `logs`, `subtitles`), map GPU device drivers (`/dev/dri` and `/dev/input` for direct hardware framebuffer mapping), and pass KMSDRM display settings via environment variables.
+- **Non-Interactive Environment Controls** — Upgraded the graphical installer `install.sh` to fully support non-interactive automation by checking for environment variable fallbacks (like `STORAGE_CHOICE`, `NAS_IP`, `NAS_SHARE`, `NAS_USER`, `NAS_PASS`, `SCAN_WINDOW_DAYS`), completely eliminating the need for terminal prompt inputs.
+- **Security Safeguards** — Added `.env`, `*.env`, and `*.cred` files to `.gitignore` to prevent any accidental leakage of host-specific network parameters or credentials to public Git repositories.
+
+### Changed
+- **Containerized systemd Daemon** — Modified the installer to configure the `piTrove.service` daemon to cleanly manage the lifecycles of containerized processes via `docker compose up` and `docker compose down` commands on boot and stop.
+- **Persistent Paths Alignment** — Updated `install.sh` TOML template writing to output paths aligning with virtual volume mount scopes inside the Docker container (`/app/media`, `/app/cache`, `/app/logs`).
+
+### Fixed
+- **Missing stb development headers** — Integrated `libstb-dev` package installation into both the Dockerfile build process and the host installation requirements, resolving compilation stalls on fresh operating system setups.
+
 ## v10.4.3 — Codebase Stability & UX Improvements (May 23, 2026)
 
 ### Fixed
