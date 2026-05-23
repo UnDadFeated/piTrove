@@ -1,5 +1,11 @@
 # Changelog
 
+## v10.3.14 — Asynchronous Multi-Threaded Background Preloader (May 22, 2026)
+
+### Added
+- **Integrated Background Preloading** — Integrated the multi-threaded `PreloadQueue` pipeline into the active slideshow treadmill loop. While the slideshow is resting on the current image, it looks ahead and enqueues future items to be fetched and decoded asynchronously on background worker threads. This completely resolves the main thread connection locks and high I/O wait (`wa`) states during transitions.
+- **Safety Preload Verification & Stale Purging** — Updated `try_dequeue` to verify that the path of the preloaded raw pixel buffer matches the targeted path. If a mismatch is detected (e.g. because of manual skips or remote pauses), the queue automatically and safely discards stale preloads and frees their memory immediately.
+
 ## v10.3.13 — Metadata-Cached Camera EXIF Checking (May 22, 2026)
 
 ### Added

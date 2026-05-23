@@ -83,6 +83,7 @@ static std::string probe_connected_connector(std::string& out_card, int& out_car
 }
 
 static OverlayManager* g_overlay = nullptr;
+PreloadQueue* g_preload = nullptr;
 
 // Background Watchman & Dynamic Playlist State
 std::mutex g_playlist_mtx;
@@ -1059,6 +1060,11 @@ int main(int argc, char** argv) {
     g_transition->set_renderer(&g_renderer);
     g_overlay = new OverlayManager(&g_renderer);
     g_overlay->init();
+
+    // Initialize background preload queue
+    g_preload = new PreloadQueue(4, 2, g_renderer.sdl_renderer);
+    g_preload->start();
+
     g_logger.info("Starting slideshow loop with %zu items", g_eligible.size());
     current_idx = 0;
     double item_timer = 0.0;
@@ -1402,10 +1408,24 @@ int main(int argc, char** argv) {
                     std::string next_path = g_eligible[next_idx].path;
                     std::string next_path_twin = g_eligible[next_idx_twin].path;
 
-                    playlist_lock.unlock(); // Unlock while performing blocking filesystem loading
-                    next_data = ImageLoader::load(next_path);
-                    next_twin_data = ImageLoader::load(next_path_twin);
+                    playlist_lock.unlock(); // Unlock while performing background preloaded dequeue
+                    if (g_preload) {
+                        next_data = g_preload->try_dequeue(next_path);
+                        next_twin_data = g_preload->try_dequeue(next_path_twin);
+                    }
                     playlist_lock.lock(); // Re-lock
+
+                    // Fallback to synchronous load if preloader bypassed or missed
+                    if (!next_data || !next_data->valid || !next_twin_data || !next_twin_data->valid) {
+                        playlist_lock.unlock();
+                        if (!next_data || !next_data->valid) {
+                            next_data = ImageLoader::load(next_path);
+                        }
+                        if (!next_twin_data || !next_twin_data->valid) {
+                            next_twin_data = ImageLoader::load(next_path_twin);
+                        }
+                        playlist_lock.lock();
+                    }
 
                     if (next_data && next_data->valid && next_twin_data && next_twin_data->valid) {
                         ImageLoader::load_texture(next_data.get(), g_renderer.sdl_renderer);
@@ -1433,9 +1453,18 @@ int main(int argc, char** argv) {
                 } else {
                     std::string next_path = g_eligible[next_idx].path;
 
-                    playlist_lock.unlock(); // Unlock while performing blocking filesystem loading
-                    next_data = ImageLoader::load(next_path);
+                    playlist_lock.unlock(); // Unlock while performing background preloaded dequeue
+                    if (g_preload) {
+                        next_data = g_preload->try_dequeue(next_path);
+                    }
                     playlist_lock.lock(); // Re-lock
+
+                    // Fallback to synchronous load if not preloaded
+                    if (!next_data || !next_data->valid) {
+                        playlist_lock.unlock();
+                        next_data = ImageLoader::load(next_path);
+                        playlist_lock.lock();
+                    }
 
                     if (next_data && next_data->valid) {
                         ImageLoader::load_texture(next_data.get(), g_renderer.sdl_renderer);
@@ -1611,6 +1640,26 @@ int main(int argc, char** argv) {
                 g_renderer.present();
             }
 
+            // Preload next items asynchronously while resting
+            if (g_preload) {
+                int lookahead_idx = (current_idx + (current_twin_data ? 2 : 1)) % (int)g_eligible.size();
+                bool next_is_twin = should_be_twin_portrait(lookahead_idx, (int)g_eligible.size());
+                
+                if (lookahead_idx >= 0 && lookahead_idx < (int)g_eligible.size()) {
+                    if (g_eligible[lookahead_idx].type == "image") {
+                        g_preload->enqueue(g_eligible[lookahead_idx].path);
+                    }
+                    if (next_is_twin) {
+                        int lookahead_idx2 = (lookahead_idx + 1) % (int)g_eligible.size();
+                        if (lookahead_idx2 >= 0 && lookahead_idx2 < (int)g_eligible.size()) {
+                            if (g_eligible[lookahead_idx2].type == "image") {
+                                g_preload->enqueue(g_eligible[lookahead_idx2].path);
+                            }
+                        }
+                    }
+                }
+            }
+
             if (item_timer >= g_cfg.transition_delay) {
                 transitioning = true; transition_timer = 0.0;
                 advance_playlist(current_twin_data ? 2 : 1);
@@ -1637,6 +1686,11 @@ int main(int argc, char** argv) {
     if (g_mpv_player.is_active()) g_mpv_player.stop();
     if (g_transition) { g_transition->reset(); delete g_transition; }
     if (g_overlay) { g_overlay->cleanup(); delete g_overlay; }
+    if (g_preload) {
+        g_preload->shutdown();
+        delete g_preload;
+        g_preload = nullptr;
+    }
     if (current_data) { current_data = nullptr; }
     if (current_twin_data) { current_twin_data = nullptr; }
     if (next_data) { next_data = nullptr; }
