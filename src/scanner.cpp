@@ -17,6 +17,7 @@
 #include <sys/syscall.h>
 #include <unistd.h>
 #include <fcntl.h>
+#include <random>
 
 static const char* IMAGE_EXTS[] = {"jpg", "jpeg", "png", "bmp", "tga", "gif", "webp", "tiff", "tif", "heic", "heif"};
 static const char* VIDEO_EXTS[] = {"mp4", "mkv", "avi", "mov", "webm", "m4v"};
@@ -443,21 +444,34 @@ void scan_directory(const std::string& dir, int depth,
 
 unsigned long long make_entropy_seed() {
     unsigned long long seed = 0;
+    try {
+        std::random_device rd;
+        seed = rd();
+        seed = (seed << 32) | rd();
+    } catch (...) {
+        seed = 0;
+    }
     {
         FILE* f = fopen("/dev/urandom", "r");
         if (f) {
             unsigned char buf[8];
             if (fread(buf, 1, 8, f) == 8) {
-                for (int i = 0; i < 8; i++) seed = (seed << 8) | buf[i];
+                unsigned long long file_seed = 0;
+                for (int i = 0; i < 8; i++) file_seed = (file_seed << 8) | buf[i];
+                seed ^= file_seed;
             }
             fclose(f);
         }
     }
     seed ^= (unsigned long long)0xCAFEBABE;
     seed ^= (unsigned long long)getpid() << 32;
-    seed ^= (unsigned long long)time(nullptr) * 2654435761ULL;
+    
+    auto now = std::chrono::high_resolution_clock::now();
+    seed ^= (unsigned long long)now.time_since_epoch().count();
+    
     struct timespec ts;
     clock_gettime(CLOCK_MONOTONIC, &ts);
-    seed ^= ts.tv_nsec;
+    seed ^= ((unsigned long long)ts.tv_sec << 32) ^ ts.tv_nsec;
+    
     return seed ? seed : (unsigned long long)time(nullptr);
 }

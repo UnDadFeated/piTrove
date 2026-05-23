@@ -1,5 +1,11 @@
 # Changelog
 
+## v10.3.10 — Unconditional Screenshot Filter & Triple-Entropy Seeding (May 22, 2026)
+
+### Added
+- **Unconditional Screenshot & Document Skip** — Standardized slideshow and On-This-Day anniversary filters to unconditionally exclude documents, receipts, screenshots, and graphics (`is_doc`) from playback, independent of active people/animals category settings.
+- **Triple-Entropy Seeding Engine** — Overhauled startup playlist shuffling to use standard hardware `std::random_device`, `/dev/urandom` byte streams, high-resolution system clock nanosecond timestamps, and standard PID offsets. This ensures unique random seeds on every startup even when executed within systemd sandbox environments.
+
 ## v10.3.9 — Optical EXIF Screenshot Filter (May 22, 2026)
 
 ### Fixed
