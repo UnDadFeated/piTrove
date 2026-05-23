@@ -38,7 +38,7 @@ bias_lighting = 1
 recursive = 1
 depth = 10
 max_concurrent = 4
-window_days = 15
+window_days = 5
 ignore_folders = ["@eaDir", "@Recycle", "Thumbs.db"]
 
 [sqlite]
