@@ -1,5 +1,10 @@
 # Changelog
 
+## v10.3.9 — Optical EXIF Screenshot Filter (May 22, 2026)
+
+### Fixed
+- **Facebook screenshots still showing** — Phone screenshots include `Make` (Apple) and `Model` (iPhone) EXIF tags, which falsely triggered the "camera photo" check. `has_camera_exif()` now only checks **optical** tags (`ExposureTime`, `FNumber`, `ISOSpeedRatings`, `FocalLength`, `DateTimeOriginal`) that screenshots never have. Screenshots without optical EXIF are now correctly classified as documents and filtered out.
+
 ## v10.3.8 — EXIF Rotation Multi-IFD & Camera EXIF Screenshot Filter (May 22, 2026)
 
 ### Fixed
