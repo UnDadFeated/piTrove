@@ -311,7 +311,7 @@ static std::vector<MediaItem> filter_playlist(const std::vector<MediaItem>& item
                 if (item.type != "video") {
                     bool has_people = false, has_animals = false, is_doc = false;
                     classify_media_item(item, has_people, has_animals, is_doc);
-                    if (is_doc && (g_cfg.show_people_faces || g_cfg.keep_animals)) continue;
+                    if (is_doc) continue;
                     
                     bool filter_people = g_cfg.show_people_faces;
                     bool filter_animals = g_cfg.keep_animals;
@@ -375,10 +375,7 @@ static std::vector<MediaItem> filter_playlist(const std::vector<MediaItem>& item
                 }
 
                 if (is_doc) {
-                    // Skip documents/screenshots if filtering is active
-                    if (snap_show_people || snap_keep_animals) {
-                        continue;
-                    }
+                    continue;
                 } else {
                     bool filter_people = snap_show_people;
                     bool filter_animals = snap_keep_animals;
