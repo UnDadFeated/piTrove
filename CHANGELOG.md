@@ -1,18 +1,18 @@
 # Changelog
 
-## v10.4.3 — Auto Fix Loop Batch #2 Resolution (May 23, 2026)
+## v10.4.3 — Codebase Stability & UX Improvements (May 23, 2026)
 
 ### Fixed
-- **Resolved Bug #11 (JSON Injection / Malformed JSON)** — Added a robust `escape_json` utility to correctly escape double quotes and backslashes in filenames inside `get_api_status()`, ensuring the Remote Controller API endpoint produces valid JSON.
-- **Resolved Bug #12 (Preloader Thread Exit Lag / Delayed Shutdown)** — Modified the preloader worker thread loop to break immediately when shutdown is requested (`!running.load()`), bypassing processing of the remaining queue and stopping exit lag.
-- **Resolved Bug #13 (Socket/Database Descriptor Leak)** — Set `SOCK_CLOEXEC` on the background server listening socket and switched `accept` to the Linux-native `accept4` with `SOCK_CLOEXEC`. Implemented an explicit `/proc/self/fd` scanning loop in `run_ffprobe`'s child process to close all inherited database, file, and network socket descriptors before execvp.
-- **Resolved Bug #14 (Lack of Boundary Checks on short Keywords)** — Enhanced the media classifier's `match_keyword` to enforce strict word boundary checks for all keywords with length <= 3 or specific short words (like `"self"`), preventing false positives like `"vacation"` matching `"cat"`.
-- **Resolved Bug #15 (Twin Portrait UX Slide Repetition)** — Prevented wrap-around pairing of portrait images in `should_be_twin_portrait` by enforcing sequential adjacency within the playlist size bounds without modulo wrap-around.
-- **Resolved Bug #16 (Poor adaptive OSD contrast on high-contrast backgrounds)** — Redesigned `get_adaptive_colors` to map screen coordinates to the nearest image edge, extracting localized luma using high-resolution edge strips (`edge_top_rgb`, `edge_bot_rgb`, etc.). If coordinates fall outside the fit rect, defaults to white text on black margins.
-- **Resolved Bug #17 (Incorrect Anniversary Banner on Fallback Items)** — Enforced exact month and day matching with today's date before displaying the Gold Ribbon anniversary banner.
-- **Resolved Bug #18 (Process Reaping race condition in video player)** — Synchronized process reaping and process state handling in `MpvPlayer::check_status` by holding the mutex lock during execution.
-- **Resolved Bug #19 (Broken CRT Screen Curvature Vignette)** — Replaced the impossible `< 0.7f` condition with `edge = 1.0f - 0.3f * (v * v)` and a `< 1.0f` check to correctly render a translucent curvature vignette fading to black near screen boundaries.
-- **Resolved Bug #20 (Division by Zero / NaN in Transition)** — Enforced a minimum duration of `0.001f` in `TransitionEngine::start` to prevent NaN progress values on division by zero.
+- **JSON Injection / Malformed JSON** — Added a robust `escape_json` utility to correctly escape double quotes and backslashes in filenames inside `get_api_status()`, ensuring the Remote Controller API endpoint produces valid JSON.
+- **Preloader Thread Exit Lag / Delayed Shutdown** — Modified the preloader worker thread loop to break immediately when shutdown is requested (`!running.load()`), bypassing processing of the remaining queue and stopping exit lag.
+- **Socket/Database Descriptor Leak** — Set `SOCK_CLOEXEC` on the background server listening socket and switched `accept` to the Linux-native `accept4` with `SOCK_CLOEXEC`. Implemented an explicit `/proc/self/fd` scanning loop in `run_ffprobe`'s child process to close all inherited database, file, and network socket descriptors before execvp.
+- **Lack of Boundary Checks on short Keywords** — Enhanced the media classifier's `match_keyword` to enforce strict word boundary checks for all keywords with length <= 3 or specific short words (like `"self"`), preventing false positives like `"vacation"` matching `"cat"`.
+- **Twin Portrait UX Slide Repetition** — Prevented wrap-around pairing of portrait images in `should_be_twin_portrait` by enforcing sequential adjacency within the playlist size bounds without modulo wrap-around.
+- **Poor adaptive OSD contrast on high-contrast backgrounds** — Redesigned `get_adaptive_colors` to map screen coordinates to the nearest image edge, extracting localized luma using high-resolution edge strips (`edge_top_rgb`, `edge_bot_rgb`, etc.). If coordinates fall outside the fit rect, defaults to white text on black margins.
+- **Incorrect Anniversary Banner on Fallback Items** — Enforced exact month and day matching with today's date before displaying the Gold Ribbon anniversary banner.
+- **Process Reaping race condition in video player** — Synchronized process reaping and process state handling in `MpvPlayer::check_status` by holding the mutex lock during execution.
+- **Broken CRT Screen Curvature Vignette** — Replaced the impossible `< 0.7f` condition with `edge = 1.0f - 0.3f * (v * v)` and a `< 1.0f` check to correctly render a translucent curvature vignette fading to black near screen boundaries.
+- **Division by Zero / NaN in Transition** — Enforced a minimum duration of `0.001f` in `TransitionEngine::start` to prevent NaN progress values on division by zero.
 - **Zero Compiler Warnings** — Cast `char` to `unsigned char` for range checking in `escape_json` to clean up ARM64 type-limit warnings.
 
 ## v10.4.2 — Case-Insensitive Extension Support for Media Classification (May 23, 2026)
