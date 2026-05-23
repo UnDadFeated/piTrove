@@ -29,7 +29,7 @@ struct Config {
     int     scan_depth{10};
     int     max_concurrent{4};
     bool    recursive{true};
-    int     scan_window_days{15};
+    int     scan_window_days{5};
     long long cache_mmap_size{67108864};
     bool    verbose{false};
     int     slideshow_fps{30};

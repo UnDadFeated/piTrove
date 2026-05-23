@@ -584,16 +584,16 @@ mkdir -p "$PRIMARY_HOME/piTrove/src/fonts"
 
 # ── Scan Window Setup ──────────────────────────────────────────────────────────
 echo
-echo -n -e "   ${BOLD}${YELLOW}▸ Temporal window (current month +/- days, 0=disable) [default: 15]:${NC} "
+echo -n -e "   ${BOLD}${YELLOW}▸ Temporal window (current month +/- days, 0=disable) [default: 5]:${NC} "
 read -r scan_input < /dev/tty
 
 if [[ -z "$scan_input" ]]; then
-    SCAN_WINDOW_DAYS=15
+    SCAN_WINDOW_DAYS=5
 elif [[ "$scan_input" =~ ^[0-9]+$ ]]; then
     SCAN_WINDOW_DAYS="$scan_input"
 else
-    warn "Invalid format. Defaulting to 15 days."
-    SCAN_WINDOW_DAYS=15
+    warn "Invalid format. Defaulting to 5 days."
+    SCAN_WINDOW_DAYS=5
 fi
 ok "Scan window initialized to $SCAN_WINDOW_DAYS days"
 

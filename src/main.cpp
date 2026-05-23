@@ -577,7 +577,7 @@ static void advance_playlist(int step = 1) {
             g_logger.info("Playlist reached end. Re-filtering and re-shuffling to prevent repetition...");
             
             int cooldown_days = 330;
-            int window_days = 15;
+            int window_days = 5;
             bool play_just_photos = false;
             bool play_just_videos = false;
             int videos_per_photos = 10;
