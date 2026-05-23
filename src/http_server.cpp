@@ -368,7 +368,7 @@ static const std::string DASHBOARD_HTML = R"HTML(
         <!-- Header -->
         <header>
             <h1>piTrove controller</h1>
-            <div class="subtitle">v10.4.0 glassmorphic system</div>
+            <div class="subtitle">v10.4.1 glassmorphic system</div>
         </header>
 
         <!-- Live Preview -->

@@ -95,6 +95,10 @@ std::shared_ptr<ImageData> PreloadQueue::try_dequeue(const std::string& target_p
                                 data->surface = rotated;
                             }
                         }
+                        if (data->surface) {
+                            data->width = data->surface->w;
+                            data->height = data->surface->h;
+                        }
 
                         // Extract average color
                         GpuColor avg = Renderer::get_average_color(data->surface);

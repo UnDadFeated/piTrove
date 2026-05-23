@@ -247,18 +247,20 @@ static SDL_Texture* render_state_to_texture(
             border_w = g_cfg.border_width;
         }
 
-        // 1. Draw bias lighting if enabled
-        if (has_bias) {
-            g_renderer.draw_bias_lighting(rect_l, primary->avg_r, primary->avg_g, primary->avg_b,
-                bias_strength, (float)item_timer, anim_speed, style, border_w);
-            g_renderer.draw_bias_lighting(rect_r, twin->avg_r, twin->avg_g, twin->avg_b,
-                bias_strength, (float)item_timer, anim_speed, style, border_w);
-        }
-
-        // 2. Draw matte borders if enabled
+        // 1. Draw matte borders if enabled (drawn first so glow renders on top)
         if (has_matting) {
             g_renderer.draw_matte_borders(rect_l);
             g_renderer.draw_matte_borders(rect_r);
+        }
+
+        // 2. Draw bias lighting if enabled
+        if (has_bias) {
+            int bw_l = has_border ? border_w : 0;
+            g_renderer.draw_bias_lighting(rect_l, primary->avg_r, primary->avg_g, primary->avg_b,
+                bias_strength, (float)item_timer, anim_speed, style, bw_l);
+            int bw_r = has_border ? border_w : 0;
+            g_renderer.draw_bias_lighting(rect_r, twin->avg_r, twin->avg_g, twin->avg_b,
+                bias_strength, (float)item_timer, anim_speed, style, bw_r);
         }
 
         // 3. Draw 3D miter borders if enabled
@@ -296,15 +298,16 @@ static SDL_Texture* render_state_to_texture(
             border_w = g_cfg.border_width;
         }
 
-        // 1. Draw bias lighting if enabled
-        if (has_bias) {
-            g_renderer.draw_bias_lighting(rect, primary->avg_r, primary->avg_g, primary->avg_b,
-                bias_strength, (float)item_timer, anim_speed, style, border_w);
-        }
-
-        // 2. Draw matte borders if enabled
+        // 1. Draw matte borders if enabled (drawn first so glow renders on top)
         if (has_matting) {
             g_renderer.draw_matte_borders(rect);
+        }
+
+        // 2. Draw bias lighting if enabled
+        if (has_bias) {
+            int bw_param = has_border ? border_w : 0;
+            g_renderer.draw_bias_lighting(rect, primary->avg_r, primary->avg_g, primary->avg_b,
+                bias_strength, (float)item_timer, anim_speed, style, bw_param);
         }
 
         // 3. Draw 3D miter border if enabled
@@ -1683,18 +1686,20 @@ int main(int argc, char** argv) {
                     border_w = g_cfg.border_width;
                 }
 
-                // 1. Draw bias lighting if enabled
-                if (has_bias) {
-                    g_renderer.draw_bias_lighting(rect_l, current_data->avg_r, current_data->avg_g, current_data->avg_b,
-                        bias_strength, (float)item_timer, anim_speed, style, border_w);
-                    g_renderer.draw_bias_lighting(rect_r, current_twin_data->avg_r, current_twin_data->avg_g, current_twin_data->avg_b,
-                        bias_strength, (float)item_timer, anim_speed, style, border_w);
-                }
-
-                // 2. Draw matte borders if enabled
+                // 1. Draw matte borders if enabled (drawn first so glow renders on top)
                 if (has_matting) {
                     g_renderer.draw_matte_borders(rect_l);
                     g_renderer.draw_matte_borders(rect_r);
+                }
+
+                // 2. Draw bias lighting if enabled
+                if (has_bias) {
+                    int bw_l = has_border ? border_w : 0;
+                    g_renderer.draw_bias_lighting(rect_l, current_data->avg_r, current_data->avg_g, current_data->avg_b,
+                        bias_strength, (float)item_timer, anim_speed, style, bw_l);
+                    int bw_r = has_border ? border_w : 0;
+                    g_renderer.draw_bias_lighting(rect_r, current_twin_data->avg_r, current_twin_data->avg_g, current_twin_data->avg_b,
+                        bias_strength, (float)item_timer, anim_speed, style, bw_r);
                 }
 
                 // 3. Draw 3D miter borders if enabled
@@ -1728,16 +1733,17 @@ int main(int argc, char** argv) {
                     snap_anim_style = g_cfg.bias_anim_style;
                 }
 
-                // 1. Draw bias lighting if enabled
-                if (snap_bias && current_data) {
-                    g_renderer.draw_bias_lighting(fit_rect,
-                        current_data->avg_r, current_data->avg_g, current_data->avg_b,
-                        snap_bias_strength, (float)item_timer, snap_anim_speed, snap_anim_style, snap_border_width);
-                }
-
-                // 2. Draw matte borders if enabled
+                // 1. Draw matte borders if enabled (drawn first so glow renders on top)
                 if (snap_matting) {
                     g_renderer.draw_matte_borders(fit_rect);
+                }
+
+                // 2. Draw bias lighting if enabled
+                if (snap_bias && current_data) {
+                    int bw_param = snap_border ? snap_border_width : 0;
+                    g_renderer.draw_bias_lighting(fit_rect,
+                        current_data->avg_r, current_data->avg_g, current_data->avg_b,
+                        snap_bias_strength, (float)item_timer, snap_anim_speed, snap_anim_style, bw_param);
                 }
 
                 // 3. Draw 3D miter border if enabled

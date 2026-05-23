@@ -1,5 +1,12 @@
 # Changelog
 
+## v10.4.1 — Restored Edge Glow & EXIF Rotated Dimensions (May 23, 2026)
+
+### Fixed
+- **Restored Bias Lighting Edge Glow** — Corrected a layer rendering order bug in `main.cpp` (both single and twin-collage rendering blocks). Previously, bias lighting was drawn first and the solid black matte borders second, completely painting solid black over the transparency glow strips. Reversed the sequence to draw matte borders first (as the base layer) and bias lighting second, allowing the dynamic edge glow to overlay beautifully on top of the black borders.
+- **Fixed Rotated Image Right-Side Black Bars** — Discovered and resolved a bug in the preloader (`preload.cpp`) where the in-memory dimensions (`width`/`height`) of decoded images were not updated to the rotated surface's dimensions after applying EXIF rotation (portrait photos). This caused `ImageLoader::load_texture` to blit the rotated portrait surface using unrotated landscape dimensions, creating a squished texture with a massive black bar on its right side.
+- **Dynamic Glow Border Adjustments** — Dynamically set the edge glow's border width offset parameter to `0` when `border_enabled` is disabled. This makes the ambient glow begin exactly at the edge of the photo rather than leaving an artificial 10px black gap.
+
 ## v10.4.0 — Decoupled 3D Border & Correct Margin Offsets (May 23, 2026)
 
 ### Added
