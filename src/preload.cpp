@@ -45,126 +45,138 @@ void PreloadQueue::shutdown() {
 }
 
 void PreloadQueue::enqueue(const std::string& path) {
-    g_logger.info("TRACE: PreloadQueue::enqueue '%s'", path.c_str());
     if (path.empty()) return;
     {
         std::lock_guard<std::mutex> lock(work_mutex);
         
         if (queued_paths.count(path)) return;
 
+        g_logger.info("TRACE: PreloadQueue::enqueue '%s'", path.c_str());
         work_queue.push(path);
         queued_paths.insert(path);
     }
     work_cv.notify_one();
 }
 
-std::shared_ptr<ImageData> PreloadQueue::try_dequeue() {
-    g_logger.info("TRACE: PreloadQueue::try_dequeue queue_size=%d", (int)loaded_queue.size());
+std::shared_ptr<ImageData> PreloadQueue::try_dequeue(const std::string& target_path) {
+    g_logger.info("TRACE: PreloadQueue::try_dequeue queue_size=%d target=%s", (int)loaded_queue.size(), target_path.c_str());
     std::shared_ptr<ImageData> data = nullptr;
     {
         std::lock_guard<std::mutex> lock(queue_mutex);
         if (!loaded_queue.empty()) {
-            PreloadedItem item = std::move(loaded_queue.front());
-            loaded_queue.pop();
+            if (loaded_queue.front().path == target_path) {
+                PreloadedItem item = std::move(loaded_queue.front());
+                loaded_queue.pop();
 
-            // Build ImageData from raw pixels (main thread — SDL context is thread-local)
-            data = std::make_shared<ImageData>();
-            data->valid = false;
-            
-            if (item.raw.valid) {
-                // Read EXIF (file I/O, no SDL)
-                data->exif_rotation = ImageLoader::read_exif_rotation(item.path.c_str());
-                data->width = item.raw.width;
-                data->height = item.raw.height;
-                data->valid = true;
+                // Build ImageData from raw pixels (main thread — SDL context is thread-local)
+                data = std::make_shared<ImageData>();
+                data->valid = false;
+                
+                if (item.raw.valid) {
+                    // Read EXIF (file I/O, no SDL)
+                    data->exif_rotation = ImageLoader::read_exif_rotation(item.path.c_str());
+                    data->width = item.raw.width;
+                    data->height = item.raw.height;
+                    data->valid = true;
 
-                // Create SDL surface from raw pixels
-                data->surface = SDL_CreateSurface(item.raw.width, item.raw.height, SDL_PIXELFORMAT_RGBA32);
-                if (data->surface) {
-                    memcpy(data->surface->pixels, item.raw.pixels, (size_t)item.raw.width * item.raw.height * 4);
-                    free(item.raw.pixels);
-                    item.raw.pixels = nullptr;
+                    // Create SDL surface from raw pixels
+                    data->surface = SDL_CreateSurface(item.raw.width, item.raw.height, SDL_PIXELFORMAT_RGBA32);
+                    if (data->surface) {
+                        memcpy(data->surface->pixels, item.raw.pixels, (size_t)item.raw.width * item.raw.height * 4);
+                        free(item.raw.pixels);
+                        item.raw.pixels = nullptr;
 
-                    if (data->exif_rotation >= 2 && data->exif_rotation <= 8) {
-                        SDL_Surface* rotated = ImageLoader::apply_exif_rotation(data->surface, data->exif_rotation);
-                        if (rotated) {
-                            SDL_DestroySurface(data->surface);
-                            data->surface = rotated;
-                        }
-                    }
-
-                    // Extract average color
-                    GpuColor avg = Renderer::get_average_color(data->surface);
-                    data->avg_r = avg.r;
-                    data->avg_g = avg.g;
-                    data->avg_b = avg.b;
-
-                    // Sample 4 edge colors for bias gradient
-                    for (int e = 0; e < 4; e++) {
-                        GpuColor ec = Renderer::get_edge_average_color(data->surface, 8, e);
-                        data->edge_r[e] = ec.r;
-                        data->edge_g[e] = ec.g;
-                        data->edge_b[e] = ec.b;
-                    }
-
-                    // Per-pixel edge strips: average 3px deep per position
-                    {
-                        uint8_t* px = (uint8_t*)data->surface->pixels;
-                        int bpp = SDL_BYTESPERPIXEL(data->surface->format);
-                        int sw = data->surface->w, sh = data->surface->h;
-                        int pitch = data->surface->pitch;
-
-                        data->edge_top_rgb.resize(sw * 3);
-                        for (int x = 0; x < sw; x++) {
-                            int ar = 0, ag = 0, ab = 0, ac = 0;
-                            for (int d = 0; d < 3; d++) {
-                                const uint8_t* dp = px + x * bpp + d * pitch;
-                                ar += dp[0]; ag += dp[1]; ab += dp[2]; ac++;
+                        if (data->exif_rotation >= 2 && data->exif_rotation <= 8) {
+                            SDL_Surface* rotated = ImageLoader::apply_exif_rotation(data->surface, data->exif_rotation);
+                            if (rotated) {
+                                SDL_DestroySurface(data->surface);
+                                data->surface = rotated;
                             }
-                            data->edge_top_rgb[x * 3 + 0] = (uint8_t)(ar / ac);
-                            data->edge_top_rgb[x * 3 + 1] = (uint8_t)(ag / ac);
-                            data->edge_top_rgb[x * 3 + 2] = (uint8_t)(ab / ac);
                         }
 
-                        data->edge_bot_rgb.resize(sw * 3);
-                        for (int x = 0; x < sw; x++) {
-                            int ar = 0, ag = 0, ab = 0, ac = 0;
-                            for (int d = -1; d <= 1; d++) {
-                                int ry = sh - 1 + d;
-                                if (ry >= 0 && ry < sh) {
-                                    const uint8_t* dp = px + x * bpp + ry * pitch;
+                        // Extract average color
+                        GpuColor avg = Renderer::get_average_color(data->surface);
+                        data->avg_r = avg.r;
+                        data->avg_g = avg.g;
+                        data->avg_b = avg.b;
+
+                        // Sample 4 edge colors for bias gradient
+                        for (int e = 0; e < 4; e++) {
+                            GpuColor ec = Renderer::get_edge_average_color(data->surface, 8, e);
+                            data->edge_r[e] = ec.r;
+                            data->edge_g[e] = ec.g;
+                            data->edge_b[e] = ec.b;
+                        }
+
+                        // Per-pixel edge strips: average 3px deep per position
+                        {
+                            uint8_t* px = (uint8_t*)data->surface->pixels;
+                            int bpp = SDL_BYTESPERPIXEL(data->surface->format);
+                            int sw = data->surface->w, sh = data->surface->h;
+                            int pitch = data->surface->pitch;
+
+                            data->edge_top_rgb.resize(sw * 3);
+                            for (int x = 0; x < sw; x++) {
+                                int ar = 0, ag = 0, ab = 0, ac = 0;
+                                for (int d = 0; d < 3; d++) {
+                                    const uint8_t* dp = px + x * bpp + d * pitch;
                                     ar += dp[0]; ag += dp[1]; ab += dp[2]; ac++;
                                 }
+                                data->edge_top_rgb[x * 3 + 0] = (uint8_t)(ar / ac);
+                                data->edge_top_rgb[x * 3 + 1] = (uint8_t)(ag / ac);
+                                data->edge_top_rgb[x * 3 + 2] = (uint8_t)(ab / ac);
                             }
-                            data->edge_bot_rgb[x * 3 + 0] = (uint8_t)(ar / ac);
-                            data->edge_bot_rgb[x * 3 + 1] = (uint8_t)(ag / ac);
-                            data->edge_bot_rgb[x * 3 + 2] = (uint8_t)(ab / ac);
-                        }
 
-                        data->edge_lft_rgb.resize(sh * 3);
-                        for (int y = 0; y < sh; y++) {
-                            const uint8_t* p = px + y * pitch;
-                            int ar = 0, ag = 0, ab = 0, ac = 0;
-                            for (int w = 0; w < 3 && w < sw; w++) {
-                                ar += p[w * bpp + 0]; ag += p[w * bpp + 1]; ab += p[w * bpp + 2]; ac++;
+                            data->edge_bot_rgb.resize(sw * 3);
+                            for (int x = 0; x < sw; x++) {
+                                int ar = 0, ag = 0, ab = 0, ac = 0;
+                                for (int d = -1; d <= 1; d++) {
+                                    int ry = sh - 1 + d;
+                                    if (ry >= 0 && ry < sh) {
+                                        const uint8_t* dp = px + x * bpp + ry * pitch;
+                                        ar += dp[0]; ag += dp[1]; ab += dp[2]; ac++;
+                                    }
+                                }
+                                data->edge_bot_rgb[x * 3 + 0] = (uint8_t)(ar / ac);
+                                data->edge_bot_rgb[x * 3 + 1] = (uint8_t)(ag / ac);
+                                data->edge_bot_rgb[x * 3 + 2] = (uint8_t)(ab / ac);
                             }
-                            data->edge_lft_rgb[y * 3 + 0] = (uint8_t)(ar / ac);
-                            data->edge_lft_rgb[y * 3 + 1] = (uint8_t)(ag / ac);
-                            data->edge_lft_rgb[y * 3 + 2] = (uint8_t)(ab / ac);
-                        }
 
-                        data->edge_rgt_rgb.resize(sh * 3);
-                        for (int y = 0; y < sh; y++) {
-                            const uint8_t* p = px + y * pitch;
-                            int ar = 0, ag = 0, ab = 0, ac = 0;
-                            for (int w = 0; w < 3; w++) {
-                                int wc = sw - 1 - w;
-                                if (wc >= 0) { ar += p[wc * bpp + 0]; ag += p[wc * bpp + 1]; ab += p[wc * bpp + 2]; ac++; }
+                            data->edge_lft_rgb.resize(sh * 3);
+                            for (int y = 0; y < sh; y++) {
+                                int ar = 0, ag = 0, ab = 0, ac = 0;
+                                const uint8_t* p = px + y * pitch;
+                                for (int w = 0; w < 3; w++) {
+                                    ar += p[w * bpp + 0]; ag += p[w * bpp + 1]; ab += p[w * bpp + 2]; ac++;
+                                }
+                                data->edge_lft_rgb[y * 3 + 0] = (uint8_t)(ar / ac);
+                                data->edge_lft_rgb[y * 3 + 1] = (uint8_t)(ag / ac);
+                                data->edge_lft_rgb[y * 3 + 2] = (uint8_t)(ab / ac);
                             }
-                            data->edge_rgt_rgb[y * 3 + 0] = (uint8_t)(ar / ac);
-                            data->edge_rgt_rgb[y * 3 + 1] = (uint8_t)(ag / ac);
-                            data->edge_rgt_rgb[y * 3 + 2] = (uint8_t)(ab / ac);
+
+                            data->edge_rgt_rgb.resize(sh * 3);
+                            for (int y = 0; y < sh; y++) {
+                                int ar = 0, ag = 0, ab = 0, ac = 0;
+                                const uint8_t* p = px + y * pitch;
+                                for (int w = 0; w < 3; w++) {
+                                    int wc = sw - 1 - w;
+                                    if (wc >= 0) { ar += p[wc * bpp + 0]; ag += p[wc * bpp + 1]; ab += p[wc * bpp + 2]; ac++; }
+                                }
+                                data->edge_rgt_rgb[y * 3 + 0] = (uint8_t)(ar / ac);
+                                data->edge_rgt_rgb[y * 3 + 1] = (uint8_t)(ag / ac);
+                                data->edge_rgt_rgb[y * 3 + 2] = (uint8_t)(ab / ac);
+                            }
                         }
+                    }
+                }
+            } else {
+                g_logger.warn("Preload mismatch: front is '%s', target is '%s'. Clearing preloaded queue.",
+                    loaded_queue.front().path.c_str(), target_path.c_str());
+                while (!loaded_queue.empty()) {
+                    PreloadedItem stale_item = std::move(loaded_queue.front());
+                    loaded_queue.pop();
+                    if (stale_item.raw.pixels) {
+                        free(stale_item.raw.pixels);
                     }
                 }
             }

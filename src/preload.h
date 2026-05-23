@@ -56,7 +56,7 @@ public:
     void enqueue(const std::string& path);
 
     // Main thread calls this to retrieve the next preloaded image (uploads surface to VRAM)
-    std::shared_ptr<ImageData> try_dequeue();
+    std::shared_ptr<ImageData> try_dequeue(const std::string& target_path);
 
     // Cancel all pending preloads
     void cancel_all();
