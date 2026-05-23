@@ -81,7 +81,7 @@ bool Config::load(const std::string& path) {
             this->http_port = (p >= 1 && p <= 65535) ? p : 8080;
         }
         else if (key == "volume")            this->video_volume = safe_stoi(val, this->video_volume);
-        else if (key == "probe_timeout")     this->video_probe_timeout = safe_stoi(val, this->video_probe_timeout);
+        else if (key == "probe_timeout")     this->video_probe_timeout = std::max(1, std::min(30, safe_stoi(val, this->video_probe_timeout)));
         else if (key == "enabled" && section == "date_overlay") this->date_overlay_enabled = (val == "1" || val == "true");
         else if (key == "text" && section == "date_overlay")    this->date_text = val;
         else if (key == "x" && section == "date_overlay")       this->date_x = safe_stof(val, this->date_x);
@@ -92,25 +92,25 @@ bool Config::load(const std::string& path) {
         else if (key == "enabled" && section == "collage")      this->collage_enabled = (val == "1" || val == "true");
         else if (key == "cols")              this->collage_cols = safe_stoi(val, this->collage_cols);
         else if (key == "rows")              this->collage_rows = safe_stoi(val, this->collage_rows);
-        else if (key == "transition_delay")  this->transition_delay = safe_stod(val, this->transition_delay);
+        else if (key == "transition_delay")  this->transition_delay = std::max(1.0, safe_stod(val, this->transition_delay));
         else if (key == "transition_duration") {
             double d = safe_stod(val, 1.5);
             this->transition_duration = std::max(0.1, std::min(d, 10.0));
         }
         else if (key == "slideshow_fps")     this->slideshow_fps = safe_stoi(val, this->slideshow_fps);
         else if (key == "transition_effect") this->transition_effect = val;
-        else if (key == "ken_burns_speed")   this->ken_burns_speed = safe_stod(val, this->ken_burns_speed);
+        else if (key == "ken_burns_speed")   this->ken_burns_speed = std::max(0.001, std::min(5.0, safe_stod(val, this->ken_burns_speed)));
         else if (key == "ken_burns")         this->ken_burns = (val == "1" || val == "true");
         else if (key == "matting")           this->matting = (val == "1" || val == "true");
-        else if (key == "matting_size")      this->matting_size = safe_stoi(val, this->matting_size);
+        else if (key == "matting_size")      this->matting_size = std::max(0, std::min(500, safe_stoi(val, this->matting_size)));
         else if (key == "bias_lighting")     this->bias_lighting = (val == "1" || val == "true");
         else if (key == "bias_anim_speed")   this->bias_anim_speed = safe_stof(val, this->bias_anim_speed);
         else if (key == "bias_anim_style")   this->bias_anim_style = val;
         else if (key == "bias_color_mode")   this->bias_color_mode = val;
-        else if (key == "cooldown_days")     this->cooldown_days = safe_stoi(val, this->cooldown_days);
+        else if (key == "cooldown_days")     this->cooldown_days = std::max(0, std::min(3650, safe_stoi(val, this->cooldown_days)));
         else if (key == "brightness_auto") this->brightness_auto = (val == "1" || val == "true");
-        else if (key == "brightness_auto_min") this->brightness_auto_min = safe_stoi(val, this->brightness_auto_min);
-        else if (key == "brightness_auto_max") this->brightness_auto_max = safe_stoi(val, this->brightness_auto_max);
+        else if (key == "brightness_auto_min") this->brightness_auto_min = std::max(0, std::min(100, safe_stoi(val, this->brightness_auto_min)));
+        else if (key == "brightness_auto_max") this->brightness_auto_max = std::max(0, std::min(100, safe_stoi(val, this->brightness_auto_max)));
         else if (key == "border_enabled")    this->border_enabled = (val == "1" || val == "true");
         else if (key == "border_width")      this->border_width = safe_stoi(val, this->border_width);
         else if (key == "vignette_enabled")  this->vignette_enabled = (val == "1" || val == "true");
@@ -126,10 +126,10 @@ bool Config::load(const std::string& path) {
         else if (key == "filename_font_size") this->filename_font_size = safe_stoi(val, this->filename_font_size);
         else if (key == "count_font_size")    this->count_font_size = safe_stoi(val, this->count_font_size);
         else if (key == "recursive")         this->recursive = (val == "1" || val == "true");
-        else if (key == "depth")             this->scan_depth = safe_stoi(val, this->scan_depth);
-        else if (key == "max_concurrent")    this->max_concurrent = safe_stoi(val, this->max_concurrent);
-        else if (key == "window_days")       this->scan_window_days = safe_stoi(val, this->scan_window_days);
-        else if (key == "mmap_size")         this->cache_mmap_size = safe_stoll(val, this->cache_mmap_size);
+        else if (key == "depth")             this->scan_depth = std::max(1, std::min(100, safe_stoi(val, this->scan_depth)));
+        else if (key == "max_concurrent")    this->max_concurrent = std::max(1, std::min(64, safe_stoi(val, this->max_concurrent)));
+        else if (key == "window_days")       this->scan_window_days = std::max(0, std::min(365, safe_stoi(val, this->scan_window_days)));
+        else if (key == "mmap_size")         this->cache_mmap_size = std::max(0LL, std::min(268435456LL, safe_stoll(val, this->cache_mmap_size)));
         else if (key == "level")             this->verbose = (val == "debug");
         else if (key == "ignore_folders") {
             // Parse TOML array: ["@eaDir", "@Recycle"]
