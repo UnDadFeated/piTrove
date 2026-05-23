@@ -157,14 +157,22 @@ static bool should_be_twin_portrait(int idx, int size) {
 }
 
 static void calculate_fit_rect_in_area(int img_w, int img_h, int area_x, int area_y, int area_w, int area_h, SDL_Rect& out_rect) {
+    if (img_w <= 0 || img_h <= 0) {
+        out_rect.w = 0;
+        out_rect.h = 0;
+        out_rect.x = area_x + area_w / 2;
+        out_rect.y = area_y + area_h / 2;
+        return;
+    }
+
     bool has_matting = false;
-    bool has_bias = false;
+    bool has_border = false;
     int mat_size = 0;
     int border_w = 0;
     {
         std::lock_guard<std::mutex> lock(g_config_mtx);
         has_matting = g_cfg.matting;
-        has_bias = g_cfg.bias_lighting;
+        has_border = g_cfg.border_enabled;
         mat_size = g_cfg.matting_size;
         border_w = g_cfg.border_width;
     }
@@ -174,11 +182,15 @@ static void calculate_fit_rect_in_area(int img_w, int img_h, int area_x, int are
     int effective_w = area_w;
     int effective_h = area_h;
 
-    if (has_matting || has_bias) {
-        int mat = mat_size;
-        if (has_bias) {
-            mat += border_w;
-        }
+    int mat = 0;
+    if (has_matting) {
+        mat += mat_size;
+    }
+    if (has_border) {
+        mat += border_w;
+    }
+
+    if (mat > 0) {
         effective_x += mat;
         effective_y += mat;
         effective_w -= mat * 2;
@@ -217,8 +229,9 @@ static SDL_Texture* render_state_to_texture(
         calculate_fit_rect_in_area(primary->width, primary->height, 0, 0, sw / 2, sh, rect_l);
         calculate_fit_rect_in_area(twin->width, twin->height, sw / 2, 0, sw - (sw / 2), sh, rect_r);
 
-        // Draw bias lighting if enabled
         bool has_bias = false;
+        bool has_matting = false;
+        bool has_border = false;
         int bias_strength = 110;
         float anim_speed = 0.5f;
         std::string style = "edge_glow";
@@ -226,12 +239,15 @@ static SDL_Texture* render_state_to_texture(
         {
             std::lock_guard<std::mutex> lock(g_config_mtx);
             has_bias = g_cfg.bias_lighting;
+            has_matting = g_cfg.matting;
+            has_border = g_cfg.border_enabled;
             bias_strength = g_cfg.bias_strength;
             anim_speed = g_cfg.bias_anim_speed;
             style = g_cfg.bias_anim_style;
             border_w = g_cfg.border_width;
         }
 
+        // 1. Draw bias lighting if enabled
         if (has_bias) {
             g_renderer.draw_bias_lighting(rect_l, primary->avg_r, primary->avg_g, primary->avg_b,
                 bias_strength, (float)item_timer, anim_speed, style, border_w);
@@ -239,6 +255,19 @@ static SDL_Texture* render_state_to_texture(
                 bias_strength, (float)item_timer, anim_speed, style, border_w);
         }
 
+        // 2. Draw matte borders if enabled
+        if (has_matting) {
+            g_renderer.draw_matte_borders(rect_l);
+            g_renderer.draw_matte_borders(rect_r);
+        }
+
+        // 3. Draw 3D miter borders if enabled
+        if (has_border) {
+            g_renderer.draw_3d_border(rect_l, primary->avg_r, primary->avg_g, primary->avg_b, border_w);
+            g_renderer.draw_3d_border(rect_r, twin->avg_r, twin->avg_g, twin->avg_b, border_w);
+        }
+
+        // 4. Draw texture
         SDL_FRect dst_l = {(float)rect_l.x, (float)rect_l.y, (float)rect_l.w, (float)rect_l.h};
         SDL_RenderTexture(renderer, primary->texture, nullptr, &dst_l);
 
@@ -250,28 +279,40 @@ static SDL_Texture* render_state_to_texture(
         g_renderer.calculate_fit_rect(primary->width, primary->height, rect);
 
         bool has_bias = false;
+        bool has_matting = false;
+        bool has_border = false;
         int bias_strength = 110;
         float anim_speed = 0.5f;
         std::string style = "edge_glow";
         int border_w = 10;
-        bool has_matting = false;
         {
             std::lock_guard<std::mutex> lock(g_config_mtx);
             has_bias = g_cfg.bias_lighting;
+            has_matting = g_cfg.matting;
+            has_border = g_cfg.border_enabled;
             bias_strength = g_cfg.bias_strength;
             anim_speed = g_cfg.bias_anim_speed;
             style = g_cfg.bias_anim_style;
             border_w = g_cfg.border_width;
-            has_matting = g_cfg.matting;
         }
 
+        // 1. Draw bias lighting if enabled
         if (has_bias) {
             g_renderer.draw_bias_lighting(rect, primary->avg_r, primary->avg_g, primary->avg_b,
                 bias_strength, (float)item_timer, anim_speed, style, border_w);
-        } else if (has_matting) {
+        }
+
+        // 2. Draw matte borders if enabled
+        if (has_matting) {
             g_renderer.draw_matte_borders(rect);
         }
 
+        // 3. Draw 3D miter border if enabled
+        if (has_border) {
+            g_renderer.draw_3d_border(rect, primary->avg_r, primary->avg_g, primary->avg_b, border_w);
+        }
+
+        // 4. Draw texture
         SDL_FRect dst = {(float)rect.x, (float)rect.y, (float)rect.w, (float)rect.h};
         SDL_RenderTexture(renderer, primary->texture, nullptr, &dst);
     }
@@ -1520,7 +1561,24 @@ int main(int argc, char** argv) {
                         if (current_twin_data) {
                             mark_item_shown(g_eligible[(current_idx + 1) % (int)g_eligible.size()].path, false);
                         }
-                        g_renderer.calculate_fit_rect(g_eligible[current_idx].width, g_eligible[current_idx].height, fit_rect);
+
+                        // Update in-memory item metadata with actual dimensions and EXIF rotation
+                        if (current_data) {
+                            g_eligible[current_idx].width = current_data->width;
+                            g_eligible[current_idx].height = current_data->height;
+                            g_eligible[current_idx].exif_rotation = current_data->exif_rotation;
+                            for (auto& item : g_scanned_items) {
+                                if (item.path == g_eligible[current_idx].path) {
+                                    item.width = current_data->width;
+                                    item.height = current_data->height;
+                                    item.exif_rotation = current_data->exif_rotation;
+                                    break;
+                                }
+                            }
+                            g_cache->upsert(g_eligible[current_idx], 0);
+                        }
+
+                        g_renderer.calculate_fit_rect(current_data->width, current_data->height, fit_rect);
                     }
                 } else {
                     if (transition_prev_target) { SDL_DestroyTexture(transition_prev_target); transition_prev_target = nullptr; }
@@ -1540,7 +1598,24 @@ int main(int argc, char** argv) {
                         if (current_twin_data) {
                             mark_item_shown(g_eligible[(current_idx + 1) % (int)g_eligible.size()].path, false);
                         }
-                        g_renderer.calculate_fit_rect(g_eligible[current_idx].width, g_eligible[current_idx].height, fit_rect);
+
+                        // Update metadata
+                        if (current_data) {
+                            g_eligible[current_idx].width = current_data->width;
+                            g_eligible[current_idx].height = current_data->height;
+                            g_eligible[current_idx].exif_rotation = current_data->exif_rotation;
+                            for (auto& item : g_scanned_items) {
+                                if (item.path == g_eligible[current_idx].path) {
+                                    item.width = current_data->width;
+                                    item.height = current_data->height;
+                                    item.exif_rotation = current_data->exif_rotation;
+                                    break;
+                                }
+                            }
+                            g_cache->upsert(g_eligible[current_idx], 0);
+                        }
+
+                        g_renderer.calculate_fit_rect(current_data->width, current_data->height, fit_rect);
                     }
                 }
             } else {
@@ -1560,7 +1635,24 @@ int main(int argc, char** argv) {
                     if (current_twin_data) {
                         mark_item_shown(g_eligible[(current_idx + 1) % (int)g_eligible.size()].path, false);
                     }
-                    g_renderer.calculate_fit_rect(g_eligible[current_idx].width, g_eligible[current_idx].height, fit_rect);
+
+                    // Update metadata
+                    if (current_data) {
+                        g_eligible[current_idx].width = current_data->width;
+                        g_eligible[current_idx].height = current_data->height;
+                        g_eligible[current_idx].exif_rotation = current_data->exif_rotation;
+                        for (auto& item : g_scanned_items) {
+                            if (item.path == g_eligible[current_idx].path) {
+                                item.width = current_data->width;
+                                item.height = current_data->height;
+                                item.exif_rotation = current_data->exif_rotation;
+                                break;
+                            }
+                        }
+                        g_cache->upsert(g_eligible[current_idx], 0);
+                    }
+
+                    g_renderer.calculate_fit_rect(current_data->width, current_data->height, fit_rect);
                 }
             }
         } else {
@@ -1574,31 +1666,44 @@ int main(int argc, char** argv) {
                 calculate_fit_rect_in_area(current_twin_data->width, current_twin_data->height, sw / 2, 0, sw - (sw / 2), sh, rect_r);
 
                 bool has_bias = false;
+                bool has_matting = false;
+                bool has_border = false;
                 int bias_strength = 110;
                 float anim_speed = 0.5f;
                 std::string style = "edge_glow";
                 int border_w = 10;
-                bool has_matting = false;
                 {
                     std::lock_guard<std::mutex> lock(g_config_mtx);
                     has_bias = g_cfg.bias_lighting;
+                    has_matting = g_cfg.matting;
+                    has_border = g_cfg.border_enabled;
                     bias_strength = g_cfg.bias_strength;
                     anim_speed = g_cfg.bias_anim_speed;
                     style = g_cfg.bias_anim_style;
                     border_w = g_cfg.border_width;
-                    has_matting = g_cfg.matting;
                 }
 
+                // 1. Draw bias lighting if enabled
                 if (has_bias) {
                     g_renderer.draw_bias_lighting(rect_l, current_data->avg_r, current_data->avg_g, current_data->avg_b,
                         bias_strength, (float)item_timer, anim_speed, style, border_w);
                     g_renderer.draw_bias_lighting(rect_r, current_twin_data->avg_r, current_twin_data->avg_g, current_twin_data->avg_b,
                         bias_strength, (float)item_timer, anim_speed, style, border_w);
-                } else if (has_matting) {
+                }
+
+                // 2. Draw matte borders if enabled
+                if (has_matting) {
                     g_renderer.draw_matte_borders(rect_l);
                     g_renderer.draw_matte_borders(rect_r);
                 }
 
+                // 3. Draw 3D miter borders if enabled
+                if (has_border) {
+                    g_renderer.draw_3d_border(rect_l, current_data->avg_r, current_data->avg_g, current_data->avg_b, border_w);
+                    g_renderer.draw_3d_border(rect_r, current_twin_data->avg_r, current_twin_data->avg_g, current_twin_data->avg_b, border_w);
+                }
+
+                // 4. Draw texture
                 SDL_FRect dst_l = {(float)rect_l.x, (float)rect_l.y, (float)rect_l.w, (float)rect_l.h};
                 SDL_RenderTexture(g_renderer.sdl_renderer, current_data->texture, nullptr, &dst_l);
 
@@ -1608,7 +1713,7 @@ int main(int argc, char** argv) {
             } else if (current_tex) {
                 g_renderer.clear(0, 0, 0, 255);
                 // Snapshot config for render frame to avoid data race
-                bool snap_bias, snap_matting;
+                bool snap_bias, snap_matting, snap_border;
                 int snap_bias_strength, snap_border_width;
                 float snap_anim_speed;
                 std::string snap_anim_style;
@@ -1616,18 +1721,32 @@ int main(int argc, char** argv) {
                     std::lock_guard<std::mutex> lk(g_config_mtx);
                     snap_bias = g_cfg.bias_lighting;
                     snap_matting = g_cfg.matting;
+                    snap_border = g_cfg.border_enabled;
                     snap_bias_strength = g_cfg.bias_strength;
                     snap_border_width = g_cfg.border_width;
                     snap_anim_speed = g_cfg.bias_anim_speed;
                     snap_anim_style = g_cfg.bias_anim_style;
                 }
+
+                // 1. Draw bias lighting if enabled
                 if (snap_bias && current_data) {
                     g_renderer.draw_bias_lighting(fit_rect,
                         current_data->avg_r, current_data->avg_g, current_data->avg_b,
                         snap_bias_strength, (float)item_timer, snap_anim_speed, snap_anim_style, snap_border_width);
-                } else if (snap_matting) {
+                }
+
+                // 2. Draw matte borders if enabled
+                if (snap_matting) {
                     g_renderer.draw_matte_borders(fit_rect);
                 }
+
+                // 3. Draw 3D miter border if enabled
+                if (snap_border && current_data) {
+                    g_renderer.draw_3d_border(fit_rect,
+                        current_data->avg_r, current_data->avg_g, current_data->avg_b, snap_border_width);
+                }
+
+                // 4. Draw texture
                 SDL_FRect dst = {(float)fit_rect.x, (float)fit_rect.y, (float)fit_rect.w, (float)fit_rect.h};
                 SDL_RenderTexture(g_renderer.sdl_renderer, current_tex, nullptr, &dst);
                 rendered = true;

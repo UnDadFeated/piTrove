@@ -1,5 +1,16 @@
 # Changelog
 
+## v10.4.0 — Decoupled 3D Border & Correct Margin Offsets (May 23, 2026)
+
+### Added
+- **Decoupled 3D Miter Border** — Extracted the custom 3D picture frame miter rendering from `draw_bias_lighting` into its own modular `Renderer::draw_3d_border()` function. Configured the system to honor `border_enabled` independently of `bias_lighting`, allowing users to have a border without a glow, a glow without a border, both, or neither.
+- **Dynamic Playlist Dimension Updates** — Updated the slideshow swap routine to automatically query the actual decoded texture size (`current_data->width` and `height`) on image transition. It now dynamically updates the in-memory metadata in `g_eligible` and `g_scanned_items` and writes the correct sizes into `cache.db` on texture swap, which resolves dynamic scale mismatches (e.g. `NaN` scale / `0x0` margins) on first-time or uncached image displays.
+
+### Fixed
+- **Margin Offset Bug** — Rewrote the layout geometry calculation inside `Renderer::calculate_fit_rect` and `calculate_fit_rect_in_area`. The system now only subtracts the 48-pixel `matting_size` when `matting` is **explicitly enabled** in config, cleanly resolving the issue where turning off matting still left a large black margin.
+- **Robust Clean OS Installer** — Removed legacy external shader installation steps from `install.sh` and `CMakeLists.txt` (as native GLES rendering in SDL3 does not require external shader files). This completely resolves potential glob copy failures under `set -eo pipefail` on a fresh OS installation.
+- **Installer Version Sync** — Synchronized the graphical installer's version labels and configuration templates from `10.1.0` to `10.4.0`.
+
 ## v10.3.15 — Thread & Memory Safety Stability Release (May 23, 2026)
 
 ### Fixed
