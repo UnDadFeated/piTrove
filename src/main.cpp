@@ -1479,18 +1479,27 @@ int main(int argc, char** argv) {
                         ImageLoader::load_texture(next_twin_data.get(), g_renderer.sdl_renderer);
 
                         // Update metadata
-                        g_eligible[next_idx].width = next_data->width;
-                        g_eligible[next_idx].height = next_data->height;
-                        g_eligible[next_idx].exif_rotation = next_data->exif_rotation;
-
-                        g_eligible[next_idx_twin].width = next_twin_data->width;
-                        g_eligible[next_idx_twin].height = next_twin_data->height;
-                        g_eligible[next_idx_twin].exif_rotation = next_twin_data->exif_rotation;
-
-                        if (g_cache) {
-                            g_cache->upsert(g_eligible[next_idx], 0);
-                            g_cache->upsert(g_eligible[next_idx_twin], 0);
-                        }
+                        auto update_meta_safe = [&](int idx, const std::string& expected_path, const std::shared_ptr<ImageData>& data) {
+                            if (idx >= 0 && idx < (int)g_eligible.size() && g_eligible[idx].path == expected_path) {
+                                g_eligible[idx].width = data->width;
+                                g_eligible[idx].height = data->height;
+                                g_eligible[idx].exif_rotation = data->exif_rotation;
+                                if (g_cache) g_cache->upsert(g_eligible[idx], 0);
+                            } else {
+                                int found = -1;
+                                for (int i = 0; i < (int)g_eligible.size(); i++) {
+                                    if (g_eligible[i].path == expected_path) { found = i; break; }
+                                }
+                                if (found != -1) {
+                                    g_eligible[found].width = data->width;
+                                    g_eligible[found].height = data->height;
+                                    g_eligible[found].exif_rotation = data->exif_rotation;
+                                    if (g_cache) g_cache->upsert(g_eligible[found], 0);
+                                }
+                            }
+                        };
+                        update_meta_safe(next_idx, next_path, next_data);
+                        update_meta_safe(next_idx_twin, next_path_twin, next_twin_data);
                     } else {
                         if (g_cache && next_data && !next_data->valid) g_cache->mark_bad(next_path);
                         if (g_cache && next_twin_data && !next_twin_data->valid) g_cache->mark_bad(next_path_twin);
@@ -1517,11 +1526,23 @@ int main(int argc, char** argv) {
                         ImageLoader::load_texture(next_data.get(), g_renderer.sdl_renderer);
                         next_twin_data = nullptr;
 
-                        g_eligible[next_idx].width = next_data->width;
-                        g_eligible[next_idx].height = next_data->height;
-                        g_eligible[next_idx].exif_rotation = next_data->exif_rotation;
-
-                        if (g_cache) g_cache->upsert(g_eligible[next_idx], 0);
+                        if (next_idx >= 0 && next_idx < (int)g_eligible.size() && g_eligible[next_idx].path == next_path) {
+                            g_eligible[next_idx].width = next_data->width;
+                            g_eligible[next_idx].height = next_data->height;
+                            g_eligible[next_idx].exif_rotation = next_data->exif_rotation;
+                            if (g_cache) g_cache->upsert(g_eligible[next_idx], 0);
+                        } else {
+                            int found = -1;
+                            for (int i = 0; i < (int)g_eligible.size(); i++) {
+                                if (g_eligible[i].path == next_path) { found = i; break; }
+                            }
+                            if (found != -1) {
+                                g_eligible[found].width = next_data->width;
+                                g_eligible[found].height = next_data->height;
+                                g_eligible[found].exif_rotation = next_data->exif_rotation;
+                                if (g_cache) g_cache->upsert(g_eligible[found], 0);
+                            }
+                        }
                     } else {
                         if (g_cache && next_data) g_cache->mark_bad(next_path);
                         next_data = nullptr;

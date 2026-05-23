@@ -30,24 +30,27 @@ bool CacheManager::open(const std::string& dir) {
 
     // Proactive SQLite integrity check
     sqlite3_stmt* stmt = nullptr;
-    if (sqlite3_prepare_v2(db, "PRAGMA integrity_check;", -1, &stmt, nullptr) == SQLITE_OK
-        && sqlite3_step(stmt) == SQLITE_ROW) {
-        const char* result = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0));
-        if (result && std::string(result) != "ok") {
-            g_logger.error("SQLite integrity check failed (%s). Purging corrupted cache...", result);
-            sqlite3_finalize(stmt);
-            sqlite3_close(db);
-            db = nullptr;
-            std::remove(path.c_str());
-            std::string wal = path + "-wal";
-            std::string shm = path + "-shm";
-            std::remove(wal.c_str());
-            std::remove(shm.c_str());
-            if (sqlite3_open_v2(path.c_str(), &db, flags, nullptr) != SQLITE_OK) {
-                if (db) { sqlite3_close(db); db = nullptr; }
-                return false;
+    if (sqlite3_prepare_v2(db, "PRAGMA integrity_check;", -1, &stmt, nullptr) == SQLITE_OK) {
+        if (sqlite3_step(stmt) == SQLITE_ROW) {
+            const char* result = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0));
+            if (result && std::string(result) != "ok") {
+                g_logger.error("SQLite integrity check failed (%s). Purging corrupted cache...", result);
+                sqlite3_finalize(stmt);
+                stmt = nullptr;
+                sqlite3_close(db);
+                db = nullptr;
+                std::remove(path.c_str());
+                std::string wal = path + "-wal";
+                std::string shm = path + "-shm";
+                std::remove(wal.c_str());
+                std::remove(shm.c_str());
+                if (sqlite3_open_v2(path.c_str(), &db, flags, nullptr) != SQLITE_OK) {
+                    if (db) { sqlite3_close(db); db = nullptr; }
+                    return false;
+                }
             }
-        } else {
+        }
+        if (stmt) {
             sqlite3_finalize(stmt);
         }
     }
@@ -234,7 +237,10 @@ bool verify_database(const std::string& path) {
     sqlite3* db = nullptr;
     sqlite3_stmt* stmt = nullptr;
     bool ok = false;
-    if (sqlite3_open_v2(path.c_str(), &db, SQLITE_OPEN_READONLY, nullptr) != SQLITE_OK) return false;
+    if (sqlite3_open_v2(path.c_str(), &db, SQLITE_OPEN_READONLY, nullptr) != SQLITE_OK) {
+        if (db) { sqlite3_close(db); }
+        return false;
+    }
     
     // Check if the table 'cache' exists and has all the required columns
     const char* sql = "SELECT path, type, w, h, duration, exif, bad, last_shown, timestamp FROM cache LIMIT 1;";

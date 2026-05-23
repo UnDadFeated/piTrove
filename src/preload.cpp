@@ -253,6 +253,10 @@ void PreloadQueue::worker_thread(int thread_id) {
         
         if (!raw.valid) {
             g_logger.warn("[Worker %d] Failed to decode: %s", thread_id, path.c_str());
+            {
+                std::lock_guard<std::mutex> lock(work_mutex);
+                active_preloads.erase(path);
+            }
             continue;
         }
 

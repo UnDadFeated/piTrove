@@ -77,11 +77,13 @@ void crash_handler(int sig) {
 
         char path[512];
         int n = snprintf(path, sizeof(path), "%s/cache.db", g_crash_cache_dir.c_str());
-        if (n > 0 && (size_t)n < sizeof(path)) unlink(path);
-        strcat(path, "-wal");
-        unlink(path);
-        strcpy(path + strlen(path) - 3, "shm");
-        unlink(path);
+        if (n > 0 && (size_t)n < sizeof(path) - 5) {
+            unlink(path);
+            strcat(path, "-wal");
+            unlink(path);
+            strcpy(path + strlen(path) - 3, "shm");
+            unlink(path);
+        }
     }
 
     signal(sig, SIG_DFL);
@@ -93,11 +95,13 @@ void terminate_handler() {
     if (!g_database_complete.load() && !g_crash_cache_dir.empty()) {
         char path[512];
         int n = snprintf(path, sizeof(path), "%s/cache.db", g_crash_cache_dir.c_str());
-        if (n > 0 && (size_t)n < sizeof(path)) unlink(path);
-        strcat(path, "-wal");
-        unlink(path);
-        strcpy(path + strlen(path) - 3, "shm");
-        unlink(path);
+        if (n > 0 && (size_t)n < sizeof(path) - 5) {
+            unlink(path);
+            strcat(path, "-wal");
+            unlink(path);
+            strcpy(path + strlen(path) - 3, "shm");
+            unlink(path);
+        }
     }
     std::abort();
 }

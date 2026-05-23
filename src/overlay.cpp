@@ -362,7 +362,8 @@ void OverlayManager::draw_all(int current_idx, int total_items, const MediaItem*
         SDL_Rect container = { hx - 8, hy - 8, max_w + 16, total_h + 16 };
         SDL_SetRenderDrawBlendMode(renderer->sdl_renderer, SDL_BLENDMODE_BLEND);
         SDL_SetRenderDrawColor(renderer->sdl_renderer, 10, 10, 10, 200);
-        SDL_RenderFillRect(renderer->sdl_renderer, (SDL_FRect*)&container);
+        SDL_FRect container_f = { (float)container.x, (float)container.y, (float)container.w, (float)container.h };
+        SDL_RenderFillRect(renderer->sdl_renderer, &container_f);
         SDL_SetRenderDrawColor(renderer->sdl_renderer, 100, 100, 100, 255);
         SDL_FRect outline = { (float)container.x, (float)container.y, (float)container.w, (float)container.h };
         SDL_RenderRect(renderer->sdl_renderer, &outline);
@@ -406,7 +407,8 @@ void OverlayManager::draw_all(int current_idx, int total_items, const MediaItem*
         SDL_Rect ribbon_bg = { rx - 20, ry - 6, tw + 40, th + 12 };
         SDL_SetRenderDrawBlendMode(renderer->sdl_renderer, SDL_BLENDMODE_BLEND);
         SDL_SetRenderDrawColor(renderer->sdl_renderer, 218, 165, 32, 180); // Gold translucent
-        SDL_RenderFillRect(renderer->sdl_renderer, (SDL_FRect*)&ribbon_bg);
+        SDL_FRect ribbon_bg_f = { (float)ribbon_bg.x, (float)ribbon_bg.y, (float)ribbon_bg.w, (float)ribbon_bg.h };
+        SDL_RenderFillRect(renderer->sdl_renderer, &ribbon_bg_f);
 
         SDL_SetRenderDrawColor(renderer->sdl_renderer, 255, 223, 0, 255); // Solid gold outline
         SDL_FRect ribbon_outline = { (float)ribbon_bg.x, (float)ribbon_bg.y, (float)ribbon_bg.w, (float)ribbon_bg.h };

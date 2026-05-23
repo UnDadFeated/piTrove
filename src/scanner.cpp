@@ -49,20 +49,8 @@ std::vector<std::string> read_dir(const std::string& path) {
 }
 
 std::vector<std::string> read_dir_timeout(const std::string& path, int timeout_ms) {
-    // Use alarm-based timeout for NFS/CIFS safety
-    if (timeout_ms <= 0) return read_dir(path);
-
-    struct sigaction old_sa, new_sa;
-    new_sa.sa_handler = [](int) {}; // no-op handler
-    sigemptyset(&new_sa.sa_mask);
-    new_sa.sa_flags = 0;
-    sigaction(SIGALRM, &new_sa, &old_sa);
-
-    unsigned int prev = alarm(timeout_ms / 1000 + 1);
-    std::vector<std::string> result = read_dir(path);
-    alarm(prev); // restore previous alarm
-    sigaction(SIGALRM, &old_sa, nullptr);
-    return result;
+    (void)timeout_ms;
+    return read_dir(path);
 }
 
  bool stat_timeout(const std::string& path, struct stat& st, int timeout_ms) {
