@@ -638,13 +638,28 @@ info "Writing configuration options..."
 CONFIG_FILE="$PRIMARY_HOME/piTrove/config/config.toml"
 
 if [[ -f "$CONFIG_FILE" ]]; then
-    warn "Existing config.toml detected. Backing up..."
+    warn "Existing config.toml detected. Preserving custom user settings..."
     cp "$CONFIG_FILE" "$CONFIG_FILE.bak.$(date +%Y%m%d%H%M%S)"
-fi
+    # Check if [mqtt] section is already in the file. If not, append it!
+    if ! grep -q "\[mqtt\]" "$CONFIG_FILE"; then
+        info "Upgrading existing config.toml with new MQTT options..."
+        cat >> "$CONFIG_FILE" <<EOF
 
-cat > "$CONFIG_FILE" <<EOF
+[mqtt]
+enabled = 0
+broker = "192.168.4.111"
+port = 1883
+user = ""
+pass = ""
+topic_prefix = "piTrove"
+motionsensor_topic = "home/motionsensor"
+motionsensor_cooldown = 60
+EOF
+    fi
+else
+    cat > "$CONFIG_FILE" <<EOF
 # ==========================================
-# piTrove Configuration File (v11.0.0)
+# piTrove Configuration File (v11.1.0)
 # ==========================================
 
 [paths]
@@ -747,6 +762,7 @@ topic_prefix = "piTrove"
 motionsensor_topic = "home/motionsensor"
 motionsensor_cooldown = 60
 EOF
+fi
 
 chown -R $PRIMARY_USER:$PRIMARY_USER "$PRIMARY_HOME/piTrove/config"
 ok "Default production config.toml generated"
