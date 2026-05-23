@@ -20,6 +20,8 @@ logs/
 *.zip
 *.tar.gz
 *.bak
+*.old
+piTrove.old
 
 # IDE
 .vscode/
