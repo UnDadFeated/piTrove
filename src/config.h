@@ -127,6 +127,16 @@ struct Config {
     int     filename_font_size{12};
     int     count_font_size{20};
 
+    // [mqtt]
+    bool        mqtt_enabled{false};
+    std::string mqtt_broker{"192.168.4.111"};
+    int         mqtt_port{1883};
+    std::string mqtt_user{""};
+    std::string mqtt_pass{""};
+    std::string mqtt_topic_prefix{"piTrove"};
+    std::string mqtt_motionsensor_topic{"home/motionsensor"};
+    int         mqtt_motionsensor_cooldown{60};
+
     std::vector<std::string> ignore_folders;
 
     // CLI Overrides

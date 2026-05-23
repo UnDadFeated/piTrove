@@ -736,6 +736,16 @@ weather_lon = -999.0
 [remote]
 http_enabled = 0
 http_port = 8080
+
+[mqtt]
+enabled = 0
+broker = "192.168.4.111"
+port = 1883
+user = ""
+pass = ""
+topic_prefix = "piTrove"
+motionsensor_topic = "home/motionsensor"
+motionsensor_cooldown = 60
 EOF
 
 chown -R $PRIMARY_USER:$PRIMARY_USER "$PRIMARY_HOME/piTrove/config"

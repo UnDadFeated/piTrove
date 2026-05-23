@@ -106,3 +106,14 @@ diagnostics_hud_enabled = 0
 adaptive_text_enabled = 1
 twin_portrait_enabled = 1
 
+[mqtt]
+enabled = 0
+broker = "192.168.4.111"
+port = 1883
+user = ""
+pass = ""
+topic_prefix = "piTrove"
+motionsensor_topic = "home/motionsensor"
+motionsensor_cooldown = 60
+
+

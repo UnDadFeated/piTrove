@@ -11,6 +11,7 @@
 #include "mpv_player.h"
 #include "tui.h"
 #include "http_server.h"
+#include "mqtt.h"
 
 #include <SDL3/SDL.h>
 #include <SDL3_image/SDL_image.h>
@@ -513,29 +514,49 @@ static void organize_playlist(std::vector<MediaItem>& eligible, int videos_per_p
             eligible = std::move(videos);
         } else {
             // Distribute videos mathematically and evenly across photos
-            double ratio = static_cast<double>(photos.size()) / static_cast<double>(videos.size());
-            double accumulator = 0.0;
             size_t p_idx = 0, v_idx = 0;
-            
-            while (p_idx < photos.size() || v_idx < videos.size()) {
-                if (v_idx >= videos.size()) {
-                    eligible.push_back(std::move(photos[p_idx++]));
-                } else if (p_idx >= photos.size()) {
-                    // No more photos — stop placing videos to avoid consecutive videos
-                    break;
-                } else {
-                    if (accumulator >= ratio) {
-                        eligible.push_back(std::move(videos[v_idx++]));
-                        accumulator -= ratio;
-                        // Force at least one photo after every video to prevent consecutive videos
-                        if (p_idx < photos.size()) {
-                            eligible.push_back(std::move(photos[p_idx++]));
-                        } else {
-                            break;
-                        }
-                    } else {
+            if (videos_per_photos <= 10) {
+                // Low ratio: Keep the strict photo-spacing constraint to avoid consecutive videos
+                double ratio = static_cast<double>(photos.size()) / static_cast<double>(videos.size());
+                double accumulator = 0.0;
+                while (p_idx < photos.size() || v_idx < videos.size()) {
+                    if (v_idx >= videos.size()) {
                         eligible.push_back(std::move(photos[p_idx++]));
-                        accumulator += 1.0;
+                    } else if (p_idx >= photos.size()) {
+                        // Avoid consecutive videos by stopping when photos are exhausted
+                        break;
+                    } else {
+                        if (accumulator >= ratio) {
+                            eligible.push_back(std::move(videos[v_idx++]));
+                            accumulator -= ratio;
+                            if (p_idx < photos.size()) {
+                                eligible.push_back(std::move(photos[p_idx++]));
+                            } else {
+                                break;
+                            }
+                        } else {
+                            eligible.push_back(std::move(photos[p_idx++]));
+                            accumulator += 1.0;
+                        }
+                    }
+                }
+            } else {
+                // High ratio: Allow consecutive videos and interleave mathematically evenly
+                double ratio = static_cast<double>(videos.size()) / static_cast<double>(photos.size());
+                double accumulator = 0.0;
+                while (p_idx < photos.size() || v_idx < videos.size()) {
+                    if (p_idx >= photos.size()) {
+                        eligible.push_back(std::move(videos[v_idx++]));
+                    } else if (v_idx >= videos.size()) {
+                        eligible.push_back(std::move(photos[p_idx++]));
+                    } else {
+                        if (accumulator >= ratio) {
+                            eligible.push_back(std::move(photos[p_idx++]));
+                            accumulator -= ratio;
+                        } else {
+                            eligible.push_back(std::move(videos[v_idx++]));
+                            accumulator += 1.0;
+                        }
                     }
                 }
             }
@@ -1102,6 +1123,9 @@ int main(int argc, char** argv) {
         }
     }
 
+    // Start MQTT subscriber client
+    start_mqtt_client();
+
     g_logger.info("Starting slideshow with %zu items", g_eligible.size());
 
     g_transition = new TransitionEngine();
@@ -1287,6 +1311,13 @@ int main(int argc, char** argv) {
             switch (event.type) {
                 case SDL_EVENT_QUIT: g_running.store(false); break;
                 case SDL_EVENT_KEY_DOWN:
+                    if (g_screen_blanked.load()) {
+                        g_screen_blanked = false;
+                        int res = ::system("vcgencmd display_power 1");
+                        (void)res;
+                        g_last_motion_time.store(static_cast<int64_t>(std::time(nullptr)));
+                        mqtt_publish(g_cfg.mqtt_topic_prefix + "/status/screen", "ON", true);
+                    }
                     switch (event.key.key) {
                         case SDLK_ESCAPE: case SDLK_Q: g_running.store(false); break;
                         case SDLK_RIGHT: case SDLK_SPACE: g_remote_command.store(1); break;
@@ -1294,8 +1325,42 @@ int main(int argc, char** argv) {
                         case SDLK_P: g_remote_command.store(3); break;
                     }
                     break;
-                case SDL_EVENT_MOUSE_BUTTON_DOWN: g_remote_command.store(1); break;
+                case SDL_EVENT_MOUSE_BUTTON_DOWN:
+                    if (g_screen_blanked.load()) {
+                        g_screen_blanked = false;
+                        int res = ::system("vcgencmd display_power 1");
+                        (void)res;
+                        g_last_motion_time.store(static_cast<int64_t>(std::time(nullptr)));
+                        mqtt_publish(g_cfg.mqtt_topic_prefix + "/status/screen", "ON", true);
+                    }
+                    g_remote_command.store(1);
+                    break;
             }
+        }
+
+        // Check motion sensor cooldown
+        if (g_cfg.mqtt_enabled && g_cfg.mqtt_motionsensor_cooldown > 0 && !g_screen_blanked.load()) {
+            int64_t now_ts = static_cast<int64_t>(std::time(nullptr));
+            int64_t last_motion = g_last_motion_time.load();
+            if (last_motion > 0 && (now_ts - last_motion >= g_cfg.mqtt_motionsensor_cooldown)) {
+                g_logger.info("Motion sensor cooldown threshold reached (%d seconds). Blanking screen.", g_cfg.mqtt_motionsensor_cooldown);
+                g_screen_blanked = true;
+                int res = ::system("vcgencmd display_power 0");
+                (void)res;
+                mqtt_publish(g_cfg.mqtt_topic_prefix + "/status/screen", "OFF", true);
+            }
+        }
+
+        // Handle screen blanking state
+        if (g_screen_blanked.load()) {
+            if (g_mpv_player.is_active()) {
+                g_logger.info("Screen blanked: stopping active video playback.");
+                g_mpv_player.stop();
+            }
+            g_renderer.clear(0, 0, 0, 255);
+            g_renderer.present();
+            SDL_Delay(100);
+            continue;
         }
 
         int cmd = g_remote_command.exchange(0);

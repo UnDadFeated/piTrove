@@ -150,6 +150,14 @@ bool Config::load(const std::string& path) {
                 }
             }
         }
+        else if (key == "enabled" && section == "mqtt")             this->mqtt_enabled = (val == "1" || val == "true");
+        else if (key == "broker" && section == "mqtt")              this->mqtt_broker = val;
+        else if (key == "port" && section == "mqtt")                this->mqtt_port = safe_stoi(val, this->mqtt_port);
+        else if (key == "user" && section == "mqtt")                this->mqtt_user = val;
+        else if (key == "pass" && section == "mqtt")                this->mqtt_pass = val;
+        else if (key == "topic_prefix" && section == "mqtt")        this->mqtt_topic_prefix = val;
+        else if (key == "motionsensor_topic" && section == "mqtt")  this->mqtt_motionsensor_topic = val;
+        else if (key == "motionsensor_cooldown" && section == "mqtt") this->mqtt_motionsensor_cooldown = safe_stoi(val, this->mqtt_motionsensor_cooldown);
         else if (key == "resolution") {
             auto comma = val.find(',');
             if (comma != std::string::npos) {
