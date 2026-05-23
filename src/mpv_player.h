@@ -28,7 +28,10 @@ public:
     bool is_active();
     
     // Non-blocking poll for child exit (reclaims DRM master on exit)
-    bool check_status();
+    bool check_status(bool reclaim_drm_on_eof = true);
+    
+    // Explicitly reclaim DRM master context back to SDL3
+    void reclaim_drm_master();
 
 private:
     int find_drm_fd();

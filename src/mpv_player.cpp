@@ -202,6 +202,14 @@ bool MpvPlayer::play(const std::string& path, int volume) {
     return false;
 }
 
+void MpvPlayer::reclaim_drm_master() {
+    if (drm_fd >= 0) {
+        int rc = drmSetMaster(drm_fd);
+        g_logger.info("VIDEO_DRM: drmSetMaster(fd=%d) = %d", drm_fd, rc);
+        eglGetError(); // clear stale EGL context flags
+    }
+}
+
 void MpvPlayer::stop() {
     std::lock_guard<std::mutex> lk(mtx);
     if (video_pid > 0) {
@@ -218,19 +226,14 @@ void MpvPlayer::stop() {
     }
     active.store(false);
 
-    // Reclaim DRM master context for SDL
-    if (drm_fd >= 0) {
-        int rc = drmSetMaster(drm_fd);
-        g_logger.info("VIDEO_DRM: drmSetMaster(fd=%d) = %d", drm_fd, rc);
-        eglGetError(); // clear stale EGL context flags
-    }
+    reclaim_drm_master();
 }
 
 bool MpvPlayer::is_active() {
     return active.load();
 }
 
-bool MpvPlayer::check_status() {
+bool MpvPlayer::check_status(bool reclaim_drm_on_eof) {
     if (video_pid <= 0) return false;
 
     // Handle dynamic process pausing/resuming
@@ -256,11 +259,8 @@ bool MpvPlayer::check_status() {
         g_logger.info("VIDEO_EOF: mpv (pid=%d) finished playback (status=%d)", result,
                       WIFEXITED(status) ? WEXITSTATUS(status) : -1);
 
-        // Reclaim DRM master context for SDL
-        if (drm_fd >= 0) {
-            int rc = drmSetMaster(drm_fd);
-            g_logger.info("VIDEO_DRM: drmSetMaster(fd=%d) = %d", drm_fd, rc);
-            eglGetError();
+        if (reclaim_drm_on_eof) {
+            reclaim_drm_master();
         }
         return false;
     }

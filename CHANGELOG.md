@@ -1,5 +1,11 @@
 # Changelog
 
+## v10.3.11 — Seamless Video-to-Video Transitions (May 22, 2026)
+
+### Added
+- **Seamless Video-to-Video Transitions** — Integrated an intelligent playlist peeking mechanism inside the video player's status check routine. If the next queued item is also a video, the application holds onto the active DRM Master lock instead of dropping and reclaiming it recursively. This prevents consecutive mode-setting flips on HDMI displays, eliminating intermediate black screens and glitches entirely.
+- **Removed Skip Consecutive Video Hack** — Cleanly removed the temporary skip consecutive video loop workaround in the slideshow treadmill, restoring correct playlist execution and allowing video-only play queues to work properly.
+
 ## v10.3.10 — Unconditional Screenshot Filter & Triple-Entropy Seeding (May 22, 2026)
 
 ### Added
