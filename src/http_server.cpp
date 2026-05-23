@@ -756,7 +756,7 @@ static void server_loop(int port) {
         return;
     }
 
-    g_logger.info("HTTP: Background Web Remote server active on port %d", port);
+    g_logger.info("HTTP: Background Web Remote server active on port %d", current_port);
 
     char buffer[2048];
     while (g_server_running.load()) {
@@ -779,8 +779,14 @@ static void server_loop(int port) {
         socklen_t client_len = sizeof(client_addr);
         int client_fd = accept(g_listen_fd, (struct sockaddr*)&client_addr, &client_len);
         if (client_fd < 0) {
-            if (errno == EAGAIN || errno == EWOULDBLOCK) continue;
-            break;
+            if (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR || errno == ECONNABORTED || errno == EMFILE) {
+                if (errno == EMFILE) {
+                    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+                }
+                continue;
+            }
+            g_logger.error("HTTP server accept failed: %s", strerror(errno));
+            continue;
         }
 
         // Set client socket timeout to prevent slowloris hangs

@@ -250,10 +250,9 @@ bool ImageLoader::has_camera_exif(const char* path) {
     ExifEntry* focal = exif_content_get_entry(ed->ifd[EXIF_IFD_EXIF], EXIF_TAG_FOCAL_LENGTH);
     ExifEntry* datetime = exif_content_get_entry(ed->ifd[EXIF_IFD_EXIF], EXIF_TAG_DATE_TIME_ORIGINAL);
 
-    exif_data_unref(ed);
-
     // Require at least 2 optical tags. Phone screenshots have Make+Model but no optical data.
     int count = (exposure ? 1 : 0) + (fnumber ? 1 : 0) + (iso ? 1 : 0) + (focal ? 1 : 0) + (datetime ? 1 : 0);
+    exif_data_unref(ed);
     return count >= 2;
 }
 
