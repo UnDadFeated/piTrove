@@ -246,25 +246,37 @@ GpuColor Renderer::get_edge_average_color(SDL_Surface* surface, int depth, int w
 }
 
 void Renderer::calculate_fit_rect(int img_w, int img_h, SDL_Rect& out_rect) {
+    if (img_w <= 0 || img_h <= 0) {
+        out_rect.w = 0;
+        out_rect.h = 0;
+        out_rect.x = screen_w / 2;
+        out_rect.y = screen_h / 2;
+        return;
+    }
+
     int area_w = screen_w, area_h = screen_h;
     
     bool has_matting = false;
-    bool has_bias = false;
+    bool has_border = false;
     int mat_size = 0;
     int border_w = 0;
     {
         std::lock_guard<std::mutex> lock(g_config_mtx);
         has_matting = g_cfg.matting;
-        has_bias = g_cfg.bias_lighting;
+        has_border = g_cfg.border_enabled;
         mat_size = g_cfg.matting_size;
         border_w = g_cfg.border_width;
     }
 
-    if (has_matting || has_bias) {
-        int mat = mat_size;
-        if (has_bias) {
-            mat += border_w;
-        }
+    int mat = 0;
+    if (has_matting) {
+        mat += mat_size;
+    }
+    if (has_border) {
+        mat += border_w;
+    }
+
+    if (mat > 0) {
         area_w = screen_w - mat * 2;
         area_h = screen_h - mat * 2;
         if (area_w < 1) area_w = 1;
@@ -327,113 +339,6 @@ void Renderer::draw_bias_lighting(const SDL_Rect& fit_rect, Uint8 avg_r, Uint8 a
             pulse = 0.7f + 0.3f * (0.5f + 0.5f * sinf(t * 3.14159f));
         } else {
             pulse = 0.85f + 0.15f * (0.5f + 0.5f * sinf(t * 3.14159f * 2));
-        }
-    }
-
-  // 3D picture-frame border — Dynamic Colors based on Photo (legacy v8.7.0)
-    {
-        Uint8 hi_r = (Uint8)std::min(255, (int)avg_r + 65);
-        Uint8 hi_g = (Uint8)std::min(255, (int)avg_g + 65);
-        Uint8 hi_b = (Uint8)std::min(255, (int)avg_b + 65);
-        Uint8 lo_r = (Uint8)(avg_r * 0.25f);
-        Uint8 lo_g = (Uint8)(avg_g * 0.25f);
-        Uint8 lo_b = (Uint8)(avg_b * 0.25f);
-
-        // Seam colors
-        Uint8 tl_seam_r = (Uint8)std::max(0, (int)avg_r - 35);
-        Uint8 tl_seam_g = (Uint8)std::max(0, (int)avg_g - 35);
-        Uint8 tl_seam_b = (Uint8)std::max(0, (int)avg_b - 35);
-        Uint8 br_seam_r = (Uint8)(avg_r * 0.18f);
-        Uint8 br_seam_g = (Uint8)(avg_g * 0.18f);
-        Uint8 br_seam_b = (Uint8)(avg_b * 0.18f);
-        Uint8 glint_r = (Uint8)std::min(255, (int)avg_r + 85);
-        Uint8 glint_g = (Uint8)std::min(255, (int)avg_g + 85);
-        Uint8 glint_b = (Uint8)std::min(255, (int)avg_b + 85);
-
-        int ix1 = fit_rect.x, iy1 = fit_rect.y;
-        int ix2 = fit_rect.x + fit_rect.w, iy2 = fit_rect.y + fit_rect.h;
-
-        // Fill lo triangle scanline: vertices (cx+bw,cy), (cx+bw,cy+bw), (cx,cy+bw)
-        auto fill_tri_br = [&](int cx, int cy, Uint8 r, Uint8 g, Uint8 b) {
-            SDL_SetRenderDrawColor(sdl_renderer, r, g, b, 255);
-            for (int row = 0; row < bw; row++) {
-                int fill_w = row + 1;
-                SDL_FRect tr = {(float)(cx + bw - fill_w), (float)(cy + row), (float)fill_w, 1.0f};
-                SDL_RenderFillRect(sdl_renderer, &tr);
-            }
-        };
-
-        // ── Side faces (full-width, full-height — overlaps corners) ──
-        if (iy1 > 0) {
-            SDL_SetRenderDrawColor(sdl_renderer, hi_r, hi_g, hi_b, 255);
-            SDL_FRect r = {(float)ix1, (float)(iy1 - bw), (float)(ix2 - ix1), (float)bw};
-            SDL_RenderFillRect(sdl_renderer, &r);
-        }
-        if (iy2 + bw <= sh) {
-            SDL_SetRenderDrawColor(sdl_renderer, lo_r, lo_g, lo_b, 255);
-            SDL_FRect r = {(float)ix1, (float)iy2, (float)(ix2 - ix1), (float)bw};
-            SDL_RenderFillRect(sdl_renderer, &r);
-        }
-        if (ix1 > 0) {
-            SDL_SetRenderDrawColor(sdl_renderer, hi_r, hi_g, hi_b, 255);
-            SDL_FRect r = {(float)(ix1 - bw), (float)iy1, (float)bw, (float)(iy2 - iy1)};
-            SDL_RenderFillRect(sdl_renderer, &r);
-        }
-        if (ix2 + bw <= sw) {
-            SDL_SetRenderDrawColor(sdl_renderer, lo_r, lo_g, lo_b, 255);
-            SDL_FRect r = {(float)ix2, (float)iy1, (float)bw, (float)(iy2 - iy1)};
-            SDL_RenderFillRect(sdl_renderer, &r);
-        }
-
-        // ── TL corner (miter) — solid hi + dark crease ──
-        {
-            SDL_SetRenderDrawColor(sdl_renderer, hi_r, hi_g, hi_b, 255);
-            SDL_FRect r = {(float)(ix1 - bw), (float)(iy1 - bw), (float)bw, (float)bw};
-            SDL_RenderFillRect(sdl_renderer, &r);
-            SDL_SetRenderDrawColor(sdl_renderer, tl_seam_r, tl_seam_g, tl_seam_b, 215);
-            SDL_RenderLine(sdl_renderer, (float)(ix1 - 1), (float)(iy1 - 1), (float)(ix1 - bw + 1), (float)(iy1 - bw + 1));
-        }
-
-        // ── TR corner — solid hi base + lo triangle overlay + bright glint ──
-        {
-            SDL_SetRenderDrawColor(sdl_renderer, hi_r, hi_g, hi_b, 255);
-            SDL_FRect r = {(float)ix2, (float)(iy1 - bw), (float)bw, (float)bw};
-            SDL_RenderFillRect(sdl_renderer, &r);
-            fill_tri_br(ix2, iy1 - bw, lo_r, lo_g, lo_b);
-            SDL_SetRenderDrawColor(sdl_renderer, glint_r, glint_g, glint_b, 255);
-            SDL_RenderLine(sdl_renderer, (float)(ix2 + 1), (float)(iy1 - 1), (float)(ix2 + bw - 1), (float)(iy1 - bw + 1));
-        }
-
-        // ── BL corner — solid hi base + lo triangle overlay + bright glint ──
-        {
-            SDL_SetRenderDrawColor(sdl_renderer, hi_r, hi_g, hi_b, 255);
-            SDL_FRect r = {(float)(ix1 - bw), (float)iy2, (float)bw, (float)bw};
-            SDL_RenderFillRect(sdl_renderer, &r);
-            // lo triangle: top row narrow → bottom row full (adjacent to lo bottom edge)
-            SDL_SetRenderDrawColor(sdl_renderer, lo_r, lo_g, lo_b, 255);
-            for (int row = 0; row < bw; row++) {
-                int fill_w = row + 1;
-                SDL_FRect tr = {(float)(ix1 - fill_w), (float)(iy2 + row), (float)fill_w, 1.0f};
-                SDL_RenderFillRect(sdl_renderer, &tr);
-            }
-            SDL_SetRenderDrawColor(sdl_renderer, glint_r, glint_g, glint_b, 255);
-            SDL_RenderLine(sdl_renderer, (float)(ix1 - 1), (float)(iy2 + 1), (float)(ix1 - bw + 1), (float)(iy2 + bw - 1));
-        }
-
-        // ── BR corner (miter) — solid lo + near-black crease ──
-        {
-            SDL_SetRenderDrawColor(sdl_renderer, lo_r, lo_g, lo_b, 255);
-            SDL_FRect r = {(float)ix2, (float)iy2, (float)bw, (float)bw};
-            SDL_RenderFillRect(sdl_renderer, &r);
-            SDL_SetRenderDrawColor(sdl_renderer, br_seam_r, br_seam_g, br_seam_b, 215);
-            SDL_RenderLine(sdl_renderer, (float)(ix2 + 1), (float)(iy2 + 1), (float)(ix2 + bw - 1), (float)(iy2 + bw - 1));
-        }
-
-        // 1px outline at exact photo boundary
-        {
-            SDL_SetRenderDrawColor(sdl_renderer, 0, 0, 0, 180);
-            SDL_FRect r = {(float)(ix1 - 1), (float)(iy1 - 1), (float)(ix2 - ix1 + 2), (float)(iy2 - iy1 + 2)};
-            SDL_RenderRect(sdl_renderer, &r);
         }
     }
 
@@ -513,6 +418,115 @@ void Renderer::draw_bias_lighting(const SDL_Rect& fit_rect, Uint8 avg_r, Uint8 a
     { int rw = sw - (fit_rect.x + fit_rect.w + bw), rh = fit_rect.y - bw; if (rw > 0 && rh > 0) glow_corner(fit_rect.x + fit_rect.w + bw, fit_rect.y - bw, 1, -1, rw + 1, rh); }
     { int rw = fit_rect.x - bw, rh = sh - (fit_rect.y + fit_rect.h + bw); if (rw > 0 && rh > 0) glow_corner(fit_rect.x - bw, fit_rect.y + fit_rect.h + bw, -1, 1, rw, rh + 1); }
     { int rw = sw - (fit_rect.x + fit_rect.w + bw), rh = sh - (fit_rect.y + fit_rect.h + bw); if (rw > 0 && rh > 0) glow_corner(fit_rect.x + fit_rect.w + bw, fit_rect.y + fit_rect.h + bw, 1, 1, rw + 1, rh + 1); }
+}
+
+void Renderer::draw_3d_border(const SDL_Rect& fit_rect, Uint8 avg_r, Uint8 avg_g, Uint8 avg_b, int border_width) {
+    if (!sdl_renderer) return;
+    int sw = screen_w, sh = screen_h;
+    int bw = border_width;
+
+    Uint8 hi_r = (Uint8)std::min(255, (int)avg_r + 65);
+    Uint8 hi_g = (Uint8)std::min(255, (int)avg_g + 65);
+    Uint8 hi_b = (Uint8)std::min(255, (int)avg_b + 65);
+    Uint8 lo_r = (Uint8)(avg_r * 0.25f);
+    Uint8 lo_g = (Uint8)(avg_g * 0.25f);
+    Uint8 lo_b = (Uint8)(avg_b * 0.25f);
+
+    // Seam colors
+    Uint8 tl_seam_r = (Uint8)std::max(0, (int)avg_r - 35);
+    Uint8 tl_seam_g = (Uint8)std::max(0, (int)avg_g - 35);
+    Uint8 tl_seam_b = (Uint8)std::max(0, (int)avg_b - 35);
+    Uint8 br_seam_r = (Uint8)(avg_r * 0.18f);
+    Uint8 br_seam_g = (Uint8)(avg_g * 0.18f);
+    Uint8 br_seam_b = (Uint8)(avg_b * 0.18f);
+    Uint8 glint_r = (Uint8)std::min(255, (int)avg_r + 85);
+    Uint8 glint_g = (Uint8)std::min(255, (int)avg_g + 85);
+    Uint8 glint_b = (Uint8)std::min(255, (int)avg_b + 85);
+
+    int ix1 = fit_rect.x, iy1 = fit_rect.y;
+    int ix2 = fit_rect.x + fit_rect.w, iy2 = fit_rect.y + fit_rect.h;
+
+    // Fill lo triangle scanline: vertices (cx+bw,cy), (cx+bw,cy+bw), (cx,cy+bw)
+    auto fill_tri_br = [&](int cx, int cy, Uint8 r, Uint8 g, Uint8 b) {
+        SDL_SetRenderDrawColor(sdl_renderer, r, g, b, 255);
+        for (int row = 0; row < bw; row++) {
+            int fill_w = row + 1;
+            SDL_FRect tr = {(float)(cx + bw - fill_w), (float)(cy + row), (float)fill_w, 1.0f};
+            SDL_RenderFillRect(sdl_renderer, &tr);
+        }
+    };
+
+    // ── Side faces (full-width, full-height — overlaps corners) ──
+    if (iy1 > 0) {
+        SDL_SetRenderDrawColor(sdl_renderer, hi_r, hi_g, hi_b, 255);
+        SDL_FRect r = {(float)ix1, (float)(iy1 - bw), (float)(ix2 - ix1), (float)bw};
+        SDL_RenderFillRect(sdl_renderer, &r);
+    }
+    if (iy2 + bw <= sh) {
+        SDL_SetRenderDrawColor(sdl_renderer, lo_r, lo_g, lo_b, 255);
+        SDL_FRect r = {(float)ix1, (float)iy2, (float)(ix2 - ix1), (float)bw};
+        SDL_RenderFillRect(sdl_renderer, &r);
+    }
+    if (ix1 > 0) {
+        SDL_SetRenderDrawColor(sdl_renderer, hi_r, hi_g, hi_b, 255);
+        SDL_FRect r = {(float)(ix1 - bw), (float)iy1, (float)bw, (float)(iy2 - iy1)};
+        SDL_RenderFillRect(sdl_renderer, &r);
+    }
+    if (ix2 + bw <= sw) {
+        SDL_SetRenderDrawColor(sdl_renderer, lo_r, lo_g, lo_b, 255);
+        SDL_FRect r = {(float)ix2, (float)iy1, (float)bw, (float)(iy2 - iy1)};
+        SDL_RenderFillRect(sdl_renderer, &r);
+    }
+
+    // ── TL corner (miter) — solid hi + dark crease ──
+    {
+        SDL_SetRenderDrawColor(sdl_renderer, hi_r, hi_g, hi_b, 255);
+        SDL_FRect r = {(float)(ix1 - bw), (float)(iy1 - bw), (float)bw, (float)bw};
+        SDL_RenderFillRect(sdl_renderer, &r);
+        SDL_SetRenderDrawColor(sdl_renderer, tl_seam_r, tl_seam_g, tl_seam_b, 215);
+        SDL_RenderLine(sdl_renderer, (float)(ix1 - 1), (float)(iy1 - 1), (float)(ix1 - bw + 1), (float)(iy1 - bw + 1));
+    }
+
+    // ── TR corner — solid hi base + lo triangle overlay + bright glint ──
+    {
+        SDL_SetRenderDrawColor(sdl_renderer, hi_r, hi_g, hi_b, 255);
+        SDL_FRect r = {(float)ix2, (float)(iy1 - bw), (float)bw, (float)bw};
+        SDL_RenderFillRect(sdl_renderer, &r);
+        fill_tri_br(ix2, iy1 - bw, lo_r, lo_g, lo_b);
+        SDL_SetRenderDrawColor(sdl_renderer, glint_r, glint_g, glint_b, 255);
+        SDL_RenderLine(sdl_renderer, (float)(ix2 + 1), (float)(iy1 - 1), (float)(ix2 + bw - 1), (float)(iy1 - bw + 1));
+    }
+
+    // ── BL corner — solid hi base + lo triangle overlay + bright glint ──
+    {
+        SDL_SetRenderDrawColor(sdl_renderer, hi_r, hi_g, hi_b, 255);
+        SDL_FRect r = {(float)(ix1 - bw), (float)iy2, (float)bw, (float)bw};
+        SDL_RenderFillRect(sdl_renderer, &r);
+        SDL_SetRenderDrawColor(sdl_renderer, lo_r, lo_g, lo_b, 255);
+        for (int row = 0; row < bw; row++) {
+            int fill_w = row + 1;
+            SDL_FRect tr = {(float)(ix1 - fill_w), (float)(iy2 + row), (float)fill_w, 1.0f};
+            SDL_RenderFillRect(sdl_renderer, &tr);
+        }
+        SDL_SetRenderDrawColor(sdl_renderer, glint_r, glint_g, glint_b, 255);
+        SDL_RenderLine(sdl_renderer, (float)(ix1 - 1), (float)(iy2 + 1), (float)(ix1 - bw + 1), (float)(iy2 + bw - 1));
+    }
+
+    // ── BR corner (miter) — solid lo + near-black crease ──
+    {
+        SDL_SetRenderDrawColor(sdl_renderer, lo_r, lo_g, lo_b, 255);
+        SDL_FRect r = {(float)ix2, (float)iy2, (float)bw, (float)bw};
+        SDL_RenderFillRect(sdl_renderer, &r);
+        SDL_SetRenderDrawColor(sdl_renderer, br_seam_r, br_seam_g, br_seam_b, 215);
+        SDL_RenderLine(sdl_renderer, (float)(ix2 + 1), (float)(iy2 + 1), (float)(ix2 + bw - 1), (float)(iy2 + bw - 1));
+    }
+
+    // 1px outline at exact photo boundary
+    {
+        SDL_SetRenderDrawColor(sdl_renderer, 0, 0, 0, 180);
+        SDL_FRect r = {(float)(ix1 - 1), (float)(iy1 - 1), (float)(ix2 - ix1 + 2), (float)(iy2 - iy1 + 2)};
+        SDL_RenderRect(sdl_renderer, &r);
+    }
 }
 
 void Renderer::draw_solid_border(int width, uint8_t r, uint8_t g, uint8_t b) {

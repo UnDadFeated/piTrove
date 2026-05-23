@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# install.sh — piTrove v10.1.0 Premium Graphical Installer
+# install.sh — piTrove v10.4.0 Premium Graphical Installer
 # Target: Debian Trixie (13) 64-bit on Raspberry Pi 4/5
 
 set -eo pipefail
@@ -45,7 +45,7 @@ draw_line() {
 banner() {
     clear
     echo -e "${CYAN}╔══════════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${CYAN}║${NC}  ${BOLD}${WHITE}                  piTrove v10.1.0 Installation               ${NC}  ${CYAN}║${NC}"
+    echo -e "${CYAN}║${NC}  ${BOLD}${WHITE}                  piTrove v10.4.0 Installation               ${NC}  ${CYAN}║${NC}"
     echo -e "${CYAN}║${NC}  ${MAGENTA}               The Ultra-Premium Picture Frame              ${NC}  ${CYAN}║${NC}"
     echo -e "${CYAN}╚══════════════════════════════════════════════════════════════╝${NC}"
     echo
@@ -574,12 +574,6 @@ cp "$PRIMARY_HOME/piTrove/src/piTrove" "$PRIMARY_HOME/piTrove/piTrove"
 chown $PRIMARY_USER:$PRIMARY_USER "$PRIMARY_HOME/piTrove/piTrove"
 ok "Installed piTrove executable target"
 
-# Install active shaders
-mkdir -p "$PRIMARY_HOME/piTrove/shaders"
-cp -r "$PRIMARY_HOME/piTrove/src/shaders/"* "$PRIMARY_HOME/piTrove/shaders/"
-chown -R $PRIMARY_USER:$PRIMARY_USER "$PRIMARY_HOME/piTrove/shaders"
-ok "Shaders assets loaded successfully"
-
 # ── Create Directories ────────────────────────────────────────────────────────
 info "Creating internal directory tree..."
 mkdir -p "$PRIMARY_HOME/piTrove/cache" "$PRIMARY_HOME/piTrove/config"
@@ -614,7 +608,7 @@ fi
 
 cat > "$CONFIG_FILE" <<EOF
 # ==========================================
-# piTrove Configuration File (v10.1.0)
+# piTrove Configuration File (v10.4.0)
 # ==========================================
 
 [paths]
