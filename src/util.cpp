@@ -72,6 +72,10 @@ void crash_handler(int sig) {
     const char* msg = "\n[CRITICAL ERROR] piTrove intercepted a terminal fault / crash signal.\n";
     write(STDERR_FILENO, msg, strlen(msg));
 
+    // Fail-safe: Restore physical display power on crash
+    int res = ::system("vcgencmd display_power 1");
+    (void)res;
+
     // Signal-safe purge: construct paths into stack buffer, use unlink()
     if (!g_database_complete.load() && !g_crash_cache_dir.empty()) {
         const char* purge_msg = "[CRITICAL] Database incomplete — purging partial cache.\n";
@@ -94,6 +98,11 @@ void crash_handler(int sig) {
 
 void terminate_handler() {
     fprintf(stderr, "\n[CRITICAL ERROR] piTrove unhandled exception.\n");
+    
+    // Fail-safe: Restore physical display power
+    int res = ::system("vcgencmd display_power 1");
+    (void)res;
+
     if (!g_database_complete.load() && !g_crash_cache_dir.empty()) {
         char path[512];
         int n = snprintf(path, sizeof(path), "%s/cache.db", g_crash_cache_dir.c_str());

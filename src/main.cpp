@@ -797,12 +797,13 @@ int main(int argc, char** argv) {
 
     signal(SIGSEGV, crash_handler);
     signal(SIGABRT, crash_handler);
-    // SIGTERM triggers graceful shutdown — let main loop exit and cleanup
+    // SIGTERM and SIGINT trigger graceful shutdown — let main loop exit and cleanup
     struct sigaction sa_term = {};
     sa_term.sa_handler = [](int) { g_running.store(false); };
     sigemptyset(&sa_term.sa_mask);
     sa_term.sa_flags = 0;
     sigaction(SIGTERM, &sa_term, nullptr);
+    sigaction(SIGINT, &sa_term, nullptr);
     std::set_terminate(terminate_handler);
 
     g_logger.info("=== piTrove v%s started %s ===", VERSION, get_timestamp().c_str());
@@ -1887,6 +1888,10 @@ int main(int argc, char** argv) {
 
     // --- Cleanup ---
     g_logger.info("Shutting down...");
+    
+    // Fail-safe: Restore physical display power on exit
+    int disp_power_res = ::system("vcgencmd display_power 1");
+    (void)disp_power_res;
     
     // Stop background HTTP server
     stop_http_server();
