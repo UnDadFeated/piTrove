@@ -65,12 +65,22 @@ Once the installation completes, the picture frame runs automatically in the bac
 - **Intelligent Cooldown**: Ensures the same photo isn't shown too frequently (default 330-day cooldown).
 - **Robust Skip Pipeline**: Gracefully intercepts deleted, missing, or corrupt assets, dynamically marking them bad in the cache database and removing them from the queue to prevent application interruptions.
 
+### 🛰️ MQTT & Home Assistant Smart Home Integration
+- **Lightweight Subscriber Pipe**: Spawns a background subprocess listener executing `mosquitto_sub -F "%t:%p"` to receive remote controls instantly and safely with zero rendering loop delay.
+- **Home Assistant Auto-Discovery**: Automatically publishes standard JSON config payloads to `homeassistant/` on startup. Instantly registers:
+  - **Screen Switch** (Toggles physical backlight and solid black blanking overlay)
+  - **Skip Next & Previous Buttons** (Remote slideshow navigation)
+  - **Play/Pause Toggle Button** (Remote execution control)
+  - **Motion Binary Sensor** (Auto-syncs with physical room motion)
+- **Automatic Cooldown Blanking**: Monitors the room's motion sensor topic. If no motion is detected within a customizable cooldown window, it blanks the screen physically using `vcgencmd display_power 0` and clears the framebuffer to black. Wakes up instantly on new motion or key down/mouse events.
+
 ### 🛠️ System & Control
 - **Headless Design**: Operates via DRM/KMS (native framebuffer). No X11 or Wayland required.
 - **Dynamic Display & GPU Probing**: Programmatically queries active connected DRM/KMS connector outputs and indices (sysfs `card*-*/status`), auto-configuring stable KMSDRM environments before SDL3 starts up.
 - **Low Power**: Scheduled display sleep/wake times and automatic backlight dimming.
-- **Remote Control & Dynamic Port Fallback**: Built-in HTTP API for remote navigation, with robust TCP socket collision scavenging that automatically checks consecutive ports (starting from `8080` up to 10 retries) if the port is already bound.
-- **TUI Hardware & Config Wizard**: A robust, terminal-based configurator menu over SSH featuring a dedicated `"Hardware Settings"` menu to dynamically configure DRM connectors, GPU card paths, custom system font overlays, and custom audio device output mapping.
+- **Glassmorphic HTTP HUD Remote**: Built-in HTTP web dashboard featuring interactive player controls, dynamic slideshow diagnostics telemetry (temp, cache DB size, queue size), active MQTT broker connection cards, screen switches, and simulated motion triggers.
+- **TUI Hardware & Config Wizard**: A robust, 10-tab terminal-based configurator menu over SSH featuring dedicated `"Hardware Settings"` and `"MQTT Integration"` menus to dynamically configure all frame variables.
+- **Config Clamping Safety**: Implements 10 strict boundary checks and clamp safety validation logic inside the TOML configuration loader to guarantee system resilience.
 
 ---
 
@@ -89,20 +99,26 @@ graph TD
     D2[Next Image]
     D3[Buffer Image]
     end
+    
+    subgraph "Control HUD"
+    H1[Lightweight MQTT Subprocess] -.-> E
+    H2[HTTP API Web Remote] -.-> E
+    end
 ```
 
 - **Language**: C++17
-- **Core Libraries**: SDL3, SDL3_image, SDL3_ttf, libmpv, SQLite3, libexif, libheif.
+- **Core Libraries**: SDL3, SDL3_image, SDL3_ttf, libmpv, SQLite3, libexif, libheif, `mosquitto-clients`.
 - **Hardware Accel**: Pi 4/5 VC4 DRM/KMS via SDL3 rendering.
 
 ## 📁 Project Structure
 ```
 src/
-├── main.cpp          — Entry point, event loop, DRM master flow
+├── main.cpp          — Entry point, event loop, DRM master flow, motion cooldown
+├── mqtt.cpp/h        — Background MQTT subprocess subscriber & HA discovery [NEW]
 ├── scanner.cpp/h     — Recursive media scanning (getdents64)
 ├── cache.cpp/h       — SQLite3 WAL-mode metadata persistence
-├── config.cpp/h      — TOML config parser
-├── tui.cpp/h         — Terminal-based setup & configuration wizard
+├── config.cpp/h      — TOML config parser & boundary validation
+├── tui.cpp/h         — Terminal-based setup & configuration wizard (10 categories)
 ├── preload.cpp/h     — Two-phase async preload (surface → texture upload)
 ├── renderer.cpp/h    — SDL_Renderer primitives, EXIF rotation, bias lighting, CRT vignette
 ├── overlay.cpp/h     — OSD widgets (date, filename, count, timer, clock)
@@ -116,7 +132,7 @@ src/
 ├── config.toml        — Default config template
 └── splash.png         — Boot splash screen image
 ```
-- `install.sh`: Bootstrap installer (runs as standard user, sudo for privileged ops).
+- `install.sh`: Bootstrap installer (sets up Docker Compose plugins, NAS mounts, and systemd units).
 - `CHANGELOG.md`: Detailed version history.
 
 ---
