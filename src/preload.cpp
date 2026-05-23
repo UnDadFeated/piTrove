@@ -238,7 +238,7 @@ void PreloadQueue::worker_thread(int thread_id) {
                 return (has_work && space_available) || !running.load();
             });
 
-            if (!running.load() && work_queue.empty()) break;
+            if (!running.load()) break;
             if (work_queue.empty()) continue;
 
             path = work_queue.front();

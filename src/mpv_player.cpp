@@ -234,6 +234,7 @@ bool MpvPlayer::is_active() {
 }
 
 bool MpvPlayer::check_status(bool reclaim_drm_on_eof) {
+    std::lock_guard<std::mutex> lk(mtx);
     if (video_pid <= 0) return false;
 
     // Handle dynamic process pausing/resuming
@@ -252,8 +253,6 @@ bool MpvPlayer::check_status(bool reclaim_drm_on_eof) {
     int status;
     pid_t result = waitpid(video_pid, &status, WNOHANG);
     if (result > 0) {
-        // Child process finished — lock to prevent race with stop()
-        std::lock_guard<std::mutex> lk(mtx);
         video_pid = -1;
         active.store(false);
         g_logger.info("VIDEO_EOF: mpv (pid=%d) finished playback (status=%d)", result,

@@ -1109,8 +1109,9 @@ void Renderer::render_splash(int phase, int progress, int total, int done, const
     if (animated && phase > 2) {
         float screen_h_f = (float)sh;
         for (int y = 0; y < sh; y += 4) {
-            float edge = 1.0f - 0.3f * (1.0f - (2.0f * (float)y / screen_h_f - 1.0f) * (2.0f * (float)y / screen_h_f - 1.0f));
-            if (edge < 0.7f) {
+            float v = 2.0f * (float)y / screen_h_f - 1.0f;
+            float edge = 1.0f - 0.3f * (v * v);
+            if (edge < 1.0f) {
                 uint8_t alpha = (uint8_t)(255.0f * (1.0f - edge));
                 SDL_SetRenderDrawColor(sdl_renderer, 0, 0, 0, alpha);
                 SDL_FRect vignette_rect = {0.0f, (float)y, (float)sw, 4.0f};

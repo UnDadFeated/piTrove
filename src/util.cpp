@@ -412,7 +412,7 @@ static bool match_keyword(const std::string& str, const std::string& kw) {
     if (pos == std::string::npos) return false;
 
     // For very short keywords prone to false positives, enforce strict word boundary checks
-    if (kw == "me" || kw == "us") {
+    if (kw.size() <= 3 || kw == "self") {
         pos = 0;
         while ((pos = str.find(kw, pos)) != std::string::npos) {
             bool before_ok = true;

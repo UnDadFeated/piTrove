@@ -18,6 +18,7 @@
 #include <sys/stat.h>
 #include <algorithm>
 #include <filesystem>
+#include <iomanip>
 
 extern std::vector<MediaItem> g_eligible;
 extern int current_idx;
@@ -368,7 +369,7 @@ static const std::string DASHBOARD_HTML = R"HTML(
         <!-- Header -->
         <header>
             <h1>piTrove controller</h1>
-            <div class="subtitle">v10.4.2 glassmorphic system</div>
+            <div class="subtitle">v10.4.3 glassmorphic system</div>
         </header>
 
         <!-- Live Preview -->
@@ -549,6 +550,28 @@ static const std::string DASHBOARD_HTML = R"HTML(
 </html>
 )HTML";
 
+static std::string escape_json(const std::string& s) {
+    std::ostringstream oss;
+    for (char c : s) {
+        switch (c) {
+            case '"':  oss << "\\\""; break;
+            case '\\': oss << "\\\\"; break;
+            case '\b': oss << "\\b"; break;
+            case '\f': oss << "\\f"; break;
+            case '\n': oss << "\\n"; break;
+            case '\r': oss << "\\r"; break;
+            case '\t': oss << "\\t"; break;
+            default:
+                if (static_cast<unsigned char>(c) <= 0x1f) {
+                    oss << "\\u" << std::hex << std::setw(4) << std::setfill('0') << (int)c;
+                } else {
+                    oss << c;
+                }
+        }
+    }
+    return oss.str();
+}
+
 static std::string get_api_status() {
     int idx = 0;
     int total = 0;
@@ -600,7 +623,7 @@ static std::string get_api_status() {
     oss << "{\n"
         << "  \"index\": " << idx << ",\n"
         << "  \"total\": " << total << ",\n"
-        << "  \"filename\": \"" << filename << "\",\n"
+        << "  \"filename\": \"" << escape_json(filename) << "\",\n"
         << "  \"is_video\": " << (type == "video" ? "true" : "false") << ",\n"
         << "  \"shuffle\": " << (shuffle ? "true" : "false") << ",\n"
         << "  \"paused\": " << (paused ? "true" : "false") << ",\n"
@@ -712,7 +735,7 @@ static void server_loop(int port) {
     bool bound = false;
 
     for (int attempt = 0; attempt < max_attempts; attempt++) {
-        g_listen_fd = socket(AF_INET, SOCK_STREAM, 0);
+        g_listen_fd = socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC, 0);
         if (g_listen_fd < 0) {
             g_logger.error("HTTP: Failed to open stream socket.");
             return;
@@ -777,7 +800,7 @@ static void server_loop(int port) {
 
         struct sockaddr_in client_addr;
         socklen_t client_len = sizeof(client_addr);
-        int client_fd = accept(g_listen_fd, (struct sockaddr*)&client_addr, &client_len);
+        int client_fd = accept4(g_listen_fd, (struct sockaddr*)&client_addr, &client_len, SOCK_CLOEXEC);
         if (client_fd < 0) {
             if (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR || errno == ECONNABORTED || errno == EMFILE) {
                 if (errno == EMFILE) {

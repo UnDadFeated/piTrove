@@ -13,6 +13,7 @@
 #include <algorithm>
 #include <thread>
 #include <future>
+#include <cstdlib>
 #include <cstring>
 #include <sys/syscall.h>
 #include <unistd.h>
@@ -162,6 +163,30 @@ std::string run_ffprobe(const std::vector<std::string>& args, int timeout_ms) {
         int devnull = open("/dev/null", O_WRONLY);
         if (devnull >= 0) { dup2(devnull, STDERR_FILENO); close(devnull); }
         close(pipefd[0]); close(pipefd[1]);
+
+        // Redirect stdin to /dev/null
+        int devnull_in = open("/dev/null", O_RDONLY);
+        if (devnull_in >= 0) { dup2(devnull_in, STDIN_FILENO); close(devnull_in); }
+
+        // Close all other file descriptors to prevent leaks to child process
+        DIR* dir = opendir("/proc/self/fd");
+        if (dir) {
+            int dfd = dirfd(dir);
+            struct dirent* de;
+            while ((de = readdir(dir))) {
+                if (de->d_name[0] == '.') continue;
+                int fd = std::atoi(de->d_name);
+                if (fd >= 3 && fd != dfd) {
+                    close(fd);
+                }
+            }
+            closedir(dir);
+        } else {
+            for (int i = 3; i < 256; ++i) {
+                close(i);
+            }
+        }
+
         setsid();
         struct rlimit rl{ 256u*1024*1024, 256u*1024*1024 };
         setrlimit(RLIMIT_AS, &rl);
