@@ -6,7 +6,7 @@ A professional-grade digital picture frame for the Raspberry Pi. Designed for ex
 [![OS](https://img.shields.io/badge/OS-Trixie%20Lite%20%28Debian%2013%29-lightgreen?style=flat-square)](https://www.debian.org/)
 [![Architecture](https://img.shields.io/badge/arch-aarch64-orange?style=flat-square)](https://en.wikipedia.org/wiki/AArch64)
 [![Graphics](https://img.shields.io/badge/graphics-SDL3-red?style=flat-square)](https://www.libsdl.org/)
-[![Version](https://img.shields.io/badge/version-10.4.1-blue?style=flat-square)]()
+[![Version](https://img.shields.io/badge/version-11.0.0-blue?style=flat-square)]()
 
 ## 🚀 Quick Start
 
@@ -15,11 +15,28 @@ A professional-grade digital picture frame for the Raspberry Pi. Designed for ex
 2. Ensure you are using a 64-bit image; the application requires `aarch64`.
 3. Boot the Pi, connect to your network, and SSH in: `ssh pi@<pi-ip>`.
 
-### 2. One-Command Installation
-Run the bootstrap script to handle dependencies, build the binary, and configure the systemd service:
+### 2. One-Command Containerized Installation
+Run the bootstrap script to automatically install Docker Engine, mount your storage, build the multi-stage slideshow container, and register the systemd daemon:
 ```bash
 wget -qO- https://raw.githubusercontent.com/UnDadFeated/piTrove/main/install.sh | sudo bash
 ```
+
+### 3. Management & Interaction
+Once the installation completes, the picture frame runs automatically in the background on startup. You can manage the application using standard Docker Compose or systemd controls:
+
+- **Configure the Frame (Interactive TUI)**:
+  Launch the premium 8-tab terminal configuration settings wizard inside the container using:
+  ```bash
+  docker compose exec -it pitrove /app/piTrove --config /app/config/config.toml
+  ```
+- **Restart Slideshow**:
+  ```bash
+  sudo systemctl restart piTrove.service
+  ```
+- **View Slide rendering Logs**:
+  ```bash
+  docker logs -f piTrove
+  ```
 
 ---
 
