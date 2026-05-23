@@ -1,5 +1,12 @@
 # Changelog
 
+## v10.3.15 — Thread & Memory Safety Stability Release (May 23, 2026)
+
+### Fixed
+- **Preload Double-Free Crash** — Resolved a critical double-free memory corruption bug in the preloader's queue mismatch discarding branch. Replaced unsafe manual pointer freeing with robust, standard C++ RAII container destructions (`std::queue::pop()`) which safely deallocate raw pixel memory without risk of double-free crashes.
+- **Redundant Parallel Preloads** — Replaced the transient lookahead set with a unified `active_preloads` container tracking preloads across all pipeline phases (queued, in-flight, and decoded in memory). This completely eliminates duplicate parallel background decoding of identical files, reducing CPU and NAS disk I/O load.
+- **Startup Playlist Statistics Log** — Corrected a minor statistics log display bug where moving playlist vectors before logging caused startup counts to show as `0 photos + 0 videos = 254 total`.
+
 ## v10.3.14 — Asynchronous Multi-Threaded Background Preloader (May 22, 2026)
 
 ### Added

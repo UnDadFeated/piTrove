@@ -49,11 +49,11 @@ void PreloadQueue::enqueue(const std::string& path) {
     {
         std::lock_guard<std::mutex> lock(work_mutex);
         
-        if (queued_paths.count(path)) return;
+        if (active_preloads.count(path)) return;
 
         g_logger.info("TRACE: PreloadQueue::enqueue '%s'", path.c_str());
         work_queue.push(path);
-        queued_paths.insert(path);
+        active_preloads.insert(path);
     }
     work_cv.notify_one();
 }
@@ -62,11 +62,13 @@ std::shared_ptr<ImageData> PreloadQueue::try_dequeue(const std::string& target_p
     g_logger.info("TRACE: PreloadQueue::try_dequeue queue_size=%d target=%s", (int)loaded_queue.size(), target_path.c_str());
     std::shared_ptr<ImageData> data = nullptr;
     {
+        std::lock_guard<std::mutex> work_lk(work_mutex);
         std::lock_guard<std::mutex> lock(queue_mutex);
         if (!loaded_queue.empty()) {
             if (loaded_queue.front().path == target_path) {
                 PreloadedItem item = std::move(loaded_queue.front());
                 loaded_queue.pop();
+                active_preloads.erase(target_path);
 
                 // Build ImageData from raw pixels (main thread — SDL context is thread-local)
                 data = std::make_shared<ImageData>();
@@ -173,11 +175,8 @@ std::shared_ptr<ImageData> PreloadQueue::try_dequeue(const std::string& target_p
                 g_logger.warn("Preload mismatch: front is '%s', target is '%s'. Clearing preloaded queue.",
                     loaded_queue.front().path.c_str(), target_path.c_str());
                 while (!loaded_queue.empty()) {
-                    PreloadedItem stale_item = std::move(loaded_queue.front());
+                    active_preloads.erase(loaded_queue.front().path);
                     loaded_queue.pop();
-                    if (stale_item.raw.pixels) {
-                        free(stale_item.raw.pixels);
-                    }
                 }
             }
         }
@@ -196,7 +195,7 @@ void PreloadQueue::cancel_all() {
         std::lock_guard<std::mutex> lock(work_mutex);
         std::queue<std::string> empty;
         std::swap(work_queue, empty);
-        queued_paths.clear();
+        active_preloads.clear();
     }
     {
         std::lock_guard<std::mutex> lock(queue_mutex);
@@ -240,7 +239,7 @@ void PreloadQueue::worker_thread(int thread_id) {
 
             path = work_queue.front();
             work_queue.pop();
-            queued_paths.erase(path);
+            // Keep path in active_preloads while decoding is actively in progress to prevent duplicate preloads
         }
 
         g_logger.debug("[Worker %d] preloading: %s", thread_id, path.c_str());

@@ -458,6 +458,9 @@ static void organize_playlist(std::vector<MediaItem>& eligible, int videos_per_p
             }
         }
 
+        size_t final_photos_size = photos.size();
+        size_t final_videos_size = videos.size();
+
         eligible.clear();
         if (videos.empty()) {
             eligible = std::move(photos);
@@ -494,7 +497,7 @@ static void organize_playlist(std::vector<MediaItem>& eligible, int videos_per_p
         }
 
         g_logger.info("Playlist organized: %zu photos + %zu videos = %zu total (de-clustered mathematical interleaving ratio: %.2f)",
-            photos.size(), videos.size(), eligible.size(), static_cast<double>(photos.size()) / std::max((size_t)1, videos.size()));
+            final_photos_size, final_videos_size, eligible.size(), static_cast<double>(final_photos_size) / std::max((size_t)1, final_videos_size));
     }
 }
 
