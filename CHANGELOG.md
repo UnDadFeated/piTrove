@@ -1,5 +1,10 @@
 # Changelog
 
+## v10.4.2 — Case-Insensitive Extension Support for Media Classification (May 23, 2026)
+
+### Fixed
+- **Fixed Uppercase Extension Media Classification** — Resolved a case-sensitivity bug in the media classifier (`classify_media_item` in `src/util.cpp`) where files with uppercase extensions (like `.JPG` from NAS digital frames) were not recognized as camera roll images. This caused standard photos to be incorrectly categorized as "documents/screenshots" and filtered out of the slideshow. Added standard case-insensitivity conversion (`std::transform` to lowercase) before checking media extensions, immediately expanding the eligible playlist pool.
+
 ## v10.4.1 — Restored Edge Glow & EXIF Rotated Dimensions (May 23, 2026)
 
 ### Fixed

@@ -497,6 +497,7 @@ void classify_media_item(const MediaItem& item, bool& has_people, bool& has_anim
     if (!ext_clean.empty() && ext_clean.front() == '.') {
         ext_clean = ext_clean.substr(1);
     }
+    std::transform(ext_clean.begin(), ext_clean.end(), ext_clean.begin(), ::tolower);
     
     if (name_lower.rfind("img_", 0) == 0 ||
         name_lower.rfind("dsc_", 0) == 0 ||
