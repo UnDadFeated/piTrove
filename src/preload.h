@@ -35,7 +35,7 @@ private:
 
     // Queue of paths that need to be preloaded
     std::queue<std::string> work_queue;
-    std::unordered_set<std::string> queued_paths;
+    std::unordered_set<std::string> active_preloads;
     std::mutex work_mutex;
     std::condition_variable work_cv;
 
