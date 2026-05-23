@@ -1,5 +1,16 @@
 # Changelog
 
+## v11.1.0 — MQTT Integration & Interleaving Ratio Optimization (May 23, 2026)
+
+### Added
+- **MQTT Broker Client Integration** — Integrated a lightweight background MQTT subscriber subprocess utilizing `mosquitto_sub -F "%t:%p"` to receive remote controls and motion triggers instantly with zero rendering frame stalls.
+- **Home Assistant Auto-Discovery** — Embedded automated entity announcements for automatic integration with Home Assistant dashboard nodes (registering screen switch, skip next/prev buttons, play/pause controls, and motion binary sensor).
+- **Motion Sensor Blanking & Sleep Cooldown** — Added a background motion blanking service that clears the framebuffer to solid black and physically switches display backlight power via `vcgencmd display_power 0` after customizable idle cooldown.
+- **Glassmorphic Web HUD Controller updates** — Enhanced the HTTP remote control dashboard to include interactive MQTT configuration states, dynamic screen power switches, and manual "Trigger Motion" test pulses.
+
+### Fixed
+- **Playlist Interleaving Ratio Drop** — Completely rewrote the de-clustered mathematical interleaving ratio algorithm (`organize_playlist`) to elegantly support video-heavy libraries and high interleaving ratios (> 1.0) without dropping eligible media items.
+
 ## v11.0.0 — Enterprise Docker Containerization Migration (May 23, 2026)
 
 ### Added

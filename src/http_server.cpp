@@ -2,6 +2,7 @@
 #include "media_item.h"
 #include "util.h"
 #include "config.h"
+#include "mqtt.h"
 #include <iostream>
 #include <sstream>
 #include <vector>
@@ -433,6 +434,31 @@ static const std::string DASHBOARD_HTML = R"HTML(
                 </div>
             </div>
         </div>
+
+        <!-- MQTT Integration Panel -->
+        <div class="telemetry-card" style="margin-top: 1rem;">
+            <div class="telemetry-title">MQTT & Home Assistant Integration</div>
+            <div class="telemetry-grid" style="grid-template-columns: repeat(2, 1fr);">
+                <div class="telemetry-item">
+                    <span class="telemetry-label">Broker IP</span>
+                    <span id="stat-mqtt-broker" class="telemetry-value">--</span>
+                </div>
+                <div class="telemetry-item">
+                    <span class="telemetry-label">Status</span>
+                    <span id="stat-mqtt-status" class="telemetry-value">Disabled</span>
+                </div>
+            </div>
+            <div class="toggle-row" style="margin-top: 1rem; gap: 0.75rem; display: flex; width: 100%;">
+                <button id="btn-screen" class="btn btn-toggle" onclick="sendCommand('/api/toggle_screen')" style="flex: 1; min-height: 48px; border-radius: 14px;">
+                    <span class="btn-icon">📺</span>
+                    <span>Screen: <strong id="lbl-screen">ON</strong></span>
+                </button>
+                <button class="btn btn-blue" onclick="sendCommand('/api/trigger_motion')" style="flex: 1; min-height: 48px; border-radius: 14px; display: flex; align-items: center; justify-content: center; gap: 0.5rem; border: 1px solid var(--card-border); background: var(--card-bg); color: var(--text-main); font-weight: 600;">
+                    <span class="btn-icon">🏃</span>
+                    <span>Trigger Motion</span>
+                </button>
+            </div>
+        </div>
     </div>
 
     <script>
@@ -490,6 +516,30 @@ static const std::string DASHBOARD_HTML = R"HTML(
                     document.getElementById('stat-temp').innerText = status.temp;
                     document.getElementById('stat-db').innerText = status.db_size;
                     document.getElementById('stat-queue').innerText = status.total;
+
+                    // Update MQTT Status
+                    const mqttBroker = document.getElementById('stat-mqtt-broker');
+                    const mqttStatus = document.getElementById('stat-mqtt-status');
+                    if (status.mqtt_enabled) {
+                        mqttBroker.innerText = `${status.mqtt_broker}:${status.mqtt_port}`;
+                        mqttStatus.innerText = "Active";
+                        mqttStatus.style.color = "#10b981"; // Emerald green
+                    } else {
+                        mqttBroker.innerText = "N/A";
+                        mqttStatus.innerText = "Disabled";
+                        mqttStatus.style.color = "#ef4444"; // Red
+                    }
+
+                    // Update Screen Blanked Button
+                    const screenLbl = document.getElementById('lbl-screen');
+                    const screenBtn = document.getElementById('btn-screen');
+                    if (!status.screen_blanked) {
+                        screenLbl.innerText = "ON";
+                        screenBtn.classList.add('btn-active');
+                    } else {
+                        screenLbl.innerText = "OFF";
+                        screenBtn.classList.remove('btn-active');
+                    }
 
                     // Trigger Preview Image reload if filename changes
                     if (status.filename !== currentFilename) {
@@ -592,9 +642,17 @@ static std::string get_api_status() {
         }
     }
     
+    bool mqtt_enabled = false;
+    std::string mqtt_broker = "";
+    int mqtt_port = 1883;
+    bool screen_blanked = g_screen_blanked.load();
+
     {
         std::lock_guard<std::mutex> lk(g_config_mtx);
         shuffle = g_cfg.shuffle;
+        mqtt_enabled = g_cfg.mqtt_enabled;
+        mqtt_broker = g_cfg.mqtt_broker;
+        mqtt_port = g_cfg.mqtt_port;
     }
 
     paused = g_slideshow_paused.load();
@@ -628,7 +686,11 @@ static std::string get_api_status() {
         << "  \"shuffle\": " << (shuffle ? "true" : "false") << ",\n"
         << "  \"paused\": " << (paused ? "true" : "false") << ",\n"
         << "  \"temp\": \"" << (temp_c > 0.0 ? std::to_string(temp_c).substr(0, 4) + "°C" : "N/A") << "\",\n"
-        << "  \"db_size\": \"" << (db_mb > 0.0 ? std::to_string(db_mb).substr(0, 4) + " MB" : "0.0 MB") << "\"\n"
+        << "  \"db_size\": \"" << (db_mb > 0.0 ? std::to_string(db_mb).substr(0, 4) + " MB" : "0.0 MB") << "\",\n"
+        << "  \"mqtt_enabled\": " << (mqtt_enabled ? "true" : "false") << ",\n"
+        << "  \"mqtt_broker\": \"" << escape_json(mqtt_broker) << "\",\n"
+        << "  \"mqtt_port\": " << mqtt_port << ",\n"
+        << "  \"screen_blanked\": " << (screen_blanked ? "true" : "false") << "\n"
         << "}";
     return oss.str();
 }
@@ -855,6 +917,28 @@ static void server_loop(int port) {
                 g_running.store(false);
                 send_response(client_fd, "HTTP/1.1 200 OK", "application/json", "{\"status\":\"ok\"}");
             } 
+            else if (request.rfind("GET /api/toggle_screen", 0) == 0) {
+                g_screen_blanked = !g_screen_blanked.load();
+                int res = ::system(g_screen_blanked.load() ? "vcgencmd display_power 0" : "vcgencmd display_power 1");
+                (void)res;
+                mqtt_publish(g_cfg.mqtt_topic_prefix + "/status/screen", g_screen_blanked.load() ? "OFF" : "ON", true);
+                send_response(client_fd, "HTTP/1.1 200 OK", "application/json", "{\"status\":\"ok\"}");
+            }
+            else if (request.rfind("GET /api/trigger_motion", 0) == 0) {
+                g_last_motion_time.store(static_cast<int64_t>(std::time(nullptr)));
+                if (g_screen_blanked.load()) {
+                    g_screen_blanked = false;
+                    int res = ::system("vcgencmd display_power 1");
+                    (void)res;
+                    mqtt_publish(g_cfg.mqtt_topic_prefix + "/status/screen", "ON", true);
+                }
+                mqtt_publish(g_cfg.mqtt_motionsensor_topic, "ON", false);
+                std::thread([]() {
+                    std::this_thread::sleep_for(std::chrono::seconds(2));
+                    mqtt_publish(g_cfg.mqtt_motionsensor_topic, "OFF", false);
+                }).detach();
+                send_response(client_fd, "HTTP/1.1 200 OK", "application/json", "{\"status\":\"ok\"}");
+            }
             else if (request.rfind("GET /api/preview", 0) == 0) {
                 handle_preview(client_fd);
             } 

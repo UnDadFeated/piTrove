@@ -20,6 +20,8 @@ std::atomic<float> g_weather_temp{0.0f};
 std::atomic<int> g_weather_code{0};
 std::atomic<bool> g_config_changed{false};
 std::atomic<bool> g_database_complete{false};
+std::atomic<bool> g_screen_blanked{false};
+std::atomic<int64_t> g_last_motion_time{0};
 std::string g_crash_cache_dir = "";
 
 Logger g_logger;

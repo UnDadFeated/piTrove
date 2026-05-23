@@ -144,8 +144,18 @@ void config_wizard(const std::string& config_path) {
         f << "rows = " << g_cfg.collage_rows << "\n\n";
         
         f << "[log]\n";
-        f << "level = \"" << (g_cfg.verbose ? "debug" : "info") << "\"\n";
+        f << "level = \"" << (g_cfg.verbose ? "debug" : "info") << "\"\n\n";
         
+        f << "[mqtt]\n";
+        f << "enabled = " << (g_cfg.mqtt_enabled ? "1" : "0") << "\n";
+        f << "broker = \"" << g_cfg.mqtt_broker << "\"\n";
+        f << "port = " << g_cfg.mqtt_port << "\n";
+        f << "user = \"" << g_cfg.mqtt_user << "\"\n";
+        f << "pass = \"" << g_cfg.mqtt_pass << "\"\n";
+        f << "topic_prefix = \"" << g_cfg.mqtt_topic_prefix << "\"\n";
+        f << "motionsensor_topic = \"" << g_cfg.mqtt_motionsensor_topic << "\"\n";
+        f << "motionsensor_cooldown = " << g_cfg.mqtt_motionsensor_cooldown << "\n";
+
         f.close();
         g_config_changed.store(true);
         return true;
@@ -254,6 +264,16 @@ void config_wizard(const std::string& config_path) {
         {"Min Brightness", INT, "Floor for auto-brightness (0-100)"},
         {"SQLite mmap Size", INT, "Bytes to allocate for DB memory mapping"}
     };
+    static const CI CMQ[] = {
+        {"MQTT Enabled", TGL, "Enable MQTT features (0/1)"},
+        {"MQTT Broker", STR, "IP or domain of the MQTT broker"},
+        {"MQTT Port", INT, "Port of the MQTT broker (default 1883)"},
+        {"MQTT Username", STR, "Broker username (leave blank if none)"},
+        {"MQTT Password", STR, "Broker password (leave blank if none)"},
+        {"MQTT Topic Prefix", STR, "Base topic for state/command messages"},
+        {"Motion Topic", STR, "MQTT topic that transmits motion events"},
+        {"Motion Cooldown", INT, "Screen off delay in seconds when no motion is detected"}
+    };
 
     struct CAT { const char* n; const CI* i; int c; };
     static const CAT CATS[] = {
@@ -265,7 +285,8 @@ void config_wizard(const std::string& config_path) {
         {"Scanning", CG, 8},
         {"Weather", CH, 3},
         {"Hardware", CF, 4},
-        {"Advanced", CI2, 3}
+        {"Advanced", CI2, 3},
+        {"MQTT", CMQ, 8}
     };
 
     // ── DATA ACCESSORS ──
@@ -348,6 +369,16 @@ void config_wizard(const std::string& config_path) {
             case 0: return g_cfg.verbose?"debug":"info";
             case 1: return std::to_string(g_cfg.brightness_auto_min);
             case 2: return std::to_string(g_cfg.cache_mmap_size);
+        }
+        if (c == 9) switch(i) {
+            case 0: return g_cfg.mqtt_enabled ? "[ON]" : "[OFF]";
+            case 1: return g_cfg.mqtt_broker;
+            case 2: return std::to_string(g_cfg.mqtt_port);
+            case 3: return g_cfg.mqtt_user;
+            case 4: return g_cfg.mqtt_pass;
+            case 5: return g_cfg.mqtt_topic_prefix;
+            case 6: return g_cfg.mqtt_motionsensor_topic;
+            case 7: return std::to_string(g_cfg.mqtt_motionsensor_cooldown);
         }
         return "";
     };
@@ -449,6 +480,16 @@ void config_wizard(const std::string& config_path) {
                 case 0:{ if(v=="debug") g_cfg.verbose=true; else g_cfg.verbose=false; }break;
                 case 1:{ try { g_cfg.brightness_auto_min=std::stoi(v); } catch(...) {} break; }
                 case 2:{ try { g_cfg.cache_mmap_size=std::stoll(v); } catch(...) {} break; }
+            }
+            else if(c==9) switch(i){
+                case 0:g_cfg.mqtt_enabled=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
+                case 1:g_cfg.mqtt_broker=v;break;
+                case 2:{ try { g_cfg.mqtt_port=std::stoi(v); } catch(...) {} break; }
+                case 3:g_cfg.mqtt_user=v;break;
+                case 4:g_cfg.mqtt_pass=v;break;
+                case 5:g_cfg.mqtt_topic_prefix=v;break;
+                case 6:g_cfg.mqtt_motionsensor_topic=v;break;
+                case 7:{ try { g_cfg.mqtt_motionsensor_cooldown=std::stoi(v); } catch(...) {} break; }
             }
         } catch(...) {}
     };
@@ -552,9 +593,9 @@ void config_wizard(const std::string& config_path) {
                     char seq[2];
                     if(read(STDIN_FILENO, &seq[0], 1) == 1 && read(STDIN_FILENO, &seq[1], 1) == 1) {
                         if(seq[1] == 'A') { if(sel_sub>0) sel_sub--; else if(sel>0){ sel--; sel_sub=CATS[sel].c-1; } } // UP
-                        else if(seq[1] == 'B') { if(sel_sub<CATS[sel].c-1) sel_sub++; else if(sel<8){ sel++; sel_sub=0; } } // DOWN
+                        else if(seq[1] == 'B') { if(sel_sub<CATS[sel].c-1) sel_sub++; else if(sel<9){ sel++; sel_sub=0; } } // DOWN
                         else if(seq[1] == 'D') { if(sel>0) { sel--; sel_sub=0; } } // LEFT Category
-                        else if(seq[1] == 'C') { if(sel<8) { sel++; sel_sub=0; } } // RIGHT Category
+                        else if(seq[1] == 'C') { if(sel<9) { sel++; sel_sub=0; } } // RIGHT Category
                     }
                 }
                 else if(c == '\n' || c == '\r' || c == ' ') {
