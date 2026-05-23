@@ -243,17 +243,17 @@ bool ImageLoader::has_camera_exif(const char* path) {
     ExifData* ed = exif_data_new_from_file(path);
     if (!ed) return false;
 
-    // Check for camera-specific EXIF tags that screenshots don't have
-    ExifEntry* make = exif_content_get_entry(ed->ifd[EXIF_IFD_EXIF], EXIF_TAG_MAKE);
-    ExifEntry* model = exif_content_get_entry(ed->ifd[EXIF_IFD_EXIF], EXIF_TAG_MODEL);
+    // Optical EXIF tags — only real cameras have these, screenshots never do
     ExifEntry* exposure = exif_content_get_entry(ed->ifd[EXIF_IFD_EXIF], EXIF_TAG_EXPOSURE_TIME);
     ExifEntry* fnumber = exif_content_get_entry(ed->ifd[EXIF_IFD_EXIF], EXIF_TAG_FNUMBER);
+    ExifEntry* iso = exif_content_get_entry(ed->ifd[EXIF_IFD_EXIF], EXIF_TAG_ISO_SPEED_RATINGS);
+    ExifEntry* focal = exif_content_get_entry(ed->ifd[EXIF_IFD_EXIF], EXIF_TAG_FOCAL_LENGTH);
     ExifEntry* datetime = exif_content_get_entry(ed->ifd[EXIF_IFD_EXIF], EXIF_TAG_DATE_TIME_ORIGINAL);
 
     exif_data_unref(ed);
 
-    // Require at least 2 camera-specific tags (screenshots rarely have more than 1)
-    int count = (make ? 1 : 0) + (model ? 1 : 0) + (exposure ? 1 : 0) + (fnumber ? 1 : 0) + (datetime ? 1 : 0);
+    // Require at least 2 optical tags. Phone screenshots have Make+Model but no optical data.
+    int count = (exposure ? 1 : 0) + (fnumber ? 1 : 0) + (iso ? 1 : 0) + (focal ? 1 : 0) + (datetime ? 1 : 0);
     return count >= 2;
 }
 
