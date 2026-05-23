@@ -150,7 +150,8 @@ static bool should_be_twin_portrait(int idx, int size) {
     if (item1.type == "video" || item1.height <= item1.width || item1.height <= 0) return false;
 
     // Check if the next item is portrait
-    const auto& item2 = g_eligible[(idx + 1) % size];
+    if (idx + 1 >= size) return false;
+    const auto& item2 = g_eligible[idx + 1];
     if (item2.type == "video" || item2.height <= item2.width || item2.height <= 0) return false;
 
     return true;

@@ -13,6 +13,9 @@ TransitionEngine::~TransitionEngine() {
 
 void TransitionEngine::start(TransitionEffect effect, float duration, int direction, float ken_burns_zoom) {
     g_logger.debug("TRACE: TransitionEngine::start effect=%d duration=%f", (int)effect, duration);
+    if (duration <= 0.0f) {
+        duration = 0.001f;
+    }
     reset();
     config.effect = effect;
     config.duration = duration;

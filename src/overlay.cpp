@@ -99,22 +99,84 @@ void OverlayManager::draw_text_with_outline(int x, int y, FontHandle& font, cons
     font_renderer->draw_text(x, y, font, text, color.r, color.g, color.b, color.a);
 }
 
-void OverlayManager::get_adaptive_colors(const ImageData* img, GpuColor& text_col, GpuColor& shadow_col) {
+void OverlayManager::get_adaptive_colors(const ImageData* img, int x, int y, GpuColor& text_col, GpuColor& shadow_col) {
     bool adaptive = false;
     {
         std::lock_guard<std::mutex> lock(g_config_mtx);
         adaptive = g_cfg.adaptive_text_enabled;
     }
-    if (!adaptive || !img) {
+    if (!adaptive || !img || img->width <= 0 || img->height <= 0) {
         text_col = {255, 255, 255, 255};
         shadow_col = {0, 0, 0, 200};
         return;
     }
-    double luma = 0.2126 * img->avg_r + 0.7152 * img->avg_g + 0.0722 * img->avg_b;
-    if (luma > 140) { // bright background
+
+    int sw = g_renderer.screen_w;
+    int sh = g_renderer.screen_h;
+    if (sw <= 0 || sh <= 0) {
+        text_col = {255, 255, 255, 255};
+        shadow_col = {0, 0, 0, 200};
+        return;
+    }
+
+    // Map screen x, y to image fit rectangle
+    SDL_Rect fit_rect;
+    float aspect_img = (float)img->width / img->height;
+    float aspect_screen = (float)sw / sh;
+    if (aspect_img > aspect_screen) {
+        fit_rect.w = sw;
+        fit_rect.h = (int)(sw / aspect_img);
+        fit_rect.x = 0;
+        fit_rect.y = (sh - fit_rect.h) / 2;
+    } else {
+        fit_rect.h = sh;
+        fit_rect.w = (int)(sh * aspect_img);
+        fit_rect.x = (sw - fit_rect.w) / 2;
+        fit_rect.y = 0;
+    }
+
+    if (x < fit_rect.x || x >= fit_rect.x + fit_rect.w || y < fit_rect.y || y >= fit_rect.y + fit_rect.h) {
+        // Outside image, drawn on black background, use default white text
+        text_col = {255, 255, 255, 255};
+        shadow_col = {0, 0, 0, 200};
+        return;
+    }
+
+    int img_x = ((x - fit_rect.x) * img->width) / fit_rect.w;
+    int img_y = ((y - fit_rect.y) * img->height) / fit_rect.h;
+    img_x = std::clamp(img_x, 0, img->width - 1);
+    img_y = std::clamp(img_y, 0, img->height - 1);
+
+    int d_top = img_y;
+    int d_bot = img->height - 1 - img_y;
+    int d_lft = img_x;
+    int d_rgt = img->width - 1 - img_x;
+    int min_d = std::min({d_top, d_bot, d_lft, d_rgt});
+
+    uint8_t r = img->avg_r, g = img->avg_g, b = img->avg_b;
+    if (min_d == d_top && (int)img->edge_top_rgb.size() >= img->width * 3) {
+        r = img->edge_top_rgb[img_x * 3 + 0];
+        g = img->edge_top_rgb[img_x * 3 + 1];
+        b = img->edge_top_rgb[img_x * 3 + 2];
+    } else if (min_d == d_bot && (int)img->edge_bot_rgb.size() >= img->width * 3) {
+        r = img->edge_bot_rgb[img_x * 3 + 0];
+        g = img->edge_bot_rgb[img_x * 3 + 1];
+        b = img->edge_bot_rgb[img_x * 3 + 2];
+    } else if (min_d == d_lft && (int)img->edge_lft_rgb.size() >= img->height * 3) {
+        r = img->edge_lft_rgb[img_y * 3 + 0];
+        g = img->edge_lft_rgb[img_y * 3 + 1];
+        b = img->edge_lft_rgb[img_y * 3 + 2];
+    } else if (min_d == d_rgt && (int)img->edge_rgt_rgb.size() >= img->height * 3) {
+        r = img->edge_rgt_rgb[img_y * 3 + 0];
+        g = img->edge_rgt_rgb[img_y * 3 + 1];
+        b = img->edge_rgt_rgb[img_y * 3 + 2];
+    }
+
+    double luma = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+    if (luma > 140) { // bright local background
         text_col = {15, 15, 15, 255};
         shadow_col = {255, 255, 255, 200};
-    } else { // dark background
+    } else { // dark local background
         text_col = {255, 255, 255, 255};
         shadow_col = {0, 0, 0, 200};
     }
@@ -199,7 +261,7 @@ void OverlayManager::draw_all(int current_idx, int total_items, const MediaItem*
     auto draw_contrast_text = [&](int x, int y, FontHandle& font, const std::string& text, GpuColor def_col, const ImageData* img) {
         GpuColor txt_c = def_col;
         GpuColor shd_c = {0, 0, 0, 200};
-        get_adaptive_colors(img, txt_c, shd_c);
+        get_adaptive_colors(img, x, y, txt_c, shd_c);
         
         bool adaptive = false;
         {
@@ -387,10 +449,14 @@ void OverlayManager::draw_all(int current_idx, int total_items, const MediaItem*
             struct tm tm_now;
             struct tm* tmi = localtime_r(&now_t, &tm_now);
             if (tmi) {
-                int today_y = tmi->tm_year + 1900;
-                anniversary_years = today_y - y;
-                if (anniversary_years > 0) {
-                    show_ribbon = true;
+                int today_m = tmi->tm_mon + 1;
+                int today_d = tmi->tm_mday;
+                if (m == today_m && d == today_d) {
+                    int today_y = tmi->tm_year + 1900;
+                    anniversary_years = today_y - y;
+                    if (anniversary_years > 0) {
+                        show_ribbon = true;
+                    }
                 }
             }
         }
