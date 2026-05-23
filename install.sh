@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# install.sh — piTrove v10.4.2 Premium Graphical Installer
+# install.sh — piTrove v11.0.0 Premium Graphical Installer
 # Target: Debian Trixie (13) 64-bit on Raspberry Pi 4/5
 
 set -eo pipefail
@@ -45,7 +45,7 @@ draw_line() {
 banner() {
     clear
     echo -e "${CYAN}╔══════════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${CYAN}║${NC}  ${BOLD}${WHITE}                  piTrove v10.4.2 Installation               ${NC}  ${CYAN}║${NC}"
+    echo -e "${CYAN}║${NC}  ${BOLD}${WHITE}                  piTrove v11.0.0 Installation               ${NC}  ${CYAN}║${NC}"
     echo -e "${CYAN}║${NC}  ${MAGENTA}               The Ultra-Premium Picture Frame              ${NC}  ${CYAN}║${NC}"
     echo -e "${CYAN}╚══════════════════════════════════════════════════════════════╝${NC}"
     echo
@@ -66,7 +66,7 @@ fail()  {
 
 yesno() {
     echo -e -n "\n   ${BOLD}${YELLOW}▸ $* [y/N]:${NC} "
-    read -r resp < /dev/tty
+    read -r resp 
     [[ "$resp" == [yY]* ]]
 }
 
@@ -205,6 +205,14 @@ info "Primary user: ${BOLD}${WHITE}$PRIMARY_USER${NC} (${CYAN}$PRIMARY_HOME${NC}
 run_with_spinner "Updating system package repositories" apt-get update -qq
 run_with_spinner "Installing bootstrap tools" apt-get install -y -qq git curl lsb-release pkg-config
 
+# Bootstrap Docker
+if ! command -v docker &>/dev/null; then
+    run_with_spinner "Installing Docker Engine" sh -c "curl -fsSL https://get.docker.com | sh"
+fi
+if ! command -v docker compose &>/dev/null; then
+    run_with_spinner "Installing Docker Compose Plugin" apt-get install -y -qq docker-compose-plugin
+fi
+
 # 3. OS check
 if [[ "$(lsb_release -si)" != "Debian" ]]; then
     fail "This installer requires Debian Trixie 64-bit"
@@ -267,20 +275,11 @@ else
 fi
 
 # ── Install comprehensive system packages ──────────────────────────────────────
-run_with_spinner "Installing core system dependencies (SDL3, MPV, FFmpeg, EXIF)" apt-get install -y -qq \
-    build-essential cmake git curl pkg-config \
-    libsdl3-dev libsdl3-image-dev libsdl3-ttf-dev \
-    libsqlite3-dev libexif-dev libjpeg-dev libpng-dev libtiff-dev libheif-dev libwebp-dev \
-    libjpeg62-turbo-dev libopenjp2-7-dev libraw-dev \
-    libasound2-dev libfreetype6-dev libfontconfig1-dev \
-    libdrm-dev libgbm-dev libegl1-mesa-dev libgles2-mesa-dev \
-    imagemagick exiftool \
-    dav1d ffmpeg \
-    cifs-utils \
-    mpv libmpv-dev
+run_with_spinner "Installing host system dependencies (cifs-utils, git)" apt-get install -y -qq \
+    git curl cifs-utils
 
-# ── DRM group configuration ────────────────────────────────────────────────────
-run_with_spinner "Adding $PRIMARY_USER to video/render groups for DRM permission" usermod -aG video,render "$PRIMARY_USER"
+# ── DRM and Docker group configuration ─────────────────────────────────────────
+run_with_spinner "Adding $PRIMARY_USER to video, render, and docker groups for hardware & docker permission" usermod -aG video,render,docker "$PRIMARY_USER"
 
 # ── DRM/KMS firmware configuration (Pi 4/5) ───────────────────────────────────
 BOOT_CFG="/boot/firmware/config.txt"
@@ -313,8 +312,13 @@ echo -e "${CYAN}║${NC}  ${BOLD}${GREEN}3)${NC} ${WHITE}Other Network Drive (NF
 echo -e "${CYAN}║${NC}     - Custom setup options for NFS or other mounts           ${CYAN}║${NC}"
 echo -e "${CYAN}╚══════════════════════════════════════════════════════════════╝${NC}"
 echo
-echo -n -e "   ${BOLD}${YELLOW}▸ Enter your choice [1-3]:${NC} "
-read -r storage_choice < /dev/tty
+if [[ -n "$STORAGE_CHOICE" ]]; then
+    storage_choice="$STORAGE_CHOICE"
+    info "Using storage choice from environment: $storage_choice"
+else
+    echo -n -e "   ${BOLD}${YELLOW}▸ Enter your choice [1-3]:${NC} "
+    read -r storage_choice
+fi
 
 USE_NAS=0
 SHARE_IP=""
@@ -325,13 +329,23 @@ SHARE_PROTOCOL="cifs"
 case "$storage_choice" in
     1)
         USE_NAS=1
-        echo -n -e "\n   ${BOLD}${CYAN}▸ NAS IP Address:${NC} "
-        read -r SHARE_IP < /dev/tty
+        if [[ -n "$NAS_IP" ]]; then
+            SHARE_IP="$NAS_IP"
+            info "Using NAS IP from environment: $SHARE_IP"
+        else
+            echo -n -e "\n   ${BOLD}${CYAN}▸ NAS IP Address:${NC} "
+            read -r SHARE_IP
+        fi
         if [[ -z "$SHARE_IP" ]] || ! echo "$SHARE_IP" | grep -qE '^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$'; then
             fail "Invalid IP format: '$SHARE_IP'. Must be dotted-quad (e.g. 192.168.4.111)"
         fi
-        echo -n -e "   ${BOLD}${CYAN}▸ Share path [default: /Home/Archive]:${NC} "
-        read -r SHARE_PATH < /dev/tty
+        if [[ -n "$NAS_SHARE" ]]; then
+            SHARE_PATH="$NAS_SHARE"
+            info "Using NAS share path from environment: $SHARE_PATH"
+        else
+            echo -n -e "   ${BOLD}${CYAN}▸ Share path [default: /Home/Archive]:${NC} "
+            read -r SHARE_PATH
+        fi
         SHARE_PATH="${SHARE_PATH:-/Home/Archive}"
         SHARE_PROTOCOL="cifs"
         ;;
@@ -351,23 +365,23 @@ case "$storage_choice" in
         echo -e "   ${CYAN}╚══════════════════════════════════════════════════════════════╝${NC}"
         echo
         echo -n -e "      ${BOLD}${YELLOW}▸ Select protocol [a-b]:${NC} "
-        read -r proto_choice < /dev/tty
+        read -r proto_choice 
         case "$proto_choice" in
             a)
                 SHARE_PROTOCOL="cifs"
                 echo -n -e "\n      ${BOLD}${CYAN}▸ SMB Server IP Address:${NC} "
-                read -r SHARE_IP < /dev/tty
+                read -r SHARE_IP 
                 echo -n -e "      ${BOLD}${CYAN}▸ SMB Share path [default: /Shared]:${NC} "
-                read -r SHARE_PATH < /dev/tty
+                read -r SHARE_PATH 
                 SHARE_PATH="${SHARE_PATH:-/Shared}"
                 ;;
             b)
                 SHARE_PROTOCOL="nfs"
                 echo -n -e "\n      ${BOLD}${CYAN}▸ NFS Server IP Address [default: 192.168.4.111]:${NC} "
-                read -r SHARE_IP < /dev/tty
+                read -r SHARE_IP 
                 SHARE_IP="${SHARE_IP:-192.168.4.111}"
                 echo -n -e "      ${BOLD}${CYAN}▸ NFS Export path [default: /mnt/nas]:${NC} "
-                read -r SHARE_PATH < /dev/tty
+                read -r SHARE_PATH 
                 SHARE_PATH="${SHARE_PATH:-/mnt/nas}"
                 ;;
             *)
@@ -397,23 +411,36 @@ if [[ "$USE_NAS" -eq 1 ]] || [[ "$storage_choice" == "3" ]]; then
         mkdir -p "$PRIMARY_HOME"
         CRED_FILE="$PRIMARY_HOME/nas.cred"
         if [[ ! -f "$CRED_FILE" ]]; then
-            echo -n -e "\n   ${BOLD}${YELLOW}▸ Username:${NC} "
-            read -r nas_user < /dev/tty
-            echo -n -e "   ${BOLD}${YELLOW}▸ Password:${NC} "
-            read -rs nas_pass < /dev/tty
-            echo
+            if [[ -n "$NAS_USER" && -n "$NAS_PASS" ]]; then
+                nas_user="$NAS_USER"
+                nas_pass="$NAS_PASS"
+                info "Using NAS credentials from environment"
+            else
+                echo -n -e "\n   ${BOLD}${YELLOW}▸ Username:${NC} "
+                read -r nas_user 
+                echo -n -e "   ${BOLD}${YELLOW}▸ Password:${NC} "
+                read -rs nas_pass 
+                echo
+            fi
             printf 'username=%s\npassword=%s\n' "$nas_user" "$nas_pass" > "$CRED_FILE"
             chmod 600 "$CRED_FILE"
             chown $PRIMARY_USER:$PRIMARY_USER "$CRED_FILE"
             ok "Created credentials configuration file: $CRED_FILE"
         else
             info "NAS credential file already exists at $CRED_FILE"
-            if ! grep -q "^username=" "$CRED_FILE" 2>/dev/null || ! grep -q "^password=" "$CRED_FILE" 2>/dev/null; then
+            if [[ -n "$NAS_USER" && -n "$NAS_PASS" ]]; then
+                nas_user="$NAS_USER"
+                nas_pass="$NAS_PASS"
+                info "Updating NAS credentials from environment"
+                printf 'username=%s\npassword=%s\n' "$nas_user" "$nas_pass" > "$CRED_FILE"
+                chmod 600 "$CRED_FILE"
+                chown $PRIMARY_USER:$PRIMARY_USER "$CRED_FILE"
+            elif ! grep -q "^username=" "$CRED_FILE" 2>/dev/null || ! grep -q "^password=" "$CRED_FILE" 2>/dev/null; then
                 warn "Credential file is incomplete. Re-entering credentials..."
                 echo -n -e "   ${BOLD}${YELLOW}▸ Username:${NC} "
-                read -r nas_user < /dev/tty
+                read -r nas_user 
                 echo -n -e "   ${BOLD}${YELLOW}▸ Password:${NC} "
-                read -rs nas_pass < /dev/tty
+                read -rs nas_pass 
                 echo
                 printf 'username=%s\npassword=%s\n' "$nas_user" "$nas_pass" > "$CRED_FILE"
                 chmod 600 "$CRED_FILE"
@@ -493,14 +520,14 @@ $SHARE_IP:$SHARE_PATH $SHARE_MOUNT $SHARE_PROTOCOL defaults,_netdev,timeo=10,ret
                 echo -e "   ${CYAN}╚══════════════════════════════════════════════════════════════╝${NC}"
                 echo
                 echo -n -e "      ${BOLD}${YELLOW}▸ Choose option [1-4]:${NC} "
-                read -r mount_opt < /dev/tty
+                read -r mount_opt 
                 case "$mount_opt" in
                     1) MOUNT_ATTEMPTS=0; continue ;;
                     2)
                         echo -n -e "      ${BOLD}${CYAN}▸ NAS IP [$SHARE_IP]:${NC} "
-                        read -r _tmp < /dev/tty; SHARE_IP="${_tmp:-$SHARE_IP}"
+                        read -r _tmp ; SHARE_IP="${_tmp:-$SHARE_IP}"
                         echo -n -e "      ${BOLD}${CYAN}▸ Share Path [$SHARE_PATH]:${NC} "
-                        read -r _tmp < /dev/tty; SHARE_PATH="${_tmp:-$SHARE_PATH}"
+                        read -r _tmp ; SHARE_PATH="${_tmp:-$SHARE_PATH}"
                         if [[ "$SHARE_PROTOCOL" == "cifs" ]]; then
                             FSTAB_LINE="# piTrove Network Share
 //$SHARE_IP/${SHARE_PATH#/} $SHARE_MOUNT cifs credentials=$PRIMARY_HOME/nas.cred,ro,uid=1000,gid=1000,vers=3.0,_netdev,nofail 0 0"
@@ -517,9 +544,9 @@ $SHARE_IP:$SHARE_PATH $SHARE_MOUNT $SHARE_PROTOCOL defaults,_netdev,timeo=10,ret
                     3)
                         if [[ "$SHARE_PROTOCOL" == "cifs" ]]; then
                             echo -n -e "      ${BOLD}${YELLOW}▸ Username:${NC} "
-                            read -r nas_user < /dev/tty
+                            read -r nas_user 
                             echo -n -e "      ${BOLD}${YELLOW}▸ Password:${NC} "
-                            read -rs nas_pass < /dev/tty
+                            read -rs nas_pass 
                             echo
                             printf 'username=%s\npassword=%s\n' "$nas_user" "$nas_pass" > "$PRIMARY_HOME/nas.cred"
                             chmod 600 "$PRIMARY_HOME/nas.cred"
@@ -565,14 +592,18 @@ if [[ -d "$PRIMARY_HOME/piTrove/src/fonts" ]]; then
 fi
 ok "Fonts system configuration complete"
 
-# ── Build piTrove Binary ───────────────────────────────────────────────────────
-info "Compiling executable target..."
-run_compilation_with_progress "$PRIMARY_HOME/piTrove/src"
+# ── Build piTrove Docker Container ─────────────────────────────────────────────
+info "Building piTrove Docker Container (compiling binary inside container)..."
+cd "$PRIMARY_HOME/piTrove"
 
-# Copy binary to canonical location
-cp "$PRIMARY_HOME/piTrove/src/piTrove" "$PRIMARY_HOME/piTrove/piTrove"
-chown $PRIMARY_USER:$PRIMARY_USER "$PRIMARY_HOME/piTrove/piTrove"
-ok "Installed piTrove executable target"
+# Write local .env file first for docker-compose to use during build/run
+echo "SDL_VIDEO_KMSDRM_DEVICE=/dev/dri/$PROBED_CARD" > .env
+echo "SDL_KMSDRM_DEVICE_INDEX=$PROBED_INDEX" >> .env
+echo "MEDIA_DIR=$SHARE_MOUNT" >> .env
+chown $PRIMARY_USER:$PRIMARY_USER .env
+
+run_with_spinner "Building piTrove container image" docker compose build
+chown -R $PRIMARY_USER:$PRIMARY_USER "$PRIMARY_HOME/.docker" 2>/dev/null || true
 
 # ── Create Directories ────────────────────────────────────────────────────────
 info "Creating internal directory tree..."
@@ -584,8 +615,13 @@ mkdir -p "$PRIMARY_HOME/piTrove/src/fonts"
 
 # ── Scan Window Setup ──────────────────────────────────────────────────────────
 echo
-echo -n -e "   ${BOLD}${YELLOW}▸ Temporal window (current month +/- days, 0=disable) [default: 5]:${NC} "
-read -r scan_input < /dev/tty
+if [[ -n "$SCAN_WINDOW_DAYS" ]]; then
+    scan_input="$SCAN_WINDOW_DAYS"
+    info "Using scan window days from environment: $scan_input"
+else
+    echo -n -e "   ${BOLD}${YELLOW}▸ Temporal window (current month +/- days, 0=disable) [default: 5]:${NC} "
+    read -r scan_input
+fi
 
 if [[ -z "$scan_input" ]]; then
     SCAN_WINDOW_DAYS=5
@@ -599,7 +635,7 @@ ok "Scan window initialized to $SCAN_WINDOW_DAYS days"
 
 # ── Configuration TOML ─────────────────────────────────────────────────────────
 info "Writing configuration options..."
-CONFIG_FILE="$PRIMARY_HOME/piTrove/src/config/config.toml"
+CONFIG_FILE="$PRIMARY_HOME/piTrove/config/config.toml"
 
 if [[ -f "$CONFIG_FILE" ]]; then
     warn "Existing config.toml detected. Backing up..."
@@ -608,13 +644,13 @@ fi
 
 cat > "$CONFIG_FILE" <<EOF
 # ==========================================
-# piTrove Configuration File (v10.4.2)
+# piTrove Configuration File (v11.0.0)
 # ==========================================
 
 [paths]
-media_dir = "$SHARE_MOUNT"
-cache_dir = "$PRIMARY_HOME/piTrove/cache"
-log_dir = "$PRIMARY_HOME/piTrove/logs"
+media_dir = "/app/media"
+cache_dir = "/app/cache"
+log_dir = "/app/logs"
 
 [display]
 rotation = 0
@@ -702,7 +738,7 @@ http_enabled = 0
 http_port = 8080
 EOF
 
-chown -R $PRIMARY_USER:$PRIMARY_USER "$PRIMARY_HOME/piTrove/src/config"
+chown -R $PRIMARY_USER:$PRIMARY_USER "$PRIMARY_HOME/piTrove/config"
 ok "Default production config.toml generated"
 
 # Double check ownerships
@@ -726,9 +762,9 @@ info "Systemd: Using probed DRM GPU device /dev/dri/$PROBED_CARD (index $PROBED_
 # Sourcing correct KMSDRM parameters for stable SDL video playback
 cat > /etc/systemd/system/piTrove.service <<EOF
 [Unit]
-Description=PiTrove Digital Picture Frame
-After=multi-user.target network-online.target
-Wants=network-online.target
+Description=PiTrove Docker Digital Picture Frame
+After=multi-user.target network-online.target docker.service
+Wants=network-online.target docker.service
 StartLimitIntervalSec=300
 StartLimitBurst=5
 
@@ -737,15 +773,14 @@ Type=simple
 User=$PRIMARY_USER
 Group=$PRIMARY_USER
 WorkingDirectory=$PRIMARY_HOME/piTrove
-ExecStart=$PRIMARY_HOME/piTrove/piTrove --config $PRIMARY_HOME/piTrove/src/config/config.toml
+ExecStartPre=-/usr/bin/docker compose down
+ExecStart=/usr/bin/docker compose up --force-recreate
+ExecStop=/usr/bin/docker compose down
 Restart=always
 RestartSec=15
 StandardOutput=journal
 StandardError=journal
-Environment=HOME=$PRIMARY_HOME SDL_VIDEO_DRIVER=kmsdrm SDL_VIDEODRIVER=kmsdrm SDL_VIDEO_KMSDRM_DEVICE=/dev/dri/$PROBED_CARD SDL_KMSDRM_DEVICE_INDEX=$PROBED_INDEX
 
-[Unit]
-# Ensure systemd service is started in standard multi-user.target
 [Install]
 WantedBy=multi-user.target
 EOF
@@ -770,15 +805,17 @@ print_success_card() {
     echo -e "${GREEN}║${NC}  ${BOLD}${GREEN}✔  INSTALLATION COMPLETED SUCCESSFULLY!                     ${NC}  ${GREEN}║${NC}"
     echo -e "${GREEN}╠══════════════════════════════════════════════════════════════╣${NC}"
     echo -e "${GREEN}║${NC}  ${BOLD}${WHITE}Path Locations:${NC}                                             ${GREEN}║${NC}"
-    echo -e "${GREEN}║${NC}   • Binary & Script: ${CYAN}$PRIMARY_HOME/piTrove/${NC}                    ${GREEN}║${NC}"
-    echo -e "${GREEN}║${NC}   • Configuration:   ${CYAN}src/config/config.toml${NC}                  ${GREEN}║${NC}"
+    echo -e "${GREEN}║${NC}   • Container Base:  ${CYAN}$PRIMARY_HOME/piTrove/${NC}                    ${GREEN}║${NC}"
+    echo -e "${GREEN}║${NC}   • Configuration:   ${CYAN}config/config.toml${NC}                      ${GREEN}║${NC}"
     echo -e "${GREEN}║${NC}   • SQLite Cache:    ${CYAN}cache/cache.db${NC}                          ${GREEN}║${NC}"
     echo -e "${GREEN}║${NC}   • Service Logs:    ${CYAN}logs/piTrove_*.log${NC}                      ${GREEN}║${NC}"
     echo -e "${GREEN}║${NC}                                                              ${GREEN}║${NC}"
     echo -e "${GREEN}║${NC}  ${BOLD}${WHITE}How to Manage & Control:${NC}                                    ${GREEN}║${NC}"
-    echo -e "${GREEN}║${NC}   • ${BOLD}${YELLOW}piTrove --config${NC}   Runs the 8-tab interactive settings    ${GREEN}║${NC}"
+    echo -e "${GREEN}║${NC}   • ${BOLD}${YELLOW}docker compose exec -it pitrove /app/piTrove --config /app/config/config.toml${NC} ${GREEN}║${NC}"
+    echo -e "${GREEN}║${NC}                        Runs the 8-tab interactive settings    ${GREEN}║${NC}"
     echo -e "${GREEN}║${NC}                        wizard in your terminal console.       ${GREEN}║${NC}"
-    echo -e "${GREEN}║${NC}   • ${BOLD}${YELLOW}piTrove --restart${NC}  Reboots the background daemon process  ${GREEN}║${NC}"
+    echo -e "${GREEN}║${NC}   • ${BOLD}${YELLOW}sudo systemctl restart piTrove.service${NC}                   ${GREEN}║${NC}"
+    echo -e "${GREEN}║${NC}                        Reboots the background daemon container ${GREEN}║${NC}"
     echo -e "${GREEN}║${NC}                        safely if configuration is modified.   ${GREEN}║${NC}"
     echo -e "${GREEN}║${NC}                                                              ${GREEN}║${NC}"
     echo -e "${GREEN}║${NC}  ${BOLD}${WHITE}Service Status:${NC}                                             ${GREEN}║${NC}"

@@ -1,0 +1,24 @@
+version: '3.8'
+
+services:
+  pitrove:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: piTrove
+    restart: always
+    network_mode: host
+    privileged: true
+    environment:
+      - SDL_VIDEO_DRIVER=kmsdrm
+      - SDL_VIDEO_KMSDRM_DEVICE=${SDL_VIDEO_KMSDRM_DEVICE:-/dev/dri/card1}
+      - SDL_KMSDRM_DEVICE_INDEX=${SDL_KMSDRM_DEVICE_INDEX:-1}
+    devices:
+      - /dev/dri:/dev/dri
+      - /dev/input:/dev/input
+    volumes:
+      - ./cache:/app/cache
+      - ./config:/app/config
+      - ./logs:/app/logs
+      - ./subtitles:/app/subtitles
+      - ${MEDIA_DIR:-/mnt/nas}:/app/media:ro

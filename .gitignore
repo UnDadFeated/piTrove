@@ -42,3 +42,8 @@ TODO.md
 # OS files
 .DS_Store
 Thumbs.db
+
+# Host environments and credentials
+.env
+*.env
+*.cred
