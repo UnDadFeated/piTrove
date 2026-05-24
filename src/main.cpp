@@ -513,57 +513,33 @@ static void organize_playlist(std::vector<MediaItem>& eligible, int videos_per_p
         } else if (photos.empty()) {
             eligible = std::move(videos);
         } else {
-            // Distribute videos mathematically and evenly across photos
+            // Distribute videos mathematically and evenly across photos based on the configured user ratio
             size_t p_idx = 0, v_idx = 0;
-            if (videos_per_photos <= 10) {
-                // Low ratio: Keep the strict photo-spacing constraint to avoid consecutive videos
-                double ratio = static_cast<double>(photos.size()) / static_cast<double>(videos.size());
-                double accumulator = 0.0;
-                while (p_idx < photos.size() || v_idx < videos.size()) {
-                    if (v_idx >= videos.size()) {
-                        eligible.push_back(std::move(photos[p_idx++]));
-                    } else if (p_idx >= photos.size()) {
-                        // Avoid consecutive videos by stopping when photos are exhausted
-                        break;
-                    } else {
-                        if (accumulator >= ratio) {
-                            eligible.push_back(std::move(videos[v_idx++]));
-                            accumulator -= ratio;
-                            if (p_idx < photos.size()) {
-                                eligible.push_back(std::move(photos[p_idx++]));
-                            } else {
-                                break;
-                            }
-                        } else {
-                            eligible.push_back(std::move(photos[p_idx++]));
-                            accumulator += 1.0;
-                        }
-                    }
-                }
-            } else {
-                // High ratio: Allow consecutive videos and interleave mathematically evenly
-                double ratio = static_cast<double>(videos.size()) / static_cast<double>(photos.size());
-                double accumulator = 0.0;
-                while (p_idx < photos.size() || v_idx < videos.size()) {
-                    if (p_idx >= photos.size()) {
+            double photos_per_video = 10.0 / static_cast<double>(videos_per_photos);
+            double accumulator = 0.0;
+
+            while (p_idx < photos.size() || v_idx < videos.size()) {
+                if (v_idx >= videos.size()) {
+                    // Out of videos: append remaining photos
+                    eligible.push_back(std::move(photos[p_idx++]));
+                } else if (p_idx >= photos.size()) {
+                    // Out of photos: append remaining videos
+                    eligible.push_back(std::move(videos[v_idx++]));
+                } else {
+                    if (accumulator >= photos_per_video) {
                         eligible.push_back(std::move(videos[v_idx++]));
-                    } else if (v_idx >= videos.size()) {
-                        eligible.push_back(std::move(photos[p_idx++]));
+                        accumulator -= photos_per_video;
                     } else {
-                        if (accumulator >= ratio) {
-                            eligible.push_back(std::move(photos[p_idx++]));
-                            accumulator -= ratio;
-                        } else {
-                            eligible.push_back(std::move(videos[v_idx++]));
-                            accumulator += 1.0;
-                        }
+                        eligible.push_back(std::move(photos[p_idx++]));
+                        accumulator += 1.0;
                     }
                 }
             }
         }
 
-        g_logger.info("Playlist organized: %zu photos + %zu videos = %zu total (de-clustered mathematical interleaving ratio: %.2f)",
-            final_photos_size, final_videos_size, eligible.size(), static_cast<double>(final_photos_size) / std::max((size_t)1, final_videos_size));
+        double photos_per_video = 10.0 / static_cast<double>(videos_per_photos);
+        g_logger.info("Playlist organized: %zu photos + %zu videos = %zu total (configured ratio: %d videos per 10 photos, spacing: %.2f photos per video)",
+            final_photos_size, final_videos_size, eligible.size(), videos_per_photos, photos_per_video);
     }
 }
 
