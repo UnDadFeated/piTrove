@@ -147,16 +147,33 @@ static bool should_be_twin_portrait(int idx, int size) {
     if (!twin_enabled || size < 2) return false;
 
     // Check if the current item is portrait
+    if (idx >= size || idx < 0) return false;
     const auto& item1 = g_eligible[idx];
     if (item1.type == "video" || item1.height <= item1.width || item1.height <= 0) return false;
 
     // Check if the next item is portrait
     if (idx + 1 >= size) return false;
     const auto& item2 = g_eligible[idx + 1];
-    if (item2.type == "video" || item2.height <= item2.width || item2.height <= 0) return false;
+    bool item2_is_portrait = (item2.type == "image" && item2.height > item2.width && item2.height > 0);
 
-    return true;
+    if (item2_is_portrait) {
+        return true;
+    }
+
+    // If next item is not portrait, search forward in the playlist to find the nearest portrait image to pair
+    for (int j = idx + 2; j < size; j++) {
+        const auto& candidate = g_eligible[j];
+        if (candidate.type == "image" && candidate.height > candidate.width && candidate.height > 0) {
+            // Swap candidate into the adjacent slot (idx + 1)
+            std::swap(g_eligible[idx + 1], g_eligible[j]);
+            g_logger.info("Twin-Portrait: Dynamically paired portrait at index %d by bringing forward portrait from index %d", idx, j);
+            return true;
+        }
+    }
+
+    return false;
 }
+
 
 static void calculate_fit_rect_in_area(int img_w, int img_h, int area_x, int area_y, int area_w, int area_h, SDL_Rect& out_rect) {
     if (img_w <= 0 || img_h <= 0) {
