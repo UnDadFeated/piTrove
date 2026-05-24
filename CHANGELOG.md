@@ -1,5 +1,12 @@
 # Changelog
 
+## v11.1.8 — Default Twin-Portrait Collage Setup (May 24, 2026)
+
+### Added
+- **Default Twin Portrait Configuration** — Added default configuration properties to enable the twin-portrait collage feature by default (`twin_portrait_enabled = 1`) inside the active configuration `config.toml`.
+- **Systemd Daemon Automation** — Executed and validated remote systemd controls via `sshpass` to restart the `piTrove.service` background runner safely, applying the default configuration dynamically with zero playlist interruption.
+- **Robust Multi-Suite Verification** — Ran full remote automated validation of the entire C++ unit tests and Python integration test suites directly on the target Raspberry Pi device.
+
 ## v11.1.7 — Self-Update Fail-Safe Support (May 24, 2026)
 
 ### Added
