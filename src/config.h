@@ -20,7 +20,7 @@ struct Config {
     double  ken_burns_speed{0.1};
     bool    ken_burns{false};
     bool    matting{true};
-    int     matting_size{48};
+    int     matting_size{96};
     bool    bias_lighting{true};
     float   bias_anim_speed{0.5f};
     std::string bias_anim_style{"edge_glow"};
