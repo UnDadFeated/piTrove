@@ -9,6 +9,7 @@ test_render
 cache/
 config/
 logs/
+subtitles/
 
 # Compiled binary
 *.o
