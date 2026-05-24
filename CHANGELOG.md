@@ -1,5 +1,11 @@
 # Changelog
 
+## v11.1.6 — Premium Stateless HEVC Hardware Acceleration (May 24, 2026)
+
+### Added
+- **Native Raspberry Pi Archive Integration** — Configured container multi-stage image builds (`Dockerfile`) to natively integrate the Raspberry Pi Foundation package archives (`archive.raspberrypi.com`) and import their official GPG archive keyrings.
+- **Stateless V4L2 Hardware-Accelerated HEVC** — Upgraded containerized `mpv` and `ffmpeg` libraries from standard software-bound Debian builds to Broadcom-accelerated Raspberry Pi custom builds. This enables full hardware-accelerated stateless HEVC decoding (`drm-copy` / `rpi-hevc-dec`) inside the container, reducing 4K HEVC playback frame dropouts to absolute zero and unlocking completely stutter-free video playback.
+
 ## v11.1.5 — Broadcom V4L2 Hardware-Accelerated Video Decoding (May 23, 2026)
 
 ### Added

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# install.sh — piTrove v11.1.5 Premium Graphical Installer
+# install.sh — piTrove v11.1.6 Premium Graphical Installer
 # Target: Debian Trixie (13) 64-bit on Raspberry Pi 4/5
 
 set -eo pipefail
@@ -45,7 +45,7 @@ draw_line() {
 banner() {
     clear
     echo -e "${CYAN}╔══════════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${CYAN}║${NC}  ${BOLD}${WHITE}                  piTrove v11.1.5 Installation               ${NC}  ${CYAN}║${NC}"
+    echo -e "${CYAN}║${NC}  ${BOLD}${WHITE}                  piTrove v11.1.6 Installation               ${NC}  ${CYAN}║${NC}"
     echo -e "${CYAN}║${NC}  ${MAGENTA}               The Ultra-Premium Picture Frame              ${NC}  ${CYAN}║${NC}"
     echo -e "${CYAN}╚══════════════════════════════════════════════════════════════╝${NC}"
     echo
@@ -673,7 +673,7 @@ EOF
 else
     cat > "$CONFIG_FILE" <<EOF
 # ==========================================
-# piTrove Configuration File (v11.1.5)
+# piTrove Configuration File (v11.1.6)
 # ==========================================
 
 [paths]

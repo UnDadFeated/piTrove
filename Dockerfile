@@ -6,6 +6,10 @@ FROM debian:trixie AS builder
 # Prevent interactive prompts
 ENV DEBIAN_FRONTEND=noninteractive
 
+# Copy Raspberry Pi repository keyring and sources for hardware acceleration
+COPY raspberrypi-archive-keyring.pgp /usr/share/keyrings/raspberrypi-archive-keyring.pgp
+COPY raspi.sources /etc/apt/sources.list.d/raspi.sources
+
 # Install C++ compilation tools and library headers
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
@@ -53,6 +57,10 @@ FROM debian:trixie
 
 # Prevent interactive prompts
 ENV DEBIAN_FRONTEND=noninteractive
+
+# Copy Raspberry Pi repository keyring and sources for hardware acceleration
+COPY raspberrypi-archive-keyring.pgp /usr/share/keyrings/raspberrypi-archive-keyring.pgp
+COPY raspi.sources /etc/apt/sources.list.d/raspi.sources
 
 # Install only the runtime libraries, fonts, and utilities
 RUN apt-get update && apt-get install -y --no-install-recommends \
