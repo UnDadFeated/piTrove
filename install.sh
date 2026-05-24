@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# install.sh — piTrove v11.1.6 Premium Graphical Installer
+# install.sh — piTrove v11.1.7 Premium Graphical Installer
 # Target: Debian Trixie (13) 64-bit on Raspberry Pi 4/5
 
 set -eo pipefail
@@ -45,7 +45,7 @@ draw_line() {
 banner() {
     clear
     echo -e "${CYAN}╔══════════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${CYAN}║${NC}  ${BOLD}${WHITE}                  piTrove v11.1.6 Installation               ${NC}  ${CYAN}║${NC}"
+    echo -e "${CYAN}║${NC}  ${BOLD}${WHITE}                  piTrove v11.1.7 Installation               ${NC}  ${CYAN}║${NC}"
     echo -e "${CYAN}║${NC}  ${MAGENTA}               The Ultra-Premium Picture Frame              ${NC}  ${CYAN}║${NC}"
     echo -e "${CYAN}╚══════════════════════════════════════════════════════════════╝${NC}"
     echo
@@ -228,6 +228,51 @@ ok "Debian Trixie 64-bit validated successfully"
 # 4. Root check
 if [[ "$(id -u)" -ne 0 ]]; then
     fail "This script must be run as root (sudo)"
+fi
+
+# ── Handle Update Command Line Option ──────────────────────────────────────────
+if [[ "$1" == "--update" ]]; then
+    info "Initiating piTrove Update Checker..."
+    
+    # Verify we are inside a git repository
+    if ! sudo -u "$PRIMARY_USER" git rev-parse --is-inside-work-tree &>/dev/null; then
+        fail "Not in a valid Git repository. Please run --update from within the piTrove repository folder."
+    fi
+    
+    # Perform git fetch safely as the primary user
+    run_with_spinner "Fetching latest repository states from origin" sudo -u "$PRIMARY_USER" git fetch --all --prune
+    
+    LOCAL_COMMIT=$(sudo -u "$PRIMARY_USER" git rev-parse HEAD)
+    REMOTE_COMMIT=$(sudo -u "$PRIMARY_USER" git rev-parse @{u} 2>/dev/null || echo "")
+    
+    if [[ -z "$REMOTE_COMMIT" ]]; then
+        fail "No remote upstream branch tracked. Cannot verify remote updates."
+    fi
+    
+    if [[ "$LOCAL_COMMIT" == "$REMOTE_COMMIT" ]]; then
+        ok "piTrove is already up-to-date at the latest version!"
+        exit 0
+    fi
+    
+    info "Updates discovered! Upgrading repository from commit ${CYAN}${LOCAL_COMMIT:0:7}${NC} to ${GREEN}${REMOTE_COMMIT:0:7}${NC}..."
+    
+    # Pull latest changes as primary user
+    run_with_spinner "Pulling latest changes from remote branch" sudo -u "$PRIMARY_USER" git pull --rebase
+    
+    # Rebuild docker compose container image
+    run_with_spinner "Rebuilding container image" docker compose build
+    
+    # Restart systemd service if it exists and is active
+    if systemctl list-unit-files | grep -q piTrove.service; then
+        run_with_spinner "Restarting background daemon (piTrove.service)" systemctl restart piTrove.service
+    fi
+    
+    echo
+    echo -e "${GREEN}╔══════════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${GREEN}║${NC}  ${BOLD}${GREEN}✔  piTrove UPDATED AND DEPLOYED SUCCESSFULLY!              ${NC}  ${GREEN}║${NC}"
+    echo -e "${GREEN}╚══════════════════════════════════════════════════════════════╝${NC}"
+    echo
+    exit 0
 fi
 
 # 5. Kill conflicting display servers
@@ -673,7 +718,7 @@ EOF
 else
     cat > "$CONFIG_FILE" <<EOF
 # ==========================================
-# piTrove Configuration File (v11.1.6)
+# piTrove Configuration File (v11.1.7)
 # ==========================================
 
 [paths]
