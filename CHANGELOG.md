@@ -1,5 +1,12 @@
 # Changelog
 
+## v11.1.9 — Dynamic Collage Lookahead & 1\" Matte Adjustments (May 24, 2026)
+
+### Added
+- **Dynamic Lookahead Portrait Pairing** — Enhanced the collage selection logic to perform a forward search in the play queue when a portrait photo is encountered. It dynamically finds the nearest subsequent portrait photo in the randomized playlist and swaps it into the adjacent position (`idx + 1`), guaranteeing portrait photos are always displayed side-by-side as a beautiful twin-portrait collage instead of alone.
+- **Physical Matte Clearance** — Increased default display matting size from 48px to 96px across the entire configuration system (including installer scripts and core headers) to perfectly clear the margins of a 1" physical picture frame overlay at typical 1080p display resolutions.
+- **Robust Verification** — Recompiled the Docker container, restarted the systemd background services remotely via `sshpass`, and validated the entire C++ and Python testing suites on the active Raspberry Pi.
+
 ## v11.1.8 — Default Twin-Portrait Collage Setup (May 24, 2026)
 
 ### Added
