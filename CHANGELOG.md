@@ -1,5 +1,10 @@
 # Changelog
 
+## v11.1.3 — Dynamic Post-Install Dashboard & MQTT HUD URL (May 23, 2026)
+
+### Added
+- **Clickable Dashboard & HUD URL** — Enhanced the final installation success card in `install.sh` to dynamically query the active host IP address and display a pixel-perfect, beautifully padded clickable Web Remote Dashboard and MQTT HUD URL (`http://<pi-ip>:8080/`), allowing users to click and interact with their system immediately upon setup completion.
+
 ## v11.1.2 — Strict Configured Spacing & Video Interleaving (May 23, 2026)
 
 ### Fixed

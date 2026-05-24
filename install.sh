@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# install.sh — piTrove v11.1.2 Premium Graphical Installer
+# install.sh — piTrove v11.1.3 Premium Graphical Installer
 # Target: Debian Trixie (13) 64-bit on Raspberry Pi 4/5
 
 set -eo pipefail
@@ -45,7 +45,7 @@ draw_line() {
 banner() {
     clear
     echo -e "${CYAN}╔══════════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${CYAN}║${NC}  ${BOLD}${WHITE}                  piTrove v11.1.2 Installation               ${NC}  ${CYAN}║${NC}"
+    echo -e "${CYAN}║${NC}  ${BOLD}${WHITE}                  piTrove v11.1.3 Installation               ${NC}  ${CYAN}║${NC}"
     echo -e "${CYAN}║${NC}  ${MAGENTA}               The Ultra-Premium Picture Frame              ${NC}  ${CYAN}║${NC}"
     echo -e "${CYAN}╚══════════════════════════════════════════════════════════════╝${NC}"
     echo
@@ -659,7 +659,7 @@ EOF
 else
     cat > "$CONFIG_FILE" <<EOF
 # ==========================================
-# piTrove Configuration File (v11.1.2)
+# piTrove Configuration File (v11.1.3)
 # ==========================================
 
 [paths]
@@ -836,6 +836,26 @@ print_success_card() {
     echo -e "${GREEN}║${NC}   • Configuration:   ${CYAN}config/config.toml${NC}                      ${GREEN}║${NC}"
     echo -e "${GREEN}║${NC}   • SQLite Cache:    ${CYAN}cache/cache.db${NC}                          ${GREEN}║${NC}"
     echo -e "${GREEN}║${NC}   • Service Logs:    ${CYAN}logs/piTrove_*.log${NC}                      ${GREEN}║${NC}"
+    
+    # Probe active IP address
+    local IP_ADDR
+    IP_ADDR=$(hostname -I | awk '{print $1}' || echo "127.0.0.1")
+    if [[ -z "$IP_ADDR" ]]; then
+        IP_ADDR="127.0.0.1"
+    fi
+    local url="http://${IP_ADDR}:8080/"
+    local text="   • URL: $url"
+    local pad=$(( 60 - ${#text} ))
+    local spaces=""
+    if [[ $pad -gt 0 ]]; then
+        spaces=$(printf '%*s' "$pad" "")
+    fi
+
+    echo -e "${GREEN}║${NC}                                                              ${GREEN}║${NC}"
+    echo -e "${GREEN}║${NC}  ${BOLD}${WHITE}Web Remote Dashboard & MQTT HUD URL:${NC}                        ${GREEN}║${NC}"
+    echo -e "${GREEN}║${NC}${BOLD}${CYAN}${text}${NC}${spaces}${GREEN}║${NC}"
+    echo -e "${GREEN}║${NC}     Click to view MQTT telemetry, control the screen physically, ${GREEN}║${NC}"
+    echo -e "${GREEN}║${NC}     and trigger motion simulation sweeps remotely.        ${GREEN}║${NC}"
     echo -e "${GREEN}║${NC}                                                              ${GREEN}║${NC}"
     echo -e "${GREEN}║${NC}  ${BOLD}${WHITE}How to Manage & Control:${NC}                                    ${GREEN}║${NC}"
     echo -e "${GREEN}║${NC}   • ${BOLD}${YELLOW}docker compose exec -it pitrove /app/piTrove --config /app/config/config.toml${NC} ${GREEN}║${NC}"
