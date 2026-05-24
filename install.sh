@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# install.sh — piTrove v11.1.3 Premium Graphical Installer
+# install.sh — piTrove v11.1.4 Premium Graphical Installer
 # Target: Debian Trixie (13) 64-bit on Raspberry Pi 4/5
 
 set -eo pipefail
@@ -45,7 +45,7 @@ draw_line() {
 banner() {
     clear
     echo -e "${CYAN}╔══════════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${CYAN}║${NC}  ${BOLD}${WHITE}                  piTrove v11.1.3 Installation               ${NC}  ${CYAN}║${NC}"
+    echo -e "${CYAN}║${NC}  ${BOLD}${WHITE}                  piTrove v11.1.4 Installation               ${NC}  ${CYAN}║${NC}"
     echo -e "${CYAN}║${NC}  ${MAGENTA}               The Ultra-Premium Picture Frame              ${NC}  ${CYAN}║${NC}"
     echo -e "${CYAN}╚══════════════════════════════════════════════════════════════╝${NC}"
     echo
@@ -295,6 +295,20 @@ if [[ -f "$BOOT_CFG" ]]; then
     fi
 else
     warn "$BOOT_CFG not found. Manually verify vc4-kms-v3d overlay is loaded."
+fi
+
+# ── Wi-Fi Power Saving Override Fail-safe ────────────────────────────────────
+info "Configuring Wi-Fi power-saving overrides..."
+if [[ -d "/etc/NetworkManager/conf.d" ]]; then
+    cat > /etc/NetworkManager/conf.d/default-wifi-powersave-on.conf <<EOF
+[connection]
+wifi.powersave = 2
+EOF
+    # Restart NetworkManager in background to prevent installer SSH disconnection dropouts
+    systemctl restart NetworkManager &>/dev/null &
+    ok "Disabled NetworkManager Wi-Fi Power Saving persistently"
+else
+    ok "NetworkManager not active, skipping power-saving overrides"
 fi
 
 # ── Storage Selection Dialog ───────────────────────────────────────────────────
@@ -659,7 +673,7 @@ EOF
 else
     cat > "$CONFIG_FILE" <<EOF
 # ==========================================
-# piTrove Configuration File (v11.1.3)
+# piTrove Configuration File (v11.1.4)
 # ==========================================
 
 [paths]

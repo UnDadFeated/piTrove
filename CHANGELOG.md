@@ -1,5 +1,10 @@
 # Changelog
 
+## v11.1.4 — Persistent Wi-Fi Power-Saving & Network Safety (May 23, 2026)
+
+### Added
+- **Wi-Fi Power-Saving Override Fail-safe** — Integrated persistent NetworkManager Wi-Fi Power-Saving override configuration (`wifi.powersave = 2`) inside `install.sh`. This keeps the Broadcom Wi-Fi network interface active, eliminating temporary network-mount drops, buffer timeouts, or `Connection reset by peer` handshakes on standard SSH/HTTP/NAS mounts.
+
 ## v11.1.3 — Dynamic Post-Install Dashboard & MQTT HUD URL (May 23, 2026)
 
 ### Added
