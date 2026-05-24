@@ -12,6 +12,7 @@
 #include <cstring>
 #include <atomic>
 #include <mutex>
+#include <poll.h>
 
 void config_wizard(const std::string& config_path) {
     auto save_cfg = [&]() -> bool {
@@ -512,6 +513,42 @@ void config_wizard(const std::string& config_path) {
 
     // ── MAIN TUI LOOP ──
     while(run) {
+        // Sizing checks
+        struct winsize w_curr;
+        ioctl(STDOUT_FILENO, TIOCGWINSZ, &w_curr);
+        int cur_cols = w_curr.ws_col;
+        int cur_rows = w_curr.ws_row;
+
+        if (cur_cols < 100 || cur_rows < 24) {
+            printf("\033[H\033[J"); // Clear Screen
+            printf("\033[1;31m╔"); for(int i=0; i<cur_cols-2; i++) printf("═"); printf("╗\033[0m\n");
+            printf("\033[1;31m║\033[0m  %-*s\033[1;31m║\033[0m\n", cur_cols-6, " [ TERMINAL WINDOW TOO SMALL ]");
+            printf("\033[1;31m║\033[0m  %-*s\033[1;31m║\033[0m\n", cur_cols-6, "");
+            printf("\033[1;31m║\033[0m  %-*s\033[1;31m║\033[0m\n", cur_cols-6, " Please stretch or expand your window until the TUI");
+            printf("\033[1;31m║\033[0m  %-*s\033[1;31m║\033[0m\n", cur_cols-6, " is clearly visible.");
+            printf("\033[1;31m║\033[0m  %-*s\033[1;31m║\033[0m\n", cur_cols-6, "");
+            char sz_buf[128];
+            snprintf(sz_buf, sizeof(sz_buf), " Current Terminal size:  %dx%d", cur_cols, cur_rows);
+            printf("\033[1;31m║\033[0m  %-*s\033[1;31m║\033[0m\n", cur_cols-6, sz_buf);
+            printf("\033[1;31m║\033[0m  %-*s\033[1;31m║\033[0m\n", cur_cols-6, " Minimum Required size:  100x24");
+            printf("\033[1;31m║\033[0m  %-*s\033[1;31m║\033[0m\n", cur_cols-6, "");
+            printf("\033[1;31m╚"); for(int i=0; i<cur_cols-2; i++) printf("═"); printf("╝\033[0m\n");
+            fflush(stdout);
+
+            struct pollfd pfd;
+            pfd.fd = STDIN_FILENO;
+            pfd.events = POLLIN;
+            int pret = poll(&pfd, 1, 100);
+            if (pret > 0 && (pfd.revents & POLLIN)) {
+                char c;
+                if (read(STDIN_FILENO, &c, 1) == 1) {
+                    if (c == 'q' || c == 'Q') run = false;
+                }
+            }
+            continue; // Re-evaluate winsize
+        }
+
+        tui_width = std::max(100, std::min(155, cur_cols));
         printf("\033[H\033[J"); // Clear Screen
 
         // Layout Geometry
@@ -575,6 +612,14 @@ void config_wizard(const std::string& config_path) {
         }
 
         // INPUT LOOP
+        struct pollfd pfd;
+        pfd.fd = STDIN_FILENO;
+        pfd.events = POLLIN;
+        int poll_ret = poll(&pfd, 1, 100);
+        if (poll_ret <= 0) {
+            continue; // Timeout or error: loop to redraw and check terminal size
+        }
+
         char c;
         if(read(STDIN_FILENO, &c, 1) == 1) {
             if(!edit_mode) {
