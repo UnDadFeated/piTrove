@@ -1,5 +1,10 @@
 # Changelog
 
+## v11.1.5 — Broadcom V4L2 Hardware-Accelerated Video Decoding (May 23, 2026)
+
+### Added
+- **Hardware-Accelerated Video Decoding** — Overhauled container modesetting by mapping the complete host `/dev` namespace dynamically inside `docker-compose.yml` (`- /dev:/dev`). This exposes Broadcom stateful V4L2 decoder/encoder hardware blocks (`/dev/video19` through `/dev/video35`) inside the container. Modern `mpv` now automatically leverages V4L2 copy hardware codecs (`v4l2m2m-copy` and `drm-copy`) instead of software fallbacks, completely resolving choppy playback, stutter, and massive frame dropouts.
+
 ## v11.1.4 — Persistent Wi-Fi Power-Saving & Network Safety (May 23, 2026)
 
 ### Added
