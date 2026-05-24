@@ -1,5 +1,10 @@
 # Changelog
 
+## v11.1.7 — Self-Update Fail-Safe Support (May 24, 2026)
+
+### Added
+- **Self-Updater Integration** — Integrated native update checking and compilation orchestration (`--update` command flag) directly inside `install.sh`. Running `sudo ./install.sh --update` automatically fetches remote GitHub commits securely as the primary user, runs Git pulls, triggers a parallel container build of the newly updated source assets, and gracefully restarts the background daemon `piTrove.service`.
+
 ## v11.1.6 — Premium Stateless HEVC Hardware Acceleration (May 24, 2026)
 
 ### Added
