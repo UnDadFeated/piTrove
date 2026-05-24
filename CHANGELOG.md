@@ -1,5 +1,10 @@
 # Changelog
 
+## v11.1.2 — Strict Configured Spacing & Video Interleaving (May 23, 2026)
+
+### Fixed
+- **Stretched Video Interleaving** — Redesigned the playlist interleaving algorithm (`organize_playlist`) to strictly honor the configured user ratio (`videos_per_photos` / 10) instead of stretching the video pool over the entire slideshow directory. Videos are now interleaved perfectly at the targeted ratio (e.g. 3 videos per 10 photos = 1 video every 3.33 photos), gracefully tail-ending with sequential photos once the video pool is temporarily exhausted.
+
 ## v11.1.1 — Display Sleep Recovery & Signal Safety Fail-Safes (May 23, 2026)
 
 ### Added
