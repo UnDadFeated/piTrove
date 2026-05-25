@@ -72,14 +72,12 @@ bool MpvPlayer::play(const std::string& path, int volume) {
         g_logger.error("VIDEO_DRM: No DRM fd discovered. Process mpv may fail to acquire screen.");
     }
 
-    int matte_px = 0;
     bool cc_enabled = true;
     std::string subtitles_dir = "";
     std::string connector_arg = "--drm-connector=HDMI-A-1";
     std::string audio_arg = "";
     {
         std::lock_guard<std::mutex> lock(g_config_mtx);
-        matte_px = g_cfg.matting_size;
         cc_enabled = g_cfg.closed_captions_enabled;
         subtitles_dir = g_cfg.video_subtitles_dir;
         if (!g_cfg.drm_connector.empty() && g_cfg.drm_connector != "auto") {

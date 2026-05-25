@@ -1510,7 +1510,6 @@ int main(int argc, char** argv) {
             if (!next_data) {
                 int next_idx = current_idx % (int)g_eligible.size();
                 bool is_twin = should_be_twin_portrait(g_eligible, next_idx);
-                bool current_was_twin = should_be_twin_portrait(g_eligible, current_idx);
 
                 int next_idx_twin = -1;
                 std::string next_path, next_path_twin;
