@@ -1,16 +1,16 @@
 # Changelog
 
-## v11.2.1 — Stability Hardening: FD Leaks, Async-Signal-Safety, Thread Races (May 25, 2026)
+## v11.2.1 — System Stability Fixes (May 25, 2026)
 
 ### Fixed
-- **FFprobe fork fd leak (scanner.cpp)** — Replaced broken `/proc/self/fd` DIR handle iteration with `readlink()` + deferred `close()` to prevent fd leakage to ffprobe child processes.
-- **MQTT detached thread lifecycle (mqtt.cpp)** — Replaced `std::thread::detach()` with tracked `std::thread` + `stop_mqtt_client()` joinable shutdown. Added `g_mqtt_fp` mutex-protected FILE pointer for clean `pclose()` on exit.
-- **Playlist lock race window (main.cpp)** — Eliminated unlock/relock `playlist_lock` during transition loading by capturing paths under lock, then performing all I/O (preload dequeue + fallback sync load) outside lock, with re-lock before metadata updates.
-- **crash_handler() async-signal-unsafe system() (util.cpp)** — Replaced `system("vcgencmd display_power 1")` with direct `/sys/class/graphics/fb0/blank` sysfs write (O_WRONLY, write(), close()) — fully async-signal-safe.
-- **Deprecated usleep() (main.cpp, mpv_player.cpp, tui.cpp)** — Replaced all `usleep()` calls with `std::this_thread::sleep_for(std::chrono::microseconds(...))` across 3 files.
-- **Edge strip underflow (preload.cpp)** — Added guard for images < 3px in width/height before edge sampling; clips sample count to actual dimension to prevent out-of-bounds pixel reads.
-- **CIFS multi-threaded scan (scanner.cpp)** — Removed `std::thread` pool for directory scanning; single-threaded `worker()` call preserves CIFS stability constraint.
-- **should_be_twin_portrait() data race (main.cpp)** — Changed signature from `should_be_twin_portrait(int idx, int size)` to `should_be_twin_portrait(std::vector<MediaItem>&, int idx)` to eliminate unguarded reads of `g_eligible` from multiple threads.
+- **FFprobe child fd leak** — Replaced broken `/proc/self/fd` iteration with `readlink()` + deferred `close()` to prevent file descriptor leakage to ffprobe child processes.
+- **MQTT subscriber thread lifecycle** — Replaced detached thread with tracked joinable thread and proper `stop_mqtt_client()` shutdown path. MQTT pipe is now cleanly closed on exit.
+- **Playlist lock race during transitions** — Eliminated unlock/relock pattern during transition loading. Paths are captured under lock, I/O performed outside lock, metadata updated under lock.
+- **Signal handler safety** — Replaced async-signal-unsafe `system()` call in crash handler with direct sysfs write to restore display power on crash.
+- **Deprecated sleep API** — Replaced all `usleep()` calls with C++11 `std::this_thread::sleep_for()` across the codebase.
+- **Edge strip underflow on small images** — Added bounds guard for edge color sampling when image dimensions are less than 3 pixels.
+- **CIFS scan thread pool** — Removed multi-threaded scan in favor of single-threaded worker to prevent CIFS mount hangs.
+- **Twin portrait data race** — Eliminated unguarded access to shared playlist vector in twin-portrait pairing logic.
 
 ## v11.1.9 — Dynamic Collage Lookahead & 1" Matte Adjustments (May 24, 2026)
 
