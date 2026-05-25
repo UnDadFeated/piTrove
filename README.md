@@ -1,4 +1,4 @@
-# piTrove - A C++ Digital Picture Frame
+# piTrove - C++ Digital Picture Frame
 
 A professional-grade, **containerized** digital picture frame for the Raspberry Pi. Orchestrated via **Docker & Compose** for absolute dependency isolation and read-only media storage safety. Designed for extreme stability on network-attached storage (NAS), cinematic visual presentation, smart home integrations (MQTT + Home Assistant Auto-Discovery), and seamless hardware acceleration on Pi 4 and Pi 5.
 
