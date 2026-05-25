@@ -1277,7 +1277,8 @@ int main(int argc, char** argv) {
 
     bool transitioning = false;
     double transition_timer = 0.0;
-    std::string transition_effect = g_cfg.transition_effect;
+    std::string transition_effect;
+    { std::lock_guard<std::mutex> lk(g_config_mtx); transition_effect = g_cfg.transition_effect; }
 
     // --- Start Background Watchman Thread ---
     g_watchman_running.store(true);
@@ -1456,7 +1457,9 @@ int main(int argc, char** argv) {
             if (transition_effect == "wipe") effect = TransitionEffect::WipeLeft;
             else if (transition_effect == "ken_burns") effect = TransitionEffect::KenBurns;
             else if (transition_effect == "pixelate") effect = TransitionEffect::Pixelate;
-            g_transition->start(effect, g_cfg.transition_duration, 0, g_cfg.ken_burns_zoom);
+            float duration = 0.0f, kb_zoom = 0.1f;
+            { std::lock_guard<std::mutex> lk(g_config_mtx); duration = g_cfg.transition_duration; kb_zoom = g_cfg.ken_burns_zoom; }
+            g_transition->start(effect, duration, 0, kb_zoom);
         }
 
         // --- Video Player Handling ---

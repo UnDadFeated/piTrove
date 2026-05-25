@@ -54,7 +54,8 @@ void mqtt_publish(const std::string& topic, const std::string& payload, bool ret
 }
 
 void publish_ha_discovery() {
-    std::string prefix = g_cfg.mqtt_topic_prefix;
+    std::string prefix;
+    { std::lock_guard<std::mutex> lk(g_config_mtx); prefix = g_cfg.mqtt_topic_prefix; }
     
     // Device configuration block
     std::string device_json = "\"device\":{"
@@ -107,23 +108,32 @@ void publish_ha_discovery() {
     mqtt_publish("homeassistant/button/piTrove_pause/config", pause_button_json, true);
 
     // 5. Motion Binary Sensor (if configured)
-    if (!g_cfg.mqtt_motionsensor_topic.empty()) {
-        std::string motion_sensor_json = "{"
-            "\"name\":\"Motion Sensor\","
-            "\"unique_id\":\"piTrove_motion_sensor\","
-            "\"state_topic\":\"" + g_cfg.mqtt_motionsensor_topic + "\","
-            "\"payload_on\":\"ON\","
-            "\"payload_off\":\"OFF\","
-            "\"device_class\":\"motion\","
-            + device_json +
-            "}";
-        mqtt_publish("homeassistant/binary_sensor/piTrove_motion/config", motion_sensor_json, true);
+    {
+        std::string sensor_topic;
+        { std::lock_guard<std::mutex> lk(g_config_mtx); sensor_topic = g_cfg.mqtt_motionsensor_topic; }
+        if (!sensor_topic.empty()) {
+            std::string motion_sensor_json = "{"
+                "\"name\":\"Motion Sensor\","
+                "\"unique_id\":\"piTrove_motion_sensor\","
+                "\"state_topic\":\"" + sensor_topic + "\","
+                "\"payload_on\":\"ON\","
+                "\"payload_off\":\"OFF\","
+                "\"device_class\":\"motion\","
+                + device_json +
+                "}";
+            mqtt_publish("homeassistant/binary_sensor/piTrove_motion/config", motion_sensor_json, true);
+        }
     }
 }
 
 void start_mqtt_client() {
-    if (!g_cfg.mqtt_enabled) return;
-    
+    bool enabled = false;
+    {
+        std::lock_guard<std::mutex> lk(g_config_mtx);
+        enabled = g_cfg.mqtt_enabled;
+    }
+    if (!enabled) return;
+
     {
         std::lock_guard<std::mutex> lk(g_mqtt_mtx);
         if (g_mqtt_thread.joinable()) return;
