@@ -1570,12 +1570,14 @@ int main(int argc, char** argv) {
                     update_meta_safe(next_path_twin, next_twin_data);
                 }
 
-                if (next_data && next_data->valid && next_twin_data && next_twin_data->valid) {
+                if (next_data && next_data->valid && (!is_twin || (next_twin_data && next_twin_data->valid))) {
                     ImageLoader::load_texture(next_data.get(), g_renderer.sdl_renderer);
-                    ImageLoader::load_texture(next_twin_data.get(), g_renderer.sdl_renderer);
+                    if (is_twin && next_twin_data) {
+                        ImageLoader::load_texture(next_twin_data.get(), g_renderer.sdl_renderer);
+                    }
                 } else {
                     if (g_cache && next_data && !next_data->valid) g_cache->mark_bad(next_path);
-                    if (g_cache && next_twin_data && !next_twin_data->valid) g_cache->mark_bad(next_path_twin);
+                    if (is_twin && g_cache && next_twin_data && !next_twin_data->valid) g_cache->mark_bad(next_path_twin);
                     next_data = nullptr;
                     next_twin_data = nullptr;
                 }
