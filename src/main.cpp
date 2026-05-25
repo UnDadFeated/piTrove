@@ -256,6 +256,8 @@ static SDL_Texture* render_state_to_texture(
         float anim_speed = 0.5f;
         std::string style = "edge_glow";
         int border_w = 10;
+        bool snap_blurred, snap_matte_color;
+        float matte_op, vignette_str;
         {
             std::lock_guard<std::mutex> lock(g_config_mtx);
             has_bias = g_cfg.bias_lighting;
@@ -265,15 +267,32 @@ static SDL_Texture* render_state_to_texture(
             anim_speed = g_cfg.bias_anim_speed;
             style = g_cfg.bias_anim_style;
             border_w = g_cfg.border_width;
+            snap_blurred = g_cfg.blurred_background;
+            snap_matte_color = g_cfg.color_matched_matte;
+            matte_op = g_cfg.matte_opacity;
+            vignette_str = g_cfg.vignette_strength;
         }
 
-        // 1. Draw matte borders if enabled (drawn first so glow renders on top)
+        // 1. Blurred background if enabled (primary photo's blur for fullscreen)
+        if (snap_blurred && primary && primary->blur_raw.valid && primary->blur_raw.pixels) {
+            g_renderer.draw_blurred_from_raw(primary->blur_raw, (Uint8)(255.0f * vignette_str));
+        }
+
+        // 2. Color-matched matte for each portrait
+        if (snap_matte_color) {
+            g_renderer.draw_color_matched_matte(rect_l,
+                primary->matte_r, primary->matte_g, primary->matte_b, matte_op);
+            g_renderer.draw_color_matched_matte(rect_r,
+                twin->matte_r, twin->matte_g, twin->matte_b, matte_op);
+        }
+
+        // 3. Draw matte borders if enabled (drawn first so glow renders on top)
         if (has_matting) {
             g_renderer.draw_matte_borders(rect_l);
             g_renderer.draw_matte_borders(rect_r);
         }
 
-        // 2. Draw bias lighting if enabled
+        // 4. Draw bias lighting if enabled
         if (has_bias) {
             int bw_l = has_border ? border_w : 0;
             g_renderer.draw_bias_lighting(rect_l, primary->avg_r, primary->avg_g, primary->avg_b,
@@ -283,13 +302,13 @@ static SDL_Texture* render_state_to_texture(
                 bias_strength, (float)item_timer, anim_speed, style, bw_r);
         }
 
-        // 3. Draw 3D miter borders if enabled
+        // 5. Draw 3D miter borders if enabled
         if (has_border) {
             g_renderer.draw_3d_border(rect_l, primary->avg_r, primary->avg_g, primary->avg_b, border_w);
             g_renderer.draw_3d_border(rect_r, twin->avg_r, twin->avg_g, twin->avg_b, border_w);
         }
 
-        // 4. Draw texture
+        // 6. Draw texture
         SDL_FRect dst_l = {(float)rect_l.x, (float)rect_l.y, (float)rect_l.w, (float)rect_l.h};
         SDL_RenderTexture(renderer, primary->texture, nullptr, &dst_l);
 
@@ -307,6 +326,8 @@ static SDL_Texture* render_state_to_texture(
         float anim_speed = 0.5f;
         std::string style = "edge_glow";
         int border_w = 10;
+        bool snap_blurred, snap_matte_color;
+        float matte_op, vignette_str;
         {
             std::lock_guard<std::mutex> lock(g_config_mtx);
             has_bias = g_cfg.bias_lighting;
@@ -316,26 +337,41 @@ static SDL_Texture* render_state_to_texture(
             anim_speed = g_cfg.bias_anim_speed;
             style = g_cfg.bias_anim_style;
             border_w = g_cfg.border_width;
+            snap_blurred = g_cfg.blurred_background;
+            snap_matte_color = g_cfg.color_matched_matte;
+            matte_op = g_cfg.matte_opacity;
+            vignette_str = g_cfg.vignette_strength;
         }
 
-        // 1. Draw matte borders if enabled (drawn first so glow renders on top)
+        // 1. Blurred background if enabled (behind everything)
+        if (snap_blurred && primary && primary->blur_raw.valid && primary->blur_raw.pixels) {
+            g_renderer.draw_blurred_from_raw(primary->blur_raw, (Uint8)(255.0f * vignette_str));
+        }
+
+        // 2. Color-matched matte if enabled
+        if (snap_matte_color && primary) {
+            g_renderer.draw_color_matched_matte(rect,
+                primary->matte_r, primary->matte_g, primary->matte_b, matte_op);
+        }
+
+        // 3. Draw matte borders if enabled (drawn first so glow renders on top)
         if (has_matting) {
             g_renderer.draw_matte_borders(rect);
         }
 
-        // 2. Draw bias lighting if enabled
+        // 4. Draw bias lighting if enabled
         if (has_bias) {
             int bw_param = has_border ? border_w : 0;
             g_renderer.draw_bias_lighting(rect, primary->avg_r, primary->avg_g, primary->avg_b,
                 bias_strength, (float)item_timer, anim_speed, style, bw_param);
         }
 
-        // 3. Draw 3D miter border if enabled
+        // 5. Draw 3D miter border if enabled
         if (has_border) {
             g_renderer.draw_3d_border(rect, primary->avg_r, primary->avg_g, primary->avg_b, border_w);
         }
 
-        // 4. Draw texture
+        // 6. Draw texture
         SDL_FRect dst = {(float)rect.x, (float)rect.y, (float)rect.w, (float)rect.h};
         SDL_RenderTexture(renderer, primary->texture, nullptr, &dst);
     }
@@ -1728,6 +1764,8 @@ int main(int argc, char** argv) {
                 float anim_speed = 0.5f;
                 std::string style = "edge_glow";
                 int border_w = 10;
+                bool snap_blurred, snap_matte_color;
+                float matte_op, vignette_str;
                 {
                     std::lock_guard<std::mutex> lock(g_config_mtx);
                     has_bias = g_cfg.bias_lighting;
@@ -1737,15 +1775,32 @@ int main(int argc, char** argv) {
                     anim_speed = g_cfg.bias_anim_speed;
                     style = g_cfg.bias_anim_style;
                     border_w = g_cfg.border_width;
+                    snap_blurred = g_cfg.blurred_background;
+                    snap_matte_color = g_cfg.color_matched_matte;
+                    matte_op = g_cfg.matte_opacity;
+                    vignette_str = g_cfg.vignette_strength;
                 }
 
-                // 1. Draw matte borders if enabled (drawn first so glow renders on top)
+                // 1. Blurred background if enabled (primary photo's blur for fullscreen)
+                if (snap_blurred && current_data && current_data->blur_raw.valid && current_data->blur_raw.pixels) {
+                    g_renderer.draw_blurred_from_raw(current_data->blur_raw, (Uint8)(255.0f * vignette_str));
+                }
+
+                // 2. Color-matched matte for each portrait
+                if (snap_matte_color) {
+                    g_renderer.draw_color_matched_matte(rect_l,
+                        current_data->matte_r, current_data->matte_g, current_data->matte_b, matte_op);
+                    g_renderer.draw_color_matched_matte(rect_r,
+                        current_twin_data->matte_r, current_twin_data->matte_g, current_twin_data->matte_b, matte_op);
+                }
+
+                // 3. Draw matte borders if enabled (drawn first so glow renders on top)
                 if (has_matting) {
                     g_renderer.draw_matte_borders(rect_l);
                     g_renderer.draw_matte_borders(rect_r);
                 }
 
-                // 2. Draw bias lighting if enabled
+                // 4. Draw bias lighting if enabled
                 if (has_bias) {
                     int bw_l = has_border ? border_w : 0;
                     g_renderer.draw_bias_lighting(rect_l, current_data->avg_r, current_data->avg_g, current_data->avg_b,
@@ -1755,13 +1810,13 @@ int main(int argc, char** argv) {
                         bias_strength, (float)item_timer, anim_speed, style, bw_r);
                 }
 
-                // 3. Draw 3D miter borders if enabled
+                // 5. Draw 3D miter borders if enabled
                 if (has_border) {
                     g_renderer.draw_3d_border(rect_l, current_data->avg_r, current_data->avg_g, current_data->avg_b, border_w);
                     g_renderer.draw_3d_border(rect_r, current_twin_data->avg_r, current_twin_data->avg_g, current_twin_data->avg_b, border_w);
                 }
 
-                // 4. Draw texture
+                // 6. Draw texture
                 SDL_FRect dst_l = {(float)rect_l.x, (float)rect_l.y, (float)rect_l.w, (float)rect_l.h};
                 SDL_RenderTexture(g_renderer.sdl_renderer, current_data->texture, nullptr, &dst_l);
 
@@ -1775,6 +1830,8 @@ int main(int argc, char** argv) {
                 int snap_bias_strength, snap_border_width;
                 float snap_anim_speed;
                 std::string snap_anim_style;
+                bool snap_blurred, snap_matte_color;
+                float matte_op, vignette_str;
                 {
                     std::lock_guard<std::mutex> lk(g_config_mtx);
                     snap_bias = g_cfg.bias_lighting;
@@ -1784,14 +1841,29 @@ int main(int argc, char** argv) {
                     snap_border_width = g_cfg.border_width;
                     snap_anim_speed = g_cfg.bias_anim_speed;
                     snap_anim_style = g_cfg.bias_anim_style;
+                    snap_blurred = g_cfg.blurred_background;
+                    snap_matte_color = g_cfg.color_matched_matte;
+                    matte_op = g_cfg.matte_opacity;
+                    vignette_str = g_cfg.vignette_strength;
                 }
 
-                // 1. Draw matte borders if enabled (drawn first so glow renders on top)
+                // 1. Blurred background if enabled (behind everything)
+                if (snap_blurred && current_data && current_data->blur_raw.valid && current_data->blur_raw.pixels) {
+                    g_renderer.draw_blurred_from_raw(current_data->blur_raw, (Uint8)(255.0f * vignette_str));
+                }
+
+                // 2. Color-matched matte if enabled
+                if (snap_matte_color && current_data) {
+                    g_renderer.draw_color_matched_matte(fit_rect,
+                        current_data->matte_r, current_data->matte_g, current_data->matte_b, matte_op);
+                }
+
+                // 3. Draw matte borders if enabled (drawn first so glow renders on top)
                 if (snap_matting) {
                     g_renderer.draw_matte_borders(fit_rect);
                 }
 
-                // 2. Draw bias lighting if enabled
+                // 4. Draw bias lighting if enabled
                 if (snap_bias && current_data) {
                     int bw_param = snap_border ? snap_border_width : 0;
                     g_renderer.draw_bias_lighting(fit_rect,
@@ -1799,13 +1871,13 @@ int main(int argc, char** argv) {
                         snap_bias_strength, (float)item_timer, snap_anim_speed, snap_anim_style, bw_param);
                 }
 
-                // 3. Draw 3D miter border if enabled
+                // 5. Draw 3D miter border if enabled
                 if (snap_border && current_data) {
                     g_renderer.draw_3d_border(fit_rect,
                         current_data->avg_r, current_data->avg_g, current_data->avg_b, snap_border_width);
                 }
 
-                // 4. Draw texture
+                // 6. Draw texture
                 SDL_FRect dst = {(float)fit_rect.x, (float)fit_rect.y, (float)fit_rect.w, (float)fit_rect.h};
                 SDL_RenderTexture(g_renderer.sdl_renderer, current_tex, nullptr, &dst);
                 rendered = true;

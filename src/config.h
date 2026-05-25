@@ -111,6 +111,14 @@ struct Config {
     int     border_width{10};
     bool    vignette_enabled{true};
 
+    // [display] blurred background + color-matched matte
+    bool    blurred_background{true};
+    bool    color_matched_matte{true};
+    int     blur_radius{14};
+    int     glow_depth{86};
+    float   matte_opacity{0.20f};
+    float   vignette_strength{0.35f};
+
     // [slideshow] extended
     bool    shuffle{true};
     float   ken_burns_zoom{0.15f};

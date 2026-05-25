@@ -114,6 +114,24 @@ bool Config::load(const std::string& path) {
         else if (key == "border_enabled")    this->border_enabled = (val == "1" || val == "true");
         else if (key == "border_width")      this->border_width = safe_stoi(val, this->border_width);
         else if (key == "vignette_enabled")  this->vignette_enabled = (val == "1" || val == "true");
+        else if (key == "blurred_background") this->blurred_background = !(val == "0" || val == "false");
+        else if (key == "color_matched_matte") this->color_matched_matte = !(val == "0" || val == "false");
+        else if (key == "blur_radius") {
+            int v = std::max(6, std::min(24, safe_stoi(val, this->blur_radius)));
+            this->blur_radius = v;
+        }
+        else if (key == "glow_depth") {
+            int v = std::max(16, std::min(120, safe_stoi(val, this->glow_depth)));
+            this->glow_depth = v;
+        }
+        else if (key == "matte_opacity") {
+            float v = safe_stof(val, this->matte_opacity);
+            this->matte_opacity = std::max(0.05f, std::min(0.50f, v));
+        }
+        else if (key == "vignette_strength") {
+            float v = safe_stof(val, this->vignette_strength);
+            this->vignette_strength = std::max(0.10f, std::min(0.80f, v));
+        }
         else if (key == "shuffle")           this->shuffle = !(val == "0" || val == "false");
         else if (key == "ken_burns_zoom")    this->ken_burns_zoom = safe_stof(val, this->ken_burns_zoom);
         else if (key == "bias_strength")     this->bias_strength = safe_stoi(val, this->bias_strength);

@@ -75,6 +75,10 @@ struct ImageData {
     // Per-pixel edge strips for bias glow: packed RGB, one entry per screen pixel along the edge
     std::vector<uint8_t> edge_top_rgb, edge_bot_rgb;  // top/bottom: width pixels
     std::vector<uint8_t> edge_lft_rgb, edge_rgt_rgb;  // left/right: height pixels
+    // Blurred background for fullscreen backdrop (computed in worker thread)
+    RawImage blur_raw;
+    // Color-matched matte color (center-average, computed in worker thread)
+    uint8_t matte_r = 0, matte_g = 0, matte_b = 0;
 
     ImageData() = default;
 
@@ -112,6 +116,10 @@ struct ImageData {
         edge_bot_rgb = std::move(other.edge_bot_rgb);
         edge_lft_rgb = std::move(other.edge_lft_rgb);
         edge_rgt_rgb = std::move(other.edge_rgt_rgb);
+        blur_raw = std::move(other.blur_raw);
+        matte_r = other.matte_r;
+        matte_g = other.matte_g;
+        matte_b = other.matte_b;
         other.surface = nullptr;
         other.texture = nullptr;
         other.valid = false;
@@ -137,6 +145,10 @@ struct ImageData {
             edge_bot_rgb = std::move(other.edge_bot_rgb);
             edge_lft_rgb = std::move(other.edge_lft_rgb);
             edge_rgt_rgb = std::move(other.edge_rgt_rgb);
+            blur_raw = std::move(other.blur_raw);
+            matte_r = other.matte_r;
+            matte_g = other.matte_g;
+            matte_b = other.matte_b;
             other.surface = nullptr;
             other.texture = nullptr;
             other.valid = false;

@@ -2,6 +2,8 @@
 #include "renderer.h"
 #include "util.h"
 #include "image_loader.h"
+#include "blur.h"
+#include "config.h"
 #include <algorithm>
 #include <cstring>
 #include <unordered_set>
@@ -73,7 +75,7 @@ std::shared_ptr<ImageData> PreloadQueue::try_dequeue(const std::string& target_p
                 // Build ImageData from raw pixels (main thread — SDL context is thread-local)
                 data = std::make_shared<ImageData>();
                 data->valid = false;
-                
+
                 if (item.raw.valid) {
                     // Read EXIF (file I/O, no SDL)
                     data->exif_rotation = ImageLoader::read_exif_rotation(item.path.c_str());
@@ -105,6 +107,28 @@ std::shared_ptr<ImageData> PreloadQueue::try_dequeue(const std::string& target_p
                         data->avg_r = avg.r;
                         data->avg_g = avg.g;
                         data->avg_b = avg.b;
+
+                        // Compute matte color from center of image
+                        if (data->surface) {
+                            int cx = data->width / 4, cy = data->height / 4;
+                            int cw = data->width / 2, ch = data->height / 2;
+                            if (cx >= 0 && cy >= 0 && cw > 0 && ch > 0) {
+                                uint8_t* px = (uint8_t*)data->surface->pixels;
+                                int bpp = SDL_BYTESPERPIXEL(data->surface->format);
+                                long sr = 0, sg = 0, sb = 0, n = 0;
+                                for (int y = cy; y < cy + ch && y < data->surface->h; y++) {
+                                    for (int x = cx; x < cx + cw && x < data->surface->w; x++) {
+                                        const uint8_t* p = px + y * data->surface->pitch + x * bpp;
+                                        sr += p[0]; sg += p[1]; sb += p[2]; n++;
+                                    }
+                                }
+                                if (n > 0) {
+                                    data->matte_r = (uint8_t)(sr / n);
+                                    data->matte_g = (uint8_t)(sg / n);
+                                    data->matte_b = (uint8_t)(sb / n);
+                                }
+                            }
+                        }
 
                         // Sample 4 edge colors for bias gradient
                         for (int e = 0; e < 4; e++) {
@@ -179,6 +203,11 @@ std::shared_ptr<ImageData> PreloadQueue::try_dequeue(const std::string& target_p
                                 }
                             }
                         }
+                    }
+
+                    // Move blur_raw to ImageData (no SDL needed — renderer creates texture on demand)
+                    if (item.blur_raw.valid && item.blur_raw.pixels) {
+                        data->blur_raw = std::move(item.blur_raw);
                     }
                 }
             } else {
@@ -268,11 +297,25 @@ void PreloadQueue::worker_thread(int thread_id) {
 
         g_logger.debug("[Worker %d] Decoded %dx%d: %s", thread_id, raw.width, raw.height, path.c_str());
 
+        // Compute blurred background and matte color in worker thread
+        int blur_radius = 14;
+        {
+            std::lock_guard<std::mutex> lock(g_config_mtx);
+            blur_radius = g_cfg.blur_radius;
+        }
+        RawImage blur = box_blur(raw, blur_radius);
+
+        uint8_t mr = 0, mg = 0, mb = 0;
+        if (blur.valid) {
+            compute_matte_color(raw, mr, mg, mb);
+        }
+
         // Push raw data to loaded queue — main thread creates SDL surface
         {
             std::lock_guard<std::mutex> lock(queue_mutex);
             PreloadedItem item;
             item.raw = std::move(raw);
+            item.blur_raw = std::move(blur);
             item.path = path;
             item.valid = true;
             loaded_queue.push(std::move(item));

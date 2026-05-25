@@ -7,6 +7,7 @@
 #include <vector>
 #include <mutex>
 #include "font_render.h"
+#include "image_loader.h"
 
 // Color structure matching custom rendering needs
 struct GpuColor {
@@ -61,8 +62,11 @@ public:
     void clear(uint8_t r = 0, uint8_t g = 0, uint8_t b = 0, uint8_t a = 255);
     void present();
     void draw_matte_borders(const SDL_Rect& fit_rect);
+    void draw_blurred_background(SDL_Texture* blur_texture, Uint8 vignette_alpha);
+    void draw_blurred_from_raw(const RawImage& blur_raw, Uint8 vignette_alpha);
+    void draw_color_matched_matte(const SDL_Rect& fit_rect, Uint8 matte_r, Uint8 matte_g, Uint8 matte_b, float matte_opacity);
     void draw_bias_lighting(const SDL_Rect& fit_rect, Uint8 avg_r, Uint8 avg_g, Uint8 avg_b,
-        int bias_strength, float item_timer, float anim_speed, const std::string& style, int border_width);
+        int bias_strength, float item_timer, float anim_speed, const std::string& style, int border_width, int glow_depth = 0);
     void draw_3d_border(const SDL_Rect& fit_rect, Uint8 avg_r, Uint8 avg_g, Uint8 avg_b, int border_width);
     void draw_solid_border(int width, uint8_t r = 0, uint8_t g = 0, uint8_t b = 0);
 
