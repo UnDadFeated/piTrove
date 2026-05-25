@@ -13,6 +13,77 @@
 #include <atomic>
 #include <mutex>
 #include <poll.h>
+#include <fcntl.h>
+#include <chrono>
+
+// ── Message flash buffer (replaces blocking usleep) ──
+static struct {
+    const char* text;
+    uint32_t color;
+    uint32_t elapsed_ms;
+    bool active;
+} msg_buf = {nullptr, 0, 0, false};
+
+static void flash_msg(const char* text, uint32_t color, int duration_ms) {
+    msg_buf.text = text;
+    msg_buf.color = color;
+    msg_buf.elapsed_ms = 0;
+    msg_buf.active = true;
+    // Update timer via monotonic clock in main loop
+    (void)duration_ms;
+}
+
+// ── Save original terminal settings once ──
+static struct termios g_orig_termios;
+static bool g_termios_saved = false;
+
+static void save_termios() {
+    if (!g_termios_saved) {
+        tcgetattr(STDIN_FILENO, &g_orig_termios);
+        g_termios_saved = true;
+    }
+}
+
+static void set_termios_raw() {
+    save_termios();
+    struct termios raw = g_orig_termios;
+    raw.c_lflag &= ~(ICANON | ECHO);
+    raw.c_cc[VMIN] = 0;
+    raw.c_cc[VTIME] = 0;
+    tcsetattr(STDIN_FILENO, TCSANOW, &raw);
+}
+
+static void restore_termios() {
+    if (g_termios_saved) {
+        tcsetattr(STDIN_FILENO, TCSANOW, &g_orig_termios);
+    }
+}
+
+// ── Non-blocking read: read all available bytes into a buffer ──
+static int peek_input(char* buf, int max_len) {
+    struct pollfd pfd;
+    pfd.fd = STDIN_FILENO;
+    pfd.events = POLLIN;
+    int ret = poll(&pfd, 1, 0);
+    if (ret <= 0 || !(pfd.revents & POLLIN)) return 0;
+    int n = read(STDIN_FILENO, buf, max_len);
+    return (n > 0) ? n : 0;
+}
+
+// ── Parse escape sequences from a byte buffer ──
+// Returns number of bytes consumed, or -1 if incomplete
+static int parse_escape_seq(const char* buf, int len, int& out_action) {
+    if (len >= 3 && buf[0] == '\033' && buf[1] == '[') {
+        char third = buf[2];
+        if (third == 'A') out_action = 1;  // UP
+        else if (third == 'B') out_action = 2;  // DOWN
+        else if (third == 'D') out_action = 3;  // LEFT
+        else if (third == 'C') out_action = 4;  // RIGHT
+        else return -1;  // unknown
+        return 3;
+    }
+    return -1;  // incomplete
+}
 
 void config_wizard(const std::string& config_path) {
     auto save_cfg = [&]() -> bool {
@@ -164,24 +235,38 @@ void config_wizard(const std::string& config_path) {
 
     // ── TERMINAL SIZING ──
     struct winsize w;
-    ioctl(STDOUT_FILENO, TIOCGWINSZ, &w);
+    ioctl(STDIN_FILENO, TIOCGWINSZ, &w);
     int term_cols = w.ws_col;
     if (term_cols < 100) {
-        printf("\033[8;40;155t"); // Request terminal resize to 155x40
+        printf("\033[8;40;155t");
         fflush(stdout);
         usleep(100000);
-        ioctl(STDOUT_FILENO, TIOCGWINSZ, &w);
+        ioctl(STDIN_FILENO, TIOCGWINSZ, &w);
         term_cols = w.ws_col;
     }
     int tui_width = std::max(100, std::min(155, term_cols));
 
-    system("stty -icanon -echo");
+    set_termios_raw();
     printf("\033[?1049h\033[H\033[J");
 
+    // ── Dirty flag system: only redraw what changed ──
+    // Row indices (0-based, matching printf output lines):
+    //   0: version header
+    //   1: separator line
+    //   2: blank
+    //   3: category bar
+    //   4: blank
+    //   5: column headers
+    //   6+: data rows
+    enum { ROW_CAT_BAR=3, ROW_COLHDR=5, ROW_ROW0=6 };
+    int dirty_from = 0, dirty_to = 0;
+    int last_sel = -1, last_sel_sub = -1, last_edit = -1;
+    bool dirty_full = false;
+
+    // ── DEFINITIONS WITH DESCRIPTIONS ──
     enum IT { STR, INT, FLT, TGL, ENM, LST };
     struct CI { const char* n; IT t; const char* desc; };
 
-    // ── DEFINITIONS WITH DESCRIPTIONS ──
     static const CI CA[] = {
         {"Rotation", INT, "Screen rotation in degrees (0, 90, 180, 270)"},
         {"Ken Burns Zoom", FLT, "Zoom intensity for Ken Burns effect (0.0 to 1.0)"},
@@ -512,15 +597,34 @@ void config_wizard(const std::string& config_path) {
     bool run = true;
 
     // ── MAIN TUI LOOP ──
+    auto start_time = std::chrono::steady_clock::now();
+    auto last_render_time = start_time;
+    int input_buf_len = 0;
+    char input_buf[256];
+
     while(run) {
+        // ── Update message timer ──
+        if (msg_buf.active) {
+            auto now = std::chrono::steady_clock::now();
+            msg_buf.elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(now - start_time).count();
+            if (msg_buf.elapsed_ms > 2000) {
+                msg_buf.active = false;
+            }
+        }
+
         // Sizing checks
         struct winsize w_curr;
-        ioctl(STDOUT_FILENO, TIOCGWINSZ, &w_curr);
+        ioctl(STDIN_FILENO, TIOCGWINSZ, &w_curr);
         int cur_cols = w_curr.ws_col;
         int cur_rows = w_curr.ws_row;
 
+        tui_width = std::max(100, std::min(155, cur_cols));
+        int name_w = 22;
+        int val_w = 26;
+        int desc_w = tui_width - name_w - val_w - 6;
+
         if (cur_cols < 100 || cur_rows < 24) {
-            printf("\033[H\033[J"); // Clear Screen
+            printf("\033[H\033[J");
             printf("\033[1;31m╔"); for(int i=0; i<cur_cols-2; i++) printf("═"); printf("╗\033[0m\n");
             printf("\033[1;31m║\033[0m  %-*s\033[1;31m║\033[0m\n", cur_cols-6, " [ TERMINAL WINDOW TOO SMALL ]");
             printf("\033[1;31m║\033[0m  %-*s\033[1;31m║\033[0m\n", cur_cols-6, "");
@@ -545,158 +649,270 @@ void config_wizard(const std::string& config_path) {
                     if (c == 'q' || c == 'Q') run = false;
                 }
             }
-            continue; // Re-evaluate winsize
+            continue;
         }
 
-        tui_width = std::max(100, std::min(155, cur_cols));
-        printf("\033[H\033[J"); // Clear Screen
+        // ── Determine if we need to render this frame ──
+        auto now = std::chrono::steady_clock::now();
+        int elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(now - last_render_time).count();
+        bool has_input = input_buf_len > 0;
+        bool sel_changed = (sel != last_sel || sel_sub != last_sel_sub);
+        bool edit_changed = (edit_mode && last_edit != 1) || (!edit_mode && last_edit != 0);
+        bool msg_active = msg_buf.active;
+        bool config_changed = g_config_changed.load() && !edit_mode;
 
-        // Layout Geometry
-        int name_w = 22;
-        int val_w = 26;
-        int desc_w = tui_width - name_w - val_w - 6;
+        bool need_render = dirty_full || has_input || sel_changed || edit_changed || msg_active || config_changed;
+        // Also redraw every 200ms to keep time display fresh
+        if (!need_render && elapsed_ms > 200) need_render = true;
 
-        // Header
-        printf("\033[1;36m  piTrove Configuration Engine v%s\033[0m\n", VERSION);
-        printf("  \033[90m"); for(int i=0; i<tui_width-4; i++) printf("━"); printf("\033[0m\n\n");
+        if (need_render) {
+            last_render_time = now;
 
-        // Top Category Bar
-        printf("  ");
-        for(int i=0; i<9; i++) {
-            if(i==sel) printf("\033[7;33m %s \033[0m  ", CATS[i].n);
-            else printf("\033[1;37m%s\033[0m  ", CATS[i].n);
-        }
-        printf("\n\n");
+            // ── Full redraw ──
+            if (dirty_full) {
+                printf("\033[H\033[J");
 
-        // Column Headers
-        printf("  \033[1;36m%-*s %-*s %-*s\033[0m\n", name_w, "Setting", val_w, "Value", desc_w, "Description");
-        printf("  \033[90m"); for(int i=0; i<tui_width-4; i++) printf("─"); printf("\033[0m\n");
+                // Header
+                printf("\033[1;36m  piTrove Configuration Engine v%s\033[0m\n", VERSION);
+                printf("  \033[90m"); for(int i=0; i<tui_width-4; i++) printf("━"); printf("\033[0m\n\n");
 
-        // Rows
-        for(int i=0; i<CATS[sel].c; i++) {
-            const auto& item = CATS[sel].i[i];
-            std::string val = gv(sel, i);
+                // Category bar
+                printf("  ");
+                for(int i=0; i<9; i++) {
+                    if(i==sel) printf("\033[7;33m %s \033[0m  ", CATS[i].n);
+                    else printf("\033[1;37m%s\033[0m  ", CATS[i].n);
+                }
+                printf("\n\n");
 
-            if (item.t == TGL) {
-                val = (val == "1" || val == "[ON]" || val == "[  ON  ]") ? "[  ON  ]" : "[ OFF  ]";
-            }
+                // Column headers
+                printf("  \033[1;36m%-*s %-*s %-*s\033[0m\n", name_w, "Setting", val_w, "Value", desc_w, "Description");
+                printf("  \033[90m"); for(int i=0; i<tui_width-4; i++) printf("─"); printf("\033[0m\n");
 
-            // Description truncation if terminal gets small
-            std::string desc = item.desc;
-            if ((int)desc.length() > desc_w) desc = desc.substr(0, desc_w - 3) + "...";
-
-            if(edit_mode && i==sel_sub) {
-                printf("  \033[1;32m%-*s \033[7;37m%-*s\033[0m \033[90m%-*s\033[0m\n", name_w, item.n, val_w, ed_buf.c_str(), desc_w, desc.c_str());
-            } else if(i==sel_sub) {
-                printf("  \033[1;32m%-*s \033[1;37m%-*s\033[0m \033[90m%-*s\033[0m\n", name_w, item.n, val_w, val.c_str(), desc_w, desc.c_str());
+                dirty_from = 0; dirty_to = 0;
+                dirty_full = false;
             } else {
-                printf("  %-*s \033[37m%-*s\033[0m \033[90m%-*s\033[0m\n", name_w, item.n, val_w, val.c_str(), desc_w, desc.c_str());
+                // ── Dirty redraw: position cursor and redraw only changed rows ──
+                int y = dirty_from + 1;
+
+                printf("\033[%d;1H", y);
+
+                if (dirty_from <= ROW_CAT_BAR && dirty_to >= ROW_CAT_BAR) {
+                    printf("\033[1;36m  piTrove Configuration Engine v%s\033[0m\n", VERSION);
+                    printf("  \033[90m"); for(int i=0; i<tui_width-4; i++) printf("━"); printf("\033[0m\n\n");
+                    printf("  ");
+                    for(int i=0; i<9; i++) {
+                        if(i==sel) printf("\033[7;33m %s \033[0m  ", CATS[i].n);
+                        else printf("\033[1;37m%s\033[0m  ", CATS[i].n);
+                    }
+                    printf("\n\n");
+                    y += 2;
+                    printf("\033[%d;1H", y);
+                }
+
+                if (dirty_from <= ROW_COLHDR && dirty_to >= ROW_COLHDR) {
+                    printf("  \033[1;36m%-*s %-*s %-*s\033[0m\n", name_w, "Setting", val_w, "Value", desc_w, "Description");
+                    printf("  \033[90m"); for(int i=0; i<tui_width-4; i++) printf("─"); printf("\033[0m\n");
+                    y += 2;
+                    printf("\033[%d;1H", y);
+                }
+
+                // Render row lines
+                int row_start = std::max(0, dirty_from - ROW_ROW0);
+                int row_end = std::min(CATS[sel].c, dirty_to - ROW_ROW0 + 1);
+                if (edit_mode) { row_start = 0; row_end = CATS[sel].c; }
+
+                for (int i = row_start; i < row_end; i++) {
+                    const auto& item = CATS[sel].i[i];
+                    std::string val = gv(sel, i);
+                    if (item.t == TGL) {
+                        val = (val == "1" || val == "[ON]" || val == "[  ON  ]") ? "[  ON  ]" : "[ OFF  ]";
+                    }
+                    std::string desc = item.desc;
+                    if ((int)desc.length() > desc_w) desc = desc.substr(0, desc_w - 3) + "...";
+
+                    if(edit_mode && i==sel_sub)
+                        printf("  \033[1;32m%-*s \033[7;37m%-*s\033[0m \033[90m%-*s\033[0m\n", name_w, item.n, val_w, ed_buf.c_str(), desc_w, desc.c_str());
+                    else if(i==sel_sub)
+                        printf("  \033[1;32m%-*s \033[1;37m%-*s\033[0m \033[90m%-*s\033[0m\n", name_w, item.n, val_w, val.c_str(), desc_w, desc.c_str());
+                    else
+                        printf("  %-*s \033[37m%-*s\033[0m \033[90m%-*s\033[0m\n", name_w, item.n, val_w, val.c_str(), desc_w, desc.c_str());
+                }
             }
+
+            // Clear remaining rows to prevent stale text
+            for (int i = CATS[sel].c; i < 15; i++) printf("\033[K\n");
+
+            // Footer
+            int footer_row = ROW_ROW0 + std::min(CATS[sel].c, 15) + 2;
+            printf("\033[%d;1H\n  \033[90m", footer_row);
+            for(int i=0; i<tui_width-4; i++) printf("─"); printf("\033[0m\n");
+
+            if(!edit_mode)
+                printf("  \033[1;37m[\xE2\x86\x91\xE2\x86\x93]\033[0m Select    \033[1;37m[\xE2\x86\x90\xE2\x86\x92]\033[0m Category    \033[1;37m[SPACE/ENTER]\033[0m Toggle/Edit    \033[1;32m[S]\033[0m Save    \033[1;31m[Q]\033[0m Quit\n");
+            else
+                printf("  \033[1;32m[ENTER]\033[0m Confirm   \033[1;31m[ESC]\033[0m Cancel      \033[1;37m[\xE2\x86\x91\xE2\x86\x93]\033[0m Cycle Options\n");
+
+            // Message flash (non-blocking)
+            if (msg_buf.active) {
+                printf("  \033[1;31m%s\033[0m\n", msg_buf.text);
+            }
+
+            // Restart notice
+            if (!edit_mode && g_config_changed.load()) {
+                printf("  \033[1;33m[NOTICE]\033[0m Previous changes detected. Use \033[1;32m[S]\033[0m to save, then \033[1;36mpiTrove --restart\033[0m to apply.\n");
+            }
+
+            fflush(stdout);
         }
 
-        // Fill remaining height to prevent bouncing
-        for (int i=CATS[sel].c; i<15; i++) printf("\n");
-
-        printf("\n  \033[90m"); for(int i=0; i<tui_width-4; i++) printf("─"); printf("\033[0m\n");
-
-        // Footer / Keybinds
-        if(!edit_mode) {
-            printf("  \033[1;37m[\xE2\x86\x91\xE2\x86\x93]\033[0m Select    \033[1;37m[\xE2\x86\x90\xE2\x86\x92]\033[0m Category    \033[1;37m[SPACE/ENTER]\033[0m Toggle/Edit    \033[1;32m[S]\033[0m Save    \033[1;31m[Q]\033[0m Quit\n");
-        } else {
-            printf("  \033[1;32m[ENTER]\033[0m Confirm   \033[1;31m[ESC]\033[0m Cancel      \033[1;37m[\xE2\x86\x91\xE2\x86\x93]\033[0m Cycle Options\n");
+        // ── Input handling ──
+        // Drain remaining input buffer
+        if (input_buf_len > 0) {
+            // Process input_buf
+            // ... (see below)
         }
 
-        // ── Restart Notice (dynamic) ──
-        if (!edit_mode && g_config_changed.load()) {
-            printf("\n  \033[1;33m[NOTICE]\033[0m Previous changes detected. Use \033[1;32m[S]\033[0m to save, then \033[1;36mpiTrove --restart\033[0m to apply.\n");
-        }
-
-        // INPUT LOOP
         struct pollfd pfd;
         pfd.fd = STDIN_FILENO;
         pfd.events = POLLIN;
-        int poll_ret = poll(&pfd, 1, 100);
+        int poll_ret = poll(&pfd, 1, 50);
         if (poll_ret <= 0) {
-            continue; // Timeout or error: loop to redraw and check terminal size
+            continue;
         }
 
-        char c;
-        if(read(STDIN_FILENO, &c, 1) == 1) {
-            if(!edit_mode) {
-                if(c == 'q' || c == 'Q') { run = false; }
-                else if(c == 's' || c == 'S') { 
-                    if(!save_cfg()) { 
-                        printf("\033[0;31m[ERROR]\033[0m Failed to save config file.\n"); 
-                        usleep(1500000);
-                    } else { 
-                        printf("\033[1;32m[OK]\033[0m Configuration saved.\n"); 
-                        usleep(1000000);
-                    } 
-                    run = false; 
-                }
-                else if(c == '\033') {
-                    char seq[2];
-                    if(read(STDIN_FILENO, &seq[0], 1) == 1 && read(STDIN_FILENO, &seq[1], 1) == 1) {
-                        if(seq[1] == 'A') { if(sel_sub>0) sel_sub--; else if(sel>0){ sel--; sel_sub=CATS[sel].c-1; } } // UP
-                        else if(seq[1] == 'B') { if(sel_sub<CATS[sel].c-1) sel_sub++; else if(sel<9){ sel++; sel_sub=0; } } // DOWN
-                        else if(seq[1] == 'D') { if(sel>0) { sel--; sel_sub=0; } } // LEFT Category
-                        else if(seq[1] == 'C') { if(sel<9) { sel++; sel_sub=0; } } // RIGHT Category
-                    }
-                }
-                else if(c == '\n' || c == '\r' || c == ' ') {
-                    if (CATS[sel].i[sel_sub].t == TGL) { // Instantly toggle
-                        std::string v = gv(sel, sel_sub);
-                        sv(sel, sel_sub, (v=="1"||v=="[ON]"||v=="[  ON  ]") ? "0" : "1");
-                    } else if (CATS[sel].i[sel_sub].t == ENM && c == ' ') { // Space quick-cycles enums
-                        auto opts = enums(sel, sel_sub);
-                        std::string curr = gv(sel, sel_sub);
-                        auto it = std::find(opts.begin(), opts.end(), curr);
-                        int idx = (it != opts.end()) ? std::distance(opts.begin(), it) : 0;
-                        sv(sel, sel_sub, opts[(idx + 1) % opts.size()]);
-                    } else if (c != ' ') { // Enter key goes into Edit Mode for text/numbers
-                        edit_mode = true;
-                        ed_buf = gv(sel, sel_sub);
-                    }
-                }
-            } else { // In Edit Mode
-                if(c == '\n' || c == '\r') {
-                    sv(sel, sel_sub, ed_buf);
-                    edit_mode = false;
-                }
-                else if(c == '\033') { // Escape or Arrow keys inside edit mode
-                    char seq[2];
-                    if(read(STDIN_FILENO, &seq[0], 1) == 1 && read(STDIN_FILENO, &seq[1], 1) == 1) {
-                        if(seq[1] == 'A' || seq[1] == 'B') {
+        // Read all available bytes
+        int n = read(STDIN_FILENO, input_buf + input_buf_len, sizeof(input_buf) - input_buf_len - 1);
+        if (n > 0) {
+            input_buf_len += n;
+            input_buf[input_buf_len] = '\0';
+        }
+
+        // Process input buffer
+        int pos = 0;
+        while (pos < input_buf_len) {
+            int consumed = 0;
+
+            // Check for escape sequences
+            if (input_buf[pos] == '\033' && (pos + 2) < input_buf_len) {
+                char buf3[4] = {'\033', input_buf[pos+1], input_buf[pos+2], '\0'};
+                if (buf3[1] == '[') {
+                    char third = buf3[2];
+                    if (third == 'A' || third == 'B' || third == 'D' || third == 'C') {
+                        consumed = 3;
+                        int action = 0;
+                        if (third == 'A') action = 1;  // UP
+                        else if (third == 'B') action = 2;  // DOWN
+                        else if (third == 'D') action = 3;  // LEFT
+                        else if (third == 'C') action = 4;  // RIGHT
+
+                        if(!edit_mode) {
+                            if (action == 1) { if(sel_sub>0) sel_sub--; else if(sel>0){ sel--; sel_sub=CATS[sel].c-1; } }
+                            else if (action == 2) { if(sel_sub<CATS[sel].c-1) sel_sub++; else if(sel<9){ sel++; sel_sub=0; } }
+                            else if (action == 3) { if(sel>0) { sel--; sel_sub=0; } }
+                            else if (action == 4) { if(sel<9) { sel++; sel_sub=0; } }
+                            // Mark dirty for selection change
+                            dirty_full = true;
+                            last_sel = sel; last_sel_sub = sel_sub; last_edit = edit_mode ? 1 : 0;
+                        } else {
                             const auto& item = CATS[sel].i[sel_sub];
                             if(item.t == ENM) {
                                 auto opts = enums(sel, sel_sub);
                                 if(!opts.empty()) {
                                     auto it = std::find(opts.begin(), opts.end(), ed_buf);
                                     int idx = (it != opts.end()) ? std::distance(opts.begin(), it) : 0;
-                                    if (seq[1] == 'B') idx = (idx + 1) % opts.size(); // DOWN
-                                    if (seq[1] == 'A') idx = (idx - 1 + opts.size()) % opts.size(); // UP
+                                    if (action == 2) idx = (idx + 1) % opts.size(); // DOWN
+                                    if (action == 1) idx = (idx - 1 + opts.size()) % opts.size(); // UP
                                     ed_buf = opts[idx];
                                 }
                             }
+                            dirty_from = ROW_ROW0; dirty_to = ROW_ROW0 + CATS[sel].c;
+                            last_sel = sel; last_sel_sub = sel_sub; last_edit = 1;
                         }
-                    } else {
-                        edit_mode = false; // ESC cancels
+                        pos += consumed;
+                        continue;
                     }
                 }
-                else if(c == 127 || c == 8) { // Backspace
+                // Unknown escape: consume one byte
+                pos++;
+                continue;
+            }
+
+            // Regular character
+            char c = input_buf[pos];
+            consumed = 1;
+
+            if(!edit_mode) {
+                if(c == 'q' || c == 'Q') { run = false; break; }
+                else if(c == 's' || c == 'S') {
+                    if(!save_cfg()) {
+                        flash_msg("[ERROR] Failed to save config file.", 1, 2000);
+                    } else {
+                        flash_msg("[OK] Configuration saved.", 1, 2000);
+                    }
+                    run = false;
+                    dirty_full = true;
+                }
+                else if(c == '\n' || c == '\r' || c == ' ') {
+                    if (CATS[sel].i[sel_sub].t == TGL) {
+                        std::string v = gv(sel, sel_sub);
+                        sv(sel, sel_sub, (v=="1"||v=="[ON]"||v=="[  ON  ]") ? "0" : "1");
+                        dirty_from = ROW_ROW0 + std::min(sel_sub, 14);
+                        dirty_to = dirty_from + 1;
+                    } else if (CATS[sel].i[sel_sub].t == ENM && c == ' ') {
+                        auto opts = enums(sel, sel_sub);
+                        std::string curr = gv(sel, sel_sub);
+                        auto it = std::find(opts.begin(), opts.end(), curr);
+                        int idx = (it != opts.end()) ? std::distance(opts.begin(), it) : 0;
+                        sv(sel, sel_sub, opts[(idx + 1) % opts.size()]);
+                        dirty_from = ROW_ROW0 + std::min(sel_sub, 14);
+                        dirty_to = dirty_from + 1;
+                    } else if (c != ' ') {
+                        edit_mode = true;
+                        ed_buf = gv(sel, sel_sub);
+                        dirty_from = ROW_ROW0; dirty_to = ROW_ROW0 + CATS[sel].c;
+                    }
+                    dirty_full = true;
+                    last_sel = sel; last_sel_sub = sel_sub; last_edit = 1;
+                }
+            } else {
+                if(c == '\n' || c == '\r') {
+                    sv(sel, sel_sub, ed_buf);
+                    edit_mode = false;
+                    dirty_full = true;
+                    last_sel = sel; last_sel_sub = sel_sub; last_edit = 0;
+                }
+                else if(c == '\033') {
+                    edit_mode = false;
+                    dirty_full = true;
+                    last_sel = sel; last_sel_sub = sel_sub; last_edit = 0;
+                }
+                else if(c == 127 || c == 8) {
                     if(!ed_buf.empty()) ed_buf.pop_back();
+                    dirty_from = ROW_ROW0; dirty_to = ROW_ROW0 + CATS[sel].c;
+                    last_sel = sel; last_sel_sub = sel_sub; last_edit = 1;
                 }
                 else if(c >= 32 && c <= 126) {
-                    // Restrict bounds for float/int edits
                     const auto& item = CATS[sel].i[sel_sub];
                     if (item.t == FLT && !isdigit(c) && c != '.' && c != '-') continue;
                     if (item.t == INT && !isdigit(c) && c != '-') continue;
                     ed_buf += c;
+                    dirty_from = ROW_ROW0; dirty_to = ROW_ROW0 + CATS[sel].c;
+                    last_sel = sel; last_sel_sub = sel_sub; last_edit = 1;
                 }
             }
+
+            pos += consumed;
+        }
+
+        // Drain remaining buffer
+        if (pos > 0 && pos < input_buf_len) {
+            input_buf_len -= pos;
+            memmove(input_buf, input_buf + pos, input_buf_len);
+        } else {
+            input_buf_len = 0;
         }
     }
 
-    system("stty icanon echo");
-    printf("\033[?1049l"); // Restore original terminal buffer
+    restore_termios();
+    printf("\033[?1049l");
 }
