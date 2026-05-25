@@ -45,7 +45,7 @@ draw_line() {
 banner() {
     clear
     echo -e "${CYAN}╔══════════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${CYAN}║${NC}  ${BOLD}${WHITE}                  piTrove v11.1.9 Installation               ${NC}  ${CYAN}║${NC}"
+    echo -e "${CYAN}║${NC}  ${BOLD}${WHITE}                  piTrove Installation                       ${NC}  ${CYAN}║${NC}"
     echo -e "${CYAN}║${NC}  ${MAGENTA}               The Ultra-Premium Picture Frame              ${NC}  ${CYAN}║${NC}"
     echo -e "${CYAN}╚══════════════════════════════════════════════════════════════╝${NC}"
     echo
@@ -628,16 +628,81 @@ $SHARE_IP:$SHARE_PATH $SHARE_MOUNT $SHARE_PROTOCOL defaults,_netdev,timeo=10,ret
     fi
 fi
 
+# ── Branch Selection Dialog ────────────────────────────────────────────────────
+echo
+echo -e "${CYAN}╔══════════════════════════════════════════════════════════════╗${NC}"
+echo -e "${CYAN}║${NC}  ${BOLD}${WHITE}               SELECT INSTALLATION BRANCH                   ${NC}  ${CYAN}║${NC}"
+echo -e "${CYAN}╠══════════════════════════════════════════════════════════════╣${NC}"
+echo -e "${CYAN}║${NC}  ${BOLD}${GREEN}1)${NC} ${WHITE}main${NC} (Recommended) — Stable production release          ${CYAN}║${NC}"
+echo -e "${CYAN}║${NC}     - Production-ready, tested and verified                  ${CYAN}║${NC}"
+echo -e "${CYAN}║${NC}                                                              ${CYAN}║${NC}"
+echo -e "${CYAN}║${NC}  ${BOLD}${GREEN}2)${NC} ${WHITE}develop${NC} — Active development, features under test        ${CYAN}║${NC}"
+echo -e "${CYAN}║${NC}     - Cutting-edge updates, may contain experimental features  ${CYAN}║${NC}"
+echo -e "${CYAN}║${NC}                                                              ${CYAN}║${NC}"
+echo -e "${CYAN}║${NC}  ${BOLD}${GREEN}3)${NC} ${WHITE}Use currently checked-out branch                         ${CYAN}║${NC}}"
+echo -e "${CYAN}║${NC}     - Use whatever branch is already checked out locally       ${CYAN}║${NC}"
+echo -e "${CYAN}╚══════════════════════════════════════════════════════════════╝${NC}"
+echo
+info "${BOLD}Default: main${NC} (press Enter to accept)"
+echo -n -e "   ${BOLD}${YELLOW}▸ Enter your choice [1-3]:${NC} "
+read -r branch_choice
+branch_choice="${branch_choice:-1}"
+
+INSTALL_BRANCH="main"
+BRANCH_LABEL="main"
+case "$branch_choice" in
+    1)
+        INSTALL_BRANCH="main"
+        BRANCH_LABEL="main"
+        ;;
+    2)
+        INSTALL_BRANCH="develop"
+        BRANCH_LABEL="develop"
+        ;;
+    3)
+        if [[ -d "$PRIMARY_HOME/piTrove/.git" ]]; then
+            INSTALL_BRANCH=$(cd "$PRIMARY_HOME/piTrove" 2>/dev/null && git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
+            if [[ -z "$INSTALL_BRANCH" ]]; then
+                INSTALL_BRANCH="main"
+                BRANCH_LABEL="main"
+            else
+                BRANCH_LABEL="$INSTALL_BRANCH"
+            fi
+        else
+            INSTALL_BRANCH="main"
+            BRANCH_LABEL="main"
+        fi
+        ;;
+    *)
+        warn "Invalid choice. Defaulting to main branch."
+        INSTALL_BRANCH="main"
+        BRANCH_LABEL="main"
+        ;;
+esac
+
+if [[ "$BRANCH_LABEL" == "main" ]]; then
+    info "${GREEN}✓${NC} Installation branch: ${BOLD}${GREEN}main${NC} (stable production)"
+else
+    info "${YELLOW}⚠${NC} Installation branch: ${BOLD}${YELLOW}${BRANCH_LABEL}${NC} (development/testing)"
+fi
+
 # ── Clone / Update Git Repository ──────────────────────────────────────────────
 info "Setting up piTrove repository clone..."
 if [[ ! -d "$PRIMARY_HOME/piTrove/.git" ]]; then
-    run_with_spinner "Cloning piTrove production repository" git clone https://github.com/UnDadFeated/piTrove.git "$PRIMARY_HOME/piTrove"
+    run_with_spinner "Cloning piTrove repository (branch: $INSTALL_BRANCH)" git clone --branch "$INSTALL_BRANCH" --single-branch https://github.com/UnDadFeated/piTrove.git "$PRIMARY_HOME/piTrove"
 else
     info "Repository exists. Updating source..."
     cd "$PRIMARY_HOME/piTrove"
-    git pull || warn "Repository update failed. Using active local copy."
+    CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
+    if [[ "$CURRENT_BRANCH" != "$INSTALL_BRANCH" ]]; then
+        info "Switching from branch '$CURRENT_BRANCH' to '$INSTALL_BRANCH'..."
+        git fetch origin
+        git checkout "$INSTALL_BRANCH"
+    fi
+    git pull origin "$INSTALL_BRANCH" || warn "Repository update failed. Using active local copy."
 fi
 chown -R $PRIMARY_USER:$PRIMARY_USER "$PRIMARY_HOME/piTrove"
+info "Repository ready at: ${CYAN}$PRIMARY_HOME/piTrove${NC} (branch: ${BOLD}${BRANCH_LABEL}${NC})"
 
 # ── Font Setup ────────────────────────────────────────────────────────────────
 info "Configuring application typography..."
@@ -718,7 +783,7 @@ EOF
 else
     cat > "$CONFIG_FILE" <<EOF
 # ==========================================
-# piTrove Configuration File (v11.1.9)
+# piTrove Configuration File (auto-generated)
 # ==========================================
 
 [paths]
