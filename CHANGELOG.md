@@ -1,18 +1,15 @@
 # Changelog
 
-## v11.1.9 — Dynamic Collage Lookahead & 1\" Matte Adjustments (May 24, 2026)
+## v11.1.9 — Dynamic Collage Lookahead & 1" Matte Adjustments (May 24, 2026)
 
 ### Added
-- **Dynamic Lookahead Portrait Pairing** — Enhanced the collage selection logic to perform a forward search in the play queue when a portrait photo is encountered. It dynamically finds the nearest subsequent portrait photo in the randomized playlist and swaps it into the adjacent position (`idx + 1`), guaranteeing portrait photos are always displayed side-by-side as a beautiful twin-portrait collage instead of alone.
-- **Physical Matte Clearance** — Increased default display matting size from 48px to 96px across the entire configuration system (including installer scripts and core headers) to perfectly clear the margins of a 1" physical picture frame overlay at typical 1080p display resolutions.
-- **Robust Verification** — Recompiled the Docker container, restarted the systemd background services remotely via `sshpass`, and validated the entire C++ and Python testing suites on the active Raspberry Pi.
+- **Dynamic Lookahead Portrait Pairing** — Enhanced the collage selection logic to perform a forward search in the play queue when a portrait photo is encountered. It dynamically finds the nearest subsequent portrait photo in the randomized playlist and swaps it into the adjacent position (`idx + 1`), guaranteeing portrait photos are always displayed side-by-side as a twin-portrait collage.
+- **Physical Matte Clearance** — Increased default display matting size from 48px to 96px across the entire configuration system to clear the margins of a 1" physical picture frame overlay at 1080p display resolutions.
 
 ## v11.1.8 — Default Twin-Portrait Collage Setup (May 24, 2026)
 
 ### Added
-- **Default Twin Portrait Configuration** — Added default configuration properties to enable the twin-portrait collage feature by default (`twin_portrait_enabled = 1`) inside the active configuration `config.toml`.
-- **Systemd Daemon Automation** — Executed and validated remote systemd controls via `sshpass` to restart the `piTrove.service` background runner safely, applying the default configuration dynamically with zero playlist interruption.
-- **Robust Multi-Suite Verification** — Ran full remote automated validation of the entire C++ unit tests and Python integration test suites directly on the target Raspberry Pi device.
+- **Default Twin Portrait Configuration** — Enabled twin-portrait collage by default (`twin_portrait_enabled = 1`) in `config.toml`.
 
 ## v11.1.7 — Self-Update Fail-Safe Support (May 24, 2026)
 
@@ -49,8 +46,7 @@
 
 ### Added
 - **SIGINT Graceful Intercept** — Registered `SIGINT` (Ctrl+C) to trigger graceful shutdowns, restoring physical display backlights and closing the SQLite cache database safely.
-- **Normal Exit Backlight Restoration** — Added physical display backlight power restoration (`vcgencmd display_power 1`) inside the main cleanup block of `main.cpp` to ensure the screen is powered back on during standard application terminations.
-- **Boot Service Autofire** — Configured `install.sh` to immediately trigger and start the `piTrove.service` daemon after successful system registration, removing manual post-install steps.
+- **Normal Exit Backlight Restoration** — Added physical display backlight power restoration (`vcgencmd display_power 1`) in `main.cpp` to ensure the screen powers on during standard application terminations.
 
 ## v11.1.0 — MQTT Integration & Interleaving Ratio Optimization (May 23, 2026)
 
@@ -91,7 +87,6 @@
 - **Process Reaping race condition in video player** — Synchronized process reaping and process state handling in `MpvPlayer::check_status` by holding the mutex lock during execution.
 - **Broken CRT Screen Curvature Vignette** — Replaced the impossible `< 0.7f` condition with `edge = 1.0f - 0.3f * (v * v)` and a `< 1.0f` check to correctly render a translucent curvature vignette fading to black near screen boundaries.
 - **Division by Zero / NaN in Transition** — Enforced a minimum duration of `0.001f` in `TransitionEngine::start` to prevent NaN progress values on division by zero.
-- **Zero Compiler Warnings** — Cast `char` to `unsigned char` for range checking in `escape_json` to clean up ARM64 type-limit warnings.
 
 ## v10.4.2 — Case-Insensitive Extension Support for Media Classification (May 23, 2026)
 
@@ -206,8 +201,7 @@
 ## v10.3.1 — Balanced Skew Video Interleaving (May 22, 2026)
 
 ### Added
-- **Balanced Skew Video Interleaving** — Implemented an automatic photo-to-video pool capping ratio constraint (`max_videos = photos.size() * (videos_per_photos / 10.0)`) to cleanly resolve heavy media pool skews. Shuffled media item pools are now mathematical-interleave capped and dynamically resized, completely eliminating long consecutive runs of videos (clustering) in slideshow play queues.
-- **Service Deployment Verification** — Enforced proper compilation checks and remote daemon service restarts to ensure the running binary is always identical to the latest compiled local workspace improvements.
+- **Balanced Skew Video Interleaving** — Implemented an automatic photo-to-video pool capping ratio constraint (`max_videos = photos.size() * (videos_per_photos / 10.0)`) to resolve heavy media pool skews. Shuffled media item pools are now mathematical-interleave capped and dynamically resized, eliminating long consecutive runs of videos (clustering) in slideshow play queues.
 
 ## v10.3.0 — Dynamic Hardware Auto-Probing, Custom Typography & Robust Socket Fallbacks (May 22, 2026)
 
@@ -318,8 +312,6 @@
 
 ## v9.0.1 — Fix scanner hanging on Synology @eaDir/@Recycle (May 21, 2026)
 
-## v9.0.1 — Fix scanner hanging on Synology @eaDir/@Recycle (May 21, 2026)
-
 ### Fixed
 - **CRITICAL · Scan freeze on CIFS/Synology NAS** — `ignore_folders` config (`@eaDir`, `@Recycle`, `Thumbs.db`) was only checked after the scan completed, not during traversal. The scanner recursed into massive Synology metadata directories, causing the app to hang indefinitely during the scan phase. Fixed by passing `ignore_folders` to `MediaScanner::scan()` and filtering directories during recursive traversal.
 
@@ -335,7 +327,6 @@
 - **Shaders externalized** — GLSL source files in `src/shaders/` instead of embedded C strings.
 - **config.cpp refactored** — Removed local lambdas, uses global `util.h` functions (`trim`, `safe_stoi`, `safe_stof`, `safe_stod`, `safe_stoll`).
 - **Scanner fixed** — Added `#define _GNU_SOURCE` and `#include <dirent.h>` for `getdents64`.
-- **CMakeLists.txt** — Proper SDL2_image/png16/jpeg/webp/tiff/heif/SQLite3 linking via pkg-config.
 
 ### Fixed
 - **Build system** — SQLite3 via pkg-config, explicit png16/jpeg/webp/tiff/heif linking (not via SDL2_image transitive).
@@ -370,7 +361,6 @@
 
 ### Fixed
 - **Video fullscreen — no OSD overlay bar** — Removed `--osd-bar` which rendered a dark progress bar across the bottom of the video. Videos now render clean fullscreen via mpv `--vo=drm`.
-- **Video OSD text bar removed** — Removed `--osd-status-msg`, `--osd-align-*`, and `--osd-font-size` arguments. The text overlay rendered a dark bar even when no video was playing. Videos play clean fullscreen.
 - **Subtitle overlay removed** — Added `--no-sub` to prevent hardcoded subtitles from rendering over video content.
 
 ## v8.3.0 — 30% video ratio, OSD progress, splash fallback, 5-day scan (May 20, 2026)
@@ -382,7 +372,6 @@
 ### Changed
 - **Scan window reduced** — `scan_window_days` default changed from `15` to `5` (configurable). Cuts scan time from ~5 min to ~2.5 min, reduces cache from 45K to ~12K items.
 - **Video OSD moved to bottom** — mpv OSD now shows `filename.ext - MM:SS` bottom-left (native mpv rendering). Removed redundant in-process filename overlay during video playback.
-- **Fade-in skipped for videos** — mpv renders natively to DRM; Raylib fade-in would cover mpv output.
 
 ### Fixed
 - **Splash crash on empty config** — `splash_file = ""` no longer causes `create_directories("")` crash.
@@ -442,7 +431,6 @@
 
 ### Changed
 - **Video playback architecture** — Replaced in-process `libmpv` render API with subprocess `mpv --vo=drm`. The in-process approach (v3.0.0–v7.10.3) required sharing Raylib's EGL context, explicit FBO binding, and an event drain thread — all of which produced black screens on Pi 5 (GLES2/DRM FBO incompatibilities). Subprocess mpv renders directly to the DRM display via `drmDropMaster`/`drmSetMaster`.
-- **EGL context management removed** — No more `make_egl_current()`, `release_egl_current()`, `mpv_render_context`, FBO params, or `eglGetProcAddress` for mpv. DRM master is dropped before `fork()` and re-acquired on subprocess exit.
 - **Countdown timer** — Removed because subprocess mpv provides no in-process time tracking. Timer overlay shows `--:--` during video playback.
 
 ### Fixed
