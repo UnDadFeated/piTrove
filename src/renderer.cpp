@@ -473,6 +473,31 @@ void Renderer::draw_bias_lighting(const SDL_Rect& fit_rect, Uint8 avg_r, Uint8 a
     // Right
     { int depth = sw - (fit_rect.x + fit_rect.w + bw); if (depth > 0) glow_right(fit_rect.x + fit_rect.w + bw, fit_rect.y - bw, depth, fit_rect.h + 2*bw + 1); }
 
+    // Screen edge fade: horizontal/vertical fade rows at screen edge that bridge edge glow strips into corner glow
+    // Uses 2D distance from nearest corner so the fade matches the corner glow's diagonal falloff
+    auto glow_edge = [&](int edge_x, int edge_y, int edge_len, int edge_dx, int corner_dist) {
+        for (int i = 0; i < edge_len; i++) {
+            int px = edge_x + i * edge_dx;
+            float dist2d = std::sqrtf((float)i * i + (float)corner_dist * corner_dist);
+            float t2 = dist2d / glow_steps;
+            float alpha_f = std::expf(-2.5f * t2 * t2) * sf * pulse;
+            if (alpha_f < 0.01f) break;
+            Uint8 aa = (Uint8)(alpha_f * 255.0f);
+            SDL_SetRenderDrawColor(sdl_renderer, avg_r, avg_g, avg_b, aa);
+            SDL_FRect r = {(float)px, (float)edge_y, 1.0f, 1.0f};
+            SDL_RenderFillRect(sdl_renderer, &r);
+        }
+    };
+
+    // Top edge: horizontal fade row at y=0, fades from center toward corners
+    { int top_depth = fit_rect.y - bw; if (top_depth > 0) glow_edge(fit_rect.x - bw, 0, fit_rect.w + 2*bw + 1, -1, top_depth); }
+    // Bottom edge: horizontal fade row at y=screen_h-1, fades from center toward corners
+    { int bot_depth = sh - (fit_rect.y + fit_rect.h + bw); if (bot_depth > 0) glow_edge(fit_rect.x - bw, sh - 1, fit_rect.w + 2*bw + 1, -1, bot_depth); }
+    // Left edge: vertical fade row at x=0, fades from center toward corners
+    { int left_depth = fit_rect.x - bw; if (left_depth > 0) glow_edge(0, fit_rect.y - bw, fit_rect.h + 2*bw + 1, -1, left_depth); }
+    // Right edge: vertical fade row at x=screen_w-1, fades from center toward corners
+    { int right_depth = sw - (fit_rect.x + fit_rect.w + bw); if (right_depth > 0) glow_edge(sw - 1, fit_rect.y - bw, fit_rect.h + 2*bw + 1, -1, right_depth); }
+
     // Corner glow: fills diagonal area only (skip i==0 or j==0 — edge glow covers straight edge)
     auto glow_corner = [&](int px, int py, int dx, int dy, int region_w, int region_h) {
         for (int i = 1; i <= region_w; i++) {
