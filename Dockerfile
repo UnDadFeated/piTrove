@@ -46,6 +46,7 @@ WORKDIR /build-src
 COPY src/ /build-src/src/
 
 # Compile piTrove executable target in Release mode
+RUN rm -rf /build-src/src/build && mkdir -p /build-src/src/build
 WORKDIR /build-src/src/build
 RUN cmake .. -DCMAKE_BUILD_TYPE=Release && \
     cmake --build . -j$(nproc)

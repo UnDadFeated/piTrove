@@ -103,12 +103,9 @@ bool MpvPlayer::play(const std::string& path, int volume) {
         }
     }
 
-    char margin_x_arg[64], margin_y_arg[64];
-    std::snprintf(margin_x_arg, sizeof(margin_x_arg), "--osd-margin-x=%d", matte_px + 8);
-    std::snprintf(margin_y_arg, sizeof(margin_y_arg), "--osd-margin-y=%d", std::max(0, matte_px - 17));
-
-    char sub_margin_y_arg[64];
-    std::snprintf(sub_margin_y_arg, sizeof(sub_margin_y_arg), "--sub-margin-y=%d", std::max(0, matte_px - 17));
+    const char* margin_x_arg = "--osd-margin-x=56";
+    const char* margin_y_arg = "--osd-margin-y=31";
+    const char* sub_margin_y_arg = "--sub-margin-y=31";
 
     // Dynamically calculate thread pool size based on CPU cores (max_cores - 1)
     unsigned int max_cores = std::thread::hardware_concurrency();
