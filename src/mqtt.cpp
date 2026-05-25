@@ -14,15 +14,27 @@ static std::mutex g_mqtt_mtx;
 static FILE* g_mqtt_fp = nullptr;
 
 void mqtt_publish(const std::string& topic, const std::string& payload, bool retain) {
-    if (!g_cfg.mqtt_enabled) return;
-    
-    std::string cmd = "mosquitto_pub -h " + g_cfg.mqtt_broker +
-                      " -p " + std::to_string(g_cfg.mqtt_port);
-    if (!g_cfg.mqtt_user.empty()) {
-        cmd += " -u '" + g_cfg.mqtt_user + "'";
+    bool enabled;
+    std::string broker;
+    int port = 1883;
+    std::string user, pass;
+    {
+        std::lock_guard<std::mutex> lk(g_config_mtx);
+        enabled = g_cfg.mqtt_enabled;
+        broker = g_cfg.mqtt_broker;
+        port = g_cfg.mqtt_port;
+        user = g_cfg.mqtt_user;
+        pass = g_cfg.mqtt_pass;
     }
-    if (!g_cfg.mqtt_pass.empty()) {
-        cmd += " -P '" + g_cfg.mqtt_pass + "'";
+    if (!enabled) return;
+
+    std::string cmd = "mosquitto_pub -h " + broker +
+                      " -p " + std::to_string(port);
+    if (!user.empty()) {
+        cmd += " -u '" + user + "'";
+    }
+    if (!pass.empty()) {
+        cmd += " -P '" + pass + "'";
     }
     if (retain) {
         cmd += " -r";
@@ -34,8 +46,7 @@ void mqtt_publish(const std::string& topic, const std::string& payload, bool ret
         else escaped_payload += c;
     }
     cmd += " -t '" + topic + "' -m '" + escaped_payload + "'";
-    
-    // Spawn detached thread to run command in background safely
+
     std::thread([cmd]() {
         int res = ::system(cmd.c_str());
         (void)res;

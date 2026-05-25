@@ -1305,13 +1305,14 @@ int main(int argc, char** argv) {
         while (SDL_PollEvent(&event)) {
             switch (event.type) {
                 case SDL_EVENT_QUIT: g_running.store(false); break;
-                case SDL_EVENT_KEY_DOWN:
-                    if (g_screen_blanked.load()) {
-                        g_screen_blanked = false;
+                 case SDL_EVENT_KEY_DOWN:
+                    if (g_screen_blanked.exchange(false)) {
                         int res = ::system("vcgencmd display_power 1");
                         (void)res;
                         g_last_motion_time.store(static_cast<int64_t>(std::time(nullptr)));
-                        mqtt_publish(g_cfg.mqtt_topic_prefix + "/status/screen", "ON", true);
+                        std::string prefix;
+                        { std::lock_guard<std::mutex> lk(g_config_mtx); prefix = g_cfg.mqtt_topic_prefix; }
+                        mqtt_publish(prefix + "/status/screen", "ON", true);
                     }
                     switch (event.key.key) {
                         case SDLK_ESCAPE: case SDLK_Q: g_running.store(false); break;
@@ -1321,12 +1322,13 @@ int main(int argc, char** argv) {
                     }
                     break;
                 case SDL_EVENT_MOUSE_BUTTON_DOWN:
-                    if (g_screen_blanked.load()) {
-                        g_screen_blanked = false;
+                    if (g_screen_blanked.exchange(false)) {
                         int res = ::system("vcgencmd display_power 1");
                         (void)res;
                         g_last_motion_time.store(static_cast<int64_t>(std::time(nullptr)));
-                        mqtt_publish(g_cfg.mqtt_topic_prefix + "/status/screen", "ON", true);
+                        std::string prefix;
+                        { std::lock_guard<std::mutex> lk(g_config_mtx); prefix = g_cfg.mqtt_topic_prefix; }
+                        mqtt_publish(prefix + "/status/screen", "ON", true);
                     }
                     g_remote_command.store(1);
                     break;
@@ -1334,15 +1336,24 @@ int main(int argc, char** argv) {
         }
 
         // Check motion sensor cooldown
-        if (g_cfg.mqtt_enabled && g_cfg.mqtt_motionsensor_cooldown > 0 && !g_screen_blanked.load()) {
-            int64_t now_ts = static_cast<int64_t>(std::time(nullptr));
-            int64_t last_motion = g_last_motion_time.load();
-            if (last_motion > 0 && (now_ts - last_motion >= g_cfg.mqtt_motionsensor_cooldown)) {
-                g_logger.info("Motion sensor cooldown threshold reached (%d seconds). Blanking screen.", g_cfg.mqtt_motionsensor_cooldown);
-                g_screen_blanked = true;
-                int res = ::system("vcgencmd display_power 0");
-                (void)res;
-                mqtt_publish(g_cfg.mqtt_topic_prefix + "/status/screen", "OFF", true);
+        {
+            bool mqtt_on = false;
+            int cooldown = 0;
+            { std::lock_guard<std::mutex> lk(g_config_mtx); mqtt_on = g_cfg.mqtt_enabled; cooldown = g_cfg.mqtt_motionsensor_cooldown; }
+            if (mqtt_on && cooldown > 0) {
+                int64_t now_ts = static_cast<int64_t>(std::time(nullptr));
+                int64_t last_motion = g_last_motion_time.load();
+                if (last_motion > 0 && (now_ts - last_motion >= cooldown)) {
+                    g_logger.info("Motion sensor cooldown threshold reached (%d seconds). Blanking screen.", cooldown);
+                    if (!g_screen_blanked.load()) {
+                        g_screen_blanked.store(true);
+                        int res = ::system("vcgencmd display_power 0");
+                        (void)res;
+                        std::string prefix;
+                        { std::lock_guard<std::mutex> lk(g_config_mtx); prefix = g_cfg.mqtt_topic_prefix; }
+                        mqtt_publish(prefix + "/status/screen", "OFF", true);
+                    }
+                }
             }
         }
 
