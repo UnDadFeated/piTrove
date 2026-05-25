@@ -11,6 +11,11 @@
 - **Edge strip underflow on small images** — Added bounds guard for edge color sampling when image dimensions are less than 3 pixels.
 - **CIFS scan thread pool** — Removed multi-threaded scan in favor of single-threaded worker to prevent CIFS mount hangs.
 - **Twin portrait data race** — Eliminated unguarded access to shared playlist vector in twin-portrait pairing logic.
+- **Screen blank toggle race** — Replaced non-atomic read-modify-write on screen blank flag with atomic compare-exchange to prevent torn writes during rapid toggle and motion-sensor wake events.
+- **MQTT config data race** — Secured all MQTT publish and Home Assistant discovery calls to read broker settings under lock, preventing corruption during live config reloads.
+- **Display power data race** — Fixed non-atomic writes to screen blank state across all input handlers (keyboard, mouse, motion sensor cooldown) to prevent lost wake events.
+- **Config reload safety** — Protected all configuration reads across the HTTP API, slideshow loop, cache subsystem, and MQTT client with mutex guards to prevent stale or torn reads during live updates.
+- **Cache transaction atomicity** — Changed database transaction flag from plain bool to atomic to prevent race between concurrent upsert and transaction lifecycle calls.
 
 ## v11.1.9 — Dynamic Collage Lookahead & 1" Matte Adjustments (May 24, 2026)
 
