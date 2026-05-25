@@ -419,7 +419,7 @@ void Renderer::draw_bias_lighting(const SDL_Rect& fit_rect, Uint8 avg_r, Uint8 a
 
     // Glow: gradient strips outward from border, brightest at border edge, fading into matte
     auto glow_up = [&](int gx, int gy, int gw, int max_depth) {
-        for (int s = 0; s < max_depth && s < glow_steps; s++) {
+        for (int s = 0; s <= max_depth && s < glow_steps; s++) {
             float t2 = (float)s / glow_steps;
             float alpha_f = std::expf(-2.5f * t2 * t2) * sf * pulse;
             if (alpha_f < 0.01f) break;
@@ -441,7 +441,7 @@ void Renderer::draw_bias_lighting(const SDL_Rect& fit_rect, Uint8 avg_r, Uint8 a
         }
     };
     auto glow_left = [&](int gx, int gy, int max_depth, int gh) {
-        for (int s = 0; s < max_depth && s < glow_steps; s++) {
+        for (int s = 0; s <= max_depth && s < glow_steps; s++) {
             float t2 = (float)s / glow_steps;
             float alpha_f = std::expf(-2.5f * t2 * t2) * sf * pulse;
             if (alpha_f < 0.01f) break;
