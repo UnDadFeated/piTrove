@@ -30,7 +30,8 @@ static std::atomic<bool> g_server_running{false};
 static int g_listen_fd = -1;
 
 // Premium Glassmorphic Dashboard HTML
-static const std::string DASHBOARD_HTML = R"HTML(
+static std::string get_dashboard_html() {
+    std::string html = R"HTML(
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -599,6 +600,14 @@ static const std::string DASHBOARD_HTML = R"HTML(
 </body>
 </html>
 )HTML";
+    // Replace hardcoded version placeholder with actual build version
+    static const std::string placeholder = "v11.0.0 glassmorphic system";
+    size_t pos = html.find(placeholder);
+    if (pos != std::string::npos) {
+        html.replace(pos, placeholder.size(), std::string("v") + VERSION + " glassmorphic system");
+    }
+    return html;
+}
 
 static std::string escape_json(const std::string& s) {
     std::ostringstream oss;
@@ -888,7 +897,7 @@ static void server_loop(int port) {
 
             // Very simple router
             if (request.rfind("GET / ", 0) == 0 || request.rfind("GET /dashboard", 0) == 0) {
-                send_response(client_fd, "HTTP/1.1 200 OK", "text/html", DASHBOARD_HTML);
+                send_response(client_fd, "HTTP/1.1 200 OK", "text/html", get_dashboard_html());
             } 
             else if (request.rfind("GET /api/status", 0) == 0) {
                 send_response(client_fd, "HTTP/1.1 200 OK", "application/json", get_api_status());

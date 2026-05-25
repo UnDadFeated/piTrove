@@ -138,22 +138,23 @@ static bool is_item_in_seasonal_window(const MediaItem& item, int window_days) {
     return is_in_seasonal_window(item.filename, window_days);
 }
 
-static bool should_be_twin_portrait(int idx, int size) {
+static bool should_be_twin_portrait(std::vector<MediaItem>& eligible, int idx) {
     bool twin_enabled = false;
     {
         std::lock_guard<std::mutex> lock(g_config_mtx);
         twin_enabled = g_cfg.twin_portrait_enabled;
     }
+    int size = (int)eligible.size();
     if (!twin_enabled || size < 2) return false;
 
     // Check if the current item is portrait
     if (idx >= size || idx < 0) return false;
-    const auto& item1 = g_eligible[idx];
+    const auto& item1 = eligible[idx];
     if (item1.type == "video" || item1.height <= item1.width || item1.height <= 0) return false;
 
     // Check if the next item is portrait
     if (idx + 1 >= size) return false;
-    const auto& item2 = g_eligible[idx + 1];
+    const auto& item2 = eligible[idx + 1];
     bool item2_is_portrait = (item2.type == "image" && item2.height > item2.width && item2.height > 0);
 
     if (item2_is_portrait) {
@@ -162,10 +163,10 @@ static bool should_be_twin_portrait(int idx, int size) {
 
     // If next item is not portrait, search forward in the playlist to find the nearest portrait image to pair
     for (int j = idx + 2; j < size; j++) {
-        const auto& candidate = g_eligible[j];
+        const auto& candidate = eligible[j];
         if (candidate.type == "image" && candidate.height > candidate.width && candidate.height > 0) {
             // Swap candidate into the adjacent slot (idx + 1)
-            std::swap(g_eligible[idx + 1], g_eligible[j]);
+            std::swap(eligible[idx + 1], eligible[j]);
             g_logger.info("Twin-Portrait: Dynamically paired portrait at index %d by bringing forward portrait from index %d", idx, j);
             return true;
         }
@@ -745,7 +746,7 @@ int main(int argc, char** argv) {
             if (fscanf(lf, "%d", &old_pid) == 1 && old_pid > 0 && old_pid != getpid()) {
                 printf("\033[1;33m[INFO]\033[0m Gracefully terminating running instance (PID %d)...\n", old_pid);
                 kill(old_pid, SIGTERM);
-                usleep(800000); // Give it a moment to release sockets/files/VRAM
+                std::this_thread::sleep_for(std::chrono::microseconds(800000)); // Give it a moment to release sockets/files/VRAM
             }
             fclose(lf);
         }
@@ -1173,7 +1174,7 @@ int main(int argc, char** argv) {
             break;
         } else {
             // First item is an image, check if should be twin portrait
-            bool is_twin = should_be_twin_portrait(current_idx, (int)g_eligible.size());
+            bool is_twin = should_be_twin_portrait(g_eligible, current_idx);
             if (is_twin) {
                 int next_idx = (current_idx + 1) % (int)g_eligible.size();
                 std::string path_l = g_eligible[current_idx].path;
@@ -1508,110 +1509,66 @@ int main(int argc, char** argv) {
             // Load next_data exactly once at the beginning of the transition
             if (!next_data) {
                 int next_idx = current_idx % (int)g_eligible.size();
-                bool is_twin = should_be_twin_portrait(next_idx, (int)g_eligible.size());
+                bool is_twin = should_be_twin_portrait(g_eligible, next_idx);
+                bool current_was_twin = should_be_twin_portrait(g_eligible, current_idx);
 
+                int next_idx_twin = -1;
+                std::string next_path, next_path_twin;
                 if (is_twin) {
-                    int next_idx_twin = (next_idx + 1) % (int)g_eligible.size();
-                    std::string next_path = g_eligible[next_idx].path;
-                    std::string next_path_twin = g_eligible[next_idx_twin].path;
+                    next_idx_twin = (next_idx + 1) % (int)g_eligible.size();
+                    next_path = g_eligible[next_idx].path;
+                    next_path_twin = g_eligible[next_idx_twin].path;
+                } else {
+                    next_path = g_eligible[next_idx].path;
+                }
 
-                    playlist_lock.unlock(); // Unlock while performing background preloaded dequeue
-                    if (g_preload) {
-                        next_data = g_preload->try_dequeue(next_path);
+                // Capture paths under lock, then unlock for I/O to prevent race on g_eligible
+                playlist_lock.unlock();
+                if (g_preload) {
+                    next_data = g_preload->try_dequeue(next_path);
+                    if (is_twin) {
                         next_twin_data = g_preload->try_dequeue(next_path_twin);
                     }
-                    playlist_lock.lock(); // Re-lock
+                }
+                // Fallback to synchronous load if preloader bypassed or missed
+                if (!next_data || !next_data->valid) {
+                    next_data = ImageLoader::load(next_path);
+                }
+                if (is_twin && (!next_twin_data || !next_twin_data->valid)) {
+                    next_twin_data = ImageLoader::load(next_path_twin);
+                }
+                playlist_lock.lock();
 
-                    // Fallback to synchronous load if preloader bypassed or missed
-                    if (!next_data || !next_data->valid || !next_twin_data || !next_twin_data->valid) {
-                        playlist_lock.unlock();
-                        if (!next_data || !next_data->valid) {
-                            next_data = ImageLoader::load(next_path);
-                        }
-                        if (!next_twin_data || !next_twin_data->valid) {
-                            next_twin_data = ImageLoader::load(next_path_twin);
-                        }
-                        playlist_lock.lock();
+                // Update metadata using path-safe lookups (indices may have shifted)
+                auto update_meta_safe = [&](const std::string& expected_path, const std::shared_ptr<ImageData>& data) {
+                    int found = -1;
+                    for (int i = 0; i < (int)g_eligible.size(); i++) {
+                        if (g_eligible[i].path == expected_path) { found = i; break; }
                     }
-
-                    if (next_data && next_data->valid && next_twin_data && next_twin_data->valid) {
-                        ImageLoader::load_texture(next_data.get(), g_renderer.sdl_renderer);
-                        ImageLoader::load_texture(next_twin_data.get(), g_renderer.sdl_renderer);
-
-                        // Update metadata
-                        auto update_meta_safe = [&](int idx, const std::string& expected_path, const std::shared_ptr<ImageData>& data) {
-                            if (idx >= 0 && idx < (int)g_eligible.size() && g_eligible[idx].path == expected_path) {
-                                g_eligible[idx].width = data->width;
-                                g_eligible[idx].height = data->height;
-                                g_eligible[idx].exif_rotation = data->exif_rotation;
-                                if (g_cache) g_cache->upsert(g_eligible[idx], 0);
-                            } else {
-                                int found = -1;
-                                for (int i = 0; i < (int)g_eligible.size(); i++) {
-                                    if (g_eligible[i].path == expected_path) { found = i; break; }
-                                }
-                                if (found != -1) {
-                                    g_eligible[found].width = data->width;
-                                    g_eligible[found].height = data->height;
-                                    g_eligible[found].exif_rotation = data->exif_rotation;
-                                    if (g_cache) g_cache->upsert(g_eligible[found], 0);
-                                }
-                            }
-                        };
-                        update_meta_safe(next_idx, next_path, next_data);
-                        update_meta_safe(next_idx_twin, next_path_twin, next_twin_data);
-                    } else {
-                        if (g_cache && next_data && !next_data->valid) g_cache->mark_bad(next_path);
-                        if (g_cache && next_twin_data && !next_twin_data->valid) g_cache->mark_bad(next_path_twin);
-                        next_data = nullptr;
-                        next_twin_data = nullptr;
+                    if (found != -1) {
+                        g_eligible[found].width = data->width;
+                        g_eligible[found].height = data->height;
+                        g_eligible[found].exif_rotation = data->exif_rotation;
+                        if (g_cache) g_cache->upsert(g_eligible[found], 0);
                     }
+                };
+                update_meta_safe(next_path, next_data);
+                if (is_twin && next_twin_data) {
+                    update_meta_safe(next_path_twin, next_twin_data);
+                }
+
+                if (next_data && next_data->valid && next_twin_data && next_twin_data->valid) {
+                    ImageLoader::load_texture(next_data.get(), g_renderer.sdl_renderer);
+                    ImageLoader::load_texture(next_twin_data.get(), g_renderer.sdl_renderer);
                 } else {
-                    std::string next_path = g_eligible[next_idx].path;
-
-                    playlist_lock.unlock(); // Unlock while performing background preloaded dequeue
-                    if (g_preload) {
-                        next_data = g_preload->try_dequeue(next_path);
-                    }
-                    playlist_lock.lock(); // Re-lock
-
-                    // Fallback to synchronous load if not preloaded
-                    if (!next_data || !next_data->valid) {
-                        playlist_lock.unlock();
-                        next_data = ImageLoader::load(next_path);
-                        playlist_lock.lock();
-                    }
-
-                    if (next_data && next_data->valid) {
-                        ImageLoader::load_texture(next_data.get(), g_renderer.sdl_renderer);
-                        next_twin_data = nullptr;
-
-                        if (next_idx >= 0 && next_idx < (int)g_eligible.size() && g_eligible[next_idx].path == next_path) {
-                            g_eligible[next_idx].width = next_data->width;
-                            g_eligible[next_idx].height = next_data->height;
-                            g_eligible[next_idx].exif_rotation = next_data->exif_rotation;
-                            if (g_cache) g_cache->upsert(g_eligible[next_idx], 0);
-                        } else {
-                            int found = -1;
-                            for (int i = 0; i < (int)g_eligible.size(); i++) {
-                                if (g_eligible[i].path == next_path) { found = i; break; }
-                            }
-                            if (found != -1) {
-                                g_eligible[found].width = next_data->width;
-                                g_eligible[found].height = next_data->height;
-                                g_eligible[found].exif_rotation = next_data->exif_rotation;
-                                if (g_cache) g_cache->upsert(g_eligible[found], 0);
-                            }
-                        }
-                    } else {
-                        if (g_cache && next_data) g_cache->mark_bad(next_path);
-                        next_data = nullptr;
-                        next_twin_data = nullptr;
-                    }
+                    if (g_cache && next_data && !next_data->valid) g_cache->mark_bad(next_path);
+                    if (g_cache && next_twin_data && !next_twin_data->valid) g_cache->mark_bad(next_path_twin);
+                    next_data = nullptr;
+                    next_twin_data = nullptr;
                 }
             }
 
-            bool load_success = next_data && next_data->texture && (!should_be_twin_portrait(current_idx, (int)g_eligible.size()) || (next_twin_data && next_twin_data->texture));
+            bool load_success = next_data && next_data->texture && (!should_be_twin_portrait(g_eligible, current_idx) || (next_twin_data && next_twin_data->texture));
 
             if (load_success) {
                 // Generate intermediate flat textures representing full screen layout states
@@ -1852,7 +1809,7 @@ int main(int argc, char** argv) {
             // Preload next items asynchronously while resting
             if (g_preload) {
                 int lookahead_idx = (current_idx + (current_twin_data ? 2 : 1)) % (int)g_eligible.size();
-                bool next_is_twin = should_be_twin_portrait(lookahead_idx, (int)g_eligible.size());
+                bool next_is_twin = should_be_twin_portrait(g_eligible, lookahead_idx);
                 
                 if (lookahead_idx >= 0 && lookahead_idx < (int)g_eligible.size()) {
                     if (g_eligible[lookahead_idx].type == "image") {
@@ -1888,6 +1845,9 @@ int main(int argc, char** argv) {
     
     // Stop background HTTP server
     stop_http_server();
+    
+    // Stop background MQTT client safely
+    stop_mqtt_client();
     
     // Stop background watchman thread safely
     g_watchman_running.store(false);

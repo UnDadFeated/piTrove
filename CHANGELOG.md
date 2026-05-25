@@ -1,5 +1,17 @@
 # Changelog
 
+## v11.2.1 — Stability Hardening: FD Leaks, Async-Signal-Safety, Thread Races (May 25, 2026)
+
+### Fixed
+- **FFprobe fork fd leak (scanner.cpp)** — Replaced broken `/proc/self/fd` DIR handle iteration with `readlink()` + deferred `close()` to prevent fd leakage to ffprobe child processes.
+- **MQTT detached thread lifecycle (mqtt.cpp)** — Replaced `std::thread::detach()` with tracked `std::thread` + `stop_mqtt_client()` joinable shutdown. Added `g_mqtt_fp` mutex-protected FILE pointer for clean `pclose()` on exit.
+- **Playlist lock race window (main.cpp)** — Eliminated unlock/relock `playlist_lock` during transition loading by capturing paths under lock, then performing all I/O (preload dequeue + fallback sync load) outside lock, with re-lock before metadata updates.
+- **crash_handler() async-signal-unsafe system() (util.cpp)** — Replaced `system("vcgencmd display_power 1")` with direct `/sys/class/graphics/fb0/blank` sysfs write (O_WRONLY, write(), close()) — fully async-signal-safe.
+- **Deprecated usleep() (main.cpp, mpv_player.cpp, tui.cpp)** — Replaced all `usleep()` calls with `std::this_thread::sleep_for(std::chrono::microseconds(...))` across 3 files.
+- **Edge strip underflow (preload.cpp)** — Added guard for images < 3px in width/height before edge sampling; clips sample count to actual dimension to prevent out-of-bounds pixel reads.
+- **CIFS multi-threaded scan (scanner.cpp)** — Removed `std::thread` pool for directory scanning; single-threaded `worker()` call preserves CIFS stability constraint.
+- **should_be_twin_portrait() data race (main.cpp)** — Changed signature from `should_be_twin_portrait(int idx, int size)` to `should_be_twin_portrait(std::vector<MediaItem>&, int idx)` to eliminate unguarded reads of `g_eligible` from multiple threads.
+
 ## v11.1.9 — Dynamic Collage Lookahead & 1" Matte Adjustments (May 24, 2026)
 
 ### Added

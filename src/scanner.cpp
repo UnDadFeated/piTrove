@@ -169,21 +169,35 @@ std::string run_ffprobe(const std::vector<std::string>& args, int timeout_ms) {
         if (devnull_in >= 0) { dup2(devnull_in, STDIN_FILENO); close(devnull_in); }
 
         // Close all other file descriptors to prevent leaks to child process
-        DIR* dir = opendir("/proc/self/fd");
-        if (dir) {
-            int dfd = dirfd(dir);
-            struct dirent* de;
-            while ((de = readdir(dir))) {
-                if (de->d_name[0] == '.') continue;
-                int fd = std::atoi(de->d_name);
-                if (fd >= 3 && fd != dfd) {
-                    close(fd);
+        {
+            char fd_path[64];
+            ssize_t n = readlink("/proc/self/fd", fd_path, sizeof(fd_path) - 1);
+            if (n > 0) {
+                fd_path[n] = '\0';
+                DIR* dir = opendir(fd_path);
+                if (dir) {
+                    std::vector<int> fds_to_close;
+                    struct dirent* de;
+                    while ((de = readdir(dir))) {
+                        if (de->d_name[0] == '.') continue;
+                        int fd = std::atoi(de->d_name);
+                        if (fd >= 3) {
+                            fds_to_close.push_back(fd);
+                        }
+                    }
+                    closedir(dir);
+                    for (int fd : fds_to_close) {
+                        close(fd);
+                    }
+                } else {
+                    for (int i = 3; i < 256; ++i) {
+                        close(i);
+                    }
                 }
-            }
-            closedir(dir);
-        } else {
-            for (int i = 3; i < 256; ++i) {
-                close(i);
+            } else {
+                for (int i = 3; i < 256; ++i) {
+                    close(i);
+                }
             }
         }
 
@@ -375,21 +389,8 @@ std::vector<MediaItem> MediaScanner::scan(const std::string& directory,
         } catch (...) {}
     };
 
-    // Use hardware threads (like legacy) for max throughput
-    int hw_cores = std::max(1, (int)std::thread::hardware_concurrency());
-    int num_threads = std::min(hw_cores - 1, (int)subdirs.size());
-    if (num_threads < 1) num_threads = 1;
-
-    int chunk = std::max(1, (int)subdirs.size() / num_threads);
-    std::vector<std::thread> threads;
-    for (int t = 0; t < num_threads; t++) {
-        int start = t * chunk;
-        int end = (t == num_threads - 1) ? (int)subdirs.size() : start + chunk;
-        threads.emplace_back(worker, start, end);
-    }
-    for (auto& th : threads) {
-        if (th.joinable()) th.join();
-    }
+    // Single-threaded scan: CIFS multi-threaded scanning crashes/hangs
+    worker(0, (int)subdirs.size());
 
     for (const auto& pair : root_files) {
         process_entry(pair.first, pair.second, exts, window_days, list_mutex, all_items);

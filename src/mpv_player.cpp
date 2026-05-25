@@ -12,6 +12,7 @@
 #include <xf86drm.h>
 #include <EGL/egl.h>
 #include <thread>
+#include <chrono>
 
 MpvPlayer g_mpv_player;
 
@@ -211,7 +212,7 @@ void MpvPlayer::stop() {
     std::lock_guard<std::mutex> lk(mtx);
     if (video_pid > 0) {
         kill(video_pid, SIGTERM);
-        usleep(200000); // 200ms grace period
+        std::this_thread::sleep_for(std::chrono::microseconds(200000)); // 200ms grace period
         int status;
         pid_t result = waitpid(video_pid, &status, WNOHANG);
         if (result == 0) {

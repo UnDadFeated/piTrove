@@ -121,56 +121,62 @@ std::shared_ptr<ImageData> PreloadQueue::try_dequeue(const std::string& target_p
                             int sw = data->surface->w, sh = data->surface->h;
                             int pitch = data->surface->pitch;
 
-                            data->edge_top_rgb.resize(sw * 3);
-                            for (int x = 0; x < sw; x++) {
-                                int ar = 0, ag = 0, ab = 0, ac = 0;
-                                for (int d = 0; d < 3; d++) {
-                                    const uint8_t* dp = px + x * bpp + d * pitch;
-                                    ar += dp[0]; ag += dp[1]; ab += dp[2]; ac++;
-                                }
-                                data->edge_top_rgb[x * 3 + 0] = (uint8_t)(ar / ac);
-                                data->edge_top_rgb[x * 3 + 1] = (uint8_t)(ag / ac);
-                                data->edge_top_rgb[x * 3 + 2] = (uint8_t)(ab / ac);
-                            }
-
-                            data->edge_bot_rgb.resize(sw * 3);
-                            for (int x = 0; x < sw; x++) {
-                                int ar = 0, ag = 0, ab = 0, ac = 0;
-                                for (int d = -1; d <= 1; d++) {
-                                    int ry = sh - 1 + d;
-                                    if (ry >= 0 && ry < sh) {
-                                        const uint8_t* dp = px + x * bpp + ry * pitch;
+                            // Guard: skip edge sampling for images too small to sample
+                            if (sw > 0 && sh > 0) {
+                                data->edge_top_rgb.resize(sw * 3);
+                                for (int x = 0; x < sw; x++) {
+                                    int ar = 0, ag = 0, ab = 0, ac = 0;
+                                    int samples = sh < 3 ? sh : 3;
+                                    for (int d = 0; d < samples; d++) {
+                                        const uint8_t* dp = px + x * bpp + d * pitch;
                                         ar += dp[0]; ag += dp[1]; ab += dp[2]; ac++;
                                     }
+                                    data->edge_top_rgb[x * 3 + 0] = (uint8_t)(ar / ac);
+                                    data->edge_top_rgb[x * 3 + 1] = (uint8_t)(ag / ac);
+                                    data->edge_top_rgb[x * 3 + 2] = (uint8_t)(ab / ac);
                                 }
-                                data->edge_bot_rgb[x * 3 + 0] = (uint8_t)(ar / ac);
-                                data->edge_bot_rgb[x * 3 + 1] = (uint8_t)(ag / ac);
-                                data->edge_bot_rgb[x * 3 + 2] = (uint8_t)(ab / ac);
-                            }
 
-                            data->edge_lft_rgb.resize(sh * 3);
-                            for (int y = 0; y < sh; y++) {
-                                int ar = 0, ag = 0, ab = 0, ac = 0;
-                                const uint8_t* p = px + y * pitch;
-                                for (int w = 0; w < 3; w++) {
-                                    ar += p[w * bpp + 0]; ag += p[w * bpp + 1]; ab += p[w * bpp + 2]; ac++;
+                                data->edge_bot_rgb.resize(sw * 3);
+                                for (int x = 0; x < sw; x++) {
+                                    int ar = 0, ag = 0, ab = 0, ac = 0;
+                                    for (int d = -1; d <= 1; d++) {
+                                        int ry = sh - 1 + d;
+                                        if (ry >= 0 && ry < sh) {
+                                            const uint8_t* dp = px + x * bpp + ry * pitch;
+                                            ar += dp[0]; ag += dp[1]; ab += dp[2]; ac++;
+                                        }
+                                    }
+                                    data->edge_bot_rgb[x * 3 + 0] = (uint8_t)(ar / ac);
+                                    data->edge_bot_rgb[x * 3 + 1] = (uint8_t)(ag / ac);
+                                    data->edge_bot_rgb[x * 3 + 2] = (uint8_t)(ab / ac);
                                 }
-                                data->edge_lft_rgb[y * 3 + 0] = (uint8_t)(ar / ac);
-                                data->edge_lft_rgb[y * 3 + 1] = (uint8_t)(ag / ac);
-                                data->edge_lft_rgb[y * 3 + 2] = (uint8_t)(ab / ac);
-                            }
 
-                            data->edge_rgt_rgb.resize(sh * 3);
-                            for (int y = 0; y < sh; y++) {
-                                int ar = 0, ag = 0, ab = 0, ac = 0;
-                                const uint8_t* p = px + y * pitch;
-                                for (int w = 0; w < 3; w++) {
-                                    int wc = sw - 1 - w;
-                                    if (wc >= 0) { ar += p[wc * bpp + 0]; ag += p[wc * bpp + 1]; ab += p[wc * bpp + 2]; ac++; }
+                                data->edge_lft_rgb.resize(sh * 3);
+                                for (int y = 0; y < sh; y++) {
+                                    int ar = 0, ag = 0, ab = 0, ac = 0;
+                                    const uint8_t* p = px + y * pitch;
+                                    int samples = sw < 3 ? sw : 3;
+                                    for (int w = 0; w < samples; w++) {
+                                        ar += p[w * bpp + 0]; ag += p[w * bpp + 1]; ab += p[w * bpp + 2]; ac++;
+                                    }
+                                    data->edge_lft_rgb[y * 3 + 0] = (uint8_t)(ar / ac);
+                                    data->edge_lft_rgb[y * 3 + 1] = (uint8_t)(ag / ac);
+                                    data->edge_lft_rgb[y * 3 + 2] = (uint8_t)(ab / ac);
                                 }
-                                data->edge_rgt_rgb[y * 3 + 0] = (uint8_t)(ar / ac);
-                                data->edge_rgt_rgb[y * 3 + 1] = (uint8_t)(ag / ac);
-                                data->edge_rgt_rgb[y * 3 + 2] = (uint8_t)(ab / ac);
+
+                                data->edge_rgt_rgb.resize(sh * 3);
+                                for (int y = 0; y < sh; y++) {
+                                    int ar = 0, ag = 0, ab = 0, ac = 0;
+                                    const uint8_t* p = px + y * pitch;
+                                    int samples = sw < 3 ? sw : 3;
+                                    for (int w = 0; w < samples; w++) {
+                                        int wc = sw - 1 - w;
+                                        if (wc >= 0 && wc < sw) { ar += p[wc * bpp + 0]; ag += p[wc * bpp + 1]; ab += p[wc * bpp + 2]; ac++; }
+                                    }
+                                    data->edge_rgt_rgb[y * 3 + 0] = (uint8_t)(ar / ac);
+                                    data->edge_rgt_rgb[y * 3 + 1] = (uint8_t)(ag / ac);
+                                    data->edge_rgt_rgb[y * 3 + 2] = (uint8_t)(ab / ac);
+                                }
                             }
                         }
                     }
