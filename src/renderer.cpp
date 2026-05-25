@@ -372,24 +372,6 @@ void Renderer::draw_color_matched_matte(const SDL_Rect& fit_rect,
         SDL_RenderFillRect(sdl_renderer, &right);
     }
 }
-    // Bottom strip (full width, below photo)
-    if (fit_rect.y + fit_rect.h < screen_h) {
-        int bottom_h = screen_h - (fit_rect.y + fit_rect.h);
-        SDL_FRect bottom = {0.0f, (float)(fit_rect.y + fit_rect.h), (float)screen_w, (float)bottom_h};
-        SDL_RenderFillRect(sdl_renderer, &bottom);
-    }
-    // Left strip (within photo vertical range, non-overlapping)
-    if (fit_rect.x > 0) {
-        SDL_FRect left = {0.0f, (float)fit_rect.y, (float)fit_rect.x, (float)fit_rect.h};
-        SDL_RenderFillRect(sdl_renderer, &left);
-    }
-    // Right strip (within photo vertical range, non-overlapping)
-    if (fit_rect.x + fit_rect.w < screen_w) {
-        int right_w = screen_w - (fit_rect.x + fit_rect.w);
-        SDL_FRect right = {(float)(fit_rect.x + fit_rect.w), (float)fit_rect.y, (float)right_w, (float)fit_rect.h};
-        SDL_RenderFillRect(sdl_renderer, &right);
-    }
-}
 
 void Renderer::draw_matte_borders(const SDL_Rect& fit_rect) {
     SDL_SetRenderDrawColor(sdl_renderer, 0, 0, 0, 255);
