@@ -2,11 +2,16 @@
 #include "config.h"
 #include "util.h"
 #include <thread>
+#include <mutex>
 #include <cstdlib>
 #include <ctime>
 #include <algorithm>
 #include <cstdio>
 #include <iostream>
+
+static std::thread g_mqtt_thread;
+static std::mutex g_mqtt_mtx;
+static FILE* g_mqtt_fp = nullptr;
 
 void mqtt_publish(const std::string& topic, const std::string& payload, bool retain) {
     if (!g_cfg.mqtt_enabled) return;
@@ -108,22 +113,49 @@ void publish_ha_discovery() {
 void start_mqtt_client() {
     if (!g_cfg.mqtt_enabled) return;
     
-    std::thread([]() {
-        std::string cmd = "mosquitto_sub -h " + g_cfg.mqtt_broker +
-                          " -p " + std::to_string(g_cfg.mqtt_port);
-        if (!g_cfg.mqtt_user.empty()) {
-            cmd += " -u '" + g_cfg.mqtt_user + "'";
+    {
+        std::lock_guard<std::mutex> lk(g_mqtt_mtx);
+        if (g_mqtt_thread.joinable()) return;
+    }
+    
+    g_mqtt_thread = std::thread([]() {
+        std::string broker, prefix, sensor_topic;
+        int port = 1883;
+        {
+            std::lock_guard<std::mutex> lk(g_config_mtx);
+            broker = g_cfg.mqtt_broker;
+            port = g_cfg.mqtt_port;
+            prefix = g_cfg.mqtt_topic_prefix;
+            sensor_topic = g_cfg.mqtt_motionsensor_topic;
         }
-        if (!g_cfg.mqtt_pass.empty()) {
-            cmd += " -P '" + g_cfg.mqtt_pass + "'";
+        
+        std::string cmd = "mosquitto_sub -h " + broker +
+                          " -p " + std::to_string(port);
+        std::string user, pass;
+        {
+            std::lock_guard<std::mutex> lk(g_config_mtx);
+            user = g_cfg.mqtt_user;
+            pass = g_cfg.mqtt_pass;
         }
-        cmd += " -t '" + g_cfg.mqtt_motionsensor_topic + "'";
-        cmd += " -t '" + g_cfg.mqtt_topic_prefix + "/command/#'";
+        if (!user.empty()) {
+            cmd += " -u '" + user + "'";
+        }
+        if (!pass.empty()) {
+            cmd += " -P '" + pass + "'";
+        }
+        cmd += " -t '" + sensor_topic + "'";
+        cmd += " -t '" + prefix + "/command/#'";
         cmd += " -F \"%t:%p\" 2>/dev/null";
 
         g_logger.info("Starting MQTT Subscriber: %s", cmd.c_str());
         
         FILE* fp = popen(cmd.c_str(), "r");
+        
+        {
+            std::lock_guard<std::mutex> lk(g_mqtt_mtx);
+            g_mqtt_fp = fp;
+        }
+        
         if (!fp) {
             g_logger.error("Failed to start MQTT subscriber popen");
             return;
@@ -133,13 +165,13 @@ void start_mqtt_client() {
         publish_ha_discovery();
         
         // Publish current state
-        mqtt_publish(g_cfg.mqtt_topic_prefix + "/status/screen", g_screen_blanked ? "OFF" : "ON", true);
+        mqtt_publish(prefix + "/status/screen", g_screen_blanked ? "OFF" : "ON", true);
 
         // Keep track of active motion timestamp initially
         g_last_motion_time.store(static_cast<int64_t>(std::time(nullptr)));
 
         char buf[512];
-        while (g_running && fgets(buf, sizeof(buf), fp)) {
+        while (g_running.load() && fgets(buf, sizeof(buf), fp)) {
             std::string line(buf);
             line = trim(line);
             if (line.empty()) continue;
@@ -152,54 +184,73 @@ void start_mqtt_client() {
 
             g_logger.info("MQTT Received on [%s]: %s", topic.c_str(), payload.c_str());
 
-            if (topic == g_cfg.mqtt_motionsensor_topic) {
+            if (topic == sensor_topic) {
                 if (payload == "ON" || payload == "1" || payload == "true" || payload == "motion") {
                     g_last_motion_time.store(static_cast<int64_t>(std::time(nullptr)));
-                    if (g_screen_blanked) {
+                    if (g_screen_blanked.load()) {
                         g_logger.info("MQTT motion detected: waking up display");
                         g_screen_blanked = false;
                         int res = ::system("vcgencmd display_power 1");
                         (void)res;
-                        mqtt_publish(g_cfg.mqtt_topic_prefix + "/status/screen", "ON", true);
+                        mqtt_publish(prefix + "/status/screen", "ON", true);
                     }
                 }
-            } else if (topic == g_cfg.mqtt_topic_prefix + "/command/next") {
+            } else if (topic == prefix + "/command/next") {
                 if (payload == "PRESS" || payload == "1" || payload == "true" || payload == "ON" || payload == "next") {
                     g_logger.info("MQTT remote command: Skip Next");
                     g_remote_command.store(1);
                 }
-            } else if (topic == g_cfg.mqtt_topic_prefix + "/command/prev") {
+            } else if (topic == prefix + "/command/prev") {
                 if (payload == "PRESS" || payload == "1" || payload == "true" || payload == "prev") {
                     g_logger.info("MQTT remote command: Prev Slide");
                     g_remote_command.store(2);
                 }
-            } else if (topic == g_cfg.mqtt_topic_prefix + "/command/pause") {
+            } else if (topic == prefix + "/command/pause") {
                 if (payload == "PRESS" || payload == "1" || payload == "true" || payload == "pause") {
                     g_logger.info("MQTT remote command: Play/Pause Toggle");
                     g_remote_command.store(3);
                 }
-            } else if (topic == g_cfg.mqtt_topic_prefix + "/command/screen") {
+            } else if (topic == prefix + "/command/screen") {
                 if (payload == "OFF" || payload == "0" || payload == "false") {
-                    if (!g_screen_blanked) {
+                    if (!g_screen_blanked.load()) {
                         g_logger.info("MQTT remote command: Screen OFF");
                         g_screen_blanked = true;
                         int res = ::system("vcgencmd display_power 0");
                         (void)res;
-                        mqtt_publish(g_cfg.mqtt_topic_prefix + "/status/screen", "OFF", true);
+                        mqtt_publish(prefix + "/status/screen", "OFF", true);
                     }
                 } else if (payload == "ON" || payload == "1" || payload == "true") {
-                    if (g_screen_blanked) {
+                    if (g_screen_blanked.load()) {
                         g_logger.info("MQTT remote command: Screen ON");
                         g_screen_blanked = false;
                         int res = ::system("vcgencmd display_power 1");
                         (void)res;
                         g_last_motion_time.store(static_cast<int64_t>(std::time(nullptr)));
-                        mqtt_publish(g_cfg.mqtt_topic_prefix + "/status/screen", "ON", true);
+                        mqtt_publish(prefix + "/status/screen", "ON", true);
                     }
                 }
             }
         }
         pclose(fp);
+        
+        {
+            std::lock_guard<std::mutex> lk(g_mqtt_mtx);
+            g_mqtt_fp = nullptr;
+        }
+        
         g_logger.warn("MQTT subscriber pipe closed");
-    }).detach();
+    });
+}
+
+void stop_mqtt_client() {
+    {
+        std::lock_guard<std::mutex> lk(g_mqtt_mtx);
+        if (g_mqtt_fp) {
+            pclose(g_mqtt_fp);
+            g_mqtt_fp = nullptr;
+        }
+    }
+    if (g_mqtt_thread.joinable()) {
+        g_mqtt_thread.join();
+    }
 }

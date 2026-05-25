@@ -8,6 +8,8 @@
 #include <algorithm>
 #include <sys/ioctl.h>
 #include <unistd.h>
+#include <thread>
+#include <chrono>
 #include <termios.h>
 #include <cstring>
 #include <atomic>
@@ -240,7 +242,7 @@ void config_wizard(const std::string& config_path) {
     if (term_cols < 100) {
         printf("\033[8;40;155t");
         fflush(stdout);
-        usleep(100000);
+        std::this_thread::sleep_for(std::chrono::microseconds(100000));
         ioctl(STDIN_FILENO, TIOCGWINSZ, &w);
         term_cols = w.ws_col;
     }

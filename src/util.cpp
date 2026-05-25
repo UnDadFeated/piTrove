@@ -9,6 +9,7 @@
 #include <cstdarg>
 #include <cstring>
 #include <unistd.h>
+#include <fcntl.h>
 #include <sys/stat.h>
 #include <signal.h>
 #include <cctype>
@@ -68,13 +69,21 @@ std::string trim(const std::string& s) {
 }
 
 // Signal / crash handling — ONLY async-signal-safe functions
+static void crash_display_restore(void) {
+    int fd = open("/sys/class/graphics/fb0/blank", O_WRONLY);
+    if (fd >= 0) {
+        const char* zero = "0";
+        write(fd, zero, 1);
+        close(fd);
+    }
+}
+
 void crash_handler(int sig) {
     const char* msg = "\n[CRITICAL ERROR] piTrove intercepted a terminal fault / crash signal.\n";
     write(STDERR_FILENO, msg, strlen(msg));
 
-    // Fail-safe: Restore physical display power on crash
-    int res = ::system("vcgencmd display_power 1");
-    (void)res;
+    // Fail-safe: Restore physical display power (uses only async-signal-safe syscalls)
+    crash_display_restore();
 
     // Signal-safe purge: construct paths into stack buffer, use unlink()
     if (!g_database_complete.load() && !g_crash_cache_dir.empty()) {
