@@ -680,7 +680,9 @@ static std::string get_api_status() {
     // Query SQLite cache size
     double db_mb = 0.0;
     try {
-        std::string db_path = g_cfg.cache_dir + "/cache.db";
+        std::string cache_dir;
+        { std::lock_guard<std::mutex> lk(g_config_mtx); cache_dir = g_cfg.cache_dir; }
+        std::string db_path = cache_dir + "/cache.db";
         if (std::filesystem::exists(db_path)) {
             db_mb = std::filesystem::file_size(db_path) / (1024.0 * 1024.0);
         }
@@ -927,24 +929,28 @@ static void server_loop(int port) {
                 send_response(client_fd, "HTTP/1.1 200 OK", "application/json", "{\"status\":\"ok\"}");
             } 
             else if (request.rfind("GET /api/toggle_screen", 0) == 0) {
-                g_screen_blanked = !g_screen_blanked.load();
-                int res = ::system(g_screen_blanked.load() ? "vcgencmd display_power 0" : "vcgencmd display_power 1");
+                bool was = g_screen_blanked.exchange(!g_screen_blanked.load());
+                int res = ::system(was ? "vcgencmd display_power 1" : "vcgencmd display_power 0");
                 (void)res;
-                mqtt_publish(g_cfg.mqtt_topic_prefix + "/status/screen", g_screen_blanked.load() ? "OFF" : "ON", true);
+                std::string prefix, topic;
+                { std::lock_guard<std::mutex> lk(g_config_mtx); prefix = g_cfg.mqtt_topic_prefix; topic = g_cfg.mqtt_motionsensor_topic; }
+                mqtt_publish(prefix + "/status/screen", g_screen_blanked.load() ? "OFF" : "ON", true);
                 send_response(client_fd, "HTTP/1.1 200 OK", "application/json", "{\"status\":\"ok\"}");
             }
             else if (request.rfind("GET /api/trigger_motion", 0) == 0) {
                 g_last_motion_time.store(static_cast<int64_t>(std::time(nullptr)));
-                if (g_screen_blanked.load()) {
-                    g_screen_blanked = false;
+                std::string prefix, sensor_topic;
+                { std::lock_guard<std::mutex> lk(g_config_mtx); prefix = g_cfg.mqtt_topic_prefix; sensor_topic = g_cfg.mqtt_motionsensor_topic; }
+                if (g_screen_blanked.exchange(false)) {
                     int res = ::system("vcgencmd display_power 1");
                     (void)res;
-                    mqtt_publish(g_cfg.mqtt_topic_prefix + "/status/screen", "ON", true);
+                    mqtt_publish(prefix + "/status/screen", "ON", true);
                 }
-                mqtt_publish(g_cfg.mqtt_motionsensor_topic, "ON", false);
-                std::thread([]() {
+                mqtt_publish(sensor_topic, "ON", false);
+                std::string topic_copy = sensor_topic;
+                std::thread([topic_copy]() {
                     std::this_thread::sleep_for(std::chrono::seconds(2));
-                    mqtt_publish(g_cfg.mqtt_motionsensor_topic, "OFF", false);
+                    mqtt_publish(topic_copy, "OFF", false);
                 }).detach();
                 send_response(client_fd, "HTTP/1.1 200 OK", "application/json", "{\"status\":\"ok\"}");
             }
