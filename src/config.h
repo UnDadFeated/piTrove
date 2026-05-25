@@ -1,6 +1,7 @@
 #ifndef PITROVE_CONFIG_H
 #define PITROVE_CONFIG_H
 
+#include <cmath>
 #include <string>
 #include <vector>
 #include <mutex>
@@ -112,12 +113,17 @@ struct Config {
     bool    vignette_enabled{true};
 
     // [display] blurred background + color-matched matte
-    bool    blurred_background{true};
-    bool    color_matched_matte{true};
-    int     blur_radius{14};
-    int     glow_depth{86};
-    float   matte_opacity{0.20f};
-    float   vignette_strength{0.35f};
+     bool    blurred_background{true};
+     bool    color_matched_matte{true};
+     int     blur_radius{14};
+     int     glow_depth{86};
+    float    matte_opacity{0.50f};
+     float   vignette_strength{0.35f};
+
+     // Scale a base-pixel value (defined for 1080p) to current resolution
+     int scale_px(int base_px_1080p) const {
+         return (int)round((double)base_px_1080p * screen_w / 1920.0);
+     }
 
     // [slideshow] extended
     bool    shuffle{true};
