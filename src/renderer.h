@@ -50,6 +50,9 @@ public:
     // Screen info
     int get_width() const { return screen_w; }
     int get_height() const { return screen_h; }
+    int scale_px(int base_px_1080p) const {
+        return (int)round((double)base_px_1080p * screen_w / 1920.0);
+    }
 
     // Average color calculators (CPU-side on SDL_Surface)
     static GpuColor get_average_color(SDL_Surface* surface);

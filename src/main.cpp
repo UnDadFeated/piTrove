@@ -193,8 +193,8 @@ static void calculate_fit_rect_in_area(int img_w, int img_h, int area_x, int are
         std::lock_guard<std::mutex> lock(g_config_mtx);
         has_matting = g_cfg.matting;
         has_border = g_cfg.border_enabled;
-        mat_size = g_cfg.matting_size;
-        border_w = g_cfg.border_width;
+        mat_size = g_renderer.scale_px(g_cfg.matting_size);
+        border_w = g_renderer.scale_px(g_cfg.border_width);
     }
 
     int effective_x = area_x;
@@ -257,6 +257,7 @@ static SDL_Texture* render_state_to_texture(
         std::string style = "edge_glow";
         int border_w = 10;
         bool snap_blurred, snap_matte_color;
+        int snap_glow_depth;
         float matte_op, vignette_str;
         {
             std::lock_guard<std::mutex> lock(g_config_mtx);
@@ -267,6 +268,7 @@ static SDL_Texture* render_state_to_texture(
             anim_speed = g_cfg.bias_anim_speed;
             style = g_cfg.bias_anim_style;
             border_w = g_cfg.border_width;
+            snap_glow_depth = g_renderer.scale_px(g_cfg.glow_depth);
             snap_blurred = g_cfg.blurred_background;
             snap_matte_color = g_cfg.color_matched_matte;
             matte_op = g_cfg.matte_opacity;
@@ -296,10 +298,10 @@ static SDL_Texture* render_state_to_texture(
         if (has_bias) {
             int bw_l = has_border ? border_w : 0;
             g_renderer.draw_bias_lighting(rect_l, primary->avg_r, primary->avg_g, primary->avg_b,
-                bias_strength, (float)item_timer, anim_speed, style, bw_l);
+                bias_strength, (float)item_timer, anim_speed, style, bw_l, snap_glow_depth);
             int bw_r = has_border ? border_w : 0;
             g_renderer.draw_bias_lighting(rect_r, twin->avg_r, twin->avg_g, twin->avg_b,
-                bias_strength, (float)item_timer, anim_speed, style, bw_r);
+                bias_strength, (float)item_timer, anim_speed, style, bw_r, snap_glow_depth);
         }
 
         // 5. Draw 3D miter borders if enabled
@@ -327,6 +329,7 @@ static SDL_Texture* render_state_to_texture(
         std::string style = "edge_glow";
         int border_w = 10;
         bool snap_blurred, snap_matte_color;
+        int snap_glow_depth;
         float matte_op, vignette_str;
         {
             std::lock_guard<std::mutex> lock(g_config_mtx);
@@ -337,6 +340,7 @@ static SDL_Texture* render_state_to_texture(
             anim_speed = g_cfg.bias_anim_speed;
             style = g_cfg.bias_anim_style;
             border_w = g_cfg.border_width;
+            snap_glow_depth = g_renderer.scale_px(g_cfg.glow_depth);
             snap_blurred = g_cfg.blurred_background;
             snap_matte_color = g_cfg.color_matched_matte;
             matte_op = g_cfg.matte_opacity;
@@ -363,7 +367,7 @@ static SDL_Texture* render_state_to_texture(
         if (has_bias) {
             int bw_param = has_border ? border_w : 0;
             g_renderer.draw_bias_lighting(rect, primary->avg_r, primary->avg_g, primary->avg_b,
-                bias_strength, (float)item_timer, anim_speed, style, bw_param);
+                bias_strength, (float)item_timer, anim_speed, style, bw_param, snap_glow_depth);
         }
 
         // 5. Draw 3D miter border if enabled
@@ -1765,6 +1769,7 @@ int main(int argc, char** argv) {
                 std::string style = "edge_glow";
                 int border_w = 10;
                 bool snap_blurred, snap_matte_color;
+                int snap_glow_depth;
                 float matte_op, vignette_str;
                 {
                     std::lock_guard<std::mutex> lock(g_config_mtx);
@@ -1774,7 +1779,8 @@ int main(int argc, char** argv) {
                     bias_strength = g_cfg.bias_strength;
                     anim_speed = g_cfg.bias_anim_speed;
                     style = g_cfg.bias_anim_style;
-                    border_w = g_cfg.border_width;
+                    border_w = g_renderer.scale_px(g_cfg.border_width);
+                    snap_glow_depth = g_renderer.scale_px(g_cfg.glow_depth);
                     snap_blurred = g_cfg.blurred_background;
                     snap_matte_color = g_cfg.color_matched_matte;
                     matte_op = g_cfg.matte_opacity;
@@ -1802,12 +1808,13 @@ int main(int argc, char** argv) {
 
                 // 4. Draw bias lighting if enabled
                 if (has_bias) {
+                    int glow = snap_glow_depth;
                     int bw_l = has_border ? border_w : 0;
                     g_renderer.draw_bias_lighting(rect_l, current_data->avg_r, current_data->avg_g, current_data->avg_b,
-                        bias_strength, (float)item_timer, anim_speed, style, bw_l);
+                        bias_strength, (float)item_timer, anim_speed, style, bw_l, glow);
                     int bw_r = has_border ? border_w : 0;
                     g_renderer.draw_bias_lighting(rect_r, current_twin_data->avg_r, current_twin_data->avg_g, current_twin_data->avg_b,
-                        bias_strength, (float)item_timer, anim_speed, style, bw_r);
+                        bias_strength, (float)item_timer, anim_speed, style, bw_r, glow);
                 }
 
                 // 5. Draw 3D miter borders if enabled
@@ -1827,7 +1834,7 @@ int main(int argc, char** argv) {
                 g_renderer.clear(0, 0, 0, 255);
                 // Snapshot config for render frame to avoid data race
                 bool snap_bias, snap_matting, snap_border;
-                int snap_bias_strength, snap_border_width;
+                int snap_bias_strength, snap_border_width, snap_glow_depth;
                 float snap_anim_speed;
                 std::string snap_anim_style;
                 bool snap_blurred, snap_matte_color;
@@ -1838,9 +1845,10 @@ int main(int argc, char** argv) {
                     snap_matting = g_cfg.matting;
                     snap_border = g_cfg.border_enabled;
                     snap_bias_strength = g_cfg.bias_strength;
-                    snap_border_width = g_cfg.border_width;
+                    snap_border_width = g_renderer.scale_px(g_cfg.border_width);
                     snap_anim_speed = g_cfg.bias_anim_speed;
                     snap_anim_style = g_cfg.bias_anim_style;
+                    snap_glow_depth = g_renderer.scale_px(g_cfg.glow_depth);
                     snap_blurred = g_cfg.blurred_background;
                     snap_matte_color = g_cfg.color_matched_matte;
                     matte_op = g_cfg.matte_opacity;
@@ -1868,7 +1876,7 @@ int main(int argc, char** argv) {
                     int bw_param = snap_border ? snap_border_width : 0;
                     g_renderer.draw_bias_lighting(fit_rect,
                         current_data->avg_r, current_data->avg_g, current_data->avg_b,
-                        snap_bias_strength, (float)item_timer, snap_anim_speed, snap_anim_style, bw_param);
+                        snap_bias_strength, (float)item_timer, snap_anim_speed, snap_anim_style, bw_param, snap_glow_depth);
                 }
 
                 // 5. Draw 3D miter border if enabled

@@ -267,8 +267,8 @@ void Renderer::calculate_fit_rect(int img_w, int img_h, SDL_Rect& out_rect) {
         std::lock_guard<std::mutex> lock(g_config_mtx);
         has_matting = g_cfg.matting;
         has_border = g_cfg.border_enabled;
-        mat_size = g_cfg.matting_size;
-        border_w = g_cfg.border_width;
+        mat_size = g_renderer.scale_px(g_cfg.matting_size);
+        border_w = g_renderer.scale_px(g_cfg.border_width);
     }
 
     int mat = 0;
@@ -349,27 +349,45 @@ void Renderer::draw_color_matched_matte(const SDL_Rect& fit_rect,
     SDL_SetRenderDrawBlendMode(sdl_renderer, SDL_BLENDMODE_BLEND);
     SDL_SetRenderDrawColor(sdl_renderer, matte_r, matte_g, matte_b, aa);
 
-    // Left strip
-    if (fit_rect.x > 0) {
-        SDL_FRect left = {0.0f, 0.0f, (float)fit_rect.x, (float)screen_h};
-        SDL_RenderFillRect(sdl_renderer, &left);
-    }
-    // Right strip
-    if (fit_rect.x + fit_rect.w < screen_w) {
-        int right_w = screen_w - (fit_rect.x + fit_rect.w);
-        SDL_FRect right = {(float)(fit_rect.x + fit_rect.w), 0.0f, (float)right_w, (float)screen_h};
-        SDL_RenderFillRect(sdl_renderer, &right);
-    }
-    // Top strip
+    // Top strip (full width, above photo)
     if (fit_rect.y > 0) {
         SDL_FRect top = {0.0f, 0.0f, (float)screen_w, (float)fit_rect.y};
         SDL_RenderFillRect(sdl_renderer, &top);
     }
-    // Bottom strip
+    // Bottom strip (full width, below photo)
     if (fit_rect.y + fit_rect.h < screen_h) {
         int bottom_h = screen_h - (fit_rect.y + fit_rect.h);
         SDL_FRect bottom = {0.0f, (float)(fit_rect.y + fit_rect.h), (float)screen_w, (float)bottom_h};
         SDL_RenderFillRect(sdl_renderer, &bottom);
+    }
+    // Left strip (between top/bottom edges only — non-overlapping)
+    if (fit_rect.x > 0 && fit_rect.h > 0) {
+        SDL_FRect left = {0.0f, (float)fit_rect.y, (float)fit_rect.x, (float)fit_rect.h};
+        SDL_RenderFillRect(sdl_renderer, &left);
+    }
+    // Right strip (between top/bottom edges only — non-overlapping)
+    if (fit_rect.x + fit_rect.w < screen_w && fit_rect.h > 0) {
+        int right_w = screen_w - (fit_rect.x + fit_rect.w);
+        SDL_FRect right = {(float)(fit_rect.x + fit_rect.w), (float)fit_rect.y, (float)right_w, (float)fit_rect.h};
+        SDL_RenderFillRect(sdl_renderer, &right);
+    }
+}
+    // Bottom strip (full width, below photo)
+    if (fit_rect.y + fit_rect.h < screen_h) {
+        int bottom_h = screen_h - (fit_rect.y + fit_rect.h);
+        SDL_FRect bottom = {0.0f, (float)(fit_rect.y + fit_rect.h), (float)screen_w, (float)bottom_h};
+        SDL_RenderFillRect(sdl_renderer, &bottom);
+    }
+    // Left strip (within photo vertical range, non-overlapping)
+    if (fit_rect.x > 0) {
+        SDL_FRect left = {0.0f, (float)fit_rect.y, (float)fit_rect.x, (float)fit_rect.h};
+        SDL_RenderFillRect(sdl_renderer, &left);
+    }
+    // Right strip (within photo vertical range, non-overlapping)
+    if (fit_rect.x + fit_rect.w < screen_w) {
+        int right_w = screen_w - (fit_rect.x + fit_rect.w);
+        SDL_FRect right = {(float)(fit_rect.x + fit_rect.w), (float)fit_rect.y, (float)right_w, (float)fit_rect.h};
+        SDL_RenderFillRect(sdl_renderer, &right);
     }
 }
 
