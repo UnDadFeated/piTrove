@@ -92,6 +92,28 @@ std::shared_ptr<ImageData> ImageLoader::load(const std::string& path) {
     result->avg_g = avg.g;
     result->avg_b = avg.b;
 
+    // Compute matte color from center of image
+    {
+        int cx = result->width / 4, cy = result->height / 4;
+        int cw = result->width / 2, ch = result->height / 2;
+        if (cx >= 0 && cy >= 0 && cw > 0 && ch > 0) {
+            uint8_t* px = (uint8_t*)surf->pixels;
+            int bpp = SDL_BYTESPERPIXEL(surf->format);
+            long sr = 0, sg = 0, sb = 0, n = 0;
+            for (int y = cy; y < cy + ch && y < surf->h; y++) {
+                for (int x = cx; x < cx + cw && x < surf->w; x++) {
+                    const uint8_t* p = px + y * surf->pitch + x * bpp;
+                    sr += p[0]; sg += p[1]; sb += p[2]; n++;
+                }
+            }
+            if (n > 0) {
+                result->matte_r = (uint8_t)(sr / n);
+                result->matte_g = (uint8_t)(sg / n);
+                result->matte_b = (uint8_t)(sb / n);
+            }
+        }
+    }
+
     // Sample 4 edge colors for bias gradient (0=top, 1=bottom, 2=left, 3=right)
     for (int e = 0; e < 4; e++) {
         GpuColor ec = Renderer::get_edge_average_color(surf, 8, e);
