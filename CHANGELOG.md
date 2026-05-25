@@ -3,7 +3,7 @@
 ## v11.2.3 — Slideshow Image Stuck Fix (May 25, 2026)
 
 ### Fixed
-- **Slideshow stuck on same image** — Single-image transitions were never advancing because the twin-portrait validation check required `next_twin_data` to be valid even when displaying a single photo. Since `next_twin_data` is always `nullptr` in single-image mode, the image load failed silently, causing `current_data` to never update and the same image to display indefinitely. Fixed by gating twin validation behind the actual `is_twin` condition.
+- **Slideshow stuck on same image** — The transition check incorrectly required twin-portrait data even for single images, causing the next image load to always fail. Single photos now advance correctly.
 
 ## v11.2.1 — System Stability Fixes (May 25, 2026)
 
