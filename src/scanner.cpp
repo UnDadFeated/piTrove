@@ -389,8 +389,21 @@ std::vector<MediaItem> MediaScanner::scan(const std::string& directory,
         } catch (...) {}
     };
 
-    // Single-threaded scan: CIFS multi-threaded scanning crashes/hangs
-    worker(0, (int)subdirs.size());
+    // Use hardware threads (like legacy) for max throughput
+    int hw_cores = std::max(1, (int)std::thread::hardware_concurrency());
+    int num_threads = std::min(hw_cores - 1, (int)subdirs.size());
+    if (num_threads < 1) num_threads = 1;
+
+    int chunk = std::max(1, (int)subdirs.size() / num_threads);
+    std::vector<std::thread> threads;
+    for (int t = 0; t < num_threads; t++) {
+        int start = t * chunk;
+        int end = (t == num_threads - 1) ? (int)subdirs.size() : start + chunk;
+        threads.emplace_back(worker, start, end);
+    }
+    for (auto& th : threads) {
+        if (th.joinable()) th.join();
+    }
 
     for (const auto& pair : root_files) {
         process_entry(pair.first, pair.second, exts, window_days, list_mutex, all_items);

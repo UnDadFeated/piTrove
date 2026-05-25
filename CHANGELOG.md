@@ -9,7 +9,6 @@
 - **Signal handler safety** — Replaced async-signal-unsafe `system()` call in crash handler with direct sysfs write to restore display power on crash.
 - **Deprecated sleep API** — Replaced all `usleep()` calls with C++11 `std::this_thread::sleep_for()` across the codebase.
 - **Edge strip underflow on small images** — Added bounds guard for edge color sampling when image dimensions are less than 3 pixels.
-- **CIFS scan thread pool** — Removed multi-threaded scan in favor of single-threaded worker to prevent CIFS mount hangs.
 - **Twin portrait data race** — Eliminated unguarded access to shared playlist vector in twin-portrait pairing logic.
 - **Screen blank toggle race** — Replaced non-atomic read-modify-write on screen blank flag with atomic compare-exchange to prevent torn writes during rapid toggle and motion-sensor wake events.
 - **MQTT config data race** — Secured all MQTT publish and Home Assistant discovery calls to read broker settings under lock, preventing corruption during live config reloads.
