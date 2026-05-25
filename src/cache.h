@@ -3,6 +3,7 @@
 
 #include <string>
 #include <mutex>
+#include <atomic>
 #include <sqlite3.h>
 #include "media_item.h"
 
@@ -12,7 +13,7 @@ struct CacheManager {
     sqlite3_stmt* stmt_upsert{nullptr};
     sqlite3_stmt* stmt_load{nullptr};
     sqlite3_stmt* stmt_mark{nullptr};
-    bool in_transaction{false};
+    std::atomic<bool> in_transaction{false};
 
     bool open(const std::string& dir);
     void close();

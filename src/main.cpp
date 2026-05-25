@@ -1839,9 +1839,13 @@ int main(int argc, char** argv) {
                 }
             }
 
-            if (item_timer >= g_cfg.transition_delay) {
-                transitioning = true; transition_timer = 0.0;
-                advance_playlist(current_twin_data ? 2 : 1);
+            {
+                double delay = 120.0;
+                { std::lock_guard<std::mutex> lk(g_config_mtx); delay = g_cfg.transition_delay; }
+                if (item_timer >= delay) {
+                    transitioning = true; transition_timer = 0.0;
+                    advance_playlist(current_twin_data ? 2 : 1);
+                }
             }
         }
 

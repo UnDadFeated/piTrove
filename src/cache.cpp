@@ -67,7 +67,10 @@ bool CacheManager::open(const std::string& dir) {
         if (err) sqlite3_free(err);
     }
     char mmap_sql[64];
-    snprintf(mmap_sql, sizeof(mmap_sql), "PRAGMA mmap_size=%lld", g_cfg.cache_mmap_size);
+    {
+        std::lock_guard<std::mutex> lk(g_config_mtx);
+        snprintf(mmap_sql, sizeof(mmap_sql), "PRAGMA mmap_size=%lld", (long long)g_cfg.cache_mmap_size);
+    }
     if (sqlite3_exec(db, mmap_sql, nullptr, nullptr, &err) != SQLITE_OK) {
         g_logger.warn("Failed to set mmap_size=%lld: %s", g_cfg.cache_mmap_size, err ? err : "unknown");
         if (err) sqlite3_free(err);
@@ -222,7 +225,7 @@ void CacheManager::mark_bad(const std::string& filepath) {
 void CacheManager::begin_transaction() {
     if (!db) return;
     std::lock_guard<std::mutex> lk(db_mutex);
-    in_transaction = true;
+    in_transaction.store(true);
     sqlite3_exec(db, "BEGIN TRANSACTION;", nullptr, nullptr, nullptr);
 }
 
@@ -230,7 +233,7 @@ void CacheManager::commit_transaction() {
     if (!db) return;
     std::lock_guard<std::mutex> lk(db_mutex);
     sqlite3_exec(db, "COMMIT;", nullptr, nullptr, nullptr);
-    in_transaction = false;
+    in_transaction.store(false);
 }
 
 bool verify_database(const std::string& path) {
