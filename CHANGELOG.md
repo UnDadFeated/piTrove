@@ -1,9 +1,6 @@
 # Changelog
 
-## v11.2.3 — Branch Strategy & Slideshow Loop Fix (May 25, 2026)
-
-### Added
-- **Dual-branch release strategy** — Production installs default to `main` branch with an interactive installer prompt offering `main` (stable) or `develop` (testing/cutting-edge). A `develop` branch is created for active development and feature testing before merge to `main`.
+## v11.2.3 — Slideshow Loop Fix (May 25, 2026)
 
 ### Fixed
 - **Slideshow stuck on same image** — Single-image transitions were never advancing because the twin-portrait validation check required `next_twin_data` to be valid even when displaying a single photo. Since `next_twin_data` is always `nullptr` in single-image mode, the image load failed silently, causing `current_data` to never update and the same image to display indefinitely. Fixed by gating twin validation behind the actual `is_twin` condition.
