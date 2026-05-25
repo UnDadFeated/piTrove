@@ -45,9 +45,12 @@ static float read_cpu_usage() {
 
     auto read_sample = []() -> Sample {
         std::ifstream stat("/proc/stat");
-        char label[32];
-        long long user, nice, system, idle, iowait, irq, softirq;
-        stat >> label >> user >> nice >> system >> idle >> iowait >> irq >> softirq;
+        std::string line;
+        std::getline(stat, line);
+        std::istringstream iss(line);
+        std::string label;
+        long long user = 0, nice = 0, system = 0, idle = 0, iowait = 0, irq = 0, softirq = 0;
+        iss >> label >> user >> nice >> system >> idle >> iowait >> irq >> softirq;
         long long total = user + nice + system + idle + iowait + irq + softirq;
         return {total, idle};
     };
