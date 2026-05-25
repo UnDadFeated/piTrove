@@ -278,18 +278,18 @@ static SDL_Texture* render_state_to_texture(
             g_renderer.draw_blurred_from_raw(primary->blur_raw, (Uint8)(255.0f * vignette_str));
         }
 
-        // 2. Color-matched matte for each portrait
+        // 2. Draw matte borders if enabled (solid black base layer)
+        if (has_matting) {
+            g_renderer.draw_matte_borders(rect_l);
+            g_renderer.draw_matte_borders(rect_r);
+        }
+
+        // 3. Color-matched matte for each portrait (tints black matte strips with photo color)
         if (snap_matte_color) {
             g_renderer.draw_color_matched_matte(rect_l,
                 primary->matte_r, primary->matte_g, primary->matte_b, matte_op);
             g_renderer.draw_color_matched_matte(rect_r,
                 twin->matte_r, twin->matte_g, twin->matte_b, matte_op);
-        }
-
-        // 3. Draw matte borders if enabled (drawn first so glow renders on top)
-        if (has_matting) {
-            g_renderer.draw_matte_borders(rect_l);
-            g_renderer.draw_matte_borders(rect_r);
         }
 
         // 4. Draw bias lighting if enabled
@@ -348,15 +348,15 @@ static SDL_Texture* render_state_to_texture(
             g_renderer.draw_blurred_from_raw(primary->blur_raw, (Uint8)(255.0f * vignette_str));
         }
 
-        // 2. Color-matched matte if enabled
+       // 2. Draw matte borders if enabled (solid black base layer)
+        if (has_matting) {
+            g_renderer.draw_matte_borders(rect);
+        }
+
+        // 3. Color-matched matte if enabled (tints black matte strips with photo color)
         if (snap_matte_color && primary) {
             g_renderer.draw_color_matched_matte(rect,
                 primary->matte_r, primary->matte_g, primary->matte_b, matte_op);
-        }
-
-        // 3. Draw matte borders if enabled (drawn first so glow renders on top)
-        if (has_matting) {
-            g_renderer.draw_matte_borders(rect);
         }
 
         // 4. Draw bias lighting if enabled
@@ -1786,18 +1786,18 @@ int main(int argc, char** argv) {
                     g_renderer.draw_blurred_from_raw(current_data->blur_raw, (Uint8)(255.0f * vignette_str));
                 }
 
-                // 2. Color-matched matte for each portrait
+                // 2. Draw matte borders if enabled (solid black base layer)
+                if (has_matting) {
+                    g_renderer.draw_matte_borders(rect_l);
+                    g_renderer.draw_matte_borders(rect_r);
+                }
+
+                // 3. Color-matched matte for each portrait (tints black matte strips with photo color)
                 if (snap_matte_color) {
                     g_renderer.draw_color_matched_matte(rect_l,
                         current_data->matte_r, current_data->matte_g, current_data->matte_b, matte_op);
                     g_renderer.draw_color_matched_matte(rect_r,
                         current_twin_data->matte_r, current_twin_data->matte_g, current_twin_data->matte_b, matte_op);
-                }
-
-                // 3. Draw matte borders if enabled (drawn first so glow renders on top)
-                if (has_matting) {
-                    g_renderer.draw_matte_borders(rect_l);
-                    g_renderer.draw_matte_borders(rect_r);
                 }
 
                 // 4. Draw bias lighting if enabled
@@ -1852,15 +1852,15 @@ int main(int argc, char** argv) {
                     g_renderer.draw_blurred_from_raw(current_data->blur_raw, (Uint8)(255.0f * vignette_str));
                 }
 
-                // 2. Color-matched matte if enabled
+                // 2. Draw matte borders if enabled (solid black base layer)
+                if (snap_matting) {
+                    g_renderer.draw_matte_borders(fit_rect);
+                }
+
+                // 3. Color-matched matte if enabled (tints black matte strips with photo color)
                 if (snap_matte_color && current_data) {
                     g_renderer.draw_color_matched_matte(fit_rect,
                         current_data->matte_r, current_data->matte_g, current_data->matte_b, matte_op);
-                }
-
-                // 3. Draw matte borders if enabled (drawn first so glow renders on top)
-                if (snap_matting) {
-                    g_renderer.draw_matte_borders(fit_rect);
                 }
 
                 // 4. Draw bias lighting if enabled
