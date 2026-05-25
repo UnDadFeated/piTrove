@@ -16,6 +16,7 @@
 // Preloaded item: raw pixels + path from worker, surface created on main thread
 struct PreloadedItem {
     RawImage raw;
+    RawImage blur_raw;  // Blurred background (move-only)
     std::string path;
     bool valid = false;
 

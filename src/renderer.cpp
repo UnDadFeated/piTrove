@@ -301,6 +301,78 @@ void Renderer::present() {
     SDL_RenderPresent(sdl_renderer);
 }
 
+void Renderer::draw_blurred_background(SDL_Texture* blur_texture, Uint8 vignette_alpha) {
+    if (!blur_texture || !sdl_renderer) return;
+
+    SDL_SetRenderTarget(sdl_renderer, nullptr);
+    SDL_SetRenderDrawBlendMode(sdl_renderer, SDL_BLENDMODE_BLEND);
+
+    // Render the blur texture fullscreen with alpha modulation for vignette darkening
+    SDL_SetTextureAlphaMod(blur_texture, vignette_alpha);
+    SDL_FRect dst = {0.0f, 0.0f, (float)screen_w, (float)screen_h};
+    SDL_RenderTexture(sdl_renderer, blur_texture, nullptr, &dst);
+    SDL_SetTextureAlphaMod(blur_texture, 255);
+}
+
+void Renderer::draw_blurred_from_raw(const RawImage& blur_raw, Uint8 vignette_alpha) {
+    if (!blur_raw.valid || !blur_raw.pixels || !sdl_renderer) return;
+
+    // Create surface from raw pixels
+    SDL_Surface* blur_surf = SDL_CreateSurface(blur_raw.width, blur_raw.height, SDL_PIXELFORMAT_RGBA32);
+    if (!blur_surf) return;
+
+    memcpy(blur_surf->pixels, blur_raw.pixels, (size_t)blur_raw.width * blur_raw.height * 4);
+
+    // Create texture from surface
+    SDL_Texture* blur_tex = SDL_CreateTextureFromSurface(sdl_renderer, blur_surf);
+    SDL_DestroySurface(blur_surf);
+    if (!blur_tex) return;
+
+    // Render with alpha modulation
+    SDL_SetRenderTarget(sdl_renderer, nullptr);
+    SDL_SetRenderDrawBlendMode(sdl_renderer, SDL_BLENDMODE_BLEND);
+    SDL_SetTextureAlphaMod(blur_tex, vignette_alpha);
+    SDL_FRect dst = {0.0f, 0.0f, (float)screen_w, (float)screen_h};
+    SDL_RenderTexture(sdl_renderer, blur_tex, nullptr, &dst);
+    SDL_SetTextureAlphaMod(blur_tex, 255);
+
+    // Clean up
+    SDL_DestroyTexture(blur_tex);
+}
+
+void Renderer::draw_color_matched_matte(const SDL_Rect& fit_rect,
+    Uint8 matte_r, Uint8 matte_g, Uint8 matte_b, float matte_opacity) {
+
+    if (matte_opacity <= 0.0f) return;
+
+    Uint8 aa = (Uint8)(matte_opacity * 255.0f);
+    SDL_SetRenderDrawBlendMode(sdl_renderer, SDL_BLENDMODE_BLEND);
+    SDL_SetRenderDrawColor(sdl_renderer, matte_r, matte_g, matte_b, aa);
+
+    // Left strip
+    if (fit_rect.x > 0) {
+        SDL_FRect left = {0.0f, 0.0f, (float)fit_rect.x, (float)screen_h};
+        SDL_RenderFillRect(sdl_renderer, &left);
+    }
+    // Right strip
+    if (fit_rect.x + fit_rect.w < screen_w) {
+        int right_w = screen_w - (fit_rect.x + fit_rect.w);
+        SDL_FRect right = {(float)(fit_rect.x + fit_rect.w), 0.0f, (float)right_w, (float)screen_h};
+        SDL_RenderFillRect(sdl_renderer, &right);
+    }
+    // Top strip
+    if (fit_rect.y > 0) {
+        SDL_FRect top = {0.0f, 0.0f, (float)screen_w, (float)fit_rect.y};
+        SDL_RenderFillRect(sdl_renderer, &top);
+    }
+    // Bottom strip
+    if (fit_rect.y + fit_rect.h < screen_h) {
+        int bottom_h = screen_h - (fit_rect.y + fit_rect.h);
+        SDL_FRect bottom = {0.0f, (float)(fit_rect.y + fit_rect.h), (float)screen_w, (float)bottom_h};
+        SDL_RenderFillRect(sdl_renderer, &bottom);
+    }
+}
+
 void Renderer::draw_matte_borders(const SDL_Rect& fit_rect) {
     SDL_SetRenderDrawColor(sdl_renderer, 0, 0, 0, 255);
     
@@ -329,11 +401,11 @@ void Renderer::draw_matte_borders(const SDL_Rect& fit_rect) {
 }
 
 void Renderer::draw_bias_lighting(const SDL_Rect& fit_rect, Uint8 avg_r, Uint8 avg_g, Uint8 avg_b,
-        int bias_strength, float item_timer, float anim_speed, const std::string& style, int border_width) {
+        int bias_strength, float item_timer, float anim_speed, const std::string& style, int border_width, int glow_depth) {
     if (!sdl_renderer) return;
     int sw = screen_w, sh = screen_h;
     int bw = border_width; // use config border_width (default 10)
-    int glow_steps = 16; // glow fade depth
+    int glow_steps = glow_depth > 0 ? glow_depth : 16; // configurable glow fade depth
     float sf = (float)std::max(0, std::min(bias_strength, 200)) / 150.0f;
     float pulse = 1.0f;
     if (style == "pulse" || style == "edge_glow" || style == "breathe") {
