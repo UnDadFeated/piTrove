@@ -419,7 +419,7 @@ void Renderer::draw_bias_lighting(const SDL_Rect& fit_rect, Uint8 avg_r, Uint8 a
 
     // Glow: gradient strips outward from border, brightest at border edge, fading into matte
     auto glow_up = [&](int gx, int gy, int gw, int max_depth) {
-        for (int s = 0; s <= max_depth && s < glow_steps; s++) {
+        for (int s = 0; s <= max_depth; s++) {
             float t2 = (float)s / glow_steps;
             float alpha_f = std::expf(-2.5f * t2 * t2) * sf * pulse;
             if (alpha_f < 0.01f) break;
@@ -430,7 +430,7 @@ void Renderer::draw_bias_lighting(const SDL_Rect& fit_rect, Uint8 avg_r, Uint8 a
         }
     };
     auto glow_down = [&](int gx, int gy, int gw, int max_depth) {
-        for (int s = 0; s < max_depth && s < glow_steps; s++) {
+        for (int s = 0; s < max_depth; s++) {
             float t2 = (float)s / glow_steps;
             float alpha_f = std::expf(-2.5f * t2 * t2) * sf * pulse;
             if (alpha_f < 0.01f) break;
@@ -441,7 +441,7 @@ void Renderer::draw_bias_lighting(const SDL_Rect& fit_rect, Uint8 avg_r, Uint8 a
         }
     };
     auto glow_left = [&](int gx, int gy, int max_depth, int gh) {
-        for (int s = 0; s <= max_depth && s < glow_steps; s++) {
+        for (int s = 0; s <= max_depth; s++) {
             float t2 = (float)s / glow_steps;
             float alpha_f = std::expf(-2.5f * t2 * t2) * sf * pulse;
             if (alpha_f < 0.01f) break;
@@ -452,7 +452,7 @@ void Renderer::draw_bias_lighting(const SDL_Rect& fit_rect, Uint8 avg_r, Uint8 a
         }
     };
     auto glow_right = [&](int gx, int gy, int max_depth, int gh) {
-        for (int s = 0; s < max_depth && s < glow_steps; s++) {
+        for (int s = 0; s < max_depth; s++) {
             float t2 = (float)s / glow_steps;
             float alpha_f = std::expf(-2.5f * t2 * t2) * sf * pulse;
             if (alpha_f < 0.01f) break;
@@ -481,7 +481,7 @@ void Renderer::draw_bias_lighting(const SDL_Rect& fit_rect, Uint8 avg_r, Uint8 a
                 float dist = std::sqrtf((float)(i * i + j * j));
                 float t2 = dist / glow_steps;
                 float alpha_f = std::expf(-2.5f * t2 * t2) * sf * pulse;
-                if (alpha_f < 0.02f) continue;
+                if (alpha_f < 0.01f) continue;
                 Uint8 aa = (Uint8)(alpha_f * 255.0f);
                 SDL_SetRenderDrawColor(sdl_renderer, avg_r, avg_g, avg_b, aa);
                 SDL_FRect r = {(float)(px + i * dx), (float)(py + j * dy), 1.0f, 1.0f};
