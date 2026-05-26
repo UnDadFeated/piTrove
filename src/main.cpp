@@ -862,7 +862,7 @@ int main(int argc, char** argv) {
     std::string log_dir = g_cfg.log_dir.empty() ? (get_exe_dir() + "/logs") : g_cfg.log_dir;
     g_crash_cache_dir = cache_dir;
 
-    g_logger.init(log_dir, LogLevel::DEBUG);
+    g_logger.init(log_dir, LogLevel::DEBUG, g_cfg.log_keep_count);
     g_logger.info("Media dir: %s, Cache dir: %s", media_dir.c_str(), cache_dir.c_str());
 
     // --- Dynamic DRM Probing and Environment Setup ---
@@ -1168,7 +1168,7 @@ int main(int argc, char** argv) {
     g_overlay->init();
 
     // Initialize background preload queue
-    g_preload = new PreloadQueue(4, 2, g_renderer.sdl_renderer);
+    g_preload = new PreloadQueue(g_cfg.preload_capacity, g_cfg.preload_workers, g_renderer.sdl_renderer);
     g_preload->start();
 
     g_logger.info("Starting slideshow loop with %zu items", g_eligible.size());

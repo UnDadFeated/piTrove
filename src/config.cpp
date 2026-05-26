@@ -149,6 +149,9 @@ bool Config::load(const std::string& path) {
         else if (key == "window_days")       this->scan_window_days = std::max(0, std::min(365, safe_stoi(val, this->scan_window_days)));
         else if (key == "mmap_size")         this->cache_mmap_size = std::max(0LL, std::min(268435456LL, safe_stoll(val, this->cache_mmap_size)));
         else if (key == "level")             this->verbose = (val == "debug");
+        else if (key == "log_keep_count")    this->log_keep_count = std::max(1, std::min(100, safe_stoi(val, this->log_keep_count)));
+        else if (key == "preload_capacity")  this->preload_capacity = std::max(1, std::min(32, safe_stoi(val, this->preload_capacity)));
+        else if (key == "preload_workers")   this->preload_workers = std::max(1, std::min(16, safe_stoi(val, this->preload_workers)));
         else if (key == "ignore_folders") {
             // Parse TOML array: ["@eaDir", "@Recycle"]
             this->ignore_folders.clear();

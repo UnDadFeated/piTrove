@@ -128,6 +128,8 @@ void config_wizard(const std::string& config_path) {
         f << "matting = " << (g_cfg.matting ? "1" : "0") << "\n";
         f << "matting_size = " << g_cfg.matting_size << "\n";
         f << "cooldown_days = " << g_cfg.cooldown_days << "\n";
+        f << "preload_capacity = " << g_cfg.preload_capacity << "\n";
+        f << "preload_workers = " << g_cfg.preload_workers << "\n";
         f << "clock_enabled = " << (g_cfg.clock_enabled ? "1" : "0") << "\n";
         f << "clock_x = " << g_cfg.clock_x << "\n";
         f << "clock_y = " << g_cfg.clock_y << "\n";
@@ -218,7 +220,8 @@ void config_wizard(const std::string& config_path) {
         f << "rows = " << g_cfg.collage_rows << "\n\n";
         
         f << "[log]\n";
-        f << "level = \"" << (g_cfg.verbose ? "debug" : "info") << "\"\n\n";
+        f << "level = \"" << (g_cfg.verbose ? "debug" : "info") << "\"\n";
+        f << "log_keep_count = " << g_cfg.log_keep_count << "\n\n";
         
         f << "[mqtt]\n";
         f << "enabled = " << (g_cfg.mqtt_enabled ? "1" : "0") << "\n";
@@ -324,7 +327,9 @@ void config_wizard(const std::string& config_path) {
         {"Matting Size", INT, "Thickness of the matte border in pixels"},
         {"Cooldown Days", INT, "Days to wait before showing a photo again (0=off)"},
         {"Shuffle", TGL, "Randomize photo/video order"},
-        {"Twin Portrait Split", TGL, "Render consecutive portrait images side-by-side"}
+        {"Twin Portrait Split", TGL, "Render consecutive portrait images side-by-side"},
+        {"Preload Capacity", INT, "Max images to load in the background (default: 4)"},
+        {"Preload Workers", INT, "Number of background loading threads (default: 2)"}
     };
     static const CI CG[] = {
         {"Recursive Scan", TGL, "Recursively scan subdirectories"},
@@ -350,7 +355,8 @@ void config_wizard(const std::string& config_path) {
     static const CI CI2[] = {
         {"Log Level", ENM, "Console verbosity (debug, info, warn, error)"},
         {"Min Brightness", INT, "Floor for auto-brightness (0-100)"},
-        {"SQLite mmap Size", INT, "Bytes to allocate for DB memory mapping"}
+        {"SQLite mmap Size", INT, "Bytes to allocate for DB memory mapping"},
+        {"Log Keep Count", INT, "Number of old log files to retain (default: 5)"}
     };
     static const CI CMQ[] = {
         {"MQTT Enabled", TGL, "Enable MQTT features (0/1)"},
@@ -369,11 +375,11 @@ void config_wizard(const std::string& config_path) {
         {"System", CB, 8},
         {"Overlays", CC, 14},
         {"Videos", CD, 7},
-        {"Slideshow", CE, 14},
+        {"Slideshow", CE, 16},
         {"Scanning", CG, 8},
         {"Weather", CH, 3},
         {"Hardware", CF, 4},
-        {"Advanced", CI2, 3},
+        {"Advanced", CI2, 4},
         {"MQTT", CMQ, 8}
     };
 
@@ -431,6 +437,8 @@ void config_wizard(const std::string& config_path) {
             case 11: return std::to_string(g_cfg.cooldown_days);
             case 12: return g_cfg.shuffle?"[ON]":"[OFF]";
             case 13: return g_cfg.twin_portrait_enabled?"[ON]":"[OFF]";
+            case 14: return std::to_string(g_cfg.preload_capacity);
+            case 15: return std::to_string(g_cfg.preload_workers);
         }
         if (c == 5) switch(i) {
             case 0: return g_cfg.recursive?"[ON]":"[OFF]";
@@ -457,6 +465,7 @@ void config_wizard(const std::string& config_path) {
             case 0: return g_cfg.verbose?"debug":"info";
             case 1: return std::to_string(g_cfg.brightness_auto_min);
             case 2: return std::to_string(g_cfg.cache_mmap_size);
+            case 3: return std::to_string(g_cfg.log_keep_count);
         }
         if (c == 9) switch(i) {
             case 0: return g_cfg.mqtt_enabled ? "[ON]" : "[OFF]";
@@ -522,6 +531,8 @@ void config_wizard(const std::string& config_path) {
                 case 11:{ try { g_cfg.cooldown_days=std::stoi(v); } catch(...) {} break; }
                 case 12:g_cfg.shuffle=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
                 case 13:g_cfg.twin_portrait_enabled=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
+                case 14:{ try { g_cfg.preload_capacity=std::max(1, std::min(32, std::stoi(v))); } catch(...) {} break; }
+                case 15:{ try { g_cfg.preload_workers=std::max(1, std::min(16, std::stoi(v))); } catch(...) {} break; }
             }
             else if(c==5) switch(i){
                 case 0:g_cfg.recursive=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
@@ -568,6 +579,7 @@ void config_wizard(const std::string& config_path) {
                 case 0:{ if(v=="debug") g_cfg.verbose=true; else g_cfg.verbose=false; }break;
                 case 1:{ try { g_cfg.brightness_auto_min=std::stoi(v); } catch(...) {} break; }
                 case 2:{ try { g_cfg.cache_mmap_size=std::stoll(v); } catch(...) {} break; }
+                case 3:{ try { g_cfg.log_keep_count=std::max(1, std::min(100, std::stoi(v))); } catch(...) {} break; }
             }
             else if(c==9) switch(i){
                 case 0:g_cfg.mqtt_enabled=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
