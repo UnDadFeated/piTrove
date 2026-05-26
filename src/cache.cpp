@@ -246,7 +246,7 @@ bool verify_database(const std::string& path) {
     }
     
     // Check if the table 'cache' exists and has all the required columns
-    const char* sql = "SELECT path, type, w, h, duration, exif, bad, last_shown, timestamp FROM cache LIMIT 1;";
+    const char* sql = "SELECT path, type, w, h, duration, exif, bad, last_shown, timestamp, is_camera FROM cache LIMIT 1;";
     if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) == SQLITE_OK) {
         ok = true;
         sqlite3_finalize(stmt);

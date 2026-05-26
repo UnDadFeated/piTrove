@@ -1,7 +1,7 @@
 #ifndef PITROVE_UTIL_H
 #define PITROVE_UTIL_H
 
-#define VERSION "11.3.4"
+#define VERSION "11.3.5"
 #define APP_NAME "piTrove"
 
 #include <atomic>
@@ -72,6 +72,7 @@ std::string trim(const std::string& s);
 // Signal / crash handling
 void crash_handler(int sig);
 void terminate_handler();
+void set_display_power(bool power);
 
 // System diagnostics and file path helpers
 std::string get_exe_dir();

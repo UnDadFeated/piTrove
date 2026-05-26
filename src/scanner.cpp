@@ -105,28 +105,10 @@ bool is_media(std::string_view ext_or_path) {
 bool is_in_seasonal_window(const std::string& filename, int window_days) {
     if (window_days <= 0) return true;
 
-    int digit_groups[3] = {0, 0, 0};
-    int group_count = 0;
-    int i = 0;
-    while (i < (int)filename.size() && group_count < 3) {
-        while (i < (int)filename.size() && !isdigit(filename[i])) i++;
-        if (i >= (int)filename.size()) break;
-        int val = 0;
-        while (i < (int)filename.size() && isdigit(filename[i])) {
-            val = val * 10 + (filename[i] - '0');
-            i++;
-        }
-        digit_groups[group_count++] = val;
+    int file_y = 0, file_m = 0, file_d = 0;
+    if (!parse_filename_date(filename, file_y, file_m, file_d)) {
+        return true; // Non-date files always scanned
     }
-
-    if (group_count < 3) return true;
-    if (i >= (int)filename.size() || filename[i] != '_') return true;
-
-    int file_y = digit_groups[0];
-    int file_m = digit_groups[1];
-    int file_d = digit_groups[2];
-    if (file_m < 1 || file_m > 12 || file_d < 1 || file_d > 31) return true;
-    if (file_y < 1900 || file_y > 2100) return true;
 
     time_t t = std::time(nullptr);
     tm tm_buf;

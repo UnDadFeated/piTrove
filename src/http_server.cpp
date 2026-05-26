@@ -801,6 +801,85 @@ static void handle_preview(int fd) {
     }
 }
 
+static void handle_client(int client_fd) {
+    // Set client socket timeout to prevent slowloris hangs
+    struct timeval client_tv;
+    client_tv.tv_sec = 2;
+    client_tv.tv_usec = 0;
+    setsockopt(client_fd, SOL_SOCKET, SO_RCVTIMEO, &client_tv, sizeof(client_tv));
+
+    char buffer[2048];
+    std::memset(buffer, 0, sizeof(buffer));
+    ssize_t bytes_read = read(client_fd, buffer, sizeof(buffer) - 1);
+    if (bytes_read > 0) {
+        buffer[bytes_read] = '\0';
+        std::string request(buffer);
+
+        // Very simple router
+        if (request.rfind("GET / ", 0) == 0 || request.rfind("GET /dashboard", 0) == 0) {
+            send_response(client_fd, "HTTP/1.1 200 OK", "text/html", get_dashboard_html());
+        } 
+        else if (request.rfind("GET /api/status", 0) == 0) {
+            send_response(client_fd, "HTTP/1.1 200 OK", "application/json", get_api_status());
+        } 
+        else if (request.rfind("GET /api/next", 0) == 0) {
+            g_remote_command.store(1);
+            send_response(client_fd, "HTTP/1.1 200 OK", "application/json", "{\"status\":\"ok\"}");
+        } 
+        else if (request.rfind("GET /api/prev", 0) == 0) {
+            g_remote_command.store(2);
+            send_response(client_fd, "HTTP/1.1 200 OK", "application/json", "{\"status\":\"ok\"}");
+        } 
+        else if (request.rfind("GET /api/pause", 0) == 0) {
+            g_remote_command.store(3);
+            send_response(client_fd, "HTTP/1.1 200 OK", "application/json", "{\"status\":\"ok\"}");
+        } 
+        else if (request.rfind("GET /api/toggle_shuffle", 0) == 0) {
+            {
+                std::lock_guard<std::mutex> lock(g_config_mtx);
+                g_cfg.shuffle = !g_cfg.shuffle;
+            }
+            g_config_changed.store(true);
+            send_response(client_fd, "HTTP/1.1 200 OK", "application/json", "{\"status\":\"ok\"}");
+        } 
+        else if (request.rfind("GET /api/restart", 0) == 0) {
+            g_running.store(false);
+            send_response(client_fd, "HTTP/1.1 200 OK", "application/json", "{\"status\":\"ok\"}");
+        } 
+        else if (request.rfind("GET /api/toggle_screen", 0) == 0) {
+            bool was = g_screen_blanked.exchange(!g_screen_blanked.load());
+            set_display_power(was);
+            std::string prefix, topic;
+            { std::lock_guard<std::mutex> lk(g_config_mtx); prefix = g_cfg.mqtt_topic_prefix; topic = g_cfg.mqtt_motionsensor_topic; }
+            mqtt_publish(prefix + "/status/screen", g_screen_blanked.load() ? "OFF" : "ON", true);
+            send_response(client_fd, "HTTP/1.1 200 OK", "application/json", "{\"status\":\"ok\"}");
+        }
+        else if (request.rfind("GET /api/trigger_motion", 0) == 0) {
+            g_last_motion_time.store(static_cast<int64_t>(std::time(nullptr)));
+            std::string prefix, sensor_topic;
+            { std::lock_guard<std::mutex> lk(g_config_mtx); prefix = g_cfg.mqtt_topic_prefix; sensor_topic = g_cfg.mqtt_motionsensor_topic; }
+            if (g_screen_blanked.exchange(false)) {
+                set_display_power(true);
+                mqtt_publish(prefix + "/status/screen", "ON", true);
+            }
+            mqtt_publish(sensor_topic, "ON", false);
+            std::string topic_copy = sensor_topic;
+            std::thread([topic_copy]() {
+                std::this_thread::sleep_for(std::chrono::seconds(2));
+                mqtt_publish(topic_copy, "OFF", false);
+            }).detach();
+            send_response(client_fd, "HTTP/1.1 200 OK", "application/json", "{\"status\":\"ok\"}");
+        }
+        else if (request.rfind("GET /api/preview", 0) == 0) {
+            handle_preview(client_fd);
+        } 
+        else {
+            send_response(client_fd, "HTTP/1.1 404 Not Found", "text/plain", "Not Found");
+        }
+    }
+    close(client_fd);
+}
+
 static void server_loop(int port) {
     struct sockaddr_in server_addr;
     int current_port = port;
@@ -854,7 +933,6 @@ static void server_loop(int port) {
 
     g_logger.info("HTTP: Background Web Remote server active on port %d", current_port);
 
-    char buffer[2048];
     while (g_server_running.load()) {
         // Set a timeout on accept so it can periodically check if g_server_running is false
         struct timeval tv;
@@ -885,83 +963,9 @@ static void server_loop(int port) {
             continue;
         }
 
-        // Set client socket timeout to prevent slowloris hangs
-        struct timeval client_tv;
-        client_tv.tv_sec = 2;
-        client_tv.tv_usec = 0;
-        setsockopt(client_fd, SOL_SOCKET, SO_RCVTIMEO, &client_tv, sizeof(client_tv));
-
-        std::memset(buffer, 0, sizeof(buffer));
-        ssize_t bytes_read = read(client_fd, buffer, sizeof(buffer) - 1);
-        if (bytes_read > 0) {
-            buffer[bytes_read] = '\0';
-            std::string request(buffer);
-
-            // Very simple router
-            if (request.rfind("GET / ", 0) == 0 || request.rfind("GET /dashboard", 0) == 0) {
-                send_response(client_fd, "HTTP/1.1 200 OK", "text/html", get_dashboard_html());
-            } 
-            else if (request.rfind("GET /api/status", 0) == 0) {
-                send_response(client_fd, "HTTP/1.1 200 OK", "application/json", get_api_status());
-            } 
-            else if (request.rfind("GET /api/next", 0) == 0) {
-                g_remote_command.store(1);
-                send_response(client_fd, "HTTP/1.1 200 OK", "application/json", "{\"status\":\"ok\"}");
-            } 
-            else if (request.rfind("GET /api/prev", 0) == 0) {
-                g_remote_command.store(2);
-                send_response(client_fd, "HTTP/1.1 200 OK", "application/json", "{\"status\":\"ok\"}");
-            } 
-            else if (request.rfind("GET /api/pause", 0) == 0) {
-                g_remote_command.store(3);
-                send_response(client_fd, "HTTP/1.1 200 OK", "application/json", "{\"status\":\"ok\"}");
-            } 
-            else if (request.rfind("GET /api/toggle_shuffle", 0) == 0) {
-                {
-                    std::lock_guard<std::mutex> lock(g_config_mtx);
-                    g_cfg.shuffle = !g_cfg.shuffle;
-                }
-                g_config_changed.store(true);
-                send_response(client_fd, "HTTP/1.1 200 OK", "application/json", "{\"status\":\"ok\"}");
-            } 
-            else if (request.rfind("GET /api/restart", 0) == 0) {
-                g_running.store(false);
-                send_response(client_fd, "HTTP/1.1 200 OK", "application/json", "{\"status\":\"ok\"}");
-            } 
-            else if (request.rfind("GET /api/toggle_screen", 0) == 0) {
-                bool was = g_screen_blanked.exchange(!g_screen_blanked.load());
-                int res = ::system(was ? "vcgencmd display_power 1" : "vcgencmd display_power 0");
-                (void)res;
-                std::string prefix, topic;
-                { std::lock_guard<std::mutex> lk(g_config_mtx); prefix = g_cfg.mqtt_topic_prefix; topic = g_cfg.mqtt_motionsensor_topic; }
-                mqtt_publish(prefix + "/status/screen", g_screen_blanked.load() ? "OFF" : "ON", true);
-                send_response(client_fd, "HTTP/1.1 200 OK", "application/json", "{\"status\":\"ok\"}");
-            }
-            else if (request.rfind("GET /api/trigger_motion", 0) == 0) {
-                g_last_motion_time.store(static_cast<int64_t>(std::time(nullptr)));
-                std::string prefix, sensor_topic;
-                { std::lock_guard<std::mutex> lk(g_config_mtx); prefix = g_cfg.mqtt_topic_prefix; sensor_topic = g_cfg.mqtt_motionsensor_topic; }
-                if (g_screen_blanked.exchange(false)) {
-                    int res = ::system("vcgencmd display_power 1");
-                    (void)res;
-                    mqtt_publish(prefix + "/status/screen", "ON", true);
-                }
-                mqtt_publish(sensor_topic, "ON", false);
-                std::string topic_copy = sensor_topic;
-                std::thread([topic_copy]() {
-                    std::this_thread::sleep_for(std::chrono::seconds(2));
-                    mqtt_publish(topic_copy, "OFF", false);
-                }).detach();
-                send_response(client_fd, "HTTP/1.1 200 OK", "application/json", "{\"status\":\"ok\"}");
-            }
-            else if (request.rfind("GET /api/preview", 0) == 0) {
-                handle_preview(client_fd);
-            } 
-            else {
-                send_response(client_fd, "HTTP/1.1 404 Not Found", "text/plain", "Not Found");
-            }
-        }
-        close(client_fd);
+        std::thread([client_fd]() {
+            handle_client(client_fd);
+        }).detach();
     }
 
     close(g_listen_fd);

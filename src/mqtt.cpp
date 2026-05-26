@@ -211,8 +211,7 @@ void start_mqtt_client() {
                     if (g_screen_blanked.load()) {
                         g_logger.info("MQTT motion detected: waking up display");
                         g_screen_blanked = false;
-                        int res = ::system("vcgencmd display_power 1");
-                        (void)res;
+                        set_display_power(true);
                         mqtt_publish(prefix + "/status/screen", "ON", true);
                     }
                 }
@@ -236,16 +235,14 @@ void start_mqtt_client() {
                     if (!g_screen_blanked.load()) {
                         g_logger.info("MQTT remote command: Screen OFF");
                         g_screen_blanked = true;
-                        int res = ::system("vcgencmd display_power 0");
-                        (void)res;
+                        set_display_power(false);
                         mqtt_publish(prefix + "/status/screen", "OFF", true);
                     }
                 } else if (payload == "ON" || payload == "1" || payload == "true") {
                     if (g_screen_blanked.load()) {
                         g_logger.info("MQTT remote command: Screen ON");
                         g_screen_blanked = false;
-                        int res = ::system("vcgencmd display_power 1");
-                        (void)res;
+                        set_display_power(true);
                         g_last_motion_time.store(static_cast<int64_t>(std::time(nullptr)));
                         mqtt_publish(prefix + "/status/screen", "ON", true);
                     }
