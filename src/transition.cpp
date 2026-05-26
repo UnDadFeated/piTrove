@@ -250,16 +250,21 @@ void TransitionEngine::render_dissolve(SDL_Texture* prev_tex, SDL_Texture* next_
     unsigned int seed = (unsigned int)(p * 60000.0f) ^ 0x5DEECE66u;
     int count = (int)(1200.0f * p * p);
     SDL_SetRenderDrawBlendMode(sdl, SDL_BLENDMODE_BLEND);
+    float alpha = 40.0f + 60.0f * p;
+    SDL_SetRenderDrawColor(sdl, 255, 255, 255, (Uint8)alpha);
+
+    std::vector<SDL_FRect> rects;
+    rects.reserve(count);
     for (int i = 0; i < count; i++) {
         seed = seed * 1103515245u + 12345u;
         int px = (seed >> 16) % screen_w;
         seed = seed * 1103515245u + 12345u;
         int py = (seed >> 16) % screen_h;
         int sz = 2 + ((seed >> 8) % 8);
-        float alpha = 40.0f + 60.0f * p;
-        SDL_SetRenderDrawColor(sdl, 255, 255, 255, (Uint8)alpha);
-        SDL_FRect pt = {(float)px, (float)py, (float)sz, (float)sz};
-        SDL_RenderFillRect(sdl, &pt);
+        rects.push_back({(float)px, (float)py, (float)sz, (float)sz});
+    }
+    if (!rects.empty()) {
+        SDL_RenderFillRects(sdl, rects.data(), (int)rects.size());
     }
 
     // Crossfade next

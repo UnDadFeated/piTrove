@@ -8,6 +8,31 @@
 #include <cstring>
 #include <unordered_set>
 
+static void compute_average_color(const RawImage& src, uint8_t& r, uint8_t& g, uint8_t& b) {
+    if (!src.valid || !src.pixels || src.width <= 0 || src.height <= 0) {
+        r = 220; g = 210; b = 195;
+        return;
+    }
+    const int MAX_STEPS = 64;
+    int step_x = std::max(1, src.width / MAX_STEPS);
+    int step_y = std::max(1, src.height / MAX_STEPS);
+    long sum_r = 0, sum_g = 0, sum_b = 0, samples = 0;
+    for (int y = 0; y < src.height; y += step_y) {
+        for (int x = 0; x < src.width; x += step_x) {
+            const uint8_t* px = src.pixels + y * 4 * src.width + x * 4;
+            sum_r += px[0]; sum_g += px[1]; sum_b += px[2];
+            ++samples;
+        }
+    }
+    if (samples == 0) {
+        r = 220; g = 210; b = 195;
+    } else {
+        r = (uint8_t)(sum_r / samples);
+        g = (uint8_t)(sum_g / samples);
+        b = (uint8_t)(sum_b / samples);
+    }
+}
+
 PreloadQueue::PreloadQueue(int max_size, int num_threads, SDL_Renderer* sdl_renderer)
     : max_size(max_size), num_threads(num_threads), sdl_renderer(sdl_renderer) {
     running.store(false);
@@ -102,33 +127,15 @@ std::shared_ptr<ImageData> PreloadQueue::try_dequeue(const std::string& target_p
                             data->height = data->surface->h;
                         }
 
-                        // Extract average color
-                        GpuColor avg = Renderer::get_average_color(data->surface);
-                        data->avg_r = avg.r;
-                        data->avg_g = avg.g;
-                        data->avg_b = avg.b;
+                        // Extract average color from preloaded background calculations
+                        data->avg_r = item.avg_r;
+                        data->avg_g = item.avg_g;
+                        data->avg_b = item.avg_b;
 
-                        // Compute matte color from center of image
-                        if (data->surface) {
-                            int cx = data->width / 4, cy = data->height / 4;
-                            int cw = data->width / 2, ch = data->height / 2;
-                            if (cx >= 0 && cy >= 0 && cw > 0 && ch > 0) {
-                                uint8_t* px = (uint8_t*)data->surface->pixels;
-                                int bpp = SDL_BYTESPERPIXEL(data->surface->format);
-                                long sr = 0, sg = 0, sb = 0, n = 0;
-                                for (int y = cy; y < cy + ch && y < data->surface->h; y++) {
-                                    for (int x = cx; x < cx + cw && x < data->surface->w; x++) {
-                                        const uint8_t* p = px + y * data->surface->pitch + x * bpp;
-                                        sr += p[0]; sg += p[1]; sb += p[2]; n++;
-                                    }
-                                }
-                                if (n > 0) {
-                                    data->matte_r = (uint8_t)(sr / n);
-                                    data->matte_g = (uint8_t)(sg / n);
-                                    data->matte_b = (uint8_t)(sb / n);
-                                }
-                            }
-                        }
+                        // Extract matte color from preloaded background calculations
+                        data->matte_r = item.matte_r;
+                        data->matte_g = item.matte_g;
+                        data->matte_b = item.matte_b;
 
                         // Sample 4 edge colors for bias gradient
                         for (int e = 0; e < 4; e++) {
@@ -309,6 +316,9 @@ void PreloadQueue::worker_thread(int thread_id) {
             compute_matte_color(raw, mr, mg, mb);
         }
 
+        uint8_t ar = 220, ag = 210, ab = 195;
+        compute_average_color(raw, ar, ag, ab);
+
         // Push raw data to loaded queue — main thread creates SDL surface
         {
             std::lock_guard<std::mutex> lock(queue_mutex);
@@ -317,6 +327,12 @@ void PreloadQueue::worker_thread(int thread_id) {
             item.blur_raw = std::move(blur);
             item.path = path;
             item.valid = true;
+            item.matte_r = mr;
+            item.matte_g = mg;
+            item.matte_b = mb;
+            item.avg_r = ar;
+            item.avg_g = ag;
+            item.avg_b = ab;
             loaded_queue.push(std::move(item));
         }
         queue_cv.notify_one();

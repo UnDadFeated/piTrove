@@ -104,6 +104,7 @@ void config_wizard(const std::string& config_path) {
         f << "matting = " << (g_cfg.matting ? "1" : "0") << "\n";
         f << "matting_size = " << g_cfg.matting_size << "\n";
         f << "cooldown_days = " << g_cfg.cooldown_days << "\n";
+        f << "reset_cooldown_on_restart = " << (g_cfg.reset_cooldown_on_restart ? "1" : "0") << "\n";
         f << "preload_capacity = " << g_cfg.preload_capacity << "\n";
         f << "preload_workers = " << g_cfg.preload_workers << "\n";
         f << "clock_enabled = " << (g_cfg.clock_enabled ? "1" : "0") << "\n";
@@ -312,7 +313,8 @@ void config_wizard(const std::string& config_path) {
         {"Shuffle", TGL, "Randomize photo/video order"},
         {"Twin Portrait Split", TGL, "Render consecutive portrait images side-by-side"},
         {"Preload Capacity", INT, "Max images to load in the background (default: 4)"},
-        {"Preload Workers", INT, "Number of background loading threads (default: 2)"}
+        {"Preload Workers", INT, "Number of background loading threads (default: 2)"},
+        {"Reset Cooldown", TGL, "Reset all shown history on app restart"}
     };
     static const CI CG[] = {
         {"Recursive Scan", TGL, "Recursively scan subdirectories"},
@@ -422,6 +424,7 @@ void config_wizard(const std::string& config_path) {
             case 13: return g_cfg.twin_portrait_enabled?"[ON]":"[OFF]";
             case 14: return std::to_string(g_cfg.preload_capacity);
             case 15: return std::to_string(g_cfg.preload_workers);
+            case 16: return g_cfg.reset_cooldown_on_restart?"[ON]":"[OFF]";
         }
         if (c == 5) switch(i) {
             case 0: return g_cfg.recursive?"[ON]":"[OFF]";
@@ -516,6 +519,7 @@ void config_wizard(const std::string& config_path) {
                 case 13:g_cfg.twin_portrait_enabled=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
                 case 14:{ try { g_cfg.preload_capacity=std::max(1, std::min(32, std::stoi(v))); } catch(...) {} break; }
                 case 15:{ try { g_cfg.preload_workers=std::max(1, std::min(16, std::stoi(v))); } catch(...) {} break; }
+                case 16:g_cfg.reset_cooldown_on_restart=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
             }
             else if(c==5) switch(i){
                 case 0:g_cfg.recursive=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;

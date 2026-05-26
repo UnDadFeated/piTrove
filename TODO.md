@@ -2,6 +2,23 @@
 
 This file tracks the active bugs, resource safety concerns, and boundary checks analyzed under the continuous quality improvement loop.
 
+## Batch #15: Reliability, Concurrency & Performance Hardening (Active)
+
+- [ ] **Bug #1 (Severity: High)** — `http_server.cpp:30` — Non-atomic `g_listen_fd` read/write data race and file descriptor reuse race.
+- [ ] **Bug #2 (Severity: Medium)** — `transition.cpp:253` — GPU dissolve transition CPU bound drawing loop.
+- [ ] **Bug #3 (Severity: Low)** — `util.cpp:251` — Logger silent log truncation and redundant double formatting.
+- [ ] **Bug #4 (Severity: Medium)** — `mpv_player.cpp:130` — Unwritable child `mpv` logs location `/home/pi/mpv_debug.log` inside container.
+- [ ] **Bug #5 (Severity: High)** — `preload.cpp:309` — Preloader background thread CPU waste via redundant matte & average color computation on the main thread.
+- [ ] **Bug #6 (Severity: Medium)** — `cache.cpp:229,235` — Unchecked SQL transactional failures in `begin_transaction()` and `commit_transaction()`.
+- [ ] **Bug #7 (Severity: Low)** — `install.sh:642` — Stray bracket character `}` in branch selection dialog display formatting.
+- [ ] **Bug #8 (Severity: Medium)** — `http_server.cpp:923,924` — Modifying config port `g_cfg.http_port` without signaling `g_config_changed`.
+- [ ] **Bug #9 (Severity: Low)** — `scanner.cpp:65` — Safe checks for string manipulation inside `file_ext` utility.
+- [ ] **Bug #10 (Severity: High)** — `main.cpp:953,999` — Corrupt cache database remove/re-scan doesn't release old SQLite handles before deleting the file.
+- [ ] **Feature Request (Severity: Medium)** — `config.cpp, tui.cpp, main.cpp` — Add configuration setting `reset_cooldown_on_restart` to allow keeping or clearing shown history on app restart.
+
+## Batch #15 Details:
+- Cooldown-days persistence by default, with config option to enable/disable cooldown reset on restart.
+
 ## Batch #14: System Safety, Memory & Concurrency Hardening (Complete)
 
 - [x] **Bug #1 (Severity: High)** — `image_loader.cpp:136` — Top-Edge column average out-of-bounds read if image height < 3px.

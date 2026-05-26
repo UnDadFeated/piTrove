@@ -127,7 +127,7 @@ bool MpvPlayer::play(const std::string& path, int volume) {
         for (int i = 3; i < 1024; ++i) close(i);
 
         // Redirect stdout/stderr to log file to inspect mpv status
-        int dbg = open("/home/pi/mpv_debug.log", O_WRONLY | O_CREAT | O_TRUNC, 0644);
+        int dbg = open("/app/logs/mpv_debug.log", O_WRONLY | O_CREAT | O_TRUNC, 0644);
         if (dbg >= 0) {
             dup2(dbg, STDOUT_FILENO);
             dup2(dbg, STDERR_FILENO);

@@ -27,7 +27,7 @@ extern std::mutex g_playlist_mtx;
 
 static std::thread g_server_thread;
 static std::atomic<bool> g_server_running{false};
-static int g_listen_fd = -1;
+static std::atomic<int> g_listen_fd{-1};
 
 // Premium Glassmorphic Dashboard HTML
 static std::string get_dashboard_html() {
@@ -887,29 +887,29 @@ static void server_loop(int port) {
     bool bound = false;
 
     for (int attempt = 0; attempt < max_attempts; attempt++) {
-        g_listen_fd = socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC, 0);
-        if (g_listen_fd < 0) {
+        int socket_fd = socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC, 0);
+        if (socket_fd < 0) {
             g_logger.error("HTTP: Failed to open stream socket.");
             return;
         }
 
         // Set SO_REUSEADDR to avoid address in use crashes on quick restart
         int optval = 1;
-        setsockopt(g_listen_fd, SOL_SOCKET, SO_REUSEADDR, &optval, sizeof(optval));
+        setsockopt(socket_fd, SOL_SOCKET, SO_REUSEADDR, &optval, sizeof(optval));
 
         std::memset(&server_addr, 0, sizeof(server_addr));
         server_addr.sin_family = AF_INET;
         server_addr.sin_addr.s_addr = INADDR_ANY;
         server_addr.sin_port = htons(current_port);
 
-        if (bind(g_listen_fd, (struct sockaddr*)&server_addr, sizeof(server_addr)) >= 0) {
+        if (bind(socket_fd, (struct sockaddr*)&server_addr, sizeof(server_addr)) >= 0) {
+            g_listen_fd.store(socket_fd);
             bound = true;
             break;
         }
 
         g_logger.warn("HTTP: Port %d was in use, trying next port...", current_port);
-        close(g_listen_fd);
-        g_listen_fd = -1;
+        close(socket_fd);
         current_port++;
     }
 
@@ -920,29 +920,38 @@ static void server_loop(int port) {
 
     if (current_port != port) {
         g_logger.warn("HTTP: Port %d was in use. Dynamic fallback bound to port %d", port, current_port);
-        std::lock_guard<std::mutex> lock(g_config_mtx);
-        g_cfg.http_port = current_port;
+        {
+            std::lock_guard<std::mutex> lock(g_config_mtx);
+            g_cfg.http_port = current_port;
+        }
+        g_config_changed.store(true);
     }
 
-    if (listen(g_listen_fd, 10) < 0) {
+    int active_fd = g_listen_fd.load();
+    if (active_fd < 0 || listen(active_fd, 10) < 0) {
         g_logger.error("HTTP: Listen failed on socket.");
-        close(g_listen_fd);
-        g_listen_fd = -1;
+        int fd_to_close = g_listen_fd.exchange(-1);
+        if (fd_to_close >= 0) {
+            close(fd_to_close);
+        }
         return;
     }
 
     g_logger.info("HTTP: Background Web Remote server active on port %d", current_port);
 
     while (g_server_running.load()) {
+        int fd = g_listen_fd.load();
+        if (fd < 0) break;
+
         // Set a timeout on accept so it can periodically check if g_server_running is false
         struct timeval tv;
         tv.tv_sec = 1;
         tv.tv_usec = 0;
         fd_set rfds;
         FD_ZERO(&rfds);
-        FD_SET(g_listen_fd, &rfds);
+        FD_SET(fd, &rfds);
 
-        int select_rc = select(g_listen_fd + 1, &rfds, nullptr, nullptr, &tv);
+        int select_rc = select(fd + 1, &rfds, nullptr, nullptr, &tv);
         if (select_rc < 0) {
             if (errno == EINTR) continue;
             break;
@@ -951,7 +960,9 @@ static void server_loop(int port) {
 
         struct sockaddr_in client_addr;
         socklen_t client_len = sizeof(client_addr);
-        int client_fd = accept4(g_listen_fd, (struct sockaddr*)&client_addr, &client_len, SOCK_CLOEXEC);
+        int current_fd = g_listen_fd.load();
+        if (current_fd < 0) break;
+        int client_fd = accept4(current_fd, (struct sockaddr*)&client_addr, &client_len, SOCK_CLOEXEC);
         if (client_fd < 0) {
             if (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR || errno == ECONNABORTED || errno == EMFILE) {
                 if (errno == EMFILE) {
@@ -968,8 +979,10 @@ static void server_loop(int port) {
         }).detach();
     }
 
-    close(g_listen_fd);
-    g_listen_fd = -1;
+    int fd_to_close = g_listen_fd.exchange(-1);
+    if (fd_to_close >= 0) {
+        close(fd_to_close);
+    }
     g_logger.info("HTTP: Background remote controller server stopped.");
 }
 
@@ -984,8 +997,10 @@ void stop_http_server() {
     g_server_running.store(false);
     
     // shutdown socket to interrupt select/accept
-    if (g_listen_fd >= 0) {
-        shutdown(g_listen_fd, SHUT_RDWR);
+    int fd = g_listen_fd.exchange(-1);
+    if (fd >= 0) {
+        shutdown(fd, SHUT_RDWR);
+        close(fd);
     }
     
     if (g_server_thread.joinable()) {

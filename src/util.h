@@ -1,7 +1,7 @@
 #ifndef PITROVE_UTIL_H
 #define PITROVE_UTIL_H
 
-#define VERSION "11.3.6"
+#define VERSION "11.3.7"
 #define APP_NAME "piTrove"
 
 #include <atomic>
@@ -51,6 +51,7 @@ struct Logger {
     void init(const std::string& path, LogLevel lvl, int keep_count = 5);
     void rotate_logs(const std::string& dir, int keep);
     void log(LogLevel lvl, const char* fmt, ...);
+    void log_v(LogLevel lvl, const char* fmt, va_list ap);
     void info(const char* fmt, ...);
     void warn(const char* fmt, ...);
     void error(const char* fmt, ...);
