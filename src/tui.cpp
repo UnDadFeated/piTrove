@@ -216,14 +216,21 @@ void config_wizard(const std::string& config_path) {
 
     // ── TERMINAL SIZING ──
     struct winsize w;
-    ioctl(STDIN_FILENO, TIOCGWINSZ, &w);
-    int term_cols = w.ws_col;
+    std::memset(&w, 0, sizeof(w));
+    int term_cols = 100;
+    if (ioctl(STDIN_FILENO, TIOCGWINSZ, &w) >= 0 && w.ws_col > 0) {
+        term_cols = w.ws_col;
+    }
     if (term_cols < 100) {
         printf("\033[8;40;155t");
         fflush(stdout);
         std::this_thread::sleep_for(std::chrono::microseconds(100000));
-        ioctl(STDIN_FILENO, TIOCGWINSZ, &w);
-        term_cols = w.ws_col;
+        std::memset(&w, 0, sizeof(w));
+        if (ioctl(STDIN_FILENO, TIOCGWINSZ, &w) >= 0 && w.ws_col > 0) {
+            term_cols = w.ws_col;
+        } else {
+            term_cols = 100;
+        }
     }
     int tui_width = std::max(100, std::min(155, term_cols));
 
@@ -604,9 +611,13 @@ void config_wizard(const std::string& config_path) {
 
         // Sizing checks
         struct winsize w_curr;
-        ioctl(STDIN_FILENO, TIOCGWINSZ, &w_curr);
-        int cur_cols = w_curr.ws_col;
-        int cur_rows = w_curr.ws_row;
+        std::memset(&w_curr, 0, sizeof(w_curr));
+        int cur_cols = 100;
+        int cur_rows = 24;
+        if (ioctl(STDIN_FILENO, TIOCGWINSZ, &w_curr) >= 0 && w_curr.ws_col > 0 && w_curr.ws_row > 0) {
+            cur_cols = w_curr.ws_col;
+            cur_rows = w_curr.ws_row;
+        }
 
         tui_width = std::max(100, std::min(155, cur_cols));
         int name_w = 22;

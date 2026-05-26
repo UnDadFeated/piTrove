@@ -276,8 +276,8 @@ static SDL_Texture* render_state_to_texture(
         }
 
         // 1. Blurred background if enabled (primary photo's blur for fullscreen)
-        if (snap_blurred && primary && primary->blur_raw.valid && primary->blur_raw.pixels) {
-            g_renderer.draw_blurred_from_raw(primary->blur_raw, (Uint8)(255.0f * vignette_str));
+        if (snap_blurred && primary && primary->blur_texture) {
+            g_renderer.draw_blurred_background(primary->blur_texture, (Uint8)(255.0f * vignette_str));
         }
 
         // 2. Draw matte borders if enabled (solid black base layer)
@@ -348,8 +348,8 @@ static SDL_Texture* render_state_to_texture(
         }
 
         // 1. Blurred background if enabled (behind everything)
-        if (snap_blurred && primary && primary->blur_raw.valid && primary->blur_raw.pixels) {
-            g_renderer.draw_blurred_from_raw(primary->blur_raw, (Uint8)(255.0f * vignette_str));
+        if (snap_blurred && primary && primary->blur_texture) {
+            g_renderer.draw_blurred_background(primary->blur_texture, (Uint8)(255.0f * vignette_str));
         }
 
        // 2. Draw matte borders if enabled (solid black base layer)
@@ -1329,6 +1329,14 @@ int main(int argc, char** argv) {
     int active_fps = 60;
 
     while (g_running.load()) {
+        if (g_config_changed.load()) {
+            g_logger.info("MAIN_LOOP: Dynamic configuration reload triggered!");
+            {
+                std::lock_guard<std::mutex> lk(g_config_mtx);
+                g_cfg.load(config_path);
+            }
+            g_config_changed.store(false);
+        }
         auto now = std::chrono::steady_clock::now();
         double dt = std::chrono::duration<double>(now - last_frame_time).count();
         last_frame_time = now;
@@ -1785,8 +1793,8 @@ int main(int argc, char** argv) {
                 }
 
                 // 1. Blurred background if enabled (primary photo's blur for fullscreen)
-                if (snap_blurred && current_data && current_data->blur_raw.valid && current_data->blur_raw.pixels) {
-                    g_renderer.draw_blurred_from_raw(current_data->blur_raw, (Uint8)(255.0f * vignette_str));
+                if (snap_blurred && current_data && current_data->blur_texture) {
+                    g_renderer.draw_blurred_background(current_data->blur_texture, (Uint8)(255.0f * vignette_str));
                 }
 
                 // 2. Draw matte borders if enabled (solid black base layer)
@@ -1853,8 +1861,8 @@ int main(int argc, char** argv) {
                 }
 
                 // 1. Blurred background if enabled (behind everything)
-                if (snap_blurred && current_data && current_data->blur_raw.valid && current_data->blur_raw.pixels) {
-                    g_renderer.draw_blurred_from_raw(current_data->blur_raw, (Uint8)(255.0f * vignette_str));
+                if (snap_blurred && current_data && current_data->blur_texture) {
+                    g_renderer.draw_blurred_background(current_data->blur_texture, (Uint8)(255.0f * vignette_str));
                 }
 
                 // 2. Draw matte borders if enabled (solid black base layer)

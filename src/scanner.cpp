@@ -281,9 +281,27 @@ bool MediaScanner::is_month_in_window(const std::string& dirname, int window_day
         while (i < dirname.size() && !isdigit(dirname[i])) i++;
         if (i >= dirname.size()) break;
         int val = 0;
+        int digit_count = 0;
         while (i < dirname.size() && isdigit(dirname[i])) {
             val = val * 10 + (dirname[i] - '0');
+            digit_count++;
             i++;
+        }
+        if (gc == 0 && digit_count >= 6 && digit_count <= 8) {
+            int year = 0, month = 0;
+            if (digit_count == 6) {
+                year = val / 100;
+                month = val % 100;
+            } else {
+                year = val / 10000;
+                month = (val % 10000) / 100;
+            }
+            if (year >= 1900 && year <= 2100 && month >= 1 && month <= 12) {
+                groups[0] = year;
+                groups[1] = month;
+                gc = 2;
+                break;
+            }
         }
         groups[gc++] = val;
         if (gc == 1 && i < dirname.size() && (dirname[i] == '-' || dirname[i] == '_')) i++;

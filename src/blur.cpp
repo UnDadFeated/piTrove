@@ -115,9 +115,14 @@ RawImage box_blur(const RawImage& src, int radius) {
 
     if (!src.valid || src.width <= 0 || src.height <= 0) return out;
 
+    const int MAX_DIM = 480;
+    // Scale radius down proportionally to match downsampled resolution
+    if (src.width > MAX_DIM || src.height > MAX_DIM) {
+        float scale = (float)MAX_DIM / (float)std::max(src.width, src.height);
+        radius = std::max(1, (int)std::round(radius * scale));
+    }
     radius = std::max(1, std::min(radius, 24));
 
-    const int MAX_DIM = 1920;
     int dw = src.width, dh = src.height;
     uint8_t* work = downsample_image(src.pixels, src.width, src.height, dw, dh, MAX_DIM);
     if (!work) {

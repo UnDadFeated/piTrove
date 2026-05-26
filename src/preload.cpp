@@ -66,7 +66,7 @@ std::shared_ptr<ImageData> PreloadQueue::try_dequeue(const std::string& target_p
     {
         std::lock_guard<std::mutex> work_lk(work_mutex);
         std::lock_guard<std::mutex> lock(queue_mutex);
-        if (!loaded_queue.empty()) {
+        while (!loaded_queue.empty()) {
             if (loaded_queue.front().path == target_path) {
                 PreloadedItem item = std::move(loaded_queue.front());
                 loaded_queue.pop();
@@ -210,13 +210,12 @@ std::shared_ptr<ImageData> PreloadQueue::try_dequeue(const std::string& target_p
                         data->blur_raw = std::move(item.blur_raw);
                     }
                 }
+                break;
             } else {
-                g_logger.warn("Preload mismatch: front is '%s', target is '%s'. Clearing preloaded queue.",
+                g_logger.warn("Preload mismatch: front is '%s', target is '%s'. Discarding front stale item.",
                     loaded_queue.front().path.c_str(), target_path.c_str());
-                while (!loaded_queue.empty()) {
-                    active_preloads.erase(loaded_queue.front().path);
-                    loaded_queue.pop();
-                }
+                active_preloads.erase(loaded_queue.front().path);
+                loaded_queue.pop();
             }
         }
     }

@@ -3,12 +3,19 @@
 #include "util.h"
 #include <stdexcept>
 
+static std::atomic<int> g_font_renderer_instances{0};
+static std::mutex g_font_init_mutex;
+
 FontRenderer::FontRenderer(Renderer* renderer) : renderer(renderer) {
     g_logger.info("TRACE: FontRenderer::ctor TTF_WasInit=%d", TTF_WasInit());
-    if (TTF_WasInit() == 0) {
-        if (!TTF_Init()) {
-            g_logger.error("TTF_Init failed: %s", SDL_GetError());
-            throw std::runtime_error("TTF Init failed");
+    std::lock_guard<std::mutex> lk(g_font_init_mutex);
+    if (g_font_renderer_instances.fetch_add(1) == 0) {
+        if (TTF_WasInit() == 0) {
+            if (!TTF_Init()) {
+                g_logger.error("TTF_Init failed: %s", SDL_GetError());
+                g_font_renderer_instances.fetch_sub(1);
+                throw std::runtime_error("TTF Init failed");
+            }
         }
     }
 }
@@ -28,8 +35,12 @@ FontRenderer::~FontRenderer() {
         }
     }
     fonts.clear();
-    if (TTF_WasInit() != 0) {
-        TTF_Quit();
+
+    std::lock_guard<std::mutex> lk(g_font_init_mutex);
+    if (g_font_renderer_instances.fetch_sub(1) == 1) {
+        if (TTF_WasInit() != 0) {
+            TTF_Quit();
+        }
     }
 }
 

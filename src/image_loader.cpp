@@ -132,8 +132,8 @@ std::shared_ptr<ImageData> ImageLoader::load(const std::string& path) {
         // Top edge: one RGB per column
         result->edge_top_rgb.resize(sw * 3);
         for (int x = 0; x < sw; x++) {
-            int ar = 0, ag = 0, ab = 0, ac = 0;
-            for (int d = 0; d < 3; d++) {
+            int samples = sh < 3 ? sh : 3;
+            for (int d = 0; d < samples; d++) {
                 const uint8_t* dp = px + x * bpp + d * pitch;
                 ar += dp[0]; ag += dp[1]; ab += dp[2]; ac++;
             }
@@ -218,6 +218,23 @@ void ImageLoader::load_texture(ImageData* data, SDL_Renderer* renderer) {
         SDL_SetTextureScaleMode(data->texture, SDL_SCALEMODE_LINEAR);
     }
 
+    if (data->blur_raw.valid && data->blur_raw.pixels) {
+        SDL_Surface* bsurf = SDL_CreateSurface(data->blur_raw.width, data->blur_raw.height, SDL_PIXELFORMAT_RGBA32);
+        if (bsurf) {
+            memcpy(bsurf->pixels, data->blur_raw.pixels, (size_t)data->blur_raw.width * data->blur_raw.height * 4);
+            data->blur_texture = SDL_CreateTextureFromSurface(renderer, bsurf);
+            if (!data->blur_texture) {
+                g_logger.error("Failed to create blur texture from surface: %s", SDL_GetError());
+            } else {
+                SDL_SetTextureScaleMode(data->blur_texture, SDL_SCALEMODE_LINEAR);
+            }
+            SDL_DestroySurface(bsurf);
+        }
+        free(data->blur_raw.pixels);
+        data->blur_raw.pixels = nullptr;
+        data->blur_raw.valid = false;
+    }
+
     SDL_DestroySurface(data->surface);
     data->surface = nullptr;
 }
@@ -227,6 +244,10 @@ void ImageLoader::unload_texture(ImageData* data) {
     if (data->texture) {
         SDL_DestroyTexture(data->texture);
         data->texture = nullptr;
+    }
+    if (data->blur_texture) {
+        SDL_DestroyTexture(data->blur_texture);
+        data->blur_texture = nullptr;
     }
 }
 
