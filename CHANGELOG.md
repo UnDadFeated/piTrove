@@ -1,5 +1,10 @@
 # Changelog
 
+## v11.3.3 — Critical Slideshow Transition Fix (May 26, 2026)
+
+### Fixed
+- **Slideshow Transition Crash Loop** — Resolved a critical logic error in the background preloading queue where processing images below the downsampling limit caused the original sharp pixels buffer to be prematurely freed and corrupted. This eliminates random segmentation faults and crash loops during transitions, ensuring the system runs smoothly without briefly showing the boot splash screen.
+
 ## v11.3.2 — Unified CLI Management Utility (May 26, 2026)
 
 ### Added
