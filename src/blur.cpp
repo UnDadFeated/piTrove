@@ -121,13 +121,15 @@ RawImage box_blur(const RawImage& src, int radius) {
     int dw = src.width, dh = src.height;
     uint8_t* work = downsample_image(src.pixels, src.width, src.height, dw, dh, MAX_DIM);
     if (!work) {
-        // No downsample needed, use original
-        work = src.pixels;
+        // No downsample needed, but we MUST copy the pixels so we don't modify/free the original sharp pixels!
+        size_t buf_size = (size_t)src.width * src.height * 4;
+        work = (uint8_t*)malloc(buf_size);
+        if (!work) return out;
+        memcpy(work, src.pixels, buf_size);
         dw = src.width;
         dh = src.height;
     }
 
-    size_t buf_size = (size_t)dw * dh * 4;
     out.width = dw;
     out.height = dh;
     out.channels = 4;
@@ -137,34 +139,6 @@ RawImage box_blur(const RawImage& src, int radius) {
 
     // Run blur in-place on the working buffer
     separable_box_blur(out.pixels, dw, dh, radius);
-
-    // If we allocated a downsample copy, the blur ran on it —
-    // that's the result we want to return.
-    // If work == src.pixels (no downsample), we've blurred the source directly.
-    // In that case we need to free the original src pixels since we took ownership.
-    // But RawImage::src already has valid=true and pixels pointing there.
-    // The caller (worker_thread) owns the RawImage, so this is fine —
-    // we blurred the worker's RawImage in place and return a new one.
-    // However, if work == src.pixels, we just blurred the source and return a copy-of-pointer.
-    // This leaks the source pixels. Let's avoid that: if no downsample, copy the source first.
-    // Actually, let's keep it simple: we always own the returned buffer.
-    // If work == src.pixels, we need to copy src into a new buffer first.
-
-    // Check if we blurred in-place on source
-    if (work == src.pixels) {
-        // Oops, we blurred the source. We need a new buffer.
-        // This won't happen in practice since the caller passes by const ref
-        // and the worker owns the RawImage. But let's be safe.
-        free(out.pixels);
-        out.valid = false;
-        out.pixels = nullptr;
-        return out;
-    }
-
-    // work is a new allocation that we blurred — return it.
-    // The caller (worker) will later free item.raw.pixels when building ImageData,
-    // but we need to NOT double-free. The worker should not free item.raw.pixels
-    // if blur consumed it. We handle this in preload.cpp by checking blur_valid.
 
     return out;
 }
