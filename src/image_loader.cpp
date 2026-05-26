@@ -132,6 +132,7 @@ std::shared_ptr<ImageData> ImageLoader::load(const std::string& path) {
         // Top edge: one RGB per column
         result->edge_top_rgb.resize(sw * 3);
         for (int x = 0; x < sw; x++) {
+            int ar = 0, ag = 0, ab = 0, ac = 0;
             int samples = sh < 3 ? sh : 3;
             for (int d = 0; d < samples; d++) {
                 const uint8_t* dp = px + x * bpp + d * pitch;
