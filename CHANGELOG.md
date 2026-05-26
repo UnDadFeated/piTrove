@@ -1,5 +1,10 @@
 # Changelog
 
+## v11.3.2 — Unified CLI Management Utility (May 26, 2026)
+
+### Added
+- **Simplified Command Line Management (pitrove)** — Introduced a new unified terminal CLI tool (`pitrove`) installed dynamically on the system. Users can now easily manage their digital frame with simple commands: `pitrove config` to launch settings, `pitrove restart` to apply changes, `pitrove logs` to tail rendering diagnostic entries, and `pitrove status` to check background daemon health.
+
 ## v11.3.1 — Configurable Logging and Preloader Settings (May 26, 2026)
 
 ### Added
