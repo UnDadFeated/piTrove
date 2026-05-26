@@ -8,6 +8,11 @@
 - **Symmetric 360-Degree Edge Glow** — Redesigned bias lighting to utilize a fully continuous 2D falloff from the image border and a radial gradient from the corners. The edge and corner lighting bounds are mathematically aligned to eliminate seams and gaps, producing a seamless and perfectly unified 360-degree glow frame around the physical borders.
 - **Configurable Blur, Matte, Vignette & Glow** — New settings: `blur_radius` (6–24, default 14), `matte_opacity` (0.05–0.50, default 0.20), `vignette_strength` (0.10–0.80, default 0.35), and `glow_depth` (16–120, default 43). All tuned for natural appearance without heavy GPU cost (~5ms on Pi 4/5).
 
+### Fixed
+- **TUI Startup Display Freeze** — Resolved a drawing logic issue where the TUI would load into a blank settings screen until a key was pressed. The settings list is now fully drawn and visible immediately upon startup.
+- **Midnight Playlist Re-Filtering Race Condition** — Fixed a data race that occurred during midnight playlist re-filtering, eliminating potential system lockups and memory crashes.
+- **Mapped Dissolve Transition Effect** — Restored the built-in GPU dissolve transition effect mapping, allowing users to select and play the dissolve scatter effect cleanly.
+
 ## v11.2.3 — Slideshow Image Stuck Fix (May 25, 2026)
 
 ### Fixed
