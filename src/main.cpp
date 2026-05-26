@@ -693,35 +693,34 @@ static void watchman_loop() {
             g_logger.info("Watchman: Midnight detected! Shifting temporal window. Old day=%d, New day=%d", last_yday, curr_tm.tm_yday);
             last_yday = curr_tm.tm_yday;
             
-            // Re-filter playlist
-            int cooldown_days = 0;
-            int window_days = 0;
-            bool shuffle_enabled = true;
+            // Re-filter playlist under lock to prevent data race on g_scanned_items and g_eligible
             {
-                std::lock_guard<std::mutex> lock(g_config_mtx);
-                cooldown_days = g_cfg.cooldown_days;
-                window_days = g_cfg.scan_window_days;
-                shuffle_enabled = g_cfg.shuffle;
-            }
-            
-            std::vector<MediaItem> new_eligible = filter_playlist(g_scanned_items, cooldown_days, window_days);
-            g_logger.info("Watchman: New seasonal window calculation: %zu / %zu items eligible", new_eligible.size(), g_scanned_items.size());
-            
-            if (!new_eligible.empty()) {
-                bool play_just_photos = false;
-                bool play_just_videos = false;
-                int videos_per_photos = 10;
+                std::lock_guard<std::mutex> playlist_lock(g_playlist_mtx);
+                
+                int cooldown_days = 0;
+                int window_days = 0;
+                bool shuffle_enabled = true;
                 {
                     std::lock_guard<std::mutex> lock(g_config_mtx);
-                    play_just_photos = g_cfg.play_just_photos;
-                    play_just_videos = g_cfg.play_just_videos;
-                    videos_per_photos = g_cfg.videos_per_photos;
+                    cooldown_days = g_cfg.cooldown_days;
+                    window_days = g_cfg.scan_window_days;
+                    shuffle_enabled = g_cfg.shuffle;
                 }
-                organize_playlist(new_eligible, videos_per_photos, play_just_photos, play_just_videos, shuffle_enabled);
                 
-                // Swap seamlessly under mutex
-                {
-                    std::lock_guard<std::mutex> playlist_lock(g_playlist_mtx);
+                std::vector<MediaItem> new_eligible = filter_playlist(g_scanned_items, cooldown_days, window_days);
+                g_logger.info("Watchman: New seasonal window calculation: %zu / %zu items eligible", new_eligible.size(), g_scanned_items.size());
+                
+                if (!new_eligible.empty()) {
+                    bool play_just_photos = false;
+                    bool play_just_videos = false;
+                    int videos_per_photos = 10;
+                    {
+                        std::lock_guard<std::mutex> lock(g_config_mtx);
+                        play_just_photos = g_cfg.play_just_photos;
+                        play_just_videos = g_cfg.play_just_videos;
+                        videos_per_photos = g_cfg.videos_per_photos;
+                    }
+                    organize_playlist(new_eligible, videos_per_photos, play_just_photos, play_just_videos, shuffle_enabled);
                     
                     // Try to preserve current playing item
                     std::string current_path = "";
@@ -743,9 +742,9 @@ static void watchman_loop() {
                     }
                     current_idx = new_idx;
                     g_logger.info("Watchman: Playlist swapped seamlessly. New size=%zu, current_idx=%d", g_eligible.size(), current_idx);
+                } else {
+                    g_logger.warn("Watchman: New playlist is empty. Keeping old playlist to prevent interruption.");
                 }
-            } else {
-                g_logger.warn("Watchman: New playlist is empty. Keeping old playlist to prevent interruption.");
             }
         }
     }
@@ -1497,6 +1496,7 @@ int main(int argc, char** argv) {
             if (transition_effect == "wipe") effect = TransitionEffect::WipeLeft;
             else if (transition_effect == "ken_burns") effect = TransitionEffect::KenBurns;
             else if (transition_effect == "pixelate") effect = TransitionEffect::Pixelate;
+            else if (transition_effect == "dissolve") effect = TransitionEffect::Dissolve;
             float duration = 0.0f, kb_zoom = 0.1f;
             { std::lock_guard<std::mutex> lk(g_config_mtx); duration = g_cfg.transition_duration; kb_zoom = g_cfg.ken_burns_zoom; }
             g_transition->start(effect, duration, 0, kb_zoom);
