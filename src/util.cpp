@@ -181,7 +181,7 @@ void Logger::flush_loop() {
     }
 }
 
-void Logger::init(const std::string& path, LogLevel lvl) {
+void Logger::init(const std::string& path, LogLevel lvl, int keep_count) {
     level = lvl;
     log_dir = path;
     std::filesystem::create_directories(path);
@@ -193,8 +193,8 @@ void Logger::init(const std::string& path, LogLevel lvl) {
     std::strftime(fname, sizeof(fname), "piTrove_%Y%m%d_%H%M%S.log", localtime_r(&t, &tm_buf));
     log_file_path = path + "/" + fname;
 
-    // Rotate: keep only last 5 log files
-    rotate_logs(path, 5);
+    // Rotate: keep specified number of old log files
+    rotate_logs(path, keep_count);
 
     // Write version header to new log file
     {

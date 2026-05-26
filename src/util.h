@@ -48,7 +48,7 @@ struct Logger {
     std::atomic<bool> flush_running{true};
 
     void flush_loop();
-    void init(const std::string& path, LogLevel lvl);
+    void init(const std::string& path, LogLevel lvl, int keep_count = 5);
     void rotate_logs(const std::string& dir, int keep);
     void log(LogLevel lvl, const char* fmt, ...);
     void info(const char* fmt, ...);

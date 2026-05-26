@@ -35,6 +35,9 @@ struct Config {
     bool    verbose{false};
     int     slideshow_fps{30};
     int     cooldown_days{330};
+    int     log_keep_count{5};
+    int     preload_capacity{4};
+    int     preload_workers{2};
 
     // ---- Timer System ----
     bool    timer_enabled{true};
