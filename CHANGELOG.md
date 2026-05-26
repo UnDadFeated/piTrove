@@ -1,5 +1,10 @@
 # Changelog
 
+## v11.3.4 — Network Resilience and Mount Safety (May 26, 2026)
+
+### Fixed
+- **Network Mount Drop Recovery** — Fixed system instability and abrupt crashes that occurred when the network storage (CIFS/NAS) disconnected or dropped under heavy load. The media scanner and slideshow loop now gracefully survive brief network interruptions without throwing fatal unhandled system exceptions or shutting down the background daemon.
+
 ## v11.3.3 — Critical Slideshow Transition Fix (May 26, 2026)
 
 ### Fixed

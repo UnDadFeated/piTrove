@@ -139,7 +139,8 @@ std::string get_exe_dir() {
 }
 
 bool file_exists(const std::string& path) {
-    return std::filesystem::exists(path);
+    std::error_code ec;
+    return std::filesystem::exists(path, ec);
 }
 
 std::string get_timestamp() {
