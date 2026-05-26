@@ -108,6 +108,7 @@ bool Config::load(const std::string& path) {
         else if (key == "bias_anim_style")   this->bias_anim_style = val;
         else if (key == "bias_color_mode")   this->bias_color_mode = val;
         else if (key == "cooldown_days")     this->cooldown_days = std::max(0, std::min(3650, safe_stoi(val, this->cooldown_days)));
+        else if (key == "reset_cooldown_on_restart") this->reset_cooldown_on_restart = (val == "1" || val == "true");
         else if (key == "brightness_auto") this->brightness_auto = (val == "1" || val == "true");
         else if (key == "brightness_auto_min") this->brightness_auto_min = std::max(0, std::min(100, safe_stoi(val, this->brightness_auto_min)));
         else if (key == "brightness_auto_max") this->brightness_auto_max = std::max(0, std::min(100, safe_stoi(val, this->brightness_auto_max)));

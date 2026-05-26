@@ -958,6 +958,9 @@ int main(int argc, char** argv) {
         CacheManager* fast_cache = new CacheManager();
         if (fast_cache->open(cache_dir)) {
             g_cache = fast_cache;
+            if (g_cfg.reset_cooldown_on_restart) {
+                g_cache->reset_all_cooldowns();
+            }
             sqlite3_stmt* stmt = nullptr;
             int load_rc = sqlite3_prepare_v2(fast_cache->db,
                 "SELECT path, type, w, h, duration, exif, last_shown, is_camera FROM cache WHERE bad = 0;",
@@ -997,12 +1000,12 @@ int main(int argc, char** argv) {
                 g_database_complete.store(true);
             } else {
                 g_logger.warn("Cache DB loaded 0 valid items — will re-scan");
+                g_cache = nullptr;
+                fast_cache->close();
+                delete fast_cache;
             }
         } else {
             g_logger.warn("Failed to open cache DB — will re-scan");
-        }
-        if (g_cache != fast_cache) {
-            delete fast_cache;
         }
     }
 

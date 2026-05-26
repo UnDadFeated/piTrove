@@ -19,6 +19,12 @@ struct PreloadedItem {
     RawImage blur_raw;  // Blurred background (move-only)
     std::string path;
     bool valid = false;
+    uint8_t matte_r = 0;
+    uint8_t matte_g = 0;
+    uint8_t matte_b = 0;
+    uint8_t avg_r = 220;
+    uint8_t avg_g = 210;
+    uint8_t avg_b = 195;
 
     PreloadedItem() = default;
     PreloadedItem(PreloadedItem&&) noexcept = default;

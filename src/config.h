@@ -35,6 +35,7 @@ struct Config {
     bool    verbose{false};
     int     slideshow_fps{30};
     int     cooldown_days{330};
+    bool    reset_cooldown_on_restart{false};
     int     log_keep_count{5};
     int     preload_capacity{4};
     int     preload_workers{2};

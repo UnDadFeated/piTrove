@@ -24,6 +24,7 @@ ken_burns_speed = 0.1
 matting = 1
 matting_size = 96
 cooldown_days = 330
+reset_cooldown_on_restart = 0
 preload_capacity = 4
 preload_workers = 2
 brightness_auto = 0

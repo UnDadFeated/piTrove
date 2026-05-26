@@ -225,15 +225,40 @@ void CacheManager::mark_bad(const std::string& filepath) {
 void CacheManager::begin_transaction() {
     if (!db) return;
     std::lock_guard<std::mutex> lk(db_mutex);
-    in_transaction.store(true);
-    sqlite3_exec(db, "BEGIN TRANSACTION;", nullptr, nullptr, nullptr);
+    char* err = nullptr;
+    int rc = sqlite3_exec(db, "BEGIN TRANSACTION;", nullptr, nullptr, &err);
+    if (rc != SQLITE_OK) {
+        g_logger.error("Failed to BEGIN TRANSACTION: %s", err ? err : "unknown error");
+        if (err) sqlite3_free(err);
+    } else {
+        in_transaction.store(true);
+    }
 }
 
 void CacheManager::commit_transaction() {
     if (!db) return;
     std::lock_guard<std::mutex> lk(db_mutex);
-    sqlite3_exec(db, "COMMIT;", nullptr, nullptr, nullptr);
+    char* err = nullptr;
+    int rc = sqlite3_exec(db, "COMMIT;", nullptr, nullptr, &err);
+    if (rc != SQLITE_OK) {
+        g_logger.error("Failed to COMMIT transaction: %s. Performing ROLLBACK...", err ? err : "unknown error");
+        if (err) sqlite3_free(err);
+        sqlite3_exec(db, "ROLLBACK;", nullptr, nullptr, nullptr);
+    }
     in_transaction.store(false);
+}
+
+void CacheManager::reset_all_cooldowns() {
+    if (!db) return;
+    std::lock_guard<std::mutex> lk(db_mutex);
+    char* err = nullptr;
+    int rc = sqlite3_exec(db, "UPDATE cache SET last_shown = 0;", nullptr, nullptr, &err);
+    if (rc != SQLITE_OK) {
+        g_logger.error("Failed to reset shown history cooldowns: %s", err ? err : "unknown error");
+        if (err) sqlite3_free(err);
+    } else {
+        g_logger.info("Successfully reset shown history cooldowns inside database.");
+    }
 }
 
 bool verify_database(const std::string& path) {

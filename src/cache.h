@@ -23,6 +23,7 @@ struct CacheManager {
     void mark_bad(const std::string& filepath);
     void begin_transaction();
     void commit_transaction();
+    void reset_all_cooldowns();
     ~CacheManager();
 };
 

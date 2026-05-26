@@ -250,6 +250,14 @@ void Logger::rotate_logs(const std::string& dir, int keep) {
 
 void Logger::log(LogLevel lvl, const char* fmt, ...) {
     if (lvl < level) return;
+    va_list ap;
+    va_start(ap, fmt);
+    log_v(lvl, fmt, ap);
+    va_end(ap);
+}
+
+void Logger::log_v(LogLevel lvl, const char* fmt, va_list ap) {
+    if (lvl < level) return;
 
     auto now = std::chrono::system_clock::now();
     auto t = std::chrono::system_clock::to_time_t(now);
@@ -264,14 +272,11 @@ void Logger::log(LogLevel lvl, const char* fmt, ...) {
     struct tm tm_buf2;
     std::strftime(header, sizeof(header), "%Y-%m-%d %H:%M:%S", localtime_r(&t, &tm_buf2));
 
-    char line[2048];
+    char line[4096];
     int n = std::snprintf(line, sizeof(line), "v%s %s.%03ld [%s] ", VERSION, header, (long)ms.count(), tag);
     if (n < 0 || n >= (int)sizeof(line)) return;
 
-    va_list ap;
-    va_start(ap, fmt);
     std::vsnprintf(line + n, sizeof(line) - (size_t)n, fmt, ap);
-    va_end(ap);
 
     std::string final_line;
     final_line.reserve(n + 512);
@@ -286,36 +291,31 @@ void Logger::log(LogLevel lvl, const char* fmt, ...) {
 }
 
 void Logger::info(const char* fmt, ...) {
-    char buf[4096];
+    if (LogLevel::INFO < level) return;
     va_list ap; va_start(ap, fmt);
-    vsnprintf(buf, sizeof(buf), fmt, ap);
+    log_v(LogLevel::INFO, fmt, ap);
     va_end(ap);
-    log(LogLevel::INFO, "%s", buf);
 }
 
 void Logger::warn(const char* fmt, ...) {
+    if (LogLevel::WARN < level) return;
     va_list ap; va_start(ap, fmt);
-    char buf[4096];
-    vsnprintf(buf, sizeof(buf), fmt, ap);
+    log_v(LogLevel::WARN, fmt, ap);
     va_end(ap);
-    log(LogLevel::WARN, "%s", buf);
 }
 
 void Logger::error(const char* fmt, ...) {
+    if (LogLevel::ERROR < level) return;
     va_list ap; va_start(ap, fmt);
-    char buf[4096];
-    vsnprintf(buf, sizeof(buf), fmt, ap);
+    log_v(LogLevel::ERROR, fmt, ap);
     va_end(ap);
-    log(LogLevel::ERROR, "%s", buf);
 }
 
 void Logger::debug(const char* fmt, ...) {
-    if (level < LogLevel::DEBUG) return;
+    if (LogLevel::DEBUG < level) return;
     va_list ap; va_start(ap, fmt);
-    char buf[4096];
-    vsnprintf(buf, sizeof(buf), fmt, ap);
+    log_v(LogLevel::DEBUG, fmt, ap);
     va_end(ap);
-    log(LogLevel::DEBUG, "%s", buf);
 }
 
 // slide_debug utilities

@@ -1,5 +1,18 @@
 # Changelog
 
+## v11.3.7 — Reliability, Concurrency, and Shown-History Persistence Option (May 26, 2026)
+
+### Added
+- **Configurable Shown-History Reset** — Introduced a new slideshow setting to control how the frame handles shown history on startup. By default, the system persists the recently shown photo cooldowns across restarts to preserve variety. Users can now enable the "Reset Cooldown" toggle in the settings wizard to optionally clear all shown histories on restart for a completely fresh slideshow cycle.
+
+### Fixed
+- **Background Preloader Offloading** — Moved all matte color and image-average color analyses from the main rendering loop into the background loading threads. This avoids CPU spikes on image transitions and maintains a rock-solid, fluid 60 FPS visual experience.
+- **Improved Dissolve Transition Rendering** — Optimized the dissolve visual transition to draw scattered pixels in single batched graphics calls. This completely eliminates rendering lags and stuttering during crossfades on low-power devices.
+- **Hardened Remote Server Concurrency** — Upgraded the background web remote controller to use atomic socket handling. This prevents data race conditions and accidental socket sharing during service restarts or connections.
+- **SQL Transaction Integrity** — Added automated rollback mechanisms for settings saves and metadata updates. This prevents database transaction lockups on full or restricted filesystems, keeping setting writes highly reliable.
+- **Media Player Debugging** — Redirected media player diagnostics to standard log folders, ensuring video playback logs are safely captured inside privileged environments.
+- **Installer Layout Formatting** — Fixed a stray visual character layout alignment in the branch selection prompt during terminal installation.
+
 ## v11.3.6 — Stability, Performance, and Transition Optimizations (May 26, 2026)
 
 ### Added

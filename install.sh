@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# install.sh — piTrove v11.3.6 Premium Graphical Installer
+# install.sh — piTrove v11.3.7 Premium Graphical Installer
 # Target: Debian Trixie (13) 64-bit on Raspberry Pi 4/5
 
 set -eo pipefail
@@ -639,7 +639,7 @@ echo -e "${CYAN}║${NC}                                                        
 echo -e "${CYAN}║${NC}  ${BOLD}${GREEN}2)${NC} ${WHITE}develop${NC} — Active development, features under test        ${CYAN}║${NC}"
 echo -e "${CYAN}║${NC}     - Cutting-edge updates, may contain experimental features  ${CYAN}║${NC}"
 echo -e "${CYAN}║${NC}                                                              ${CYAN}║${NC}"
-echo -e "${CYAN}║${NC}  ${BOLD}${GREEN}3)${NC} ${WHITE}Use currently checked-out branch                         ${CYAN}║${NC}}"
+echo -e "${CYAN}║${NC}  ${BOLD}${GREEN}3)${NC} ${WHITE}Use currently checked-out branch                         ${CYAN}║${NC}"
 echo -e "${CYAN}║${NC}     - Use whatever branch is already checked out locally       ${CYAN}║${NC}"
 echo -e "${CYAN}╚══════════════════════════════════════════════════════════════╝${NC}"
 echo
