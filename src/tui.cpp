@@ -61,31 +61,7 @@ static void restore_termios() {
     }
 }
 
-// ── Non-blocking read: read all available bytes into a buffer ──
-static int peek_input(char* buf, int max_len) {
-    struct pollfd pfd;
-    pfd.fd = STDIN_FILENO;
-    pfd.events = POLLIN;
-    int ret = poll(&pfd, 1, 0);
-    if (ret <= 0 || !(pfd.revents & POLLIN)) return 0;
-    int n = read(STDIN_FILENO, buf, max_len);
-    return (n > 0) ? n : 0;
-}
-
-// ── Parse escape sequences from a byte buffer ──
-// Returns number of bytes consumed, or -1 if incomplete
-static int parse_escape_seq(const char* buf, int len, int& out_action) {
-    if (len >= 3 && buf[0] == '\033' && buf[1] == '[') {
-        char third = buf[2];
-        if (third == 'A') out_action = 1;  // UP
-        else if (third == 'B') out_action = 2;  // DOWN
-        else if (third == 'D') out_action = 3;  // LEFT
-        else if (third == 'C') out_action = 4;  // RIGHT
-        else return -1;  // unknown
-        return 3;
-    }
-    return -1;  // incomplete
-}
+// Unused static helpers removed to prevent Wunused-function compiler warnings
 
 void config_wizard(const std::string& config_path) {
     auto save_cfg = [&]() -> bool {
@@ -759,7 +735,10 @@ void config_wizard(const std::string& config_path) {
             // Footer
             int footer_row = ROW_ROW0 + std::min(CATS[sel].c, 15) + 2;
             printf("\033[%d;1H\n  \033[90m", footer_row);
-            for(int i=0; i<tui_width-4; i++) printf("─"); printf("\033[0m\n");
+            for (int i = 0; i < tui_width - 4; i++) {
+                printf("─");
+            }
+            printf("\033[0m\n");
 
             if(!edit_mode)
                 printf("  \033[1;37m[\xE2\x86\x91\xE2\x86\x93]\033[0m Select    \033[1;37m[\xE2\x86\x90\xE2\x86\x92]\033[0m Category    \033[1;37m[SPACE/ENTER]\033[0m Toggle/Edit    \033[1;32m[S]\033[0m Save    \033[1;31m[Q]\033[0m Quit\n");

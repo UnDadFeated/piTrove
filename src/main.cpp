@@ -1347,8 +1347,7 @@ int main(int argc, char** argv) {
                 case SDL_EVENT_QUIT: g_running.store(false); break;
                  case SDL_EVENT_KEY_DOWN:
                     if (g_screen_blanked.exchange(false)) {
-                        int res = ::system("vcgencmd display_power 1");
-                        (void)res;
+                        set_display_power(true);
                         g_last_motion_time.store(static_cast<int64_t>(std::time(nullptr)));
                         std::string prefix;
                         { std::lock_guard<std::mutex> lk(g_config_mtx); prefix = g_cfg.mqtt_topic_prefix; }
@@ -1363,8 +1362,7 @@ int main(int argc, char** argv) {
                     break;
                 case SDL_EVENT_MOUSE_BUTTON_DOWN:
                     if (g_screen_blanked.exchange(false)) {
-                        int res = ::system("vcgencmd display_power 1");
-                        (void)res;
+                        set_display_power(true);
                         g_last_motion_time.store(static_cast<int64_t>(std::time(nullptr)));
                         std::string prefix;
                         { std::lock_guard<std::mutex> lk(g_config_mtx); prefix = g_cfg.mqtt_topic_prefix; }
@@ -1387,8 +1385,7 @@ int main(int argc, char** argv) {
                     g_logger.info("Motion sensor cooldown threshold reached (%d seconds). Blanking screen.", cooldown);
                     if (!g_screen_blanked.load()) {
                         g_screen_blanked.store(true);
-                        int res = ::system("vcgencmd display_power 0");
-                        (void)res;
+                        set_display_power(false);
                         std::string prefix;
                         { std::lock_guard<std::mutex> lk(g_config_mtx); prefix = g_cfg.mqtt_topic_prefix; }
                         mqtt_publish(prefix + "/status/screen", "OFF", true);
@@ -1939,8 +1936,7 @@ int main(int argc, char** argv) {
     g_logger.info("Shutting down...");
     
     // Fail-safe: Restore physical display power on exit
-    int disp_power_res = ::system("vcgencmd display_power 1");
-    (void)disp_power_res;
+    set_display_power(true);
     
     // Stop background HTTP server
     stop_http_server();

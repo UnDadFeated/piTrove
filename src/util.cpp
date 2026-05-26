@@ -109,8 +109,7 @@ void terminate_handler() {
     fprintf(stderr, "\n[CRITICAL ERROR] piTrove unhandled exception.\n");
     
     // Fail-safe: Restore physical display power
-    int res = ::system("vcgencmd display_power 1");
-    (void)res;
+    set_display_power(true);
 
     if (!g_database_complete.load() && !g_crash_cache_dir.empty()) {
         char path[512];
@@ -124,6 +123,20 @@ void terminate_handler() {
         }
     }
     std::abort();
+}
+
+void set_display_power(bool power) {
+    g_logger.info("DISPLAY_POWER: Setting display power to %s", power ? "ON" : "OFF");
+    int fd = open("/sys/class/graphics/fb0/blank", O_WRONLY);
+    if (fd >= 0) {
+        const char* val = power ? "0" : "1"; // "0" is unblank, "1" is blank
+        write(fd, val, 1);
+        close(fd);
+    }
+    // Also try vcgencmd as fallback in case we are on standard Raspbian without sysfs permission
+    std::string cmd = "vcgencmd display_power " + std::string(power ? "1" : "0") + " >/dev/null 2>&1";
+    int res = ::system(cmd.c_str());
+    (void)res;
 }
 
 // System diagnostics and file path helpers
@@ -175,8 +188,8 @@ void Logger::flush_loop() {
             }
             if (f) {
                 fclose(f);
-                fflush(stdout);
             }
+            fflush(stdout);
             back_queue.clear();
         }
     }
@@ -253,6 +266,7 @@ void Logger::log(LogLevel lvl, const char* fmt, ...) {
 
     char line[2048];
     int n = std::snprintf(line, sizeof(line), "v%s %s.%03ld [%s] ", VERSION, header, (long)ms.count(), tag);
+    if (n < 0 || n >= (int)sizeof(line)) return;
 
     va_list ap;
     va_start(ap, fmt);
@@ -622,7 +636,8 @@ bool parse_filename_date(const std::string& filename, int& y, int& m, int& d) {
 
 void get_modified_time_date(int64_t mtime, int& y, int& m, int& d) {
     std::time_t t = static_cast<std::time_t>(mtime);
-    std::tm* timeinfo = std::localtime(&t);
+    struct tm tm_buf;
+    std::tm* timeinfo = localtime_r(&t, &tm_buf);
     if (timeinfo) {
         y = timeinfo->tm_year + 1900;
         m = timeinfo->tm_mon + 1;

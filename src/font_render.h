@@ -5,6 +5,7 @@
 #include <SDL3_ttf/SDL_ttf.h>
 #include <string>
 #include <map>
+#include <unordered_map>
 #include <memory>
 
 struct FontHandle {
@@ -19,6 +20,13 @@ class FontRenderer {
 private:
     Renderer* renderer;
     std::map<std::string, std::shared_ptr<FontHandle>> fonts;
+
+    struct TextCacheEntry {
+        SDL_Texture* texture = nullptr;
+        int w = 0;
+        int h = 0;
+    };
+    std::unordered_map<std::string, TextCacheEntry> text_cache;
 
 public:
     FontRenderer(Renderer* renderer);

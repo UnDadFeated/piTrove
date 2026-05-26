@@ -1,6 +1,18 @@
 # Changelog
 
-## v11.3.4 — Network Resilience and Mount Safety (May 26, 2026)
+## v11.3.5 — Performance, Thread-Safety, and Containerization Hardening (May 26, 2026)
+
+### Added
+- **Dynamic Text Overlay Cache** — Implemented an efficient memory-managed texture cache for active screen text overlays (including the clock, file paths, and counters). This completely eliminates high-frequency texture allocation cycles and CPU-to-GPU synchronization stalls, drastically lowering CPU usage and ensuring a lockstep, fluid 60 FPS rendering performance.
+
+### Fixed
+- **Dashboard Web Remote Concurrency** — Redesigned the remote control dashboard web server to process network client requests asynchronously. Large file previews or slow client connections no longer block the main dashboard loop or disrupt Home Assistant integrations.
+- **Docker-Compatible Screen Control** — Standardized display backlight control using standard native Linux graphics interfaces, restoring fully functional and high-performance screen blanking/wake-up states when running inside isolated, privileged containers.
+- **Multithreaded Time-Parsing Race Condition** — Fixed a thread-safety race condition on static system time buffers during concurrent background media scans, ensuring metadata and dates are classified accurately without occasional corruption.
+- **Contiguous Filename Date Filtering** — Standardized seasonal scan rules to properly parse standard contiguous date naming patterns, ensuring photos labeled in YYYYMMDD formats are correctly filtered into their respective seasonal calendar windows.
+- **Startup Integrity Schema Verification** — Updated startup checks to verify recently added device classification metadata columns, preventing runtime query errors on upgraded databases.
+- **Improved Logging Resilience** — Hardened system diagnostics to flush stdout streams immediately upon startup even if physical log writing is restricted, and added bounds checking to prevent potential runtime memory overflow anomalies.
+
 
 ### Fixed
 - **Network Mount Drop Recovery** — Fixed system instability and abrupt crashes that occurred when the network storage (CIFS/NAS) disconnected or dropped under heavy load. The media scanner and slideshow loop now gracefully survive brief network interruptions without throwing fatal unhandled system exceptions or shutting down the background daemon.

@@ -15,6 +15,13 @@ FontRenderer::FontRenderer(Renderer* renderer) : renderer(renderer) {
 
 FontRenderer::~FontRenderer() {
     g_logger.info("TRACE: FontRenderer::dtor fonts=%d", (int)fonts.size());
+    for (auto& pair : text_cache) {
+        if (pair.second.texture) {
+            SDL_DestroyTexture(pair.second.texture);
+        }
+    }
+    text_cache.clear();
+
     for (auto& pair : fonts) {
         if (pair.second && pair.second->font) {
             TTF_CloseFont(pair.second->font);
@@ -62,6 +69,21 @@ void FontRenderer::draw_text(int x, int y, const FontHandle& font, const std::st
                              uint8_t r, uint8_t g, uint8_t b, uint8_t a) {
     if (!renderer || !renderer->sdl_renderer || text.empty() || !font.font) return;
 
+    std::string key = text + "|" + font.path + "|" + std::to_string(font.size) + "|" + std::to_string((r << 24) | (g << 16) | (b << 8) | a);
+    auto it = text_cache.find(key);
+    if (it != text_cache.end()) {
+        SDL_FRect dst = {(float)x, (float)y, (float)it->second.w, (float)it->second.h};
+        SDL_RenderTexture(renderer->sdl_renderer, it->second.texture, nullptr, &dst);
+        return;
+    }
+
+    if (text_cache.size() >= 64) {
+        for (auto& pair : text_cache) {
+            if (pair.second.texture) SDL_DestroyTexture(pair.second.texture);
+        }
+        text_cache.clear();
+    }
+
     SDL_Surface* main_surf = TTF_RenderText_Blended(font.font, text.c_str(), 0, {r, g, b, a});
     if (main_surf) {
         SDL_Texture* main_tex = SDL_CreateTextureFromSurface(renderer->sdl_renderer, main_surf);
@@ -69,9 +91,9 @@ void FontRenderer::draw_text(int x, int y, const FontHandle& font, const std::st
         int th = main_surf->h;
         SDL_DestroySurface(main_surf);
         if (main_tex) {
+            text_cache[key] = {main_tex, tw, th};
             SDL_FRect dst = {(float)x, (float)y, (float)tw, (float)th};
             SDL_RenderTexture(renderer->sdl_renderer, main_tex, nullptr, &dst);
-            SDL_DestroyTexture(main_tex);
         }
     }
 }
@@ -81,26 +103,11 @@ void FontRenderer::draw_text_glow(int x, int y, const FontHandle& font, const st
                                   uint8_t gr, uint8_t gg, uint8_t gb, uint8_t ga) {
     if (!renderer || !renderer->sdl_renderer || text.empty() || !font.font) return;
 
-    // Draw glow (shadow/outline) by drawing it offset in 4 directions
-    SDL_Surface* glow_surf = TTF_RenderText_Blended(font.font, text.c_str(), 0, {gr, gg, gb, ga});
-    if (glow_surf) {
-        SDL_Texture* glow_tex = SDL_CreateTextureFromSurface(renderer->sdl_renderer, glow_surf);
-        int tw = glow_surf->w;
-        int th = glow_surf->h;
-        SDL_DestroySurface(glow_surf);
-        if (glow_tex) {
-            SDL_FRect dst = {(float)(x - 1), (float)y, (float)tw, (float)th};
-            SDL_RenderTexture(renderer->sdl_renderer, glow_tex, nullptr, &dst);
-            dst.x = (float)(x + 1);
-            SDL_RenderTexture(renderer->sdl_renderer, glow_tex, nullptr, &dst);
-            dst.x = (float)x;
-            dst.y = (float)(y - 1);
-            SDL_RenderTexture(renderer->sdl_renderer, glow_tex, nullptr, &dst);
-            dst.y = (float)(y + 1);
-            SDL_RenderTexture(renderer->sdl_renderer, glow_tex, nullptr, &dst);
-            SDL_DestroyTexture(glow_tex);
-        }
-    }
+    // Draw outline by drawing it in 4 directions using our cached draw_text
+    draw_text(x - 1, y, font, text, gr, gg, gb, ga);
+    draw_text(x + 1, y, font, text, gr, gg, gb, ga);
+    draw_text(x, y - 1, font, text, gr, gg, gb, ga);
+    draw_text(x, y + 1, font, text, gr, gg, gb, ga);
 
     // Draw main text on top
     draw_text(x, y, font, text, r, g, b, a);
@@ -112,18 +119,7 @@ void FontRenderer::draw_text_shaded(int x, int y, const FontHandle& font, const 
     if (!renderer || !renderer->sdl_renderer || text.empty() || !font.font) return;
 
     // Drop shadow: render 1 offset copy in shadow color
-    SDL_Surface* shadow_surf = TTF_RenderText_Blended(font.font, text.c_str(), 0, {shade_r, shade_g, shade_b, shade_a});
-    if (shadow_surf) {
-        SDL_Texture* shadow_tex = SDL_CreateTextureFromSurface(renderer->sdl_renderer, shadow_surf);
-        int tw = shadow_surf->w;
-        int th = shadow_surf->h;
-        SDL_DestroySurface(shadow_surf);
-        if (shadow_tex) {
-            SDL_FRect dst = {(float)(x + 2), (float)(y + 2), (float)tw, (float)th};
-            SDL_RenderTexture(renderer->sdl_renderer, shadow_tex, nullptr, &dst);
-            SDL_DestroyTexture(shadow_tex);
-        }
-    }
+    draw_text(x + 2, y + 2, font, text, shade_r, shade_g, shade_b, shade_a);
 
     // Draw main text
     draw_text(x, y, font, text, text_r, text_g, text_b, text_a);
