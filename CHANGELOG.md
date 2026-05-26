@@ -1,5 +1,12 @@
 # Changelog
 
+## v11.3.1 — Configurable Logging and Preloader Settings (May 26, 2026)
+
+### Added
+- **Dynamic Background Preloading Pool Configuration** — Exposed the background preloading queue capacity (`preload_capacity`, default `4`, range `1` to `32`) and thread pool worker count (`preload_workers`, default `2`, range `1` to `16`) to the user configuration. Users can now fine-tune resource usage based on their system specifications, allowing low-memory boards (like Pi Zero/3) to scale down preloading to save RAM and high-end boards (like Pi 5) to scale up for seamless transitions.
+- **Configurable Log File Rotation** — Added support for a configurable log file retention limit (`log_keep_count`, default `5`, range `1` to `100`). Users can now control how many historical log files the system retains before automatically rotating and purging older logs.
+- **Terminal UI Wizard Options** — Fully integrated the new preloader capacity, preloader worker pool size, and log keep limit settings into the interactive Terminal UI (TUI) wizard configuration menus. Changes can be edited in real-time and written cleanly back to the system settings file.
+
 ## v11.3.0 — Blurred Photo Background, Color-Matched Matte & Edge Glow (May 25, 2026)
 
 ### Added
