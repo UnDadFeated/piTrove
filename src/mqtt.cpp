@@ -249,11 +249,16 @@ void start_mqtt_client() {
                 }
             }
         }
-        pclose(fp);
-        
+        FILE* fp_to_close = nullptr;
         {
             std::lock_guard<std::mutex> lk(g_mqtt_mtx);
-            g_mqtt_fp = nullptr;
+            if (g_mqtt_fp) {
+                fp_to_close = g_mqtt_fp;
+                g_mqtt_fp = nullptr;
+            }
+        }
+        if (fp_to_close) {
+            pclose(fp_to_close);
         }
         
         g_logger.warn("MQTT subscriber pipe closed");
@@ -261,12 +266,16 @@ void start_mqtt_client() {
 }
 
 void stop_mqtt_client() {
+    FILE* fp_to_close = nullptr;
     {
         std::lock_guard<std::mutex> lk(g_mqtt_mtx);
         if (g_mqtt_fp) {
-            pclose(g_mqtt_fp);
+            fp_to_close = g_mqtt_fp;
             g_mqtt_fp = nullptr;
         }
+    }
+    if (fp_to_close) {
+        pclose(fp_to_close);
     }
     if (g_mqtt_thread.joinable()) {
         g_mqtt_thread.join();

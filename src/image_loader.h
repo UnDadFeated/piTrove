@@ -66,6 +66,7 @@ struct ImageData {
     bool valid = false;
     SDL_Surface* surface = nullptr;
     SDL_Texture* texture = nullptr;
+    SDL_Texture* blur_texture = nullptr;
     // Average color for bias lighting
     uint8_t avg_r = 0, avg_g = 0, avg_b = 0;
     // Per-edge colors (averaged, fallback)
@@ -79,25 +80,29 @@ struct ImageData {
     RawImage blur_raw;
     // Color-matched matte color (center-average, computed in worker thread)
     uint8_t matte_r = 0, matte_g = 0, matte_b = 0;
-
+ 
     ImageData() = default;
-
-    // Destructor to safely release SDL surface and texture
+ 
+    // Destructor to safely release SDL surface and textures
     ~ImageData() {
         if (texture) {
             SDL_DestroyTexture(texture);
             texture = nullptr;
+        }
+        if (blur_texture) {
+            SDL_DestroyTexture(blur_texture);
+            blur_texture = nullptr;
         }
         if (surface) {
             SDL_DestroySurface(surface);
             surface = nullptr;
         }
     }
-
+ 
     // Delete copy operations to prevent shallow copy double-free crashes
     ImageData(const ImageData&) = delete;
     ImageData& operator=(const ImageData&) = delete;
-
+ 
     // Support move operations
     ImageData(ImageData&& other) noexcept
         : width(other.width),
@@ -106,6 +111,7 @@ struct ImageData {
           valid(other.valid),
           surface(other.surface),
           texture(other.texture),
+          blur_texture(other.blur_texture),
           avg_r(other.avg_r),
           avg_g(other.avg_g),
           avg_b(other.avg_b) {
@@ -122,12 +128,14 @@ struct ImageData {
         matte_b = other.matte_b;
         other.surface = nullptr;
         other.texture = nullptr;
+        other.blur_texture = nullptr;
         other.valid = false;
     }
-
+ 
     ImageData& operator=(ImageData&& other) noexcept {
         if (this != &other) {
             if (texture) SDL_DestroyTexture(texture);
+            if (blur_texture) SDL_DestroyTexture(blur_texture);
             if (surface) SDL_DestroySurface(surface);
             width = other.width;
             height = other.height;
@@ -135,6 +143,7 @@ struct ImageData {
             valid = other.valid;
             surface = other.surface;
             texture = other.texture;
+            blur_texture = other.blur_texture;
             avg_r = other.avg_r;
             avg_g = other.avg_g;
             avg_b = other.avg_b;
@@ -151,6 +160,7 @@ struct ImageData {
             matte_b = other.matte_b;
             other.surface = nullptr;
             other.texture = nullptr;
+            other.blur_texture = nullptr;
             other.valid = false;
         }
         return *this;

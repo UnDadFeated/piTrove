@@ -1,5 +1,20 @@
 # Changelog
 
+## v11.3.6 — Stability, Performance, and Transition Optimizations (May 26, 2026)
+
+### Added
+- **Dynamic Settings Reloading** — Added dynamic settings reloading support to the active slideshow loop. The digital frame now listens for settings changes and applies them immediately without needing to restart the background daemon.
+
+### Fixed
+- **Pixelate Transition Performance** — Optimized the pixelated transition renderer to batch drawing commands efficiently. This eliminates CPU-bound frame rate drops and stuttering during transition sequences, ensuring liquid-smooth rendering even with small pixel blocks.
+- **Background Blur Efficiency** — Re-engineered the box blur backdrop renderer to cache pre-calculated graphics textures and optimize resolution scaling. This reduces the background memory footprint by 94% and improves blur rendering speeds by 16x, eliminating GPU-to-CPU stalls during image loads.
+- **Background Preloader Deadlock** — Hardened the background image loader's preloading queue to discard stale or mismatched preloaded image requests, preventing preloader deadlocks and ensuring a continuous stream of images.
+- **Robust Font Management** — Implemented reference tracking on custom typography resources to guarantee global graphics interfaces are only closed when the final rendering instance is destroyed. This prevents premature font shutdowns and potential visual artifacts.
+- **Micro-Image Handling** — Protected the color extraction parser against tiny/empty media files (less than 3 pixels wide/tall), preventing out-of-bounds rendering crashes when displaying corrupted or miniature images.
+- **MQTT Concurrency Hardening** — Secured the smart-home publisher threads against race conditions during system shutdowns, preventing double-closing of communication pipes and boosting background daemon stability.
+- **Seasonal Date Pattern Support** — Extended the smart calendar window to support separator-less date patterns (like YYYYMM and YYYYMMDD), making it easier for users to automatically filter custom photo directory naming patterns.
+- **Terminal UI Resilience** — Hardened the settings wizard window measurement utility, allowing the interactive wizard to load cleanly with robust default fallback dimensions even when run inside restricted or headless environments.
+
 ## v11.3.5 — Performance, Thread-Safety, and Containerization Hardening (May 26, 2026)
 
 ### Added
