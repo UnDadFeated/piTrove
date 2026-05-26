@@ -263,7 +263,7 @@ void config_wizard(const std::string& config_path) {
     enum { ROW_CAT_BAR=3, ROW_COLHDR=5, ROW_ROW0=6 };
     int dirty_from = 0, dirty_to = 0;
     int last_sel = -1, last_sel_sub = -1, last_edit = -1;
-    bool dirty_full = false;
+    bool dirty_full = true;
 
     // ── DEFINITIONS WITH DESCRIPTIONS ──
     enum IT { STR, INT, FLT, TGL, ENM, LST };
@@ -583,7 +583,7 @@ void config_wizard(const std::string& config_path) {
     };
 
     auto enums = [&](int c, int i) -> std::vector<std::string> {
-        if(c==4&&i==2) return {"crossfade","wipe","pixelate","ken_burns"};
+        if(c==4&&i==2) return {"crossfade","wipe","pixelate","dissolve","ken_burns"};
         if(c==4&&i==7) return {"pulsing","radiating","absorbing","edge_glow","aura"};
         if(c==4&&i==8) return {"auto","rainbow"};
         if(c==2&&i==4) return {"yellow","white","cyan","red"};
