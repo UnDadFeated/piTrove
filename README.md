@@ -25,19 +25,23 @@ wget -qO- https://raw.githubusercontent.com/UnDadFeated/piTrove/main/install.sh 
 ### 3. Management & Interaction
 Once the installation completes, the picture frame runs automatically in the background on startup. You can manage the application using standard Docker Compose or systemd controls:
 
-- **Configure the Frame (Interactive TUI)**:
-  Launch the premium 8-tab terminal configuration settings wizard inside the container using:
+- **Configure the Frame (Interactive TUI Settings Wizard)**:
   ```bash
-  docker compose exec -it pitrove /app/piTrove --config /app/config/config.toml
+  pitrove config
   ```
-- **Restart Slideshow**:
+- **Restart Slideshow Daemon**:
   ```bash
-  sudo systemctl restart piTrove.service
+  pitrove restart
   ```
-- **View Slide rendering Logs**:
+- **View Slide Rendering Logs in Real-Time**:
   ```bash
-  docker logs -f piTrove
+  pitrove logs
   ```
+- **Check Container Health Status**:
+  ```bash
+  pitrove status
+  ```
+  *(For raw manual execution, the CLI transparently runs: `docker exec -it piTrove /app/piTrove --config /app/config/config.toml`)*
 
 ---
 
