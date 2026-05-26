@@ -5,8 +5,8 @@
 ### Added
 - **Blurred Photo Background** — Enabled by default (`blurred_background = 1`). Each photo is blurred via a fast 3-pass separable box blur and rendered as the full-screen background behind the image, border, and bias lighting, creating a cinematic extended-reach visual effect.
 - **Color-Matched Matte Border** — Enabled by default (`color_matched_matte = 1`). The border area surrounding each photo is filled with the image's own center-average color at a configurable opacity, producing a seamless wash that matches the photo's palette.
-- **2D Edge Glow with Screen Edge Fade** — Bias lighting now uses 2D falloff from the image border for top/bottom strips, 2D radial gradient from corners for side strips, and a screen-edge fade layer that bridges edge glow strips into corner glow with matching 2D distance falloff.
-- **Configurable Blur, Matte, Vignette & Glow** — New settings: `blur_radius` (6–24, default 14), `matte_opacity` (0.05–0.50, default 0.20), `vignette_strength` (0.10–0.80, default 0.35), and `glow_depth` (16–120, default 86). All tuned for natural appearance without heavy GPU cost (~5ms on Pi 4/5).
+- **Symmetric 360-Degree Edge Glow** — Redesigned bias lighting to utilize a fully continuous 2D falloff from the image border and a radial gradient from the corners. The edge and corner lighting bounds are mathematically aligned to eliminate seams and gaps, producing a seamless and perfectly unified 360-degree glow frame around the physical borders.
+- **Configurable Blur, Matte, Vignette & Glow** — New settings: `blur_radius` (6–24, default 14), `matte_opacity` (0.05–0.50, default 0.20), `vignette_strength` (0.10–0.80, default 0.35), and `glow_depth` (16–120, default 43). All tuned for natural appearance without heavy GPU cost (~5ms on Pi 4/5).
 
 ## v11.2.3 — Slideshow Image Stuck Fix (May 25, 2026)
 
