@@ -102,9 +102,14 @@ bool MpvPlayer::play(const std::string& path, int volume) {
         }
     }
 
-    const char* margin_x_arg = "--osd-margin-x=56";
-    const char* margin_y_arg = "--osd-margin-y=31";
-    const char* sub_margin_y_arg = "--sub-margin-y=31";
+    int matte_px = 96;
+    {
+        std::lock_guard<std::mutex> lock(g_config_mtx);
+        matte_px = g_cfg.matting_size;
+    }
+    std::string margin_x_arg = "--osd-margin-x=" + std::to_string(matte_px + 8);
+    std::string margin_y_arg = "--osd-margin-y=" + std::to_string(matte_px + 8);
+    std::string sub_margin_y_arg = "--sub-margin-y=" + std::to_string(matte_px + 8);
 
     // Dynamically calculate thread pool size based on CPU cores (max_cores - 1)
     unsigned int max_cores = std::thread::hardware_concurrency();
