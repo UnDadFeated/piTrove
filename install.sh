@@ -940,6 +940,54 @@ systemctl enable piTrove.service &>/dev/null
 systemctl start piTrove.service &>/dev/null || true
 ok "piTrove.service successfully registered, enabled & started"
 
+# ── pitrove CLI Command Wrapper ─────────────────────────────────────────────────
+info "Installing 'pitrove' CLI management tool..."
+cat > /usr/local/bin/pitrove <<'EOF'
+#!/usr/bin/env bash
+
+# Color codes
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[0;33m'
+BLUE='\033[0;34m'
+CYAN='\033[0;36m'
+NC='\033[0m'
+
+show_help() {
+    echo -e "${CYAN}piTrove CLI Management Utility${NC}"
+    echo -e "Usage: ${BLUE}pitrove [command]${NC}"
+    echo ""
+    echo "Commands:"
+    echo -e "  ${GREEN}config${NC}   - Launch the 8-tab interactive terminal settings wizard"
+    echo -e "  ${GREEN}restart${NC}  - Safely restart the piTrove background slideshow daemon"
+    echo -e "  ${GREEN}logs${NC}     - View/tail live application rendering & load logs"
+    echo -e "  ${GREEN}status${NC}   - View current status of the background container service"
+    echo -e "  ${GREEN}help${NC}     - Show this utility help guide"
+}
+
+case "$1" in
+    config)
+        docker exec -it piTrove /app/piTrove --config /app/config/config.toml
+        ;;
+    restart)
+        echo -e "${YELLOW}[▸] Restarting piTrove service...${NC}"
+        sudo systemctl restart piTrove.service
+        echo -e "${GREEN}[✓] Restart command dispatched.${NC}"
+        ;;
+    logs)
+        docker logs -f piTrove
+        ;;
+    status)
+        docker ps -f name=piTrove
+        ;;
+    *)
+        show_help
+        ;;
+esac
+EOF
+chmod +x /usr/local/bin/pitrove
+ok "'pitrove' CLI command wrapper successfully installed at /usr/local/bin/pitrove"
+
 # ── Cleanup Bootstrap File ─────────────────────────────────────────────────────
 BOOTSTRAP="$PRIMARY_HOME/install.sh"
 if [[ -f "$BOOTSTRAP" ]]; then
@@ -981,13 +1029,11 @@ print_success_card() {
     echo -e "${GREEN}║${NC}     Click to view MQTT telemetry, control the screen physically, ${GREEN}║${NC}"
     echo -e "${GREEN}║${NC}     and trigger motion simulation sweeps remotely.        ${GREEN}║${NC}"
     echo -e "${GREEN}║${NC}                                                              ${GREEN}║${NC}"
-    echo -e "${GREEN}║${NC}  ${BOLD}${WHITE}How to Manage & Control:${NC}                                    ${GREEN}║${NC}"
-    echo -e "${GREEN}║${NC}   • ${BOLD}${YELLOW}docker compose exec -it pitrove /app/piTrove --config /app/config/config.toml${NC} ${GREEN}║${NC}"
-    echo -e "${GREEN}║${NC}                        Runs the 8-tab interactive settings    ${GREEN}║${NC}"
-    echo -e "${GREEN}║${NC}                        wizard in your terminal console.       ${GREEN}║${NC}"
-    echo -e "${GREEN}║${NC}   • ${BOLD}${YELLOW}sudo systemctl restart piTrove.service${NC}                   ${GREEN}║${NC}"
-    echo -e "${GREEN}║${NC}                        Reboots the background daemon container ${GREEN}║${NC}"
-    echo -e "${GREEN}║${NC}                        safely if configuration is modified.   ${GREEN}║${NC}"
+    echo -e "${GREEN}║${NC}  ${BOLD}${WHITE}How to Manage & Control (New CLI Wrapper):${NC}                  ${GREEN}║${NC}"
+    echo -e "${GREEN}║${NC}   • ${BOLD}${YELLOW}pitrove config${NC}   Runs the interactive settings wizard.  ${GREEN}║${NC}"
+    echo -e "${GREEN}║${NC}   • ${BOLD}${YELLOW}pitrove restart${NC}  Restarts the background service.       ${GREEN}║${NC}"
+    echo -e "${GREEN}║${NC}   • ${BOLD}${YELLOW}pitrove logs${NC}     Tails rendering logs in real-time.     ${GREEN}║${NC}"
+    echo -e "${GREEN}║${NC}   • ${BOLD}${YELLOW}pitrove status${NC}   Checks background container status.    ${GREEN}║${NC}"
     echo -e "${GREEN}║${NC}                                                              ${GREEN}║${NC}"
     echo -e "${GREEN}║${NC}  ${BOLD}${WHITE}Service Status:${NC}                                             ${GREEN}║${NC}"
     echo -e "${GREEN}║${NC}   • Systemd unit is installed and set to launch on boot.     ${GREEN}║${NC}"
