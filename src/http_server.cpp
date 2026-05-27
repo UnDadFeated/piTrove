@@ -28,6 +28,7 @@ extern std::mutex g_playlist_mtx;
 static std::thread g_server_thread;
 static std::atomic<bool> g_server_running{false};
 static std::atomic<int> g_listen_fd{-1};
+static std::atomic<int> g_active_connections{0};
 
 // Premium Glassmorphic Dashboard HTML
 static std::string get_dashboard_html() {
@@ -847,8 +848,12 @@ static void handle_client(int client_fd) {
             send_response(client_fd, "HTTP/1.1 200 OK", "application/json", "{\"status\":\"ok\"}");
         } 
         else if (request.rfind("GET /api/toggle_screen", 0) == 0) {
-            bool was = g_screen_blanked.exchange(!g_screen_blanked.load());
-            set_display_power(was);
+            bool expected = g_screen_blanked.load();
+            bool desired = !expected;
+            while (!g_screen_blanked.compare_exchange_weak(expected, desired)) {
+                desired = !expected;
+            }
+            set_display_power(expected);
             std::string prefix, topic;
             { std::lock_guard<std::mutex> lk(g_config_mtx); prefix = g_cfg.mqtt_topic_prefix; topic = g_cfg.mqtt_motionsensor_topic; }
             mqtt_publish(prefix + "/status/screen", g_screen_blanked.load() ? "OFF" : "ON", true);
@@ -974,8 +979,16 @@ static void server_loop(int port) {
             continue;
         }
 
+        if (g_active_connections.load() >= 10) {
+            send_response(client_fd, "HTTP/1.1 503 Service Unavailable", "text/plain", "Too Many Connections");
+            close(client_fd);
+            continue;
+        }
+
+        g_active_connections.fetch_add(1);
         std::thread([client_fd]() {
             handle_client(client_fd);
+            g_active_connections.fetch_sub(1);
         }).detach();
     }
 

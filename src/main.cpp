@@ -176,6 +176,8 @@ static bool should_be_twin_portrait(std::vector<MediaItem>& eligible, int idx) {
 }
 
 
+// NOTE: Matting/border offset logic duplicates Renderer::calculate_fit_rect (renderer.cpp:251)
+// Keep in sync if adjusting matte or border inset calculations
 static void calculate_fit_rect_in_area(int img_w, int img_h, int area_x, int area_y, int area_w, int area_h, SDL_Rect& out_rect) {
     if (img_w <= 0 || img_h <= 0) {
         out_rect.w = 0;
@@ -691,6 +693,19 @@ static void watchman_loop() {
         
         if (curr_tm.tm_yday != last_yday) {
             g_logger.info("Watchman: Midnight detected! Shifting temporal window. Old day=%d, New day=%d", last_yday, curr_tm.tm_yday);
+            
+            // Validate media directory readability and accessibility to handle network drops gracefully
+            std::string media_dir;
+            {
+                std::lock_guard<std::mutex> lock(g_config_mtx);
+                media_dir = g_cfg.media_dir;
+            }
+            struct stat st;
+            if (stat(media_dir.c_str(), &st) != 0 || !S_ISDIR(st.st_mode) || access(media_dir.c_str(), R_OK) != 0) {
+                g_logger.error("Watchman: Media directory '%s' is not readable/accessible (mount failure or permission error). Delaying seasonal window swap.", media_dir.c_str());
+                continue;
+            }
+
             last_yday = curr_tm.tm_yday;
             
             // Re-filter playlist under lock to prevent data race on g_scanned_items and g_eligible
@@ -757,6 +772,7 @@ static void draw_phase_splash(int phase, int progress, int total, int done, cons
 
 
 int main(int argc, char** argv) {
+    signal(SIGPIPE, SIG_IGN);
     bool run_config = false;
     bool run_restart = false;
     std::string config_path;
@@ -1507,11 +1523,18 @@ int main(int argc, char** argv) {
         }
 
         if (transitioning && !g_transition->is_active()) {
-            TransitionEffect effect = TransitionEffect::Fade;
-            if (transition_effect == "wipe") effect = TransitionEffect::WipeLeft;
-            else if (transition_effect == "ken_burns") effect = TransitionEffect::KenBurns;
-            else if (transition_effect == "pixelate") effect = TransitionEffect::Pixelate;
-            else if (transition_effect == "dissolve") effect = TransitionEffect::Dissolve;
+            // Force crossfade for photo-to-photo transitions
+            bool next_is_image = (g_eligible[current_idx].type == "image");
+            TransitionEffect effect;
+            if (current_data && next_is_image) {
+                effect = TransitionEffect::Fade;
+            } else {
+                effect = TransitionEffect::Fade;
+                if (transition_effect == "wipe") effect = TransitionEffect::WipeLeft;
+                else if (transition_effect == "ken_burns") effect = TransitionEffect::KenBurns;
+                else if (transition_effect == "pixelate") effect = TransitionEffect::Pixelate;
+                else if (transition_effect == "dissolve") effect = TransitionEffect::Dissolve;
+            }
             float duration = 0.0f, kb_zoom = 0.1f;
             { std::lock_guard<std::mutex> lk(g_config_mtx); duration = g_cfg.transition_duration; kb_zoom = g_cfg.ken_burns_zoom; }
             g_transition->start(effect, duration, 0, kb_zoom);

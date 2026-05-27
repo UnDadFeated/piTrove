@@ -4,6 +4,7 @@
 #include "cache.h"
 #include <iostream>
 #include <chrono>
+#include <thread>
 #include <filesystem>
 #include <algorithm>
 #include <cstdarg>
@@ -106,10 +107,15 @@ void crash_handler(int sig) {
 }
 
 void terminate_handler() {
-    fprintf(stderr, "\n[CRITICAL ERROR] piTrove unhandled exception.\n");
+    const char* msg = "\n[CRITICAL ERROR] piTrove unhandled exception.\n";
+    write(STDERR_FILENO, msg, strlen(msg));
     
-    // Fail-safe: Restore physical display power
-    set_display_power(true);
+    // Fail-safe: Restore physical display power via async-signal-safe sysfs write
+    int fd = open("/sys/class/graphics/fb0/blank", O_WRONLY);
+    if (fd >= 0) {
+        write(fd, "0", 1);
+        close(fd);
+    }
 
     if (!g_database_complete.load() && !g_crash_cache_dir.empty()) {
         char path[512];
@@ -135,8 +141,10 @@ void set_display_power(bool power) {
     }
     // Also try vcgencmd as fallback in case we are on standard Raspbian without sysfs permission
     std::string cmd = "vcgencmd display_power " + std::string(power ? "1" : "0") + " >/dev/null 2>&1";
-    int res = ::system(cmd.c_str());
-    (void)res;
+    std::thread([cmd]() {
+        int res = ::system(cmd.c_str());
+        (void)res;
+    }).detach();
 }
 
 // System diagnostics and file path helpers
@@ -249,7 +257,6 @@ void Logger::rotate_logs(const std::string& dir, int keep) {
 }
 
 void Logger::log(LogLevel lvl, const char* fmt, ...) {
-    if (lvl < level) return;
     va_list ap;
     va_start(ap, fmt);
     log_v(lvl, fmt, ap);
@@ -274,7 +281,8 @@ void Logger::log_v(LogLevel lvl, const char* fmt, va_list ap) {
 
     char line[4096];
     int n = std::snprintf(line, sizeof(line), "v%s %s.%03ld [%s] ", VERSION, header, (long)ms.count(), tag);
-    if (n < 0 || n >= (int)sizeof(line)) return;
+    if (n < 0) return;
+    if (n >= (int)sizeof(line)) n = (int)sizeof(line) - 1;
 
     std::vsnprintf(line + n, sizeof(line) - (size_t)n, fmt, ap);
 

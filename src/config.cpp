@@ -113,7 +113,7 @@ bool Config::load(const std::string& path) {
         else if (key == "brightness_auto_min") this->brightness_auto_min = std::max(0, std::min(100, safe_stoi(val, this->brightness_auto_min)));
         else if (key == "brightness_auto_max") this->brightness_auto_max = std::max(0, std::min(100, safe_stoi(val, this->brightness_auto_max)));
         else if (key == "border_enabled")    this->border_enabled = (val == "1" || val == "true");
-        else if (key == "border_width")      this->border_width = safe_stoi(val, this->border_width);
+        else if (key == "border_width")      this->border_width = std::max(0, std::min(250, safe_stoi(val, this->border_width)));
         else if (key == "vignette_enabled")  this->vignette_enabled = (val == "1" || val == "true");
         else if (key == "blurred_background") this->blurred_background = !(val == "0" || val == "false");
         else if (key == "color_matched_matte") this->color_matched_matte = !(val == "0" || val == "false");

@@ -89,10 +89,9 @@ void FontRenderer::draw_text(int x, int y, const FontHandle& font, const std::st
     }
 
     if (text_cache.size() >= 64) {
-        for (auto& pair : text_cache) {
-            if (pair.second.texture) SDL_DestroyTexture(pair.second.texture);
-        }
-        text_cache.clear();
+        auto it = text_cache.begin();
+        if (it->second.texture) SDL_DestroyTexture(it->second.texture);
+        text_cache.erase(it);
     }
 
     SDL_Surface* main_surf = TTF_RenderText_Blended(font.font, text.c_str(), 0, {r, g, b, a});

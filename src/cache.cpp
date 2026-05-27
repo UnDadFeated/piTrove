@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <cstring>
 #include <cstdio>
+#include <climits>
 
 CacheManager* g_cache = nullptr;
 
@@ -155,8 +156,10 @@ bool CacheManager::load_cached(MediaItem& mi) {
     bool found = false;
     sqlite3_bind_text(stmt_load, 1, mi.path.c_str(), -1, SQLITE_STATIC);
     if (sqlite3_step(stmt_load) == SQLITE_ROW) {
-        mi.width      = sqlite3_column_int64(stmt_load, 0);
-        mi.height     = sqlite3_column_int64(stmt_load, 1);
+        int64_t col_w = sqlite3_column_int64(stmt_load, 0);
+        int64_t col_h = sqlite3_column_int64(stmt_load, 1);
+        mi.width      = (int)std::min(col_w, (int64_t)INT_MAX);
+        mi.height     = (int)std::min(col_h, (int64_t)INT_MAX);
         mi.duration   = sqlite3_column_double(stmt_load, 2);
         mi.exif_rotation = sqlite3_column_int(stmt_load, 3);
         int bad = sqlite3_column_int(stmt_load, 4);
