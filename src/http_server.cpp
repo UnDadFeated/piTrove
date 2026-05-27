@@ -997,10 +997,9 @@ void stop_http_server() {
     g_server_running.store(false);
     
     // shutdown socket to interrupt select/accept
-    int fd = g_listen_fd.exchange(-1);
+    int fd = g_listen_fd.load();
     if (fd >= 0) {
         shutdown(fd, SHUT_RDWR);
-        close(fd);
     }
     
     if (g_server_thread.joinable()) {
