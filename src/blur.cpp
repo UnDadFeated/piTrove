@@ -99,7 +99,9 @@ static uint8_t* downsample_image(const uint8_t* src_pixels, int src_w, int src_h
         for (int x = 0; x < dst_w; x++) {
             int sy = (int)((float)y / scale);
             int sx = (int)((float)x / scale);
+            if (sx < 0) sx = 0;
             if (sx >= src_w) sx = src_w - 1;
+            if (sy < 0) sy = 0;
             if (sy >= src_h) sy = src_h - 1;
             const uint8_t* src_px = src_pixels + sy * src_w * 4 + sx * 4;
             uint8_t* dst_px = dst + y * dst_w * 4 + x * 4;
@@ -160,7 +162,7 @@ void compute_matte_color(const RawImage& src, uint8_t& r, uint8_t& g, uint8_t& b
     long sum_r = 0, sum_g = 0, sum_b = 0, count = 0;
     for (int y = y0; y < y1; y++) {
         for (int x = x0; x < x1; x++) {
-            const uint8_t* px = src.pixels + y * 4 * std::max(src.width, 1) + x * 4;
+            const uint8_t* px = src.pixels + y * 4 * src.width + x * 4;
             sum_r += px[0]; sum_g += px[1]; sum_b += px[2];
             count++;
         }

@@ -317,16 +317,27 @@ void Renderer::draw_blurred_background(SDL_Texture* blur_texture, Uint8 vignette
 void Renderer::draw_blurred_from_raw(const RawImage& blur_raw, Uint8 vignette_alpha) {
     if (!blur_raw.valid || !blur_raw.pixels || !sdl_renderer) return;
 
+    SDL_ClearError();
     // Create surface from raw pixels
     SDL_Surface* blur_surf = SDL_CreateSurface(blur_raw.width, blur_raw.height, SDL_PIXELFORMAT_RGBA32);
-    if (!blur_surf) return;
+    if (!blur_surf) {
+        g_logger.error("SDL_CreateSurface failed in draw_blurred_from_raw: %s", SDL_GetError());
+        return;
+    }
 
-    memcpy(blur_surf->pixels, blur_raw.pixels, (size_t)blur_raw.width * blur_raw.height * 4);
+    uint8_t* dst_pixels = (uint8_t*)blur_surf->pixels;
+    const uint8_t* src = blur_raw.pixels;
+    for (int y = 0; y < blur_raw.height; y++) {
+        memcpy(dst_pixels + y * blur_surf->pitch, src + y * blur_raw.width * 4, blur_raw.width * 4);
+    }
 
     // Create texture from surface
     SDL_Texture* blur_tex = SDL_CreateTextureFromSurface(sdl_renderer, blur_surf);
     SDL_DestroySurface(blur_surf);
-    if (!blur_tex) return;
+    if (!blur_tex) {
+        g_logger.error("SDL_CreateTextureFromSurface failed in draw_blurred_from_raw: %s", SDL_GetError());
+        return;
+    }
 
     // Render with alpha modulation
     SDL_SetRenderTarget(sdl_renderer, nullptr);
@@ -683,17 +694,26 @@ void Renderer::load_splash(const std::string& path) {
         int w = 0, h = 0, ch = 0;
         uint8_t* pixels = stbi_load(splash_path.c_str(), &w, &h, &ch, 4); // Force RGBA32
         if (pixels) {
+            SDL_ClearError();
             SDL_Surface* surface = SDL_CreateSurface(w, h, SDL_PIXELFORMAT_RGBA32);
             if (surface) {
-                memcpy(surface->pixels, pixels, (size_t)w * h * 4);
+                uint8_t* dst = (uint8_t*)surface->pixels;
+                const uint8_t* src = pixels;
+                for (int y = 0; y < h; y++) {
+                    memcpy(dst + y * surface->pitch, src + y * w * 4, w * 4);
+                }
                 splash_logo = SDL_CreateTextureFromSurface(sdl_renderer, surface);
-                if (splash_logo) {
+                if (!splash_logo) {
+                    g_logger.error("SDL_CreateTextureFromSurface failed for splash: %s", SDL_GetError());
+                } else {
                     splash_logo_w = w;
                     splash_logo_h = h;
                     splash_logo_loaded = true;
                     g_logger.info("Splash image loaded: %s (%dx%d)", splash_path.c_str(), splash_logo_w, splash_logo_h);
                 }
                 SDL_DestroySurface(surface);
+            } else {
+                g_logger.error("SDL_CreateSurface failed for splash: %s", SDL_GetError());
             }
             stbi_image_free(pixels);
         } else {

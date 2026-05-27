@@ -25,6 +25,13 @@ struct PreloadedItem {
     uint8_t avg_r = 220;
     uint8_t avg_g = 210;
     uint8_t avg_b = 195;
+    // Per-edge averaged colors (computed in worker thread)
+    uint8_t edge_r[4] = {0, 0, 0, 0};
+    uint8_t edge_g[4] = {0, 0, 0, 0};
+    uint8_t edge_b[4] = {0, 0, 0, 0};
+    // Per-pixel edge strips (computed in worker thread)
+    std::vector<uint8_t> edge_top_rgb, edge_bot_rgb;
+    std::vector<uint8_t> edge_lft_rgb, edge_rgt_rgb;
 
     PreloadedItem() = default;
     PreloadedItem(PreloadedItem&&) noexcept = default;
@@ -51,6 +58,7 @@ private:
     int num_threads;
     std::vector<std::thread> threads;
     SDL_Renderer* sdl_renderer;
+    uint64_t current_epoch = 0;
 
 public:
     PreloadQueue(int max_size, int num_threads, SDL_Renderer* sdl_renderer);

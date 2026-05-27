@@ -629,19 +629,20 @@ void config_wizard(const std::string& config_path) {
         int desc_w = tui_width - name_w - val_w - 6;
 
         if (cur_cols < 100 || cur_rows < 24) {
+            int draw_cols = std::max(80, cur_cols);
             printf("\033[H\033[J");
-            printf("\033[1;31m╔"); for(int i=0; i<cur_cols-2; i++) printf("═"); printf("╗\033[0m\n");
-            printf("\033[1;31m║\033[0m  %-*s\033[1;31m║\033[0m\n", cur_cols-6, " [ TERMINAL WINDOW TOO SMALL ]");
-            printf("\033[1;31m║\033[0m  %-*s\033[1;31m║\033[0m\n", cur_cols-6, "");
-            printf("\033[1;31m║\033[0m  %-*s\033[1;31m║\033[0m\n", cur_cols-6, " Please stretch or expand your window until the TUI");
-            printf("\033[1;31m║\033[0m  %-*s\033[1;31m║\033[0m\n", cur_cols-6, " is clearly visible.");
-            printf("\033[1;31m║\033[0m  %-*s\033[1;31m║\033[0m\n", cur_cols-6, "");
+            printf("\033[1;31m╔"); for(int i=0; i<draw_cols-2; i++) printf("═"); printf("╗\033[0m\n");
+            printf("\033[1;31m║\033[0m  %-*s\033[1;31m║\033[0m\n", draw_cols-6, " [ TERMINAL WINDOW TOO SMALL ]");
+            printf("\033[1;31m║\033[0m  %-*s\033[1;31m║\033[0m\n", draw_cols-6, "");
+            printf("\033[1;31m║\033[0m  %-*s\033[1;31m║\033[0m\n", draw_cols-6, " Please stretch or expand your window until the TUI");
+            printf("\033[1;31m║\033[0m  %-*s\033[1;31m║\033[0m\n", draw_cols-6, " is clearly visible.");
+            printf("\033[1;31m║\033[0m  %-*s\033[1;31m║\033[0m\n", draw_cols-6, "");
             char sz_buf[128];
             snprintf(sz_buf, sizeof(sz_buf), " Current Terminal size:  %dx%d", cur_cols, cur_rows);
-            printf("\033[1;31m║\033[0m  %-*s\033[1;31m║\033[0m\n", cur_cols-6, sz_buf);
-            printf("\033[1;31m║\033[0m  %-*s\033[1;31m║\033[0m\n", cur_cols-6, " Minimum Required size:  100x24");
-            printf("\033[1;31m║\033[0m  %-*s\033[1;31m║\033[0m\n", cur_cols-6, "");
-            printf("\033[1;31m╚"); for(int i=0; i<cur_cols-2; i++) printf("═"); printf("╝\033[0m\n");
+            printf("\033[1;31m║\033[0m  %-*s\033[1;31m║\033[0m\n", draw_cols-6, sz_buf);
+            printf("\033[1;31m║\033[0m  %-*s\033[1;31m║\033[0m\n", draw_cols-6, " Minimum Required size:  100x24");
+            printf("\033[1;31m║\033[0m  %-*s\033[1;31m║\033[0m\n", draw_cols-6, "");
+            printf("\033[1;31m╚"); for(int i=0; i<draw_cols-2; i++) printf("═"); printf("╝\033[0m\n");
             fflush(stdout);
 
             struct pollfd pfd;

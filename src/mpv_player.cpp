@@ -2,6 +2,8 @@
 #include "util.h"
 #include "config.h"
 #include <dirent.h>
+#include <glob.h>
+#include <fstream>
 #include <algorithm>
 #include <unistd.h>
 #include <sys/wait.h>
@@ -66,6 +68,9 @@ bool MpvPlayer::play(const std::string& path, int volume) {
 
     // Drop DRM master context so mpv can render
     if (drm_fd >= 0) {
+        // Explicitly wait for EGL client and GL commands to finish to prevent locks on page flips
+        eglWaitClient();
+        eglWaitGL();
         int rc = drmDropMaster(drm_fd);
         g_logger.info("VIDEO_DRM: drmDropMaster(fd=%d) = %d", drm_fd, rc);
     } else {
@@ -82,6 +87,36 @@ bool MpvPlayer::play(const std::string& path, int volume) {
         subtitles_dir = g_cfg.video_subtitles_dir;
         if (!g_cfg.drm_connector.empty() && g_cfg.drm_connector != "auto") {
             connector_arg = "--drm-connector=" + g_cfg.drm_connector;
+        } else {
+            // Dynamically probe connected connector if set to auto
+            glob_t gres;
+            std::string found_conn = "";
+            if (glob("/sys/class/drm/card*-*/status", 0, nullptr, &gres) == 0) {
+                for (size_t i = 0; i < gres.gl_pathc; i++) {
+                    std::string status_path = gres.gl_pathv[i];
+                    std::ifstream f(status_path);
+                    if (f.is_open()) {
+                        std::string status;
+                        std::getline(f, status);
+                        status.erase(status.find_last_not_of(" \t\r\n") + 1);
+                        if (status == "connected") {
+                            size_t slash = status_path.rfind('/');
+                            if (slash != std::string::npos) {
+                                std::string dir_name = status_path.substr(slash + 1);
+                                size_t dash = dir_name.find('-');
+                                if (dash != std::string::npos) {
+                                    found_conn = dir_name.substr(dash + 1);
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+                globfree(&gres);
+            }
+            if (!found_conn.empty()) {
+                connector_arg = "--drm-connector=" + found_conn;
+            }
         }
         if (!g_cfg.video_audio_device.empty() && g_cfg.video_audio_device != "auto") {
             audio_arg = "--audio-device=" + g_cfg.video_audio_device;
@@ -212,22 +247,28 @@ void MpvPlayer::reclaim_drm_master() {
 }
 
 void MpvPlayer::stop() {
-    std::lock_guard<std::mutex> lk(mtx);
-    if (video_pid > 0) {
-        kill(video_pid, SIGTERM);
+    pid_t pid = -1;
+    {
+        std::lock_guard<std::mutex> lk(mtx);
+        if (video_pid > 0) {
+            pid = video_pid;
+            video_pid = -1;
+        }
+        active.store(false);
+        reclaim_drm_master();
+    }
+
+    if (pid > 0) {
+        kill(pid, SIGTERM);
         std::this_thread::sleep_for(std::chrono::microseconds(200000)); // 200ms grace period
         int status;
-        pid_t result = waitpid(video_pid, &status, WNOHANG);
+        pid_t result = waitpid(pid, &status, WNOHANG);
         if (result == 0) {
-            kill(video_pid, SIGKILL);
-            waitpid(video_pid, &status, 0);
+            kill(pid, SIGKILL);
+            waitpid(pid, &status, 0);
         }
-        g_logger.info("VIDEO_STOP: Successfully killed child mpv (pid=%d)", video_pid);
-        video_pid = -1;
+        g_logger.info("VIDEO_STOP: Successfully killed child mpv (pid=%d)", pid);
     }
-    active.store(false);
-
-    reclaim_drm_master();
 }
 
 bool MpvPlayer::is_active() {

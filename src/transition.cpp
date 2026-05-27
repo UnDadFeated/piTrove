@@ -253,7 +253,9 @@ void TransitionEngine::render_dissolve(SDL_Texture* prev_tex, SDL_Texture* next_
     float alpha = 40.0f + 60.0f * p;
     SDL_SetRenderDrawColor(sdl, 255, 255, 255, (Uint8)alpha);
 
-    std::vector<SDL_FRect> rects;
+    // Pre-allocated buffer to avoid per-frame heap churn
+    static thread_local std::vector<SDL_FRect> rects;
+    rects.clear();
     rects.reserve(count);
     for (int i = 0; i < count; i++) {
         seed = seed * 1103515245u + 12345u;

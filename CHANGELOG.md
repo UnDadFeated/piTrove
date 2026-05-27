@@ -1,5 +1,18 @@
 # Changelog
 
+## v11.3.10 — Concurrency, Thread Safety & Graphics Hardening (May 27, 2026)
+
+### Fixed
+- **Row-by-Row Splash Screen Pixels Copy** — Replaced direct contiguous memory copies when loading the boot splash screen with a row-by-row memory copying procedure that honors pitch-alignment variables. This ensures correct, distortion-free splash screen display regardless of GPU/driver-specific pixel alignments.
+- **Background Preload Epoch Filtering** — Added a dynamic epoch-generation tracking counter to the background image loader's preloading queue. When the slideshow advances or changes directories, the queue cancels in-flight jobs and rejects stale worker-thread decodes upon completion, completely preventing queue blockage and memory waste from obsolete preload operations.
+- **DRM Master Transition Page-Flip Synchronization** — Integrated explicit hardware graphics client and drawing synchronization commands before dropping the display driver master locks to transition between standard rendering and standard video playback. This completely eliminates screen freezes, GPU page flip hangs, and modesetting locks on high-resolution displays.
+- **Safe Image Downsampling Boundaries** — Hardened the low-resolution nearest-neighbor downsampler to strictly validate scaling bounds and clamp coordinates to positive bounds, preventing negative index offsets or out-of-bounds pixel array reads on warped or miniature images.
+- **Rigorous Graphics Error Resets** — Implemented drawing context error clearing commands prior to critical graphics surface and texture creation tasks, and added rigorous error validation to log and troubleshoot system drawing malfunctions immediately.
+- **Terminal UI Sizing Warnings** — Hardened the interactive terminal configuration wizard to validate display grid parameters and clamp minimum formatting widths, preventing text overflows and malformed layout tables when shrunk to tiny dimensions.
+- **Strict Border Width Validation** — Constrained the custom picture frame border width configurations to safe, positive maximum limits, ensuring borders never overlap or cover collage composite mattes.
+- **Self-Healing Folder Monitor Mount Checks** — Upgraded the background calendar monitor loop to verify read-access permission on the media repository before executing midnight playlist swaps. This prevents blanking or corrupting active slideshow playlists during transient network storage or NAS mount disconnects, automatically retrying once connection is restored.
+- **Dynamic Video Player Display Probing** — Enhanced the dynamic display detector to dynamically query the active connected HDMI port in the media player backend when set to automatic mode, preventing incorrect target connector fallbacks and redundant display querying logs.
+
 ## v11.3.9 — Resource Safety and Concurrency Hardening (May 27, 2026)
 
 ### Fixed

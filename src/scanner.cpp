@@ -31,10 +31,6 @@ static bool has_extension(std::string_view path, std::string_view ext) {
     return true;
 }
 
-ssize_t get_dents64(int fd, char* buf, size_t bufsz) {
-    return static_cast<ssize_t>(syscall(SYS_getdents64, fd, buf, bufsz));
-}
-
 std::vector<std::string> read_dir(const std::string& path) {
     std::vector<std::string> entries;
     DIR* dir = opendir(path.c_str());
@@ -220,7 +216,9 @@ std::string run_ffprobe(const std::vector<std::string>& args, int timeout_ms) {
         kill(pid, SIGKILL);
     }
     close(pipefd[0]);
-    waitpid(pid, nullptr, 0);
+    std::thread([pid]() {
+        waitpid(pid, nullptr, 0);
+    }).detach();
     return out;
 }
 

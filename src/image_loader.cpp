@@ -68,8 +68,11 @@ std::shared_ptr<ImageData> ImageLoader::load(const std::string& path) {
         return result;
     }
 
-    size_t psize = (size_t)w * h * 4;
-    memcpy(surf->pixels, pixels, psize);
+    uint8_t* dst = (uint8_t*)surf->pixels;
+    const uint8_t* src = pixels;
+    for (int y = 0; y < h; y++) {
+        memcpy(dst + y * surf->pitch, src + y * w * 4, w * 4);
+    }
     stbi_image_free(pixels);
 
     int exif = read_exif_rotation(path.c_str());
@@ -192,7 +195,7 @@ std::shared_ptr<ImageData> ImageLoader::load(const std::string& path) {
 
 void ImageLoader::load_texture(ImageData* data, SDL_Renderer* renderer) {
     g_logger.info("[TRACE] ImageLoader::load_texture data=%p surface=%p renderer=%p", (void*)data, data ? (void*)data->surface : nullptr, (void*)renderer);
-    if (!data || !data->surface || !renderer || data->texture) return;
+    if (!data || !data->surface || !renderer || data->texture || data->width <= 0 || data->height <= 0) return;
 
     const int MAX_DIM = 1920;
     if (data->width > MAX_DIM || data->height > MAX_DIM) {

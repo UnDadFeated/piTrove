@@ -2,22 +2,67 @@
 
 This file tracks the active bugs, resource safety concerns, and boundary checks analyzed under the continuous quality improvement loop.
 
-## Batch #15: Reliability, Concurrency & Performance Hardening (Active)
+## Batch #18: Concurrency, Thread Safety & Graphics Hardening (Complete)
+
+- [x] **Bug #1 (Severity: High)** — `renderer.cpp` — Contiguous flat memcpy in draw_blurred_from_raw() without pitch row-alignment can cause memory corruption or visual distortion.
+- [x] **Bug #2 (Severity: High)** — `renderer.cpp` — Contiguous flat memcpy in load_splash() without pitch row-alignment can cause memory corruption or visual distortion.
+- [x] **Bug #3 (Severity: Medium)** — `preload.cpp` — PreloadQueue queue capacity blockage from stale thread-decodes pushing behind epoch cancellations.
+- [x] **Bug #4 (Severity: Medium)** — `renderer.cpp` — Potential EGL DRM master drop locks when page flips are queued. Requires explicit EGL client synchronization.
+- [x] **Bug #5 (Severity: Low)** — `blur.cpp` — Missing boundary check for scale/division-by-zero negative casts in downsample_image().
+- [x] **Bug #6 (Severity: Low)** — `renderer.cpp` — Unchecked SDL_GetError() logging and stale SDL errors inside rendering context.
+- [x] **Bug #7 (Severity: Low)** — `tui.cpp` — Dirty card rendering size mismatch under low terminal rows/cols boundary sizing.
+- [x] **Bug #8 (Severity: Low)** — `config.cpp` — Missing validation constraints on border_width settings causing matte overlap.
+- [x] **Bug #9 (Severity: Low)** — `main.cpp` — Missing watchman loop check for directory permission failures on metadata reload.
+- [x] **Bug #10 (Severity: Low)** — `mpv_player.cpp` — Redundant DRM connector logging on secondary connector queries.
+
+## Batch #17: Concurrency, Performance & Signal Safety Hardening (Complete)
+
+- [x] **Bug #1 (Severity: High)** — `main.cpp, http_server.cpp` — Missing SIGPIPE signal ignore. Client disconnecting during dynamic preview stream crashes the whole slideshow application.
+- [x] **Bug #2 (Severity: High)** — `image_loader.cpp, preload.cpp` — Contiguous memcpy in SDL_CreateSurface without validating pitch row-alignment can cause visual corruption or OOB crash.
+- [x] **Bug #3 (Severity: Medium)** — `mpv_player.cpp` — Thread block in stop() while holding mtx lock freezes the main presentation loop during video termination.
+- [x] **Bug #4 (Severity: Medium)** — `util.cpp` — Synchronous vcgencmd display_power fallback command blocking in main rendering thread causes lag spikes on keypress.
+- [x] **Bug #5 (Severity: Medium)** — `mqtt.cpp` — Synchronous mosquitto_pub system() execution delays status publishing on slow connections.
+- [x] **Bug #6 (Severity: Medium)** — `scanner.cpp` — Indefinite waitpid subprocess block on stuck network mount during ffprobe timeout.
+- [x] **Bug #7 (Severity: Medium)** — `http_server.cpp` — Unbounded detached client thread spawning risks file descriptor exhaustion under socket floods.
+- [x] **Bug #8 (Severity: Low)** — `image_loader.cpp` — Missing validation of zero width/height image dimensions causing division-by-zero NaN scaling.
+- [x] **Bug #9 (Severity: Low)** — `util.cpp` — Negative snprintf return check in Logger to prevent index arithmetic errors.
+- [x] **Bug #10 (Severity: Low)** — `cache.cpp` — Incomplete SQLite Transaction rollbacks leaving locks active on failure.
+
+## Batch #15: Reliability, Concurrency & Performance Hardening (Complete)
 
 - [x] **Bug #1 (Severity: High)** — `http_server.cpp:30` — Non-atomic `g_listen_fd` read/write data race and file descriptor reuse race.
-- [ ] **Bug #2 (Severity: Medium)** — `transition.cpp:253` — GPU dissolve transition CPU bound drawing loop.
-- [ ] **Bug #3 (Severity: Low)** — `util.cpp:251` — Logger silent log truncation and redundant double formatting.
+- [x] **Bug #2 (Severity: Medium)** — `transition.cpp:253` — GPU dissolve transition CPU bound drawing loop (fixed alongside Batch #16 Bug #4).
+- [x] **Bug #3 (Severity: Low)** — `util.cpp:251` — Logger silent log truncation and redundant double formatting. Removed redundant level check in `log()`, clamped snprintf truncation instead of silent drop.
 - [x] **Bug #4 (Severity: Medium)** — `mpv_player.cpp:130` — Unwritable child `mpv` logs location `/home/pi/mpv_debug.log` inside container.
-- [ ] **Bug #5 (Severity: High)** — `preload.cpp:309` — Preloader background thread CPU waste via redundant matte & average color computation on the main thread.
+- [x] **Bug #5 (Severity: High)** — `preload.cpp:309` — Preloader CPU waste on main thread (fixed alongside Batch #16 Bug #1).
 - [x] **Bug #6 (Severity: Medium)** — `cache.cpp:229,235` — Unchecked SQL transactional failures in `begin_transaction()` and `commit_transaction()`.
 - [x] **Bug #7 (Severity: Low)** — `install.sh:642` — Stray bracket character `}` in branch selection dialog display formatting.
 - [x] **Bug #8 (Severity: Medium)** — `http_server.cpp:923,924` — Modifying config port `g_cfg.http_port` without signaling `g_config_changed`.
 - [x] **Bug #9 (Severity: Low)** — `scanner.cpp:65` — Safe checks for string manipulation inside `file_ext` utility.
 - [x] **Bug #10 (Severity: High)** — `main.cpp:953,999` — Corrupt cache database remove/re-scan doesn't release old SQLite handles before deleting the file.
-- [ ] **Feature Request (Severity: Medium)** — `config.cpp, tui.cpp, main.cpp` — Add configuration setting `reset_cooldown_on_restart` to allow keeping or clearing shown history on app restart.
+- [x] **Feature Request (Severity: Medium)** — `config.cpp, tui.cpp, main.cpp` — `reset_cooldown_on_restart` was already fully implemented in earlier revisions.
 
-## Batch #15 Details:
-- Cooldown-days persistence by default, with config option to enable/disable cooldown reset on restart.
+## Batch #16: Thread Safety, Performance & Signal Safety Hardening (Complete)
+
+- [x] **Bug #1 (Severity: High)** — `preload.cpp:130-146` — Edge strip pixel sampling and edge color extraction moved to worker thread. `PreloadedItem` stores precomputed edge data; `try_dequeue()` copies values directly without per-pixel sampling.
+
+- [x] **Bug #2 (Severity: Medium)** — `http_server.cpp:849-851` — TOCTOU race in screen toggle fixed with `compare_exchange_weak` loop for atomic read-modify-write.
+
+- [x] **Bug #3 (Severity: Medium)** — `mqtt.cpp:50-53` — Removed detached thread; `mqtt_publish()` calls `::system()` synchronously, eliminating shutdown race on captured string data.
+
+- [x] **Bug #4 (Severity: Medium)** — `transition.cpp:256-268` — Dissolve transition uses `static thread_local std::vector<SDL_FRect>` buffer to avoid per-frame heap allocation churn.
+
+- [x] **Bug #5 (Severity: Medium)** — `font_render.cpp:91-96` — Text cache eviction changed from full clear to single-entry LRU eviction (erase oldest entry).
+
+- [x] **Bug #6 (Severity: Medium)** — `util.cpp:108-126` — `terminate_handler()` now uses async-signal-safe `write()` + `open()` sysfs approach instead of `set_display_power()` which called unsafe `g_logger.info()` and `::system()`.
+
+- [x] **Bug #7 (Severity: Low)** — `main.cpp:179-226` — `calculate_fit_rect_in_area()` now has a synchronisation comment pointing to `Renderer::calculate_fit_rect()`.
+
+- [x] **Bug #8 (Severity: Low)** — `scanner.cpp:34-35` — Dead `get_dents64()` function removed.
+
+- [x] **Bug #9 (Severity: Low)** — `blur.cpp:163` — Redundant `std::max(src.width, 1)` replaced with plain `src.width`.
+
+- [x] **Bug #10 (Severity: Low)** — `cache.cpp:158-159` — `sqlite3_column_int64` clamped to `int` range via `std::min(col, (int64_t)INT_MAX)` before assignment.
 
 ## Batch #14: System Safety, Memory & Concurrency Hardening (Complete)
 
