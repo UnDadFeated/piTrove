@@ -64,8 +64,10 @@ std::vector<std::string> read_dir_timeout(const std::string& path, int timeout_m
 
 std::string file_ext(const std::string& path) {
     if (path.empty()) return "";
+    auto slash = path.find_last_of("/\\");
     auto dot = path.find_last_of('.');
     if (dot == std::string::npos || dot == path.size() - 1) return "";
+    if (slash != std::string::npos && dot < slash) return "";
     return path.substr(dot + 1);
 }
 

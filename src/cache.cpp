@@ -142,7 +142,7 @@ void CacheManager::close() {
     if (stmt_upsert) { sqlite3_finalize(stmt_upsert); stmt_upsert = nullptr; }
     if (stmt_load) { sqlite3_finalize(stmt_load); stmt_load = nullptr; }
     if (stmt_mark) { sqlite3_finalize(stmt_mark); stmt_mark = nullptr; }
-    if (db) { sqlite3_close(db); db = nullptr; }
+    if (db) { sqlite3_close_v2(db); db = nullptr; }
 }
 
 CacheManager::~CacheManager() {
@@ -225,6 +225,10 @@ void CacheManager::mark_bad(const std::string& filepath) {
 void CacheManager::begin_transaction() {
     if (!db) return;
     std::lock_guard<std::mutex> lk(db_mutex);
+    if (in_transaction.load()) {
+        g_logger.warn("CacheManager: begin_transaction called but in_transaction is already true.");
+        return;
+    }
     char* err = nullptr;
     int rc = sqlite3_exec(db, "BEGIN TRANSACTION;", nullptr, nullptr, &err);
     if (rc != SQLITE_OK) {
@@ -238,6 +242,10 @@ void CacheManager::begin_transaction() {
 void CacheManager::commit_transaction() {
     if (!db) return;
     std::lock_guard<std::mutex> lk(db_mutex);
+    if (!in_transaction.load()) {
+        g_logger.warn("CacheManager: commit_transaction called but in_transaction is false.");
+        return;
+    }
     char* err = nullptr;
     int rc = sqlite3_exec(db, "COMMIT;", nullptr, nullptr, &err);
     if (rc != SQLITE_OK) {

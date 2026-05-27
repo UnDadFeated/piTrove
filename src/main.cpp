@@ -951,6 +951,8 @@ int main(int argc, char** argv) {
         if (!db_ok) {
             g_logger.error("CORRUPT DB: cache.db is corrupted — removing and will rebuild");
             std::filesystem::remove(db_path);
+            std::filesystem::remove(db_path + "-wal");
+            std::filesystem::remove(db_path + "-shm");
             db_exists = false;
         }
     }
@@ -999,10 +1001,13 @@ int main(int argc, char** argv) {
                 g_logger.info("Fast-path: skipping scan, going directly to slideshow");
                 g_database_complete.store(true);
             } else {
-                g_logger.warn("Cache DB loaded 0 valid items — will re-scan");
+                g_logger.warn("Cache DB loaded 0 valid items — will re-scan and purge empty/corrupt DB files");
                 g_cache = nullptr;
                 fast_cache->close();
                 delete fast_cache;
+                std::filesystem::remove(db_path);
+                std::filesystem::remove(db_path + "-wal");
+                std::filesystem::remove(db_path + "-shm");
             }
         } else {
             g_logger.warn("Failed to open cache DB — will re-scan");
@@ -1336,7 +1341,9 @@ int main(int argc, char** argv) {
             g_logger.info("MAIN_LOOP: Dynamic configuration reload triggered!");
             {
                 std::lock_guard<std::mutex> lk(g_config_mtx);
+                int active_port = g_cfg.http_port;
                 g_cfg.load(config_path);
+                g_cfg.http_port = active_port;
             }
             g_config_changed.store(false);
         }

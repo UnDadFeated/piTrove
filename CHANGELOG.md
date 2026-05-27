@@ -1,5 +1,14 @@
 # Changelog
 
+## v11.3.9 — Resource Safety and Concurrency Hardening (May 27, 2026)
+
+### Fixed
+- **Persistent HTTP Server Ports** — Prevented configuration reloads from overwriting dynamic fallback ports in memory, ensuring the web dashboard continues running seamlessly even when the default port is occupied.
+- **Robust Cache Database Purging** — Hardened the cache database recovery mechanism to delete auxiliary SQLite WAL and SHM journal files alongside the database file upon detecting corruption or incomplete loads, preventing stale logs from corrupting newly initialized databases.
+- **Hardened Media Path Parser** — Fixed a file extension classification issue where directory paths containing dots (e.g. date-based folders) were incorrectly processed by the media scanner, ensuring extensionless files inside such directories are skipped cleanly.
+- **Safe Transaction Management** — Added transaction state safety checks to the database manager, completely eliminating transactional conflicts, double-starts, or redundant rollback actions during bulk database operations.
+- **Race-Free Socket Shutdown** — Refactored the web control server shutdown sequence to use socket shutdown signals, allowing the background thread to safely close the descriptor and preventing file descriptor reuse races with other threads.
+
 ## v11.3.8 — Self-Healing Network Storage & Smooth Video Transitions (May 27, 2026)
 
 ### Added
