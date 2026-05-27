@@ -1,5 +1,15 @@
 # Changelog
 
+## v11.3.8 — Self-Healing Network Storage & Smooth Video Transitions (May 27, 2026)
+
+### Added
+- **Self-Healing Network Storage Mounts** — Upgraded network storage mounting parameters to utilize systemd-managed automounts with robust connection timeout settings. This ensures the digital frame cleanly bypasses transient Wi-Fi drops without causing system-wide filesystem lockups, seamlessly recovering and remounting the media library once the network is restored.
+- **Persistent Wi-Fi Power Management** — Enforced hardware-level Wi-Fi power-saving overrides via a persistent system udev rule, keeping the wireless interface actively connected during long slideshow idle periods.
+
+### Fixed
+- **Smooth Photo-to-Video Transitions** — Integrated the slideshow transition engine with video playback initialization, running a smooth visual transition from the current photo to a black canvas before launching the media player. This eliminates sudden, abrupt cuts to black while the media player process initializes.
+- **Transition Memory Optimization** — Prevented unneeded background image-decoding attempts on video assets during transition lookaheads, optimizing system memory usage and reducing network disk load.
+
 ## v11.3.7 — Reliability, Concurrency, and Shown-History Persistence Option (May 26, 2026)
 
 ### Added

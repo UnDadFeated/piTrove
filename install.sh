@@ -320,8 +320,8 @@ else
 fi
 
 # ── Install comprehensive system packages ──────────────────────────────────────
-run_with_spinner "Installing host system dependencies (cifs-utils, git)" apt-get install -y -qq \
-    git curl cifs-utils
+run_with_spinner "Installing host system dependencies (cifs-utils, git, iw)" apt-get install -y -qq \
+    git curl cifs-utils iw
 
 # ── DRM and Docker group configuration ─────────────────────────────────────────
 run_with_spinner "Adding $PRIMARY_USER to video, render, and docker groups for hardware & docker permission" usermod -aG video,render,docker "$PRIMARY_USER"
@@ -355,6 +355,19 @@ EOF
 else
     ok "NetworkManager not active, skipping power-saving overrides"
 fi
+
+# Driver-level persistent Wi-Fi power-saving disable via udev rule
+cat > /etc/udev/rules.d/81-wifi-powersave.rules <<EOF
+ACTION=="add", SUBSYSTEM=="net", KERNEL=="wlan*", RUN+="/usr/sbin/iw dev %k set power_save off"
+EOF
+# Apply power save off immediately to any active wlan interfaces
+for dev in /sys/class/net/wlan*; do
+    if [[ -d "$dev" ]]; then
+        iface=$(basename "$dev")
+        /usr/sbin/iw dev "$iface" set power_save off &>/dev/null || true
+    fi
+done
+ok "Configured persistent driver-level Wi-Fi power-saving overrides"
 
 # ── Storage Selection Dialog ───────────────────────────────────────────────────
 echo
@@ -511,10 +524,10 @@ if [[ "$USE_NAS" -eq 1 ]] || [[ "$storage_choice" == "3" ]]; then
     # Format fstab configuration row
     if [[ "$SHARE_PROTOCOL" == "cifs" ]]; then
         FSTAB_LINE="# piTrove Network Share
-//$SHARE_IP/${SHARE_PATH#/} $SHARE_MOUNT cifs credentials=$PRIMARY_HOME/nas.cred,ro,uid=1000,gid=1000,vers=3.0,_netdev,nofail 0 0"
+//$SHARE_IP/${SHARE_PATH#/} $SHARE_MOUNT cifs credentials=$PRIMARY_HOME/nas.cred,ro,uid=1000,gid=1000,vers=3.0,_netdev,nofail,x-systemd.automount,x-systemd.idle-timeout=60,x-systemd.mount-timeout=10,soft,echo_interval=6 0 0"
     elif [[ "$SHARE_PROTOCOL" == "nfs" ]]; then
         FSTAB_LINE="# piTrove Network Share
-$SHARE_IP:$SHARE_PATH $SHARE_MOUNT $SHARE_PROTOCOL defaults,_netdev,timeo=10,retrans=3,nofail 0 0"
+$SHARE_IP:$SHARE_PATH $SHARE_MOUNT $SHARE_PROTOCOL defaults,_netdev,timeo=10,retrans=3,nofail,x-systemd.automount,x-systemd.idle-timeout=60,x-systemd.mount-timeout=10,soft 0 0"
     fi
 
     # Clean old entries

@@ -1526,39 +1526,44 @@ int main(int argc, char** argv) {
                 playlist_lock.unlock(); // Unlock before delay sleep
                 SDL_Delay(50); continue;
             }
-            int volume;
-            { std::lock_guard<std::mutex> lock(g_config_mtx); volume = g_cfg.video_volume; }
-            
-            std::string video_path = g_eligible[current_idx].path;
-            g_logger.info("Playing video: %s", video_path.c_str());
-            
-            playlist_lock.unlock(); // Unlock while launching the mpv process
-            if (!g_mpv_player.play(video_path, volume)) {
-                g_logger.error("Failed to play video, skipping to next.");
-                playlist_lock.lock(); // Re-lock
-                transitioning = true; transition_timer = 0.0;
-                advance_playlist(1);
-                playlist_lock.unlock();
-                continue;
+            if (transitioning) {
+                // Wait for the transition to finish rendering before launching mpv.
+                // Proceed to the image rendering path which handles active transition.
             } else {
-                playlist_lock.lock(); // Re-lock to safely free image texture VRAM during playback
-                mark_item_shown(video_path, false); // Mark the video as shown for cooldown
-                if (current_data) {
-                    current_data = nullptr;
-                    current_twin_data = nullptr;
-                    current_tex = nullptr;
+                int volume;
+                { std::lock_guard<std::mutex> lock(g_config_mtx); volume = g_cfg.video_volume; }
+                
+                std::string video_path = g_eligible[current_idx].path;
+                g_logger.info("Playing video: %s", video_path.c_str());
+                
+                playlist_lock.unlock(); // Unlock while launching the mpv process
+                if (!g_mpv_player.play(video_path, volume)) {
+                    g_logger.error("Failed to play video, skipping to next.");
+                    playlist_lock.lock(); // Re-lock
+                    transitioning = true; transition_timer = 0.0;
+                    advance_playlist(1);
+                    playlist_lock.unlock();
+                    continue;
+                } else {
+                    playlist_lock.lock(); // Re-lock to safely free image texture VRAM during playback
+                    mark_item_shown(video_path, false); // Mark the video as shown for cooldown
+                    if (current_data) {
+                        current_data = nullptr;
+                        current_twin_data = nullptr;
+                        current_tex = nullptr;
+                    }
+                    if (next_data) {
+                        next_data = nullptr;
+                        next_twin_data = nullptr;
+                    }
+                    transitioning = false; // Bypass transitioning during video rendering
+                    if (g_transition) {
+                        g_transition->reset();
+                    }
+                    playlist_lock.unlock();
                 }
-                if (next_data) {
-                    next_data = nullptr;
-                    next_twin_data = nullptr;
-                }
-                transitioning = false; // Bypass transitioning during video rendering
-                if (g_transition) {
-                    g_transition->reset();
-                }
-                playlist_lock.unlock();
+                SDL_Delay(50); continue;
             }
-            SDL_Delay(50); continue;
         }
 
         // --- Image Rendering Handling ---
@@ -1585,18 +1590,20 @@ int main(int argc, char** argv) {
 
                 // Capture paths under lock, then unlock for I/O to prevent race on g_eligible
                 playlist_lock.unlock();
-                if (g_preload) {
+                if (g_preload && g_eligible[next_idx].type != "video") {
                     next_data = g_preload->try_dequeue(next_path);
                     if (is_twin) {
                         next_twin_data = g_preload->try_dequeue(next_path_twin);
                     }
                 }
-                // Fallback to synchronous load if preloader bypassed or missed
-                if (!next_data || !next_data->valid) {
-                    next_data = ImageLoader::load(next_path);
-                }
-                if (is_twin && (!next_twin_data || !next_twin_data->valid)) {
-                    next_twin_data = ImageLoader::load(next_path_twin);
+                // Fallback to synchronous load if preloader bypassed or missed (skip for video items)
+                if (g_eligible[next_idx].type != "video") {
+                    if (!next_data || !next_data->valid) {
+                        next_data = ImageLoader::load(next_path);
+                    }
+                    if (is_twin && (!next_twin_data || !next_twin_data->valid)) {
+                        next_twin_data = ImageLoader::load(next_path_twin);
+                    }
                 }
                 playlist_lock.lock();
 
@@ -1613,9 +1620,11 @@ int main(int argc, char** argv) {
                         if (g_cache) g_cache->upsert(g_eligible[found], 0);
                     }
                 };
-                update_meta_safe(next_path, next_data);
-                if (is_twin && next_twin_data) {
-                    update_meta_safe(next_path_twin, next_twin_data);
+                if (g_eligible[next_idx].type != "video") {
+                    update_meta_safe(next_path, next_data);
+                    if (is_twin && next_twin_data) {
+                        update_meta_safe(next_path_twin, next_twin_data);
+                    }
                 }
 
                 if (next_data && next_data->valid && (!is_twin || (next_twin_data && next_twin_data->valid))) {
@@ -1624,14 +1633,17 @@ int main(int argc, char** argv) {
                         ImageLoader::load_texture(next_twin_data.get(), g_renderer.sdl_renderer);
                     }
                 } else {
-                    if (g_cache && next_data && !next_data->valid) g_cache->mark_bad(next_path);
-                    if (is_twin && g_cache && next_twin_data && !next_twin_data->valid) g_cache->mark_bad(next_path_twin);
+                    if (g_eligible[next_idx].type != "video") {
+                        if (g_cache && next_data && !next_data->valid) g_cache->mark_bad(next_path);
+                        if (is_twin && g_cache && next_twin_data && !next_twin_data->valid) g_cache->mark_bad(next_path_twin);
+                    }
                     next_data = nullptr;
                     next_twin_data = nullptr;
                 }
             }
 
-            bool load_success = next_data && next_data->texture && (!should_be_twin_portrait(g_eligible, current_idx) || (next_twin_data && next_twin_data->texture));
+            bool is_video_transition = (g_eligible[current_idx].type == "video");
+            bool load_success = is_video_transition || (next_data && next_data->texture && (!should_be_twin_portrait(g_eligible, current_idx) || (next_twin_data && next_twin_data->texture)));
 
             if (load_success) {
                 // Generate intermediate flat textures representing full screen layout states
@@ -1660,10 +1672,12 @@ int main(int argc, char** argv) {
                         if (transition_prev_target) { SDL_DestroyTexture(transition_prev_target); transition_prev_target = nullptr; }
                         if (transition_next_target) { SDL_DestroyTexture(transition_next_target); transition_next_target = nullptr; }
 
-                        current_tex = current_data->texture;
-                        mark_item_shown(g_eligible[current_idx].path, false);
-                        if (current_twin_data) {
-                            mark_item_shown(g_eligible[(current_idx + 1) % (int)g_eligible.size()].path, false);
+                        current_tex = current_data ? current_data->texture : nullptr;
+                        if (!is_video_transition) {
+                            mark_item_shown(g_eligible[current_idx].path, false);
+                            if (current_twin_data) {
+                                mark_item_shown(g_eligible[(current_idx + 1) % (int)g_eligible.size()].path, false);
+                            }
                         }
 
                         // Update in-memory item metadata with actual dimensions and EXIF rotation
@@ -1680,9 +1694,8 @@ int main(int argc, char** argv) {
                                 }
                             }
                             g_cache->upsert(g_eligible[current_idx], 0);
+                            g_renderer.calculate_fit_rect(current_data->width, current_data->height, fit_rect);
                         }
-
-                        g_renderer.calculate_fit_rect(current_data->width, current_data->height, fit_rect);
                     }
                 } else {
                     if (transition_prev_target) { SDL_DestroyTexture(transition_prev_target); transition_prev_target = nullptr; }
