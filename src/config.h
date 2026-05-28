@@ -73,7 +73,8 @@ struct Config {
 
     // Subtitles
     std::string video_subtitles_dir{"/home/pi/piTrove/subtitles"};
-
+    int     osd_offset_x{0};
+    int     osd_offset_y{0};
 
     // [slideshow] advanced
     std::string sleep_time{""};

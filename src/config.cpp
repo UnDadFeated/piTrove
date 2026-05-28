@@ -69,6 +69,8 @@ bool Config::load(const std::string& path) {
         else if (key == "font_path")         this->font_path = val;
         else if (key == "video_audio_device")this->video_audio_device = val;
         else if (key == "subtitles_dir")     this->video_subtitles_dir = val;
+        else if (key == "osd_offset_x")      this->osd_offset_x = safe_stoi(val, this->osd_offset_x);
+        else if (key == "osd_offset_y")      this->osd_offset_y = safe_stoi(val, this->osd_offset_y);
         else if (key == "sleep_time")        this->sleep_time = val;
 
         else if (key == "wake_time")         this->wake_time = val;

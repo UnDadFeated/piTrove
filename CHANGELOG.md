@@ -1,3 +1,14 @@
+## v11.4.4 — Init Lock, CIFS Hang & Double-Lock Fixes (May 28, 2026)
+
+### Added
+- **Configurable mpv OSD offset** — Added `osd_offset_x` and `osd_offset_y` config options (under `[video]`) to adjust MKV video overlay position in pixels.
+
+### Fixed
+- **Slideshow freeze on startup** — Removed `init_lock` that acquired `g_playlist_mtx` without releasing before the main loop, causing the slideshow loop to block forever on its first mutex acquisition.
+- **Slideshow freeze on CIFS mounts** — Replaced `file_exists()` (CIFS `stat()` hang) in the main-loop missing-file check with simple `current_idx` bounds validation. Deleted files are caught on the next load failure instead.
+- **Slideshow freeze after first frame** — Removed redundant `lock_guard<std::mutex> pl_lock(g_playlist_mtx)` inside the preload section that deadlocked because `playlist_lock` already held the same mutex (introduced in Batch #21).
+- **HTTP /api/status timeout** — Resolved as a consequence of fixing the double-lock deadlock; the API no longer blocks trying to acquire `g_playlist_mtx` held by the stuck main thread.
+
 ## v11.4.3 — Pipeline Lock & CIFS Hang Fixes (May 28, 2026)
 
 ### Fixed
