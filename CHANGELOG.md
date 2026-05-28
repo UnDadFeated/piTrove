@@ -1,3 +1,11 @@
+## v11.4.3 — Pipeline Lock & CIFS Hang Fixes (May 28, 2026)
+
+### Fixed
+- **Slideshow freeze on CIFS mounts** — Filesystem existence checks are now performed outside the playlist mutex, preventing a hung CIFS `stat()` call from blocking the entire slideshow pipeline and leaving the splash screen frozen on the display.
+- **"AWAITING I/O PIPELINE... BLOCKED" splash stalling** — Cleaned up orphaned SQLite WAL/SHM files that prevented the cache from initializing, keeping the display stuck on the scanning splash.
+- **Splash shows real item count on fast-path restart** — The splash no longer briefly flashes "FILES FND: 0" when loading from a populated cache. Shows the actual cached count instead.
+- **Cache-complete confirmation frame** — A final "CACHED: N" frame is displayed for 500ms after the cache build finishes, so the user sees the finished state before the slideshow begins.
+
 ## v11.4.2 ? Scanner Progress & TUI Timers Fixes (May 28, 2026)
 
 ### Fixed

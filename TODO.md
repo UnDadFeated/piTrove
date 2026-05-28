@@ -213,3 +213,13 @@ This file tracks the active bugs, resource safety concerns, and boundary checks 
 - [x] **Task #7 (Severity: Low)** — `tui.cpp` — `save_cfg()` writes `resolution_preset`, `matte_opacity`, `vignette_strength`, `blur_radius`, `glow_depth`.
 - [x] **Task #8 (Severity: Low)** — `tui.cpp` — Display category: Resolution (ENM, index 1). Slideshow category: Bias Strength, Matte Opacity, Vignette Strength, Blur Radius, Glow Depth (5 new items, 14→18 count).
 
+
+## Batch #22: Pipeline Hang & Splash Stalling (Done 2026-05-28)
+
+### Fixed
+- [x] **CIFS file_exists() blocks playlist mutex** — Moved `file_exists()` calls outside `g_playlist_mtx` by unlock-before-I/O pattern. If CIFS `stat()` hangs, the playlist lock is released so the HTTP API can still respond and the slideshow can be skipped/managed remotely.
+- [x] **Stale WAL/SHM preventing cache init** — Orphaned SQLite WAL+SHM files from killed metadata-extraction runs caused cache DB to appear locked, stalling the scanning phase with "AWAITING I/O PIPELINE".
+- [x] **Fast-path splash flash** — Removed INIT splash with progress=0 before cache check; shows real item count for 800ms instead.
+- [x] **No cache-complete visual** — Added final "CACHED: N" frame + 500ms delay after cache build.
+- [x] **Metadata extraction reverted** — EXIF/ffprobe in caching loop too slow (6+ min); deferred to post-commit path.
+
