@@ -959,12 +959,6 @@ int main(int argc, char** argv) {
     g_renderer.load_splash(splash_file);
     g_logger.info("Splash loaded");
 
-    // Render initial splash immediately
-    for (int i = 0; i < 3; i++) {
-        draw_phase_splash(2, 0, 0, 0, "INIT", 0, nullptr, false);
-        SDL_Delay(16);
-    }
-
     // --- Fast-path: skip scan+cache if DB already exists ---
     std::string db_path = cache_dir + "/cache.db";
     struct stat db_stat{};
@@ -1038,10 +1032,25 @@ int main(int argc, char** argv) {
         }
     }
 
-    // --- PHASE 1: SCAN (simple filesystem walk, like legacy) ---
-    // (skip if fast-path cache was valid)
+    // --- Splash after fast-path check ---
     bool do_scan = g_scanned_items.empty();
     int dot_counter = 0;
+
+    if (!do_scan) {
+        // Cache loaded ? show item count briefly
+        int cached_total = (int)g_scanned_items.size();
+        draw_phase_splash(2, cached_total, cached_total, cached_total, "CACHE", 0, nullptr, false);
+        SDL_Delay(800);
+    } else {
+        // Fresh scan ? show INIT splash
+        for (int i = 0; i < 3; i++) {
+            draw_phase_splash(2, 0, 0, 0, "INIT", 0, nullptr, false);
+            SDL_Delay(16);
+        }
+    }
+
+    // --- PHASE 1: SCAN (simple filesystem walk, like legacy) ---
+    // (skip if fast-path cache was valid)
 
     if (do_scan) {
         g_logger.info("Phase 1: Scanning media...");
@@ -1109,10 +1118,9 @@ int main(int argc, char** argv) {
 
         g_cache->begin_transaction();
         int cached = 0;
-        auto last_render = std::chrono::steady_clock::now();
+        auto last_render = std::chrono::steady_clock::now() - std::chrono::seconds(1);
 
         int total_scanned = (int)g_scanned_items.size();
-        draw_phase_splash(3, total_scanned, total_scanned, 0, "CACHING", ++dot_counter, nullptr, false);
 
         for (int i = 0; i < total_scanned; i++) {
             auto& mi = g_scanned_items[i];
