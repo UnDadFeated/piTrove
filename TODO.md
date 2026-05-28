@@ -2,7 +2,22 @@
 
 This file tracks the active bugs, resource safety concerns, and boundary checks analyzed under the continuous quality improvement loop.
 
+## Batch #19: Concurrency, Socket, Process & Memory Safety Hardening (Complete)
+
+- [x] **Bug #1 (Severity: High)** — `main.cpp` — Concurrency Data Race on `g_scanned_items` and `g_eligible` erases.
+- [x] **Bug #2 (Severity: High)** — `main.cpp` — Concurrency Race in `advance_playlist` execution.
+- [x] **Bug #3 (Severity: High)** — `main.cpp` — Concurrency Race in twin-portrait playlist initialization.
+- [x] **Bug #4 (Severity: High)** — `image_loader.cpp` — Missing `entry->data` null check in EXIF reader.
+- [x] **Bug #5 (Severity: Medium)** — `scanner.cpp` — Broken `/proc/self/fd` optimization always triggering slower fallback.
+- [x] **Bug #6 (Severity: Medium)** — `mpv_player.cpp` — Pause state SIGTERM ignored by suspended child processes.
+- [x] **Bug #7 (Severity: Medium)** — `tui.cpp` — Division by zero in enums toggling under empty vector constraints.
+- [x] **Bug #8 (Severity: Low)** — `config.cpp` — Unclamped `bias_strength` boundary validation.
+- [x] **Bug #9 (Severity: Medium)** — `http_server.cpp` — Unbounded socket write hang (missing `SO_SNDTIMEO`).
+- [x] **Bug #10 (Severity: Low)** — `http_server.cpp` — Unsafe SoC temperature & DB size substring formatting.
+- [x] **Bug #11 (Severity: Low)** — `main.cpp, scanner.cpp` — Signed integer overflow in directory date parsing.
+
 ## Batch #18: Concurrency, Thread Safety & Graphics Hardening (Complete)
+
 
 - [x] **Bug #1 (Severity: High)** — `renderer.cpp` — Contiguous flat memcpy in draw_blurred_from_raw() without pitch row-alignment can cause memory corruption or visual distortion.
 - [x] **Bug #2 (Severity: High)** — `renderer.cpp` — Contiguous flat memcpy in load_splash() without pitch row-alignment can cause memory corruption or visual distortion.

@@ -108,8 +108,12 @@ static bool is_item_in_seasonal_window(const MediaItem& item, int window_days) {
         while (i < parent_name.size() && !isdigit(parent_name[i])) i++;
         if (i >= parent_name.size()) break;
         int val = 0;
+        int digit_count = 0;
         while (i < parent_name.size() && isdigit(parent_name[i])) {
-            val = val * 10 + (parent_name[i] - '0');
+            if (digit_count < 9) {
+                val = val * 10 + (parent_name[i] - '0');
+            }
+            digit_count++;
             i++;
         }
         groups[gc++] = val;
@@ -1211,6 +1215,7 @@ int main(int argc, char** argv) {
 
     // Find the first valid item to display, skipping and removing bad/missing files
     int load_attempts = 0;
+    std::unique_lock<std::mutex> init_lock(g_playlist_mtx);
     while (load_attempts < (int)g_eligible.size() && load_attempts < 20) {
         std::string path = g_eligible[current_idx].path;
         if (!file_exists(path)) {
@@ -1243,7 +1248,26 @@ int main(int argc, char** argv) {
                 std::string path_l = g_eligible[current_idx].path;
                 std::string path_r = g_eligible[next_idx].path;
 
-                if (!file_exists(path_l)) {
+                // Unlock for disk I/O to prevent holding lock during load
+                init_lock.unlock();
+                bool exists_l = file_exists(path_l);
+                bool exists_r = file_exists(path_r);
+                std::shared_ptr<ImageData> l_data = nullptr;
+                std::shared_ptr<ImageData> r_data = nullptr;
+                if (exists_l && exists_r) {
+                    l_data = ImageLoader::load(path_l);
+                    r_data = ImageLoader::load(path_r);
+                }
+                init_lock.lock();
+
+                // Re-validate indices since we unlocked
+                if (g_eligible.empty()) break;
+                if (current_idx >= (int)g_eligible.size()) current_idx = 0;
+                next_idx = (current_idx + 1) % (int)g_eligible.size();
+                path_l = g_eligible[current_idx].path;
+                path_r = g_eligible[next_idx].path;
+
+                if (!exists_l) {
                     g_logger.warn("MISSING_FILE: Left twin file missing: %s", path_l.c_str());
                     g_cache->mark_bad(path_l);
                     g_eligible.erase(g_eligible.begin() + current_idx);
@@ -1252,7 +1276,7 @@ int main(int argc, char** argv) {
                     load_attempts++;
                     continue;
                 }
-                if (!file_exists(path_r)) {
+                if (!exists_r) {
                     g_logger.warn("MISSING_FILE: Right twin file missing: %s", path_r.c_str());
                     g_cache->mark_bad(path_r);
                     g_eligible.erase(g_eligible.begin() + next_idx);
@@ -1262,8 +1286,8 @@ int main(int argc, char** argv) {
                     continue;
                 }
 
-                current_data = ImageLoader::load(path_l);
-                current_twin_data = ImageLoader::load(path_r);
+                current_data = l_data;
+                current_twin_data = r_data;
 
                 if (current_data && current_data->valid && current_twin_data && current_twin_data->valid) {
                     ImageLoader::load_texture(current_data.get(), g_renderer.sdl_renderer);
@@ -1301,7 +1325,14 @@ int main(int argc, char** argv) {
                     load_attempts++;
                 }
             } else {
-                current_data = ImageLoader::load(g_eligible[current_idx].path);
+                init_lock.unlock();
+                std::shared_ptr<ImageData> single_data = ImageLoader::load(g_eligible[current_idx].path);
+                init_lock.lock();
+
+                if (g_eligible.empty()) break;
+                if (current_idx >= (int)g_eligible.size()) current_idx = 0;
+
+                current_data = single_data;
                 if (current_data && current_data->valid) {
                     ImageLoader::load_texture(current_data.get(), g_renderer.sdl_renderer);
                     current_tex = current_data->texture;

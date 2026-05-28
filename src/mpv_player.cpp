@@ -259,6 +259,7 @@ void MpvPlayer::stop() {
     }
 
     if (pid > 0) {
+        kill(pid, SIGCONT); // Resume if paused, so it can process SIGTERM
         kill(pid, SIGTERM);
         std::this_thread::sleep_for(std::chrono::microseconds(200000)); // 200ms grace period
         int status;

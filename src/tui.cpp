@@ -869,10 +869,12 @@ void config_wizard(const std::string& config_path) {
                         dirty_to = dirty_from + 1;
                     } else if (CATS[sel].i[sel_sub].t == ENM && c == ' ') {
                         auto opts = enums(sel, sel_sub);
-                        std::string curr = gv(sel, sel_sub);
-                        auto it = std::find(opts.begin(), opts.end(), curr);
-                        int idx = (it != opts.end()) ? std::distance(opts.begin(), it) : 0;
-                        sv(sel, sel_sub, opts[(idx + 1) % opts.size()]);
+                        if (!opts.empty()) {
+                            std::string curr = gv(sel, sel_sub);
+                            auto it = std::find(opts.begin(), opts.end(), curr);
+                            int idx = (it != opts.end()) ? std::distance(opts.begin(), it) : 0;
+                            sv(sel, sel_sub, opts[(idx + 1) % opts.size()]);
+                        }
                         dirty_from = ROW_ROW0 + std::min(sel_sub, 14);
                         dirty_to = dirty_from + 1;
                     } else if (c != ' ') {

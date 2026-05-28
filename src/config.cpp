@@ -135,7 +135,7 @@ bool Config::load(const std::string& path) {
         }
         else if (key == "shuffle")           this->shuffle = !(val == "0" || val == "false");
         else if (key == "ken_burns_zoom")    this->ken_burns_zoom = safe_stof(val, this->ken_burns_zoom);
-        else if (key == "bias_strength")     this->bias_strength = safe_stoi(val, this->bias_strength);
+        else if (key == "bias_strength")     this->bias_strength = std::max(0, std::min(255, safe_stoi(val, this->bias_strength)));
         else if (key == "clock_enabled")     this->clock_enabled = (val == "1" || val == "true");
         else if (key == "clock_x")           this->clock_x = safe_stof(val, this->clock_x);
         else if (key == "clock_y")           this->clock_y = safe_stof(val, this->clock_y);

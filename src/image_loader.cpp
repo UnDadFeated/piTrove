@@ -272,10 +272,10 @@ int ImageLoader::read_exif_rotation(const char* path) {
 
     // Check IFD_0 first, then IFD_EXIF (some cameras write orientation there)
     ExifEntry* entry = exif_content_get_entry(ed->ifd[EXIF_IFD_0], EXIF_TAG_ORIENTATION);
-    if (!entry || entry->size < 2 || entry->format != EXIF_FORMAT_SHORT) {
+    if (!entry || !entry->data || entry->size < 2 || entry->format != EXIF_FORMAT_SHORT) {
         entry = exif_content_get_entry(ed->ifd[EXIF_IFD_EXIF], EXIF_TAG_ORIENTATION);
     }
-    if (!entry || entry->size < 2 || entry->format != EXIF_FORMAT_SHORT) {
+    if (!entry || !entry->data || entry->size < 2 || entry->format != EXIF_FORMAT_SHORT) {
         exif_data_unref(ed);
         return rotation;
     }

@@ -689,6 +689,20 @@ static std::string get_api_status() {
         }
     } catch (...) {}
 
+    std::ostringstream temp_stream;
+    if (temp_c > 0.0) {
+        temp_stream << std::fixed << std::setprecision(1) << temp_c << "°C";
+    } else {
+        temp_stream << "N/A";
+    }
+
+    std::ostringstream db_stream;
+    if (db_mb > 0.0) {
+        db_stream << std::fixed << std::setprecision(2) << db_mb << " MB";
+    } else {
+        db_stream << "0.00 MB";
+    }
+
     std::ostringstream oss;
     oss << "{\n"
         << "  \"index\": " << idx << ",\n"
@@ -697,8 +711,8 @@ static std::string get_api_status() {
         << "  \"is_video\": " << (type == "video" ? "true" : "false") << ",\n"
         << "  \"shuffle\": " << (shuffle ? "true" : "false") << ",\n"
         << "  \"paused\": " << (paused ? "true" : "false") << ",\n"
-        << "  \"temp\": \"" << (temp_c > 0.0 ? std::to_string(temp_c).substr(0, 4) + "°C" : "N/A") << "\",\n"
-        << "  \"db_size\": \"" << (db_mb > 0.0 ? std::to_string(db_mb).substr(0, 4) + " MB" : "0.0 MB") << "\",\n"
+        << "  \"temp\": \"" << temp_stream.str() << "\",\n"
+        << "  \"db_size\": \"" << db_stream.str() << "\",\n"
         << "  \"mqtt_enabled\": " << (mqtt_enabled ? "true" : "false") << ",\n"
         << "  \"mqtt_broker\": \"" << escape_json(mqtt_broker) << "\",\n"
         << "  \"mqtt_port\": " << mqtt_port << ",\n"
@@ -808,6 +822,7 @@ static void handle_client(int client_fd) {
     client_tv.tv_sec = 2;
     client_tv.tv_usec = 0;
     setsockopt(client_fd, SOL_SOCKET, SO_RCVTIMEO, &client_tv, sizeof(client_tv));
+    setsockopt(client_fd, SOL_SOCKET, SO_SNDTIMEO, &client_tv, sizeof(client_tv));
 
     char buffer[2048];
     std::memset(buffer, 0, sizeof(buffer));

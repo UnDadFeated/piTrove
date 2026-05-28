@@ -1,5 +1,17 @@
 # Changelog
 
+## v11.4.0 — Codebase Hardening & Stability (May 28, 2026)
+
+### Fixed
+- **Startup Thread Lockups** — Resolved a concurrency deadlock during slideshow initialization by securing the initial media load sequence under the global playlist lock, ensuring the slideshow starts reliably even when media files are slow to load.
+- **System File Descriptor Leak** — Corrected a resource leak where extraneous file descriptors were left open during background media probe launches, preventing system-wide file handle exhaustion.
+- **Zombie Video Player Processes** — Ensured video playback processes are cleanly resumed before termination signals are dispatched. This allows suspended video streams to shut down gracefully and release system graphics resources, eliminating stuck video frames.
+- **Corrupt Image Crash** — Hardened image orientation parsing to prevent application crashes when encountering images with malformed or corrupt metadata headers.
+- **Web Dashboard Lockups** — Applied absolute write timeouts to dashboard client connections. Slow or disconnected remote control browser instances can no longer indefinitely lock HTTP server ports or freeze the web dashboard.
+- **Precise System Telemetry** — Standardized CPU temperature and database metric parsing to output precise, consistent decimal formatting on the system status screen.
+- **TUI Division-by-Zero and Configuration Bounds** — Implemented strict upper/lower bounds checks for custom ambient backlight strength settings and empty lists in configuration menus, eliminating potential graphics color overflow glitches and menu crashes.
+- **Numeric Directory Name Overflow** — Restrained numeric folder date parser loop limits, protecting the scanner against signed integer overflow errors when encountering exceptionally long numbers in folder or file names.
+
 ## v11.3.10 — Concurrency, Thread Safety & Graphics Hardening (May 27, 2026)
 
 ### Fixed
