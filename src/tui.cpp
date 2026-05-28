@@ -158,7 +158,9 @@ void config_wizard(const std::string& config_path) {
         f << "drm_connector = \"" << (g_cfg.drm_connector.empty() ? "auto" : g_cfg.drm_connector) << "\"\n";
         f << "drm_card = \"" << (g_cfg.drm_card.empty() ? "auto" : g_cfg.drm_card) << "\"\n";
         f << "video_audio_device = \"" << (g_cfg.video_audio_device.empty() ? "auto" : g_cfg.video_audio_device) << "\"\n";
-        f << "subtitles_dir = \"" << g_cfg.video_subtitles_dir << "\"\n\n";
+        f << "subtitles_dir = \"" << g_cfg.video_subtitles_dir << "\"\n";
+        f << "osd_offset_x = " << g_cfg.osd_offset_x << "\n";
+        f << "osd_offset_y = " << g_cfg.osd_offset_y << "\n\n";
         
         f << "[dashboard]\n";
         f << "weather_enabled = " << (g_cfg.weather_enabled ? "1" : "0") << "\n";
@@ -296,7 +298,9 @@ void config_wizard(const std::string& config_path) {
         {"Play Just Photos", TGL, "Completely exclude videos from playback"},
         {"Play Just Videos", TGL, "Completely exclude photos from playback"},
         {"Closed Captions", TGL, "Enable video closed captions/subtitles by default"},
-        {"Subtitles Dir", STR, "Path to folder containing .srt files (matching video basename)"}
+        {"Subtitles Dir", STR, "Path to folder containing .srt files (matching video basename)"},
+        {"OSD Offset X", INT, "Horizontal offset for mpv OSD overlay (pixels, negative=left)"},
+        {"OSD Offset Y", INT, "Vertical offset for mpv OSD overlay (pixels, negative=down)"}
     };
     static const CI CE[] = {
         {"Transition Delay", FLT, "Seconds to display photo before transitioning"},
@@ -408,6 +412,8 @@ void config_wizard(const std::string& config_path) {
             case 4: return g_cfg.play_just_videos?"[ON]":"[OFF]";
             case 5: return g_cfg.closed_captions_enabled?"[ON]":"[OFF]";
             case 6: return g_cfg.video_subtitles_dir;
+            case 7: return std::to_string(g_cfg.osd_offset_x);
+            case 8: return std::to_string(g_cfg.osd_offset_y);
         }
         if (c == 4) switch(i) {
             case 0: return std::to_string(g_cfg.transition_delay);
@@ -504,6 +510,8 @@ void config_wizard(const std::string& config_path) {
                 case 4:g_cfg.play_just_videos=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
                 case 5:g_cfg.closed_captions_enabled=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
                 case 6:g_cfg.video_subtitles_dir=v;break;
+                case 7:{ try { g_cfg.osd_offset_x=std::stoi(v); } catch(...) {} break; }
+                case 8:{ try { g_cfg.osd_offset_y=std::stoi(v); } catch(...) {} break; }
             }
             else if(c==4) switch(i){
                 case 0:{ try { g_cfg.transition_delay=std::stof(v); } catch(...) {} break; } case 1:{ try { g_cfg.transition_duration=std::stof(v); } catch(...) {} break; }

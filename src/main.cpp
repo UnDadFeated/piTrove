@@ -1232,7 +1232,6 @@ int main(int argc, char** argv) {
 
     // Find the first valid item to display, skipping and removing bad/missing files
     int load_attempts = 0;
-    std::unique_lock<std::mutex> init_lock(g_playlist_mtx);
     while (load_attempts < (int)g_eligible.size() && load_attempts < 20) {
         std::string path = g_eligible[current_idx].path;
         if (!file_exists(path)) {
@@ -1265,8 +1264,6 @@ int main(int argc, char** argv) {
                 std::string path_l = g_eligible[current_idx].path;
                 std::string path_r = g_eligible[next_idx].path;
 
-                // Unlock for disk I/O to prevent holding lock during load
-                init_lock.unlock();
                 bool exists_l = file_exists(path_l);
                 bool exists_r = file_exists(path_r);
                 std::shared_ptr<ImageData> l_data = nullptr;
@@ -1275,7 +1272,6 @@ int main(int argc, char** argv) {
                     l_data = ImageLoader::load(path_l);
                     r_data = ImageLoader::load(path_r);
                 }
-                init_lock.lock();
 
                 // Re-validate indices since we unlocked
                 if (g_eligible.empty()) break;
@@ -1342,9 +1338,7 @@ int main(int argc, char** argv) {
                     load_attempts++;
                 }
             } else {
-                init_lock.unlock();
                 std::shared_ptr<ImageData> single_data = ImageLoader::load(g_eligible[current_idx].path);
-                init_lock.lock();
 
                 if (g_eligible.empty()) break;
                 if (current_idx >= (int)g_eligible.size()) current_idx = 0;
@@ -1499,52 +1493,10 @@ int main(int argc, char** argv) {
             g_logger.info("SLIDESHOW: Pause toggled remotely. Current pause state = %s", g_slideshow_paused.load() ? "PAUSED" : "PLAYING");
         }
 
-        // Robust Missing/Deleted File Skipping
-        while (!g_eligible.empty()) {
-            std::string path = g_eligible[current_idx].path;
-            playlist_lock.unlock();
-            bool exists = file_exists(path);
-            playlist_lock.lock();
-            if (g_eligible.empty()) break;
-            if (current_idx >= (int)g_eligible.size()) current_idx = 0;
-            if (g_eligible[current_idx].path != path) continue;
-            if (exists) break;
-            g_logger.warn("MISSING_FILE: Media file is missing/deleted from disk: %s", path.c_str());
-            
-            // Mark file path as bad in sqlite cache
-            if (g_cache) {
-                g_cache->mark_bad(path);
-            }
-            
-            // Dynamically erase from g_scanned_items
-            auto it_scanned = std::remove_if(g_scanned_items.begin(), g_scanned_items.end(),
-                [&](const MediaItem& item) { return item.path == path; });
-            if (it_scanned != g_scanned_items.end()) {
-                g_scanned_items.erase(it_scanned, g_scanned_items.end());
-            }
-
-            // Dynamically erase from g_eligible
-            g_eligible.erase(g_eligible.begin() + current_idx);
-            
-            // Wrap current_idx if we erased the last item
-            if (g_eligible.empty()) {
-                break;
-            }
+        // Validate current_idx (skip stat() to avoid CIFS hang)
+        if (!g_eligible.empty()) {
             if (current_idx >= (int)g_eligible.size()) {
                 current_idx = 0;
-            }
-            
-            // Reset transition and timer states to load the new item fresh
-            transitioning = true;
-            transition_timer = 0.0;
-            if (g_transition) {
-                g_transition->reset();
-            }
-            if (transition_prev_target) { SDL_DestroyTexture(transition_prev_target); transition_prev_target = nullptr; }
-            if (transition_next_target) { SDL_DestroyTexture(transition_next_target); transition_next_target = nullptr; }
-            if (next_data) {
-                next_data = nullptr;
-                next_twin_data = nullptr;
             }
         }
 
@@ -2008,11 +1960,7 @@ int main(int argc, char** argv) {
             // Preload next items asynchronously while resting
             if (g_preload) {
                 int lookahead_idx = (current_idx + (current_twin_data ? 2 : 1)) % (int)g_eligible.size();
-                bool next_is_twin = false;
-                {
-                    std::lock_guard<std::mutex> pl_lock(g_playlist_mtx);
-                    next_is_twin = should_be_twin_portrait(g_eligible, lookahead_idx);
-                }
+                bool next_is_twin = should_be_twin_portrait(g_eligible, lookahead_idx);
                 
                 if (lookahead_idx >= 0 && lookahead_idx < (int)g_eligible.size()) {
                     if (g_eligible[lookahead_idx].type == "image") {

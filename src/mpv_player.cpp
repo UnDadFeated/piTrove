@@ -146,13 +146,16 @@ bool MpvPlayer::play(const std::string& path, int volume) {
     }
 
     int matte_px = 96;
+    int osd_off_x = 0, osd_off_y = 0;
     {
         std::lock_guard<std::mutex> lock(g_config_mtx);
         matte_px = g_cfg.matting_size;
+        osd_off_x = g_cfg.osd_offset_x;
+        osd_off_y = g_cfg.osd_offset_y;
     }
-    std::string margin_x_arg = "--osd-margin-x=" + std::to_string(matte_px + 8);
-    std::string margin_y_arg = "--osd-margin-y=" + std::to_string(matte_px + 8);
-    std::string sub_margin_y_arg = "--sub-margin-y=" + std::to_string(matte_px + 8);
+    std::string margin_x_arg = "--osd-margin-x=" + std::to_string(matte_px + 8 + osd_off_x);
+    std::string margin_y_arg = "--osd-margin-y=" + std::to_string(matte_px + 8 + osd_off_y);
+    std::string sub_margin_y_arg = "--sub-margin-y=" + std::to_string(matte_px + 8 + osd_off_y);
 
     // Dynamically calculate thread pool size based on CPU cores (max_cores - 1)
     unsigned int max_cores = std::thread::hardware_concurrency();
