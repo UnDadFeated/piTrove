@@ -41,7 +41,7 @@ static std::mutex g_http_threads_mtx;
 static void spawn_tracked_thread(std::function<void()> func) {
     auto finished = std::make_shared<std::atomic<bool>>(false);
     std::thread t([func, finished]() {
-        func();
+        try { func(); } catch (...) {}
         finished->store(true);
     });
     
@@ -1027,13 +1027,13 @@ static void server_loop(int port) {
             continue;
         }
 
-        if (g_active_connections.load() >= 10) {
+        int prev = g_active_connections.fetch_add(1);
+        if (prev >= 10) {
+            g_active_connections.fetch_sub(1);
             send_response(client_fd, "HTTP/1.1 503 Service Unavailable", "text/plain", "Too Many Connections");
             close(client_fd);
             continue;
         }
-
-        g_active_connections.fetch_add(1);
         spawn_tracked_thread([client_fd]() {
             handle_client(client_fd);
             g_active_connections.fetch_sub(1);

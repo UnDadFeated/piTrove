@@ -24,14 +24,15 @@ static struct {
     uint32_t color;
     uint32_t elapsed_ms;
     bool active;
-} msg_buf = {nullptr, 0, 0, false};
+    std::chrono::steady_clock::time_point msg_start;
+} msg_buf = {nullptr, 0, 0, false, {}};
 
 static void flash_msg(const char* text, uint32_t color, int duration_ms) {
     msg_buf.text = text;
     msg_buf.color = color;
     msg_buf.elapsed_ms = 0;
     msg_buf.active = true;
-    // Update timer via monotonic clock in main loop
+    msg_buf.msg_start = std::chrono::steady_clock::now();
     (void)duration_ms;
 }
 
@@ -607,7 +608,7 @@ void config_wizard(const std::string& config_path) {
         // ── Update message timer ──
         if (msg_buf.active) {
             auto now = std::chrono::steady_clock::now();
-            msg_buf.elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(now - start_time).count();
+            msg_buf.elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(now - msg_buf.msg_start).count();
             if (msg_buf.elapsed_ms > 2000) {
                 msg_buf.active = false;
             }
@@ -684,7 +685,7 @@ void config_wizard(const std::string& config_path) {
 
                 // Category bar
                 printf("  ");
-                for(int i=0; i<9; i++) {
+                for(int i=0; i<(int)(sizeof(CATS)/sizeof(CATS[0])); i++) {
                     if(i==sel) printf("\033[7;33m %s \033[0m  ", CATS[i].n);
                     else printf("\033[1;37m%s\033[0m  ", CATS[i].n);
                 }

@@ -132,7 +132,7 @@ This file tracks the active bugs, resource safety concerns, and boundary checks 
 - [x] **Item 9 (Severity: Low)** — Clamp dynamic photo `cooldown_days` boundaries safely to prevent negative cooldown constraints.
 - [x] **Item 10 (Severity: Low)** — Clamp auto-brightness parameters (`brightness_auto_min` and `brightness_auto_max`) strictly within valid physical backlight percentages (0% to 100%).
 
-## Batch #6: Thread Safety & Resource Leak Audits (Active)
+## Batch #6: Thread Safety & Resource Leak Audits (Complete)
 
 - [x] **Bug #1 (Severity: High)** — `scanner.cpp:160-195` — fork() child leaks /proc/self/fd DIR handle to ffprobe process. The /proc/self/fd directory handle opened in the child process is never closed, leaking a file descriptor to the ffprobe process.
 - [x] **Bug #2 (Severity: High)** — `mqtt.cpp:109-204` — `start_mqtt_client()` spawns a detached thread that popen()s mosquitto_sub. Fixed: replaced `std::thread::detach()` with tracked `std::thread` + `stop_mqtt_client()` joinable shutdown. Added `g_mqtt_fp` mutex-protected FILE pointer for clean `pclose()` on exit.
@@ -179,6 +179,28 @@ This file tracks the active bugs, resource safety concerns, and boundary checks 
 - [x] **Task #3 (Severity: Low)** — `renderer.cpp:426`, `main.cpp:271/343/1783/1851` — Apply `g_renderer.scale_px()` to `glow_depth` so it scales from 86px@1080p. All `draw_bias_lighting` callers updated.
 - [x] **Task #4 (Severity: Low)** — `preload.cpp:304` — Apply `g_renderer.scale_px()` to `blur_radius` so it scales from 14@1080p.
 - [x] **Task #5 (Severity: Low)** — `main.cpp:197/271/343/1782/1848` — Apply `g_renderer.scale_px()` to `border_width` in all config snapshots.
+
+## Batch #21: TUI, Scanner, Thread Safety & Signal Safety (Complete)
+
+- [x] **Bug #1 (Severity: High)** — `tui.cpp:610` — Flash message timer uses absolute TUI start time (`now - start_time`) instead of message trigger time, causing all flash messages to disappear after 2 seconds from TUI start regardless of when they were triggered.
+
+- [x] **Bug #2 (Severity: High)** — `tui.cpp:687` — Category bar loop `for(int i=0; i<9; i++)` only renders 9 of 10 categories, making the MQTT category (CATS[9]) invisible and unreachable via TUI navigation.
+
+- [x] **Bug #3 (Severity: High)** — `main.cpp:1657,1664` — `g_eligible[next_idx].type` read after `playlist_lock.unlock()` creates a data race with the watchman thread which may move-replace `g_eligible` with a new vector at line 750, causing use-after-free on the vector's backing store.
+
+- [x] **Bug #4 (Severity: High)** — `main.cpp:1992` — `should_be_twin_portrait(g_eligible, ...)` called without `playlist_lock` may `std::swap` elements of `g_eligible` (line 173), causing a data race with other `g_eligible` readers during preload lookahead.
+
+- [x] **Bug #5 (Severity: High)** — `mpv_player.cpp:54-57` — `play()` calls blocking `waitpid(video_pid, &status, 0)` while holding `mtx` with no SIGKILL fallback timeout, causing permanent deadlock if the mpv child process ignores SIGTERM.
+
+- [x] **Bug #6 (Severity: Medium)** — `main.cpp:427-428` — ON_THIS_DAY branch in `filter_playlist` reads `g_cfg.show_people_faces` and `g_cfg.keep_animals` without `g_config_mtx`. The normal filter path at lines 484-485 correctly snapshots under lock.
+
+- [x] **Bug #7 (Severity: Medium)** — `http_server.cpp:1030-1036` — TOCTOU race in connection limit: `g_active_connections.load() >= 10` check and `fetch_add(1)` are not a single atomic operation, allowing unlimited concurrent connections.
+
+- [x] **Bug #8 (Severity: Medium)** — `http_server.cpp:41-60` — Uncaught exception in tracked thread lambda prevents `finished->store(true)`, leaking the thread handle permanently in `g_http_client_threads`.
+
+- [x] **Bug #9 (Severity: Medium)** — `image_loader.cpp:152-158` — Bottom edge sampling uses `d=-1..+1` but `ry=sh` for `d=+1` is filtered by `ry < sh` bounds check, yielding only 2 samples instead of the intended 3, producing asymmetric edge color estimates vs. the top edge.
+
+- [x] **Bug #10 (Severity: Medium)** — `config.cpp:191` — `g_logger.warn` called during `g_cfg.load()` before `g_logger.init()` at main.cpp:885; unrecognized config key warnings are lost or misrouted.
 
 ## Batch #12: Resolution Scaling & Dynamic Glow Settings (In Progress)
 

@@ -424,8 +424,12 @@ static std::vector<MediaItem> filter_playlist(const std::vector<MediaItem>& item
                     classify_media_item(item, has_people, has_animals, is_doc);
                     if (is_doc) continue;
                     
-                    bool filter_people = g_cfg.show_people_faces;
-                    bool filter_animals = g_cfg.keep_animals;
+                    bool filter_people, filter_animals;
+                    {
+                        std::lock_guard<std::mutex> lk(g_config_mtx);
+                        filter_people = g_cfg.show_people_faces;
+                        filter_animals = g_cfg.keep_animals;
+                    }
                     if (filter_people || filter_animals) {
                         bool keep = false;
                         if (filter_people && has_people) keep = true;
@@ -1652,16 +1656,17 @@ int main(int argc, char** argv) {
                     next_path = g_eligible[next_idx].path;
                 }
 
-                // Capture paths under lock, then unlock for I/O to prevent race on g_eligible
+                // Capture paths and type under lock, then unlock for I/O to prevent race on g_eligible
+                bool next_is_video = g_eligible[next_idx].type == "video";
                 playlist_lock.unlock();
-                if (g_preload && g_eligible[next_idx].type != "video") {
+                if (g_preload && !next_is_video) {
                     next_data = g_preload->try_dequeue(next_path);
                     if (is_twin) {
                         next_twin_data = g_preload->try_dequeue(next_path_twin);
                     }
                 }
                 // Fallback to synchronous load if preloader bypassed or missed (skip for video items)
-                if (g_eligible[next_idx].type != "video") {
+                if (!next_is_video) {
                     if (!next_data || !next_data->valid) {
                         next_data = ImageLoader::load(next_path);
                     }
@@ -1989,7 +1994,11 @@ int main(int argc, char** argv) {
             // Preload next items asynchronously while resting
             if (g_preload) {
                 int lookahead_idx = (current_idx + (current_twin_data ? 2 : 1)) % (int)g_eligible.size();
-                bool next_is_twin = should_be_twin_portrait(g_eligible, lookahead_idx);
+                bool next_is_twin = false;
+                {
+                    std::lock_guard<std::mutex> pl_lock(g_playlist_mtx);
+                    next_is_twin = should_be_twin_portrait(g_eligible, lookahead_idx);
+                }
                 
                 if (lookahead_idx >= 0 && lookahead_idx < (int)g_eligible.size()) {
                     if (g_eligible[lookahead_idx].type == "image") {
