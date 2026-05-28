@@ -228,6 +228,7 @@ void Logger::init(const std::string& path, LogLevel lvl, int keep_count) {
         }
     }
 
+    initialized = true;
     flush_thread = std::thread(&Logger::flush_loop, this);
 }
 
