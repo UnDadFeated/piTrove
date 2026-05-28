@@ -1502,9 +1502,13 @@ int main(int argc, char** argv) {
         // Robust Missing/Deleted File Skipping
         while (!g_eligible.empty()) {
             std::string path = g_eligible[current_idx].path;
-            if (file_exists(path)) {
-                break;
-            }
+            playlist_lock.unlock();
+            bool exists = file_exists(path);
+            playlist_lock.lock();
+            if (g_eligible.empty()) break;
+            if (current_idx >= (int)g_eligible.size()) current_idx = 0;
+            if (g_eligible[current_idx].path != path) continue;
+            if (exists) break;
             g_logger.warn("MISSING_FILE: Media file is missing/deleted from disk: %s", path.c_str());
             
             // Mark file path as bad in sqlite cache
