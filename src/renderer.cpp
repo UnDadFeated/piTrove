@@ -642,18 +642,20 @@ float Renderer::read_sys_f(const char* path, float divisor) {
     std::ifstream file(path);
     if (!file.is_open()) return 0.0f;
     std::string line;
+    float result = 0.0f;
     if (std::getline(file, line)) {
-        if (line.empty()) return 0.0f;
-        try {
-            size_t pos;
-            long long v = std::stoll(line, &pos);
-            if (pos == 0) return 0.0f;
-            return (float)v / divisor;
-        } catch (...) {
-            return 0.0f;
+        if (!line.empty()) {
+            try {
+                size_t pos;
+                long long v = std::stoll(line, &pos);
+                if (pos > 0) {
+                    result = (float)v / divisor;
+                }
+            } catch (...) {}
         }
     }
-    return 0.0f;
+    file.close();
+    return result;
 }
 
 std::string Renderer::folder_and_file(const std::string& path) {
@@ -868,7 +870,7 @@ void Renderer::draw_splash_progress_bar(int x, int y, int w, int h, float pct) {
 }
 
 void Renderer::render_splash(int phase, int progress, int total, int done, const char* label, int dot_counter, const char* filename, bool animated) {
-    // (void)label;
+    (void)label;
     if (filename) { current_cache_file = filename; }
     int sw = screen_w;
     int sh = screen_h;

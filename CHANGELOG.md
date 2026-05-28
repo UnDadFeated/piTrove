@@ -1,3 +1,12 @@
+## v11.5.0 — Compiler Warning Resolution, TUI Borders & Preload Matte Fix (May 28, 2026)
+
+### Added
+- **Exposed 3D Border in Terminal UI** — Exposed direct configuration switches for the 3D picture frame border (`3D Border` and `3D Border Width`) inside the Terminal configuration wizard Display tab. This allows users to completely toggle or adjust 3D miter borders independently of ambient glow effects.
+
+### Fixed
+- **Preloaded Matte Colors** — Resolved a visual bug where preloaded images defaulted to solid black matte borders instead of rendering color-matched backdrops. The background preloader now seamlessly copies precomputed average colors into active drawing pipelines.
+- **Subsystem Warnings and Stability** — Silenced remaining compile-time warnings, removed defunct prototypes, and locked startup configuration reads to harden application stability and concurrency.
+
 ## v11.4.7 — Graphics & System Cache Relocation (May 28, 2026)
 
 ### Added
