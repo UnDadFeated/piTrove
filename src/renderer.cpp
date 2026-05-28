@@ -868,7 +868,7 @@ void Renderer::draw_splash_progress_bar(int x, int y, int w, int h, float pct) {
 }
 
 void Renderer::render_splash(int phase, int progress, int total, int done, const char* label, int dot_counter, const char* filename, bool animated) {
-    (void)label;
+    // (void)label;
     if (filename) { current_cache_file = filename; }
     int sw = screen_w;
     int sh = screen_h;

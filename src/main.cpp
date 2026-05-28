@@ -27,7 +27,7 @@
 #include <thread>
 #include <mutex>
 #include <future>
-#include <functional>
+
 #include <filesystem>
 #include <fstream>
 #include <glob.h>
@@ -64,7 +64,8 @@ static std::string probe_connected_connector(std::string& out_card, int& out_car
                             
                             if (card_part.rfind("card", 0) == 0) {
                                 try {
-                                    int card_idx = std::stoi(card_part.substr(4));
+                                    int card_idx = 0;
+                            try { card_idx = std::stoi(card_part.substr(4)); } catch(...) {}
                                     out_card = "/dev/dri/" + card_part;
                                     out_card_index = card_idx;
                                     connected_connector = conn_part;
@@ -178,7 +179,6 @@ static bool should_be_twin_portrait(std::vector<MediaItem>& eligible, int idx) {
 
     return false;
 }
-
 
 // NOTE: Matting/border offset logic duplicates Renderer::calculate_fit_rect (renderer.cpp:251)
 // Keep in sync if adjusting matte or border inset calculations
@@ -611,7 +611,7 @@ static void organize_playlist(std::vector<MediaItem>& eligible, int videos_per_p
     }
 }
 
-static void mark_item_shown(const std::string& path, bool lock_playlist = true) {
+static void mark_item_shown(const std::string& path, bool lock_playlist) {
     int64_t now = static_cast<int64_t>(std::time(nullptr));
     g_cache->mark_shown(path);
     
@@ -634,7 +634,7 @@ static void mark_item_shown(const std::string& path, bool lock_playlist = true) 
     }
 }
 
-static void advance_playlist(int step = 1) {
+static void advance_playlist(int step) {
     if (g_eligible.empty()) return;
     
     if (step > 0) {
@@ -774,11 +774,6 @@ static void watchman_loop() {
     g_logger.info("Watchman: Background watchman thread exiting.");
 }
 
-static void draw_phase_splash(int phase, int progress, int total, int done, const char* label, int dot_counter, const char* filename = nullptr, bool animated = true) {
-    g_renderer.render_splash(phase, progress, total, done, label, dot_counter, filename, animated);
-}
-
-
 int main(int argc, char** argv) {
     signal(SIGPIPE, SIG_IGN);
     bool run_config = false;
@@ -849,8 +844,8 @@ int main(int argc, char** argv) {
     }
     
     // Write our PID into the lock file for future --restart usage
-    ftruncate(lock_fd, 0);
-    dprintf(lock_fd, "%d\n", getpid());
+    (void)ftruncate(lock_fd, 0);
+    (void)dprintf(lock_fd, "%d\n", getpid());
 
     signal(SIGSEGV, crash_handler);
     signal(SIGABRT, crash_handler);
@@ -1039,12 +1034,12 @@ int main(int argc, char** argv) {
     if (!do_scan) {
         // Cache loaded ? show item count briefly
         int cached_total = (int)g_scanned_items.size();
-        draw_phase_splash(2, cached_total, cached_total, cached_total, "CACHE", 0, nullptr, false);
+        g_renderer.render_splash(2, cached_total, cached_total, cached_total, "CACHE", 0, nullptr, false);
         SDL_Delay(800);
     } else {
         // Fresh scan ? show INIT splash
         for (int i = 0; i < 3; i++) {
-            draw_phase_splash(2, 0, 0, 0, "INIT", 0, nullptr, false);
+            g_renderer.render_splash(2, 0, 0, 0, "INIT", 0, nullptr, false);
             SDL_Delay(16);
         }
     }
@@ -1055,7 +1050,7 @@ int main(int argc, char** argv) {
     if (do_scan) {
         g_logger.info("Phase 1: Scanning media...");
         auto scan_start = std::chrono::steady_clock::now();
-        draw_phase_splash(2, 0, 0, 0, "SCANNING", 0, nullptr, false);
+        g_renderer.render_splash(2, 0, 0, 0, "SCANNING", 0, nullptr, false);
 
         std::atomic<int64_t> scan_count{0};
         std::atomic<bool> scan_done{false};
@@ -1076,7 +1071,7 @@ int main(int argc, char** argv) {
         // Main thread polls and renders splash safely on EGL context
         while (!scan_done.load()) {
             dot_counter++;
-            draw_phase_splash(2, (int)scan_count.load(), 0, 0, "SCANNING", dot_counter, nullptr, false);
+            g_renderer.render_splash(2, (int)scan_count.load(), 0, 0, "SCANNING", dot_counter, nullptr, false);
             SDL_Delay(33); // ~30 FPS throttling
         }
 
@@ -1144,14 +1139,14 @@ int main(int argc, char** argv) {
             auto render_now = std::chrono::steady_clock::now();
             if (std::chrono::duration<float>(render_now - last_render).count() >= 0.1f) {
                 dot_counter++;
-                draw_phase_splash(3, total_scanned, total_scanned, cached, "CACHING",
+                g_renderer.render_splash(3, total_scanned, total_scanned, cached, "CACHING",
                     dot_counter, get_display_path(mi.path).c_str(), false);
                 last_render = render_now;
             }
         }
         g_cache->commit_transaction();
         g_logger.info("Cache complete: %d items", cached);
-        draw_phase_splash(3, total_scanned, total_scanned, cached, "CACHING", dot_counter, nullptr, false);
+        g_renderer.render_splash(3, total_scanned, total_scanned, cached, "CACHING", dot_counter, nullptr, false);
         SDL_Delay(500);
         g_database_complete.store(true);
     }
@@ -1163,7 +1158,7 @@ int main(int argc, char** argv) {
 
     if (g_eligible.empty()) {
         g_logger.warn("No eligible items after dynamic filters");
-        draw_phase_splash(4, 0, 0, 0, "DONE", ++dot_counter, nullptr, false);
+        g_renderer.render_splash(4, 0, 0, 0, "DONE", ++dot_counter, nullptr, false);
         SDL_Delay(3000);
         g_renderer.cleanup_splash(); g_renderer.cleanup();
         delete g_cache;
@@ -1190,7 +1185,7 @@ int main(int argc, char** argv) {
     // Start HTTP Web Remote Dashboard if enabled
     {
         bool http_srv = false;
-        int http_prt = 8080;
+        int http_prt;
         {
             std::lock_guard<std::mutex> lock(g_config_mtx);
             http_srv = g_cfg.http_enabled && g_cfg.web_dashboard_enabled;
@@ -1959,8 +1954,8 @@ int main(int argc, char** argv) {
 
             // Preload next items asynchronously while resting
             if (g_preload) {
-                int lookahead_idx = (current_idx + (current_twin_data ? 2 : 1)) % (int)g_eligible.size();
-                bool next_is_twin = should_be_twin_portrait(g_eligible, lookahead_idx);
+                int lookahead_idx = g_eligible.empty() ? 0 : (current_idx + (current_twin_data ? 2 : 1)) % (int)g_eligible.size();
+                bool next_is_twin = g_eligible.empty() ? false : should_be_twin_portrait(g_eligible, lookahead_idx);
                 
                 if (lookahead_idx >= 0 && lookahead_idx < (int)g_eligible.size()) {
                     if (g_eligible[lookahead_idx].type == "image") {
@@ -1978,7 +1973,7 @@ int main(int argc, char** argv) {
             }
 
             {
-                double delay = 120.0;
+                double delay;
                 { std::lock_guard<std::mutex> lk(g_config_mtx); delay = g_cfg.transition_delay; }
                 if (item_timer >= delay) {
                     transitioning = true; transition_timer = 0.0;

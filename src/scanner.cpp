@@ -46,7 +46,7 @@ std::vector<std::string> read_dir(const std::string& path) {
 }
 
 std::vector<std::string> read_dir_timeout(const std::string& path, int timeout_ms) {
-    (void)timeout_ms;
+    // (void)timeout_ms;
     return read_dir(path);
 }
 
@@ -54,7 +54,7 @@ std::vector<std::string> read_dir_timeout(const std::string& path, int timeout_m
     // alarm() is process-global and races between threads.
     // Revert to plain stat() with a comment that CIFS should not block
     // indefinitely in practice.
-    (void)timeout_ms;
+    // (void)timeout_ms;
     return stat(path.c_str(), &st) == 0;
 }
 
@@ -141,7 +141,7 @@ std::string run_ffprobe(const std::vector<std::string>& args, int timeout_ms) {
     int pipefd[2];
     if (pipe2(pipefd, O_CLOEXEC) != 0) return "";
     pid_t pid = fork();
-    if (pid < 0) { close(pipefd[0]); close(pipefd[1]); return ""; }
+    if (pid < 0) { close(pipefd[0]); close(pipefd[1]); return ""; } // pipe fds closed on fork fail
     if (pid == 0) {
         dup2(pipefd[1], STDOUT_FILENO);
         int devnull = open("/dev/null", O_WRONLY);
@@ -462,7 +462,7 @@ void MediaScanner::process_entry(const std::string& path_str,
 void scan_directory(const std::string& dir, int depth,
                     std::vector<MediaItem>& items, std::atomic<int64_t>& count,
                     std::function<void(int)> progress) {
-    (void)count;
+    // (void)count;
     g_logger.info("TRACE: scan_directory dir='%s' depth=%d", dir.c_str(), depth);
     MediaScanner scanner;
     std::vector<std::string> exts = {".jpg", ".jpeg", ".png", ".webp", ".heic", ".heif", ".gif", ".bmp", ".tiff", ".mp4", ".mov", ".mkv", ".avi", ".webm"};

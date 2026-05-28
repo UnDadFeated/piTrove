@@ -184,7 +184,7 @@ void OverlayManager::get_adaptive_colors(const ImageData* img, int x, int y, Gpu
 
 void OverlayManager::draw_all(int current_idx, int total_items, const MediaItem* item, const MediaItem* twin_item, double item_timer, bool is_video, int active_fps, const ImageData* current_data, const ImageData* current_twin_data) {
     if (!font_loaded || !font_renderer || !overlay_font) return;
-    (void)current_twin_data; // used for twin texture rendering elsewhere
+    // (void)current_twin_data; // kept for API consistency
 
     int pad = 15;
     int sw = g_renderer.screen_w;
@@ -276,8 +276,6 @@ void OverlayManager::draw_all(int current_idx, int total_items, const MediaItem*
     };
 
     // Overall image ref for global elements
-    const ImageData* global_img = current_data;
-
     // 1. Date Overlay
     if (date_enabled) {
         char datebuf[64];
@@ -288,7 +286,7 @@ void OverlayManager::draw_all(int current_idx, int total_items, const MediaItem*
             int dx = pad + (int)((sw - pad * 2) * date_x);
             int dy = pad + (int)((sh - pad * 2) * date_y);
             FontHandle& font = font_renderer->load_font(overlay_font->path, date_size);
-            draw_contrast_text(dx, dy, font, datebuf, date_col, global_img);
+            draw_contrast_text(dx, dy, font, datebuf, date_col, current_data);
         }
     }
 
@@ -302,8 +300,8 @@ void OverlayManager::draw_all(int current_idx, int total_items, const MediaItem*
             // Stack both filenames vertically in lower-left
             int th = 0, tw = 0;
             font_renderer->measure(font, item->filename, tw, th);
-            draw_contrast_text(fx, fy - th - 4, font, item->filename, {255, 255, 255, 255}, global_img);
-            draw_contrast_text(fx, fy, font, twin_item->filename, {255, 255, 255, 255}, global_img);
+            draw_contrast_text(fx, fy - th - 4, font, item->filename, {255, 255, 255, 255}, current_data);
+            draw_contrast_text(fx, fy, font, twin_item->filename, {255, 255, 255, 255}, current_data);
         } else {
             draw_contrast_text(fx, fy, font, item->filename, {255, 255, 255, 255}, current_data);
         }
@@ -319,7 +317,7 @@ void OverlayManager::draw_all(int current_idx, int total_items, const MediaItem*
         int tw, th;
         font_renderer->measure(font, cntbuf, tw, th);
         cx -= tw / 2;
-        draw_contrast_text(cx, cy, font, cntbuf, {200, 200, 200, 220}, global_img);
+        draw_contrast_text(cx, cy, font, cntbuf, {200, 200, 200, 220}, current_data);
     }
 
     // 4. Timer Overlay
@@ -330,7 +328,7 @@ void OverlayManager::draw_all(int current_idx, int total_items, const MediaItem*
         int tx = pad + (int)((sw - pad * 2) * timer_x) + 25;
         int ty = pad + (int)((sh - pad * 2) * timer_y) - 10;
         FontHandle& font = font_renderer->load_font(overlay_font->path, timer_size);
-        draw_contrast_text(tx, ty, font, tbuf, timer_col, global_img);
+        draw_contrast_text(tx, ty, font, tbuf, timer_col, current_data);
     }
 
     // 5. Clock Overlay
@@ -346,7 +344,7 @@ void OverlayManager::draw_all(int current_idx, int total_items, const MediaItem*
             font_renderer->measure(font, clkbuf, clkw, clkh);
             int clkx = pad + (int)((sw - pad * 2) * clock_x) - clkw / 2;
             int clky = pad + (int)((sh - pad * 2) * clock_y);
-            draw_contrast_text(clkx, clky, font, clkbuf, clock_col, global_img);
+            draw_contrast_text(clkx, clky, font, clkbuf, clock_col, current_data);
         }
     }
 
