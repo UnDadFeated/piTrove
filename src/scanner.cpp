@@ -114,6 +114,7 @@ bool is_in_seasonal_window(const std::string& filename, int window_days) {
     time_t t = std::time(nullptr);
     tm tm_buf;
     tm* now = localtime_r(&t, &tm_buf);
+    if (!now) return true;
     int curr_m = now->tm_mon + 1;
     int curr_d = now->tm_mday;
 

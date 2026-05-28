@@ -682,7 +682,7 @@ static void watchman_loop() {
     time_t last_check_time = std::time(nullptr);
     struct tm tm_buf;
     struct tm* last_check_tm = localtime_r(&last_check_time, &tm_buf);
-    int last_yday = last_check_tm->tm_yday;
+    int last_yday = last_check_tm ? last_check_tm->tm_yday : 0;
     
     while (g_watchman_running.load()) {
         // Sleep for 10 seconds between checks (quick responsive exit checks)
@@ -1087,6 +1087,9 @@ int main(int argc, char** argv) {
                 g_renderer.cleanup_splash(); g_renderer.cleanup();
                 delete g_cache; return 1;
             }
+        }
+        if (g_cfg.reset_cooldown_on_restart) {
+            g_cache->reset_all_cooldowns();
         }
 
         auto get_display_path = [](const std::string& path) -> std::string {

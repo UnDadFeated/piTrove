@@ -1,5 +1,20 @@
 # Changelog
 
+## v11.4.1 — Concurrency, Stability & Cooldown Persistence (May 28, 2026)
+
+### Added
+- **Persistent Slide Cooldowns Across Restarts** — Hardened the media scanning pipeline to fully preserve the recently shown history cooldowns across application restarts by default, maintaining rich slideshow variety under all reload scenarios.
+
+### Fixed
+- **Slideshow Hanging during Debug Log Rotation** — Resolved a high-severity deadlock in the debug log subsystem that would freeze the slideshow during file rotations or after long running sessions.
+- **Asynchronous Message Queueing** — Refactored status publishing to process messages via a dedicated background task queue, completely eliminating detached background threads and preventing application termination hangs.
+- **Background Web Client Management** — Integrated safe tracking and automatic joining of web dashboard client threads during shutdown, ensuring clean, crash-free application exits.
+- **Interruptible Motion Sensor Simulation** — Hardened the remote dashboard's simulated motion trigger delay to exit immediately on system shutdown, avoiding background thread exit races.
+- **Safe Transition Skipping** — Implemented strict validation checks for in-flight image textures during rapid slide skips, preventing slideshow crash loops.
+- **Monospace Font Missing Safety** — Added safety fallbacks to the overlay dashboard renderer when custom monospace fonts are missing or unreadable on the host system, avoiding startup failures.
+- **Off-Frame Display Control** — Swapped display sleep commands to run synchronously off-frame, eliminating background thread races during screen power transitions.
+- **Safe Time Parsing Fallbacks** — Hardened the temporal seasonal window parser and media watchman monitor with robust validation checks against system clock translation failures, ensuring reliable scheduling.
+
 ## v11.4.0 — Codebase Hardening & Stability (May 28, 2026)
 
 ### Fixed

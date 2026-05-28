@@ -141,10 +141,8 @@ void set_display_power(bool power) {
     }
     // Also try vcgencmd as fallback in case we are on standard Raspbian without sysfs permission
     std::string cmd = "vcgencmd display_power " + std::string(power ? "1" : "0") + " >/dev/null 2>&1";
-    std::thread([cmd]() {
-        int res = ::system(cmd.c_str());
-        (void)res;
-    }).detach();
+    int res = ::system(cmd.c_str());
+    (void)res;
 }
 
 // System diagnostics and file path helpers
@@ -341,45 +339,40 @@ static std::string _slide_log_dir() {
 }
 
 void slide_debug(const char* fmt, ...) {
-    {
-        std::lock_guard<std::mutex> lk(__slide_debug_mtx);
-        if (!__slide_debug_of) {
-            auto now = std::chrono::system_clock::now();
-            auto ts = std::chrono::system_clock::to_time_t(now);
-            struct tm tmb;
-            char datestr[32];
-            strftime(datestr, sizeof(datestr), "%Y%m%d_%H%M%S", localtime_r(&ts, &tmb));
-            __slide_debug_fname = _slide_log_dir() + "/slide_debug_" + std::string(datestr) + ".log";
-            
-            // Create directories if needed
-            std::filesystem::create_directories(_slide_log_dir());
-            
-            __slide_debug_f = fopen(__slide_debug_fname.c_str(), "a");
-            if (__slide_debug_f) {
-                __slide_debug_of = true;
-            } else {
-                __slide_debug_of = false;
-            }
+    std::lock_guard<std::mutex> lk(__slide_debug_mtx);
+    if (!__slide_debug_of) {
+        auto now = std::chrono::system_clock::now();
+        auto ts = std::chrono::system_clock::to_time_t(now);
+        struct tm tmb;
+        char datestr[32];
+        localtime_r(&ts, &tmb);
+        strftime(datestr, sizeof(datestr), "%Y%m%d_%H%M%S", &tmb);
+        __slide_debug_fname = _slide_log_dir() + "/slide_debug_" + std::string(datestr) + ".log";
+        
+        // Create directories if needed
+        std::filesystem::create_directories(_slide_log_dir());
+        
+        __slide_debug_f = fopen(__slide_debug_fname.c_str(), "a");
+        if (__slide_debug_f) {
+            __slide_debug_of = true;
+        } else {
+            __slide_debug_of = false;
         }
     }
-    if (!__slide_debug_of.load()) return;
+    if (!__slide_debug_of) return;
 
     bool do_rotate = false;
-    {
-        std::lock_guard<std::mutex> lk(__slide_debug_mtx);
-        time_t now = time(nullptr);
-        struct stat szWcheck;
-        if (__slide_debug_f && fstat(fileno(__slide_debug_f), &szWcheck) == 0 && szWcheck.st_size > 5 * 1024 * 1024) {
-            do_rotate = true;
-        } else if (!__slide_debug_first && now - __slide_debug_last_rotate > 300) {
-            __slide_debug_last_rotate = now;
-            do_rotate = true;
-        }
-        if (__slide_debug_first) __slide_debug_first = false;
+    time_t now_time = time(nullptr);
+    struct stat szWcheck;
+    if (__slide_debug_f && fstat(fileno(__slide_debug_f), &szWcheck) == 0 && szWcheck.st_size > 5 * 1024 * 1024) {
+        do_rotate = true;
+    } else if (!__slide_debug_first && now_time - __slide_debug_last_rotate > 300) {
+        __slide_debug_last_rotate = now_time;
+        do_rotate = true;
     }
+    if (__slide_debug_first) __slide_debug_first = false;
 
     if (do_rotate) {
-        std::lock_guard<std::mutex> lk(__slide_debug_mtx);
         try {
             std::vector<std::string> files;
             std::string logdir = _slide_log_dir();
@@ -403,16 +396,13 @@ void slide_debug(const char* fmt, ...) {
         __slide_debug_of = false;
     }
 
-    {
-        std::lock_guard<std::mutex> lk(__slide_debug_mtx);
-        if (!__slide_debug_f) {
-            __slide_debug_f = fopen(__slide_debug_fname.empty() ? (_slide_log_dir() + "/slide_debug.log").c_str() : __slide_debug_fname.c_str(), "a");
-            if (__slide_debug_f) {
-                ftruncate(fileno(__slide_debug_f), 0);
-                __slide_debug_of = true;
-            }
-            else return;
+    if (!__slide_debug_f) {
+        __slide_debug_f = fopen(__slide_debug_fname.empty() ? (_slide_log_dir() + "/slide_debug.log").c_str() : __slide_debug_fname.c_str(), "a");
+        if (__slide_debug_f) {
+            ftruncate(fileno(__slide_debug_f), 0);
+            __slide_debug_of = true;
         }
+        else return;
     }
 
     va_list ap;
@@ -423,22 +413,19 @@ void slide_debug(const char* fmt, ...) {
     if (n < 0) return;
 
     char tb[64];
-    {
-        std::lock_guard<std::mutex> lk(__slide_debug_mtx);
-        static time_t cached_sec = -1;
-        static struct tm cached_tm;
-        static char cached_tb[64];
-        time_t tv = time(nullptr);
-        struct tm* tm = localtime_r(&tv, &cached_tm);
-        if (!tm) return;
-        if (tv != cached_sec) {
-            cached_sec = tv;
-            snprintf(cached_tb, sizeof(cached_tb), "%02d:%02d:%02d", tm->tm_hour, tm->tm_min, tm->tm_sec);
-        }
-        snprintf(tb, sizeof(tb), "%s", cached_tb);
-        fprintf(__slide_debug_f, "[%s] %s\n", tb, line);
-        fflush(__slide_debug_f);
+    static time_t cached_sec = -1;
+    static struct tm cached_tm;
+    static char cached_tb[64];
+    time_t tv = time(nullptr);
+    struct tm* tm = localtime_r(&tv, &cached_tm);
+    if (!tm) return;
+    if (tv != cached_sec) {
+        cached_sec = tv;
+        snprintf(cached_tb, sizeof(cached_tb), "%02d:%02d:%02d", tm->tm_hour, tm->tm_min, tm->tm_sec);
     }
+    snprintf(tb, sizeof(tb), "%s", cached_tb);
+    fprintf(__slide_debug_f, "[%s] %s\n", tb, line);
+    fflush(__slide_debug_f);
 }
 
 void slide_debug_close() {

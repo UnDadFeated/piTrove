@@ -9,9 +9,48 @@
 #include <cstdio>
 #include <iostream>
 
+#include <queue>
+#include <condition_variable>
+
 static std::thread g_mqtt_thread;
 static std::mutex g_mqtt_mtx;
 static FILE* g_mqtt_fp = nullptr;
+
+static std::queue<std::string> g_pub_queue;
+static std::mutex g_pub_mtx;
+static std::condition_variable g_pub_cv;
+static std::thread g_pub_worker_thread;
+static std::atomic<bool> g_pub_worker_running{false};
+
+static void pub_worker_loop() {
+    g_logger.info("MQTT Publisher worker thread started");
+    while (g_pub_worker_running.load()) {
+        std::string cmd;
+        {
+            std::unique_lock<std::mutex> lk(g_pub_mtx);
+            g_pub_cv.wait(lk, []() { return !g_pub_queue.empty() || !g_pub_worker_running.load(); });
+            if (!g_pub_worker_running.load() && g_pub_queue.empty()) {
+                break;
+            }
+            if (!g_pub_queue.empty()) {
+                cmd = std::move(g_pub_queue.front());
+                g_pub_queue.pop();
+            }
+        }
+        if (!cmd.empty()) {
+            int res = ::system(cmd.c_str());
+            (void)res;
+        }
+    }
+    g_logger.info("MQTT Publisher worker thread stopped");
+}
+
+static void ensure_pub_worker_running() {
+    bool expected = false;
+    if (g_pub_worker_running.compare_exchange_strong(expected, true)) {
+        g_pub_worker_thread = std::thread(pub_worker_loop);
+    }
+}
 
 void mqtt_publish(const std::string& topic, const std::string& payload, bool retain) {
     bool enabled;
@@ -47,10 +86,12 @@ void mqtt_publish(const std::string& topic, const std::string& payload, bool ret
     }
     cmd += " -t '" + topic + "' -m '" + escaped_payload + "'";
 
-    std::thread([cmd]() {
-        int res = ::system(cmd.c_str());
-        (void)res;
-    }).detach();
+    ensure_pub_worker_running();
+    {
+        std::lock_guard<std::mutex> lk(g_pub_mtx);
+        g_pub_queue.push(cmd);
+    }
+    g_pub_cv.notify_one();
 }
 
 void publish_ha_discovery() {
@@ -186,7 +227,7 @@ void start_mqtt_client() {
         publish_ha_discovery();
         
         // Publish current state
-        mqtt_publish(prefix + "/status/screen", g_screen_blanked ? "OFF" : "ON", true);
+        mqtt_publish(prefix + "/status/screen", g_screen_blanked.load() ? "OFF" : "ON", true);
 
         // Keep track of active motion timestamp initially
         g_last_motion_time.store(static_cast<int64_t>(std::time(nullptr)));
@@ -210,7 +251,7 @@ void start_mqtt_client() {
                     g_last_motion_time.store(static_cast<int64_t>(std::time(nullptr)));
                     if (g_screen_blanked.load()) {
                         g_logger.info("MQTT motion detected: waking up display");
-                        g_screen_blanked = false;
+                        g_screen_blanked.store(false);
                         set_display_power(true);
                         mqtt_publish(prefix + "/status/screen", "ON", true);
                     }
@@ -234,14 +275,14 @@ void start_mqtt_client() {
                 if (payload == "OFF" || payload == "0" || payload == "false") {
                     if (!g_screen_blanked.load()) {
                         g_logger.info("MQTT remote command: Screen OFF");
-                        g_screen_blanked = true;
+                        g_screen_blanked.store(true);
                         set_display_power(false);
                         mqtt_publish(prefix + "/status/screen", "OFF", true);
                     }
                 } else if (payload == "ON" || payload == "1" || payload == "true") {
                     if (g_screen_blanked.load()) {
                         g_logger.info("MQTT remote command: Screen ON");
-                        g_screen_blanked = false;
+                        g_screen_blanked.store(false);
                         set_display_power(true);
                         g_last_motion_time.store(static_cast<int64_t>(std::time(nullptr)));
                         mqtt_publish(prefix + "/status/screen", "ON", true);
@@ -262,7 +303,7 @@ void start_mqtt_client() {
         }
         
         g_logger.warn("MQTT subscriber pipe closed");
-    });
+     });
 }
 
 void stop_mqtt_client() {
@@ -279,5 +320,14 @@ void stop_mqtt_client() {
     }
     if (g_mqtt_thread.joinable()) {
         g_mqtt_thread.join();
+    }
+    
+    // Stop the publisher worker thread cleanly
+    if (g_pub_worker_running.load()) {
+        g_pub_worker_running.store(false);
+        g_pub_cv.notify_all();
+        if (g_pub_worker_thread.joinable()) {
+            g_pub_worker_thread.join();
+        }
     }
 }

@@ -39,6 +39,7 @@ void TransitionEngine::update(float delta_time) {
 
 void TransitionEngine::render(SDL_Texture* prev_tex, SDL_Texture* next_tex, int screen_w, int screen_h) {
     if (!renderer || !active) return;
+    if (!prev_tex || !next_tex) return;
     
     switch (config.effect) {
         case TransitionEffect::Fade:
