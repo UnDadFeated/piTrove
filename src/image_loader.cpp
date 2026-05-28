@@ -146,20 +146,21 @@ std::shared_ptr<ImageData> ImageLoader::load(const std::string& path) {
             result->edge_top_rgb[x * 3 + 2] = (uint8_t)(ab / ac);
         }
 
-        // Bottom edge
+        // Bottom edge (3 rows: sh-3, sh-2, sh-1)
         result->edge_bot_rgb.resize(sw * 3);
+        int bot_samples = sh < 3 ? sh : 3;
         for (int x = 0; x < sw; x++) {
-            int ar = 0, ag = 0, ab = 0, ac = 0;
-            for (int d = -1; d <= 1; d++) {
-                int ry = sh - 1 + d;
+            int ar = 0, ag = 0, ab = 0;
+            for (int d = 0; d < bot_samples; d++) {
+                int ry = sh - bot_samples + d;
                 if (ry >= 0 && ry < sh) {
                     const uint8_t* dp = px + x * bpp + ry * pitch;
-                    ar += dp[0]; ag += dp[1]; ab += dp[2]; ac++;
+                    ar += dp[0]; ag += dp[1]; ab += dp[2];
                 }
             }
-            result->edge_bot_rgb[x * 3 + 0] = (uint8_t)(ar / ac);
-            result->edge_bot_rgb[x * 3 + 1] = (uint8_t)(ag / ac);
-            result->edge_bot_rgb[x * 3 + 2] = (uint8_t)(ab / ac);
+            result->edge_bot_rgb[x * 3 + 0] = (uint8_t)(ar / bot_samples);
+            result->edge_bot_rgb[x * 3 + 1] = (uint8_t)(ag / bot_samples);
+            result->edge_bot_rgb[x * 3 + 2] = (uint8_t)(ab / bot_samples);
         }
 
         // Left edge: one RGB per row

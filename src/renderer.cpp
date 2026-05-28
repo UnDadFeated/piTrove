@@ -1000,7 +1000,7 @@ void Renderer::render_splash(int phase, int progress, int total, int done, const
         draw_splash_text("SYS_STAT : SCAN_ACTIVE" + dot_str, text_x, row_start_y, 16, {0, 200, 0, 240});
         
         char fnd_buf[64];
-        std::snprintf(fnd_buf, sizeof(fnd_buf), "FILES FND: %06d", progress);
+        std::snprintf(fnd_buf, sizeof(fnd_buf), "FILES FND: %d", progress);
         draw_splash_text(fnd_buf, text_x, (int)(row_start_y + row_space * 1.2f), 18, {0, 200, 0, 240});
 
         std::snprintf(fnd_buf, sizeof(fnd_buf), "I/O SPEED: %d nodes/s", speed);
@@ -1012,7 +1012,7 @@ void Renderer::render_splash(int phase, int progress, int total, int done, const
         draw_splash_text("SYS_STAT : SCAN_COMPLETE", text_x, row_start_y, 16, {0, 130, 0, 220});
         
         char fnd_buf[64];
-        std::snprintf(fnd_buf, sizeof(fnd_buf), "FILES FND: %06d", progress);
+        std::snprintf(fnd_buf, sizeof(fnd_buf), "FILES FND: %d", progress);
         draw_splash_text(fnd_buf, text_x, (int)(row_start_y + row_space * 1.2f), 18, {0, 130, 0, 220});
         draw_splash_text("I/O SPEED: 0 nodes/s", text_x, (int)(row_start_y + row_space * 2.5f), 14, {0, 130, 0, 220});
         draw_splash_text("LATENCY  : 0 ms", text_x, (int)(row_start_y + row_space * 3.5f), 14, {0, 130, 0, 220});
@@ -1092,7 +1092,7 @@ void Renderer::render_splash(int phase, int progress, int total, int done, const
         draw_splash_text("DB_STAT  : BULK_INSERT" + dot_str, text_x, bot_row_start_y, 16, theme_color);
         
         char cache_buf[64];
-        std::snprintf(cache_buf, sizeof(cache_buf), "CACHED   : %06d", done);
+        std::snprintf(cache_buf, sizeof(cache_buf), "CACHED   : %d", done);
         draw_splash_text(cache_buf, text_x, bot_row_start_y + (int)(bot_row_space * 1.2f), 18, theme_color);
 
         std::snprintf(cache_buf, sizeof(cache_buf), "I/O SPEED: %d ops/s", speed + (rand() % 35 + 10));

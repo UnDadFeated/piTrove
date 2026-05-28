@@ -54,7 +54,15 @@ bool MpvPlayer::play(const std::string& path, int volume) {
     if (video_pid > 0) {
         kill(video_pid, SIGTERM);
         int status;
-        waitpid(video_pid, &status, 0);
+        int64_t deadline = (int64_t)std::time(nullptr) + 5;
+        while (waitpid(video_pid, &status, WNOHANG) == 0) {
+            if (std::time(nullptr) >= deadline) {
+                kill(video_pid, SIGKILL);
+                waitpid(video_pid, &status, 0);
+                break;
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        }
         video_pid = -1;
     }
 

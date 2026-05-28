@@ -356,9 +356,13 @@ std::vector<MediaItem> MediaScanner::scan(const std::string& directory,
                     gather_dirs(p, d + 1);
                 } else {
                     subdirs.push_back(p);
+                    live_found_count.fetch_add(1, std::memory_order_relaxed);
+                    if (progress) progress(live_found_count.load());
                 }
             } else if (S_ISREG(st.st_mode)) {
                 root_files.push_back({p, st});
+                live_found_count.fetch_add(1, std::memory_order_relaxed);
+                if (progress) progress(live_found_count.load());
             }
         }
     };

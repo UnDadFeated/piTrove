@@ -1,3 +1,19 @@
+## v11.4.2 ? Scanner Progress & TUI Timers Fixes (May 28, 2026)
+
+### Fixed
+- **Scanner progress counter** ? Restored live file counting during initial scan so the splash screen shows "FILES FND: N" incrementing in real time instead of staying at 0.
+- **TUI flash message timer** ? Flash messages now expire based on the time they were triggered rather than the TUI start time, preventing messages from disappearing prematurely.
+- **TUI category bar** ? Fixed a hardcoded loop bound that rendered only 9 of 10 categories, making the MQTT category invisible and unreachable.
+- **Playlist lock race on item type** ? Captured g_eligible[next_idx].type under the playlist lock to prevent data races with the watchman thread that could cause use-after-free.
+- **Twin portrait race** ? Wrapped should_be_twin_portrait call under the playlist lock to prevent concurrent vector mutation.
+- **Mpv process hang** ? Added 5-second SIGKILL fallback timeout when waiting for mpv child process to terminate.
+- **On-this-day config snapshot** ? Added missing config mutex lock when reading show_people_faces and keep_animals in the ON_THIS_DAY filter path.
+- **HTTP connection limit race** ? Replaced TOCTOU check-then-act pattern with single atomic etch_add + rollback for connection limiting.
+- **HTTP thread exception safety** ? Added try-catch in tracked thread lambda so thread handles are always released on exception.
+- **Edge sampling asymmetry** ? Fixed bottom edge pixel sampling to use 3 rows (matching the top edge) instead of a broken d=-1..+1 loop that yielded only 2 samples.
+- **Config logger guard** ? Added is_initialized() check before calling g_logger.warn during config load to prevent early-initialization log loss.
+- **Splash counter format** ? Removed zero-padded %06d format from FILES FND and CACHED display strings.
+
 # Changelog
 
 ## v11.4.1 — Concurrency, Stability & Cooldown Persistence (May 28, 2026)

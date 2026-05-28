@@ -188,7 +188,8 @@ bool Config::load(const std::string& path) {
             }
         }
         else {
-            g_logger.warn("UNRECOGNIZED_KEY: [%s] '%s' in config.toml", section.c_str(), key.c_str());
+            if (g_logger.is_initialized())
+                g_logger.warn("UNRECOGNIZED_KEY: [%s] '%s' in config.toml", section.c_str(), key.c_str());
         }
     }
 
