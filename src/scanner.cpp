@@ -153,32 +153,24 @@ std::string run_ffprobe(const std::vector<std::string>& args, int timeout_ms) {
 
         // Close all other file descriptors to prevent leaks to child process
         {
-            char fd_path[64];
-            ssize_t n = readlink("/proc/self/fd", fd_path, sizeof(fd_path) - 1);
-            if (n > 0) {
-                fd_path[n] = '\0';
-                DIR* dir = opendir(fd_path);
-                if (dir) {
-                    std::vector<int> fds_to_close;
-                    struct dirent* de;
-                    while ((de = readdir(dir))) {
-                        if (de->d_name[0] == '.') continue;
-                        int fd = std::atoi(de->d_name);
-                        if (fd >= 3) {
-                            fds_to_close.push_back(fd);
-                        }
-                    }
-                    closedir(dir);
-                    for (int fd : fds_to_close) {
-                        close(fd);
-                    }
-                } else {
-                    for (int i = 3; i < 256; ++i) {
-                        close(i);
+            DIR* dir = opendir("/proc/self/fd");
+            if (dir) {
+                int dir_fd = dirfd(dir);
+                std::vector<int> fds_to_close;
+                struct dirent* de;
+                while ((de = readdir(dir))) {
+                    if (de->d_name[0] == '.') continue;
+                    int fd = std::atoi(de->d_name);
+                    if (fd >= 3 && fd != pipefd[0] && fd != pipefd[1] && fd != dir_fd) {
+                        fds_to_close.push_back(fd);
                     }
                 }
+                closedir(dir);
+                for (int fd : fds_to_close) {
+                    close(fd);
+                }
             } else {
-                for (int i = 3; i < 256; ++i) {
+                for (int i = 3; i < 1024; ++i) {
                     close(i);
                 }
             }
@@ -286,7 +278,9 @@ bool MediaScanner::is_month_in_window(const std::string& dirname, int window_day
         int val = 0;
         int digit_count = 0;
         while (i < dirname.size() && isdigit(dirname[i])) {
-            val = val * 10 + (dirname[i] - '0');
+            if (digit_count < 9) {
+                val = val * 10 + (dirname[i] - '0');
+            }
             digit_count++;
             i++;
         }
