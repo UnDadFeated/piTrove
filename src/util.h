@@ -46,6 +46,7 @@ struct Logger {
     std::vector<std::string> back_queue;
     std::thread flush_thread;
     std::atomic<bool> flush_running{true};
+    bool initialized{false};
 
     void flush_loop();
     void init(const std::string& path, LogLevel lvl, int keep_count = 5);
@@ -56,6 +57,7 @@ struct Logger {
     void warn(const char* fmt, ...);
     void error(const char* fmt, ...);
     void debug(const char* fmt, ...);
+    bool is_initialized() const { return initialized; }
 
     Logger() = default;
     ~Logger();
