@@ -23,7 +23,6 @@
 #include "media_item.h"
 
 // CIFS getdents64 directory read wrappers
-ssize_t get_dents64(int fd, char* buf, size_t bufsz);
 std::vector<std::string> read_dir(const std::string& path);
 std::vector<std::string> read_dir_timeout(const std::string& path, int timeout_ms = 15000);
 bool stat_timeout(const std::string& path, struct stat& st, int timeout_ms = 5000);
@@ -69,7 +68,7 @@ private:
 
 // Global scanner interface
 void scan_directory(const std::string& dir, int depth,
-                    std::vector<MediaItem>& items, std::atomic<int64_t>& count,
+                    std::vector<MediaItem>& items,
                     std::function<void(int)> progress = nullptr);
 
 // Triple-entropy/playlist helpers

@@ -223,3 +223,20 @@ This file tracks the active bugs, resource safety concerns, and boundary checks 
 - [x] **No cache-complete visual** — Added final "CACHED: N" frame + 500ms delay after cache build.
 - [x] **Metadata extraction reverted** — EXIF/ffprobe in caching loop too slow (6+ min); deferred to post-commit path.
 
+## Batch #23: Warnings, Dead Code & TUI Border Separation (Complete 2026-05-28)
+
+- [x] **Bug #1 (Severity: Low)** — `tui.cpp` — Dynamic flash message timer duration instead of hardcoded 2000 ms.
+- [x] **Bug #2 (Severity: Low)** — `tui.cpp` — Safely clamp `cache_mmap_size` in settings input to prevent overflow or out-of-bounds database sizes.
+- [x] **Bug #3 (Severity: Low)** — `scanner.h, scanner.cpp` — Cleaned up defunct `get_dents64` prototype and unused `count` parameter from `scan_directory`.
+- [x] **Bug #4 (Severity: Low)** — `scanner.cpp` — Uncommented `(void)timeout_ms` to fix compiler warnings.
+- [x] **Bug #5 (Severity: Low)** — `main.cpp` — Simplified `scan_directory` caller site signature.
+- [x] **Bug #6 (Severity: Medium)** — `main.cpp` — Thread-safe initialization reads of configuration values at startup under mutex.
+- [x] **Bug #7 (Severity: Low)** — `renderer.cpp` — Uncommented unused parameter casts to silence compiler warnings.
+- [x] **Bug #8 (Severity: Low)** — `renderer.cpp` — Properly close sysfs streams on failures to prevent file descriptor leaks.
+- [x] **Bug #9 (Severity: Low)** — `transition.cpp` — Removed unused `screen_w`/`screen_h` parameters from layout math.
+- [x] **Bug #10 (Severity: Low)** — `overlay.cpp` — Silenced unused parameter warning with clean casts.
+- [x] **Bug #11 (Severity: High)** — `preload.cpp` — Fixed background preloader color-matched matte bug where borders defaulted to solid black.
+- [x] **Bug #12 (Severity: Low)** — `image_loader.cpp` — Removed dead `#include <SDL3_image/SDL_image.h>`.
+- [x] **Bug #13 (Severity: Medium)** — `mqtt.cpp` — Secure `g_mqtt_fp` allocation to happen inside lock context post popen validation.
+- [x] **Task #14 (Severity: Medium)** — `tui.cpp, config.cpp` — Implemented separate user options for `3D Border` and `3D Border Width` in the TUI Display category.
+

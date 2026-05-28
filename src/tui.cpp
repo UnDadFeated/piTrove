@@ -25,7 +25,8 @@ static struct {
     uint32_t elapsed_ms;
     bool active;
     std::chrono::steady_clock::time_point msg_start;
-} msg_buf = {nullptr, 0, 0, false, {}};
+    int duration_ms;
+} msg_buf = {nullptr, 0, 0, false, {}, 2000};
 
 static void flash_msg(const char* text, uint32_t color, int duration_ms) {
     msg_buf.text = text;
@@ -33,7 +34,7 @@ static void flash_msg(const char* text, uint32_t color, int duration_ms) {
     msg_buf.elapsed_ms = 0;
     msg_buf.active = true;
     msg_buf.msg_start = std::chrono::steady_clock::now();
-    // (void)duration_ms;
+    msg_buf.duration_ms = duration_ms;
 }
 
 // ── Save original terminal settings once ──
@@ -266,7 +267,9 @@ void config_wizard(const std::string& config_path) {
         {"Rotation", INT, "Screen rotation in degrees (0, 90, 180, 270)"},
         {"Ken Burns Zoom", FLT, "Zoom intensity for Ken Burns effect (0.0 to 1.0)"},
         {"Auto Display Rotation", TGL, "Rotate images based on EXIF orientation"},
-        {"Brightness Auto", TGL, "Auto backlight dimming based on time of day"}
+        {"Brightness Auto", TGL, "Auto backlight dimming based on time of day"},
+        {"3D Border", TGL, "Enable 3D miter border around photos"},
+        {"3D Border Width", INT, "Thickness of the 3D border in pixels"}
     };
     static const CI CB[] = {
         {"Media Directory", STR, "Root folder containing photos and videos"},
@@ -367,7 +370,7 @@ void config_wizard(const std::string& config_path) {
 
     struct CAT { const char* n; const CI* i; int c; };
     static const CAT CATS[] = {
-        {"Display", CA, 4},
+        {"Display", CA, 6},
         {"System", CB, 8},
         {"Overlays", CC, 14},
         {"Videos", CD, 10},
@@ -386,6 +389,8 @@ void config_wizard(const std::string& config_path) {
             case 1: return std::to_string(g_cfg.ken_burns_zoom);
             case 2: return g_cfg.auto_display_rotation?"[ON]":"[OFF]";
             case 3: return g_cfg.brightness_auto?"[ON]":"[OFF]";
+            case 4: return g_cfg.border_enabled?"[ON]":"[OFF]";
+            case 5: return std::to_string(g_cfg.border_width);
         }
         if (c == 1) switch(i) {
             case 0: return g_cfg.media_dir; case 1: return g_cfg.cache_dir; case 2: return g_cfg.log_dir;
@@ -491,6 +496,8 @@ void config_wizard(const std::string& config_path) {
                 case 1:{ try { g_cfg.ken_burns_zoom=std::stof(v); } catch(...) {} break; }
                 case 2:g_cfg.auto_display_rotation=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
                 case 3:g_cfg.brightness_auto=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
+                case 4:g_cfg.border_enabled=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
+                case 5:{ try { int val = std::stoi(v); g_cfg.border_width=std::max(0, std::min(250, val)); } catch(...) {} break; }
             }
             else if(c==1) switch(i){
                 case 0:g_cfg.media_dir=v;break; case 1:g_cfg.cache_dir=v;break; case 2:g_cfg.log_dir=v;break;
@@ -586,7 +593,7 @@ void config_wizard(const std::string& config_path) {
             else if(c==8) switch(i){
                 case 0:{ if(v=="debug") g_cfg.verbose=true; else g_cfg.verbose=false; }break;
                 case 1:{ try { g_cfg.brightness_auto_min=std::stoi(v); } catch(...) {} break; }
-                case 2:{ try { g_cfg.cache_mmap_size=std::stoll(v); } catch(...) {} break; }
+                case 2:{ try { g_cfg.cache_mmap_size = std::max(0LL, std::min(268435456LL, std::stoll(v))); } catch(...) {} break; }
                 case 3:{ try { g_cfg.log_keep_count=std::max(1, std::min(100, std::stoi(v))); } catch(...) {} break; }
             }
             else if(c==9) switch(i){
@@ -629,7 +636,7 @@ void config_wizard(const std::string& config_path) {
         if (msg_buf.active) {
             auto now = std::chrono::steady_clock::now();
             msg_buf.elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(now - msg_buf.msg_start).count();
-            if (msg_buf.elapsed_ms > 2000) {
+            if (msg_buf.elapsed_ms > (uint32_t)msg_buf.duration_ms) {
                 msg_buf.active = false;
             }
         }

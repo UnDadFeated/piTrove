@@ -5,7 +5,6 @@
 #include "config.h"
 #include "renderer.h"
 #include "util.h"
-#include <SDL3_image/SDL_image.h>
 #include <stb_image.h>
 #include <algorithm>
 #include <stdexcept>

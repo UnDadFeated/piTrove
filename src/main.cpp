@@ -876,12 +876,20 @@ int main(int argc, char** argv) {
         g_logger.warn("No config file found, using defaults");
     }
 
-    std::string media_dir = g_cfg.media_dir;
-    std::string cache_dir = g_cfg.cache_dir.empty() ? (get_exe_dir() + "/cache") : g_cfg.cache_dir;
-    std::string log_dir = g_cfg.log_dir.empty() ? (get_exe_dir() + "/logs") : g_cfg.log_dir;
+    std::string media_dir;
+    std::string cache_dir;
+    std::string log_dir;
+    int keep_count = 5;
+    {
+        std::lock_guard<std::mutex> lock(g_config_mtx);
+        media_dir = g_cfg.media_dir;
+        cache_dir = g_cfg.cache_dir.empty() ? (get_exe_dir() + "/cache") : g_cfg.cache_dir;
+        log_dir = g_cfg.log_dir.empty() ? (get_exe_dir() + "/logs") : g_cfg.log_dir;
+        keep_count = g_cfg.log_keep_count;
+    }
     g_crash_cache_dir = cache_dir;
 
-    g_logger.init(log_dir, LogLevel::DEBUG, g_cfg.log_keep_count);
+    g_logger.init(log_dir, LogLevel::DEBUG, keep_count);
     g_logger.info("Media dir: %s, Cache dir: %s", media_dir.c_str(), cache_dir.c_str());
 
     // --- Dynamic DRM Probing and Environment Setup ---
@@ -1064,7 +1072,7 @@ int main(int argc, char** argv) {
         { std::lock_guard<std::mutex> lk(g_config_mtx); depth = g_cfg.scan_depth; }
 
         std::thread scan_thread([&]() {
-            scan_directory(media_dir, depth, g_scanned_items, scan_count, safe_progress_callback);
+            scan_directory(media_dir, depth, g_scanned_items, safe_progress_callback);
             scan_done.store(true);
         });
 

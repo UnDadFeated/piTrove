@@ -212,15 +212,14 @@ void start_mqtt_client() {
         g_logger.info("Starting MQTT Subscriber: %s", cmd.c_str());
         
         FILE* fp = popen(cmd.c_str(), "r");
+        if (!fp) {
+            g_logger.error("Failed to start MQTT subscriber popen");
+            return;
+        }
         
         {
             std::lock_guard<std::mutex> lk(g_mqtt_mtx);
             g_mqtt_fp = fp;
-        }
-        
-        if (!fp) {
-            g_logger.error("Failed to start MQTT subscriber popen");
-            return;
         }
 
         // Publish Home Assistant auto-discovery configs

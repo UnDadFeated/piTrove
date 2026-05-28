@@ -136,6 +136,11 @@ std::shared_ptr<ImageData> PreloadQueue::try_dequeue(const std::string& target_p
                         data->avg_g = item.avg_g;
                         data->avg_b = item.avg_b;
 
+                        // Copy precomputed matte color from worker thread
+                        data->matte_r = item.matte_r;
+                        data->matte_g = item.matte_g;
+                        data->matte_b = item.matte_b;
+
                         // Copy precomputed edge colors from worker thread
                         for (int e = 0; e < 4; e++) {
                             data->edge_r[e] = item.edge_r[e];
