@@ -74,14 +74,14 @@ static void crash_display_restore(void) {
     int fd = open("/sys/class/graphics/fb0/blank", O_WRONLY);
     if (fd >= 0) {
         const char* zero = "0";
-        write(fd, zero, 1);
+        (void)write(fd, zero, 1);
         close(fd);
     }
 }
 
 void crash_handler(int sig) {
     const char* msg = "\n[CRITICAL ERROR] piTrove intercepted a terminal fault / crash signal.\n";
-    write(STDERR_FILENO, msg, strlen(msg));
+    (void)write(STDERR_FILENO, msg, strlen(msg));
 
     // Fail-safe: Restore physical display power (uses only async-signal-safe syscalls)
     crash_display_restore();
@@ -89,7 +89,7 @@ void crash_handler(int sig) {
     // Signal-safe purge: construct paths into stack buffer, use unlink()
     if (!g_database_complete.load() && !g_crash_cache_dir.empty()) {
         const char* purge_msg = "[CRITICAL] Database incomplete — purging partial cache.\n";
-        write(STDERR_FILENO, purge_msg, strlen(purge_msg));
+        (void)write(STDERR_FILENO, purge_msg, strlen(purge_msg));
 
         char path[512];
         int n = snprintf(path, sizeof(path), "%s/cache.db", g_crash_cache_dir.c_str());
@@ -108,12 +108,12 @@ void crash_handler(int sig) {
 
 void terminate_handler() {
     const char* msg = "\n[CRITICAL ERROR] piTrove unhandled exception.\n";
-    write(STDERR_FILENO, msg, strlen(msg));
+    (void)write(STDERR_FILENO, msg, strlen(msg));
     
     // Fail-safe: Restore physical display power via async-signal-safe sysfs write
     int fd = open("/sys/class/graphics/fb0/blank", O_WRONLY);
     if (fd >= 0) {
-        write(fd, "0", 1);
+        (void)write(fd, "0", 1);
         close(fd);
     }
 
@@ -136,7 +136,7 @@ void set_display_power(bool power) {
     int fd = open("/sys/class/graphics/fb0/blank", O_WRONLY);
     if (fd >= 0) {
         const char* val = power ? "0" : "1"; // "0" is unblank, "1" is blank
-        write(fd, val, 1);
+        (void)write(fd, val, 1);
         close(fd);
     }
     // Also try vcgencmd as fallback in case we are on standard Raspbian without sysfs permission
@@ -185,11 +185,11 @@ void Logger::flush_loop() {
                 static std::once_flag warn_once;
                 std::call_once(warn_once, []() {
                     const char* m = "[WARN] Cannot open log file, logging to stdout only.\n";
-                    write(STDOUT_FILENO, m, strlen(m));
+                    (void)write(STDOUT_FILENO, m, strlen(m));
                 });
             }
             for (const auto& msg : back_queue) {
-                write(STDOUT_FILENO, msg.c_str(), msg.size());
+                (void)write(STDOUT_FILENO, msg.c_str(), msg.size());
                 if (f) fprintf(f, "%s", msg.c_str());
             }
             if (f) {
@@ -400,7 +400,7 @@ void slide_debug(const char* fmt, ...) {
     if (!__slide_debug_f) {
         __slide_debug_f = fopen(__slide_debug_fname.empty() ? (_slide_log_dir() + "/slide_debug.log").c_str() : __slide_debug_fname.c_str(), "a");
         if (__slide_debug_f) {
-            ftruncate(fileno(__slide_debug_f), 0);
+            (void)ftruncate(fileno(__slide_debug_f), 0);
             __slide_debug_of = true;
         }
         else return;

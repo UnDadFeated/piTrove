@@ -72,7 +72,7 @@ void TransitionEngine::reset() {
 }
 
 static SDL_Rect calculate_fit_rect(int img_w, int img_h, int screen_w, int screen_h) {
-    (void)screen_w; (void)screen_h;
+    // (void)screen_w; (void)screen_h; // unused params
     SDL_Rect rect;
     g_renderer.calculate_fit_rect(img_w, img_h, rect);
     return rect;
@@ -85,15 +85,13 @@ void TransitionEngine::render_fade(SDL_Texture* prev_tex, SDL_Texture* next_tex,
     float p = config.progress;
     
     float pw = 0.0f, ph = 0.0f;
-    SDL_GetTextureSize(prev_tex, &pw, &ph);
-    int prev_w = (int)pw;
-    int prev_h = (int)ph;
+    int prev_w = 0, prev_h = 0;
+    if (prev_tex) { SDL_GetTextureSize(prev_tex, &pw, &ph); prev_w = (int)pw; prev_h = (int)ph; }
     SDL_Rect prev_dst = calculate_fit_rect(prev_w, prev_h, screen_w, screen_h);
     
     float nw = 0.0f, nh = 0.0f;
-    SDL_GetTextureSize(next_tex, &nw, &nh);
-    int next_w = (int)nw;
-    int next_h = (int)nh;
+    int next_w = 0, next_h = 0;
+    if (next_tex) { SDL_GetTextureSize(next_tex, &nw, &nh); next_w = (int)nw; next_h = (int)nh; }
     SDL_Rect next_dst = calculate_fit_rect(next_w, next_h, screen_w, screen_h);
     
     // Draw previous texture fading out

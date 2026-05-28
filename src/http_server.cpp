@@ -665,8 +665,8 @@ static std::string get_api_status() {
     int idx = 0;
     int total = 0;
     std::string filename = "None";
-    std::string path = "";
-    std::string type = "image";
+    std::string path;
+    std::string type;
     bool shuffle = false;
     bool paused = false;
 
@@ -831,7 +831,7 @@ static void handle_preview(int fd) {
         << "Cache-Control: no-cache, no-store, must-revalidate\r\n"
         << "Connection: close\r\n\r\n";
     std::string headers = oss.str();
-    write(fd, headers.data(), headers.size());
+    (void)write(fd, headers.data(), headers.size());
 
     // Stream body in chunks
     char buffer[8192];
@@ -853,7 +853,7 @@ static void handle_client(int client_fd) {
     setsockopt(client_fd, SOL_SOCKET, SO_RCVTIMEO, &client_tv, sizeof(client_tv));
     setsockopt(client_fd, SOL_SOCKET, SO_SNDTIMEO, &client_tv, sizeof(client_tv));
 
-    char buffer[2048];
+    char buffer[8192];
     std::memset(buffer, 0, sizeof(buffer));
     ssize_t bytes_read = read(client_fd, buffer, sizeof(buffer) - 1);
     if (bytes_read > 0) {
@@ -936,7 +936,8 @@ static void handle_client(int client_fd) {
 static void server_loop(int port) {
     struct sockaddr_in server_addr;
     int current_port = port;
-    int max_attempts = 10;
+    int max_attempts;
+    { std::lock_guard<std::mutex> lk(g_config_mtx); max_attempts = g_cfg.http_bind_attempts; }
     { std::lock_guard<std::mutex> lk(g_config_mtx); max_attempts = g_cfg.http_bind_attempts; }
     bool bound = false;
 

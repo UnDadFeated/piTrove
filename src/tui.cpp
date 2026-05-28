@@ -33,7 +33,7 @@ static void flash_msg(const char* text, uint32_t color, int duration_ms) {
     msg_buf.elapsed_ms = 0;
     msg_buf.active = true;
     msg_buf.msg_start = std::chrono::steady_clock::now();
-    (void)duration_ms;
+    // (void)duration_ms;
 }
 
 // ── Save original terminal settings once ──
