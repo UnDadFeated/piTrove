@@ -160,7 +160,10 @@ void config_wizard(const std::string& config_path) {
         f << "video_audio_device = \"" << (g_cfg.video_audio_device.empty() ? "auto" : g_cfg.video_audio_device) << "\"\n";
         f << "subtitles_dir = \"" << g_cfg.video_subtitles_dir << "\"\n";
         f << "osd_offset_x = " << g_cfg.osd_offset_x << "\n";
-        f << "osd_offset_y = " << g_cfg.osd_offset_y << "\n\n";
+        f << "osd_offset_y = " << g_cfg.osd_offset_y << "\n";
+        f << "max_texture_dim = " << g_cfg.max_texture_dim << "\n";
+        f << "http_socket_timeout = " << g_cfg.http_socket_timeout << "\n";
+        f << "http_bind_attempts = " << g_cfg.http_bind_attempts << "\n\n";
         
         f << "[dashboard]\n";
         f << "weather_enabled = " << (g_cfg.weather_enabled ? "1" : "0") << "\n";
@@ -300,7 +303,10 @@ void config_wizard(const std::string& config_path) {
         {"Closed Captions", TGL, "Enable video closed captions/subtitles by default"},
         {"Subtitles Dir", STR, "Path to folder containing .srt files (matching video basename)"},
         {"OSD Offset X", INT, "Horizontal offset for mpv OSD overlay (pixels, negative=left)"},
-        {"OSD Offset Y", INT, "Vertical offset for mpv OSD overlay (pixels, negative=down)"}
+        {"OSD Offset Y", INT, "Vertical offset for mpv OSD overlay (pixels, negative=down)"},
+        {"Max Tex Dim", INT, "Max texture dimension in pixels (256-8192)"},
+        {"HTTP Timeout", INT, "HTTP client socket timeout in seconds (1-60)"},
+        {"HTTP Bind Atmpt", INT, "Max HTTP port binding attempts (1-100)"}
     };
     static const CI CE[] = {
         {"Transition Delay", FLT, "Seconds to display photo before transitioning"},
@@ -364,7 +370,7 @@ void config_wizard(const std::string& config_path) {
         {"Display", CA, 4},
         {"System", CB, 8},
         {"Overlays", CC, 14},
-        {"Videos", CD, 7},
+        {"Videos", CD, 10},
         {"Slideshow", CE, 16},
         {"Scanning", CG, 8},
         {"Weather", CH, 3},
@@ -414,6 +420,9 @@ void config_wizard(const std::string& config_path) {
             case 6: return g_cfg.video_subtitles_dir;
             case 7: return std::to_string(g_cfg.osd_offset_x);
             case 8: return std::to_string(g_cfg.osd_offset_y);
+            case 9: return std::to_string(g_cfg.max_texture_dim);
+            case 10: return std::to_string(g_cfg.http_socket_timeout);
+            case 11: return std::to_string(g_cfg.http_bind_attempts);
         }
         if (c == 4) switch(i) {
             case 0: return std::to_string(g_cfg.transition_delay);
@@ -512,6 +521,9 @@ void config_wizard(const std::string& config_path) {
                 case 6:g_cfg.video_subtitles_dir=v;break;
                 case 7:{ try { g_cfg.osd_offset_x=std::stoi(v); } catch(...) {} break; }
                 case 8:{ try { g_cfg.osd_offset_y=std::stoi(v); } catch(...) {} break; }
+                case 9:{ try { g_cfg.max_texture_dim=std::max(256, std::min(8192, std::stoi(v))); } catch(...) {} break; }
+                case 10:{ try { g_cfg.http_socket_timeout=std::max(1, std::min(60, std::stoi(v))); } catch(...) {} break; }
+                case 11:{ try { g_cfg.http_bind_attempts=std::max(1, std::min(100, std::stoi(v))); } catch(...) {} break; }
             }
             else if(c==4) switch(i){
                 case 0:{ try { g_cfg.transition_delay=std::stof(v); } catch(...) {} break; } case 1:{ try { g_cfg.transition_duration=std::stof(v); } catch(...) {} break; }
@@ -715,7 +727,7 @@ void config_wizard(const std::string& config_path) {
                     printf("\033[1;36m  piTrove Configuration Engine v%s\033[0m\n", VERSION);
                     printf("  \033[90m"); for(int i=0; i<tui_width-4; i++) printf("━"); printf("\033[0m\n\n");
                     printf("  ");
-                    for(int i=0; i<9; i++) {
+                    for(int i=0; i<10; i++) {
                         if(i==sel) printf("\033[7;33m %s \033[0m  ", CATS[i].n);
                         else printf("\033[1;37m%s\033[0m  ", CATS[i].n);
                     }

@@ -75,6 +75,9 @@ struct Config {
     std::string video_subtitles_dir{"/home/pi/piTrove/subtitles"};
     int     osd_offset_x{0};
     int     osd_offset_y{0};
+    int     max_texture_dim{1920};
+    int     http_socket_timeout{2};
+    int     http_bind_attempts{10};
 
     // [slideshow] advanced
     std::string sleep_time{""};

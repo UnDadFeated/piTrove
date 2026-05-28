@@ -2,6 +2,7 @@
 #define _GNU_SOURCE
 #endif
 #include "image_loader.h"
+#include "config.h"
 #include "renderer.h"
 #include "util.h"
 #include <SDL3_image/SDL_image.h>
@@ -198,9 +199,10 @@ void ImageLoader::load_texture(ImageData* data, SDL_Renderer* renderer) {
     g_logger.info("[TRACE] ImageLoader::load_texture data=%p surface=%p renderer=%p", (void*)data, data ? (void*)data->surface : nullptr, (void*)renderer);
     if (!data || !data->surface || !renderer || data->texture || data->width <= 0 || data->height <= 0) return;
 
-    const int MAX_DIM = 1920;
-    if (data->width > MAX_DIM || data->height > MAX_DIM) {
-        float scale = (float)MAX_DIM / (float)std::max(data->width, data->height);
+    int max_dim = 1920;
+    { std::lock_guard<std::mutex> lk(g_config_mtx); max_dim = g_cfg.max_texture_dim; }
+    if (data->width > max_dim || data->height > max_dim) {
+        float scale = (float)max_dim / (float)std::max(data->width, data->height);
         int nw = std::max(1, (int)(data->width * scale));
         int nh = std::max(1, (int)(data->height * scale));
 

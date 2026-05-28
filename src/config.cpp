@@ -71,6 +71,9 @@ bool Config::load(const std::string& path) {
         else if (key == "subtitles_dir")     this->video_subtitles_dir = val;
         else if (key == "osd_offset_x")      this->osd_offset_x = safe_stoi(val, this->osd_offset_x);
         else if (key == "osd_offset_y")      this->osd_offset_y = safe_stoi(val, this->osd_offset_y);
+        else if (key == "max_texture_dim")   this->max_texture_dim = std::max(256, std::min(8192, safe_stoi(val, this->max_texture_dim)));
+        else if (key == "http_socket_timeout") this->http_socket_timeout = std::max(1, std::min(60, safe_stoi(val, this->http_socket_timeout)));
+        else if (key == "http_bind_attempts")  this->http_bind_attempts = std::max(1, std::min(100, safe_stoi(val, this->http_bind_attempts)));
         else if (key == "sleep_time")        this->sleep_time = val;
 
         else if (key == "wake_time")         this->wake_time = val;
