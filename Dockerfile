@@ -110,6 +110,8 @@ EXPOSE 8080
 
 # Configure Direct-to-Framebuffer KMSDRM environment variables
 ENV HOME=/app
+ENV XDG_CACHE_HOME=/app/cache
+ENV MESA_SHADER_CACHE_DIR=/app/cache/mesa_shader_cache
 ENV SDL_VIDEO_DRIVER=kmsdrm
 
 # Execute digital slideshow

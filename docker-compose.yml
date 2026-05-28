@@ -13,6 +13,8 @@ services:
       - SDL_VIDEO_DRIVER=kmsdrm
       - SDL_VIDEO_KMSDRM_DEVICE=${SDL_VIDEO_KMSDRM_DEVICE:-/dev/dri/card1}
       - SDL_KMSDRM_DEVICE_INDEX=${SDL_KMSDRM_DEVICE_INDEX:-1}
+      - XDG_CACHE_HOME=/app/cache
+      - MESA_SHADER_CACHE_DIR=/app/cache/mesa_shader_cache
     volumes:
       - /dev:/dev
       - ./cache:/app/cache
