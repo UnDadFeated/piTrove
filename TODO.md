@@ -2,6 +2,20 @@
 
 This file tracks the active bugs, resource safety concerns, and boundary checks analyzed under the continuous quality improvement loop.
 
+## Batch #20: Concurrency, Thread Safety & Cooldown Persistence (Complete)
+
+- [x] **Bug #1 (Severity: High)** — `http_server.cpp` — Detached thread in `trigger_motion` handler runs `mqtt_publish` on exit, causing race and potential segfault.
+- [x] **Bug #2 (Severity: High)** — `mqtt.cpp` — Detached thread spawned on EVERY `mqtt_publish` call, creating thread exhaustion and exit races.
+- [x] **Bug #3 (Severity: Medium)** — `mqtt.cpp` — Non-atomic read/write of `g_screen_blanked` in HA state publishing and direct non-store assignments.
+- [x] **Bug #4 (Severity: Medium)** — `util.cpp` — Detached thread in `set_display_power` running `vcgencmd` on every call, causing exit races.
+- [x] **Bug #5 (Severity: High)** — `overlay.cpp` — Missing `font_loaded` or `overlay_font` null pointer safety checks in `OverlayManager::draw` causing crashes if no monospace font is found.
+- [x] **Bug #6 (Severity: High)** — `util.cpp` — Double locking deadlock on `__slide_debug_mtx` inside `slide_debug` on rotate check immediately hangs the slideshow.
+- [x] **Bug #7 (Severity: High)** — `transition.cpp` — Missing null checks for `prev_tex` and `next_tex` inside `TransitionEngine::render` causing crash loops on skips.
+- [x] **Bug #8 (Severity: High)** — `http_server.cpp` — Detached thread spawned per HTTP request in `server_loop` causes undefined behavior on exit.
+- [x] **Bug #9 (Severity: Medium)** — `scanner.cpp` — Missing null check on `now` returned by `localtime_r` in `is_in_seasonal_window`.
+- [x] **Bug #10 (Severity: Medium)** — `main.cpp` — Missing null check on `last_check_tm` returned by `localtime_r` in `watchman_loop`.
+- [x] **Feature Request (Severity: High)** — `main.cpp` — Ensure shown history cooldowns are persistent across app restarts even during directory scanning phases.
+
 ## Batch #19: Concurrency, Socket, Process & Memory Safety Hardening (Complete)
 
 - [x] **Bug #1 (Severity: High)** — `main.cpp` — Concurrency Data Race on `g_scanned_items` and `g_eligible` erases.

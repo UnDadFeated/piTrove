@@ -10,6 +10,7 @@
 #include <mutex>
 #include <atomic>
 #include <thread>
+#include <functional>
 #include <fstream>
 #include <cstring>
 #include <sys/socket.h>
@@ -29,6 +30,34 @@ static std::thread g_server_thread;
 static std::atomic<bool> g_server_running{false};
 static std::atomic<int> g_listen_fd{-1};
 static std::atomic<int> g_active_connections{0};
+
+struct TrackedThreadInfo {
+    std::thread thread;
+    std::shared_ptr<std::atomic<bool>> finished;
+};
+static std::vector<TrackedThreadInfo> g_http_client_threads;
+static std::mutex g_http_threads_mtx;
+
+static void spawn_tracked_thread(std::function<void()> func) {
+    auto finished = std::make_shared<std::atomic<bool>>(false);
+    std::thread t([func, finished]() {
+        func();
+        finished->store(true);
+    });
+    
+    std::lock_guard<std::mutex> lk(g_http_threads_mtx);
+    for (auto it = g_http_client_threads.begin(); it != g_http_client_threads.end(); ) {
+        if (it->finished->load()) {
+            if (it->thread.joinable()) {
+                it->thread.join();
+            }
+            it = g_http_client_threads.erase(it);
+        } else {
+            ++it;
+        }
+    }
+    g_http_client_threads.push_back({std::move(t), finished});
+}
 
 // Premium Glassmorphic Dashboard HTML
 static std::string get_dashboard_html() {
@@ -884,10 +913,14 @@ static void handle_client(int client_fd) {
             }
             mqtt_publish(sensor_topic, "ON", false);
             std::string topic_copy = sensor_topic;
-            std::thread([topic_copy]() {
-                std::this_thread::sleep_for(std::chrono::seconds(2));
-                mqtt_publish(topic_copy, "OFF", false);
-            }).detach();
+            spawn_tracked_thread([topic_copy]() {
+                for (int i = 0; i < 20 && g_server_running.load(); i++) {
+                    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+                }
+                if (g_server_running.load()) {
+                    mqtt_publish(topic_copy, "OFF", false);
+                }
+            });
             send_response(client_fd, "HTTP/1.1 200 OK", "application/json", "{\"status\":\"ok\"}");
         }
         else if (request.rfind("GET /api/preview", 0) == 0) {
@@ -1001,10 +1034,10 @@ static void server_loop(int port) {
         }
 
         g_active_connections.fetch_add(1);
-        std::thread([client_fd]() {
+        spawn_tracked_thread([client_fd]() {
             handle_client(client_fd);
             g_active_connections.fetch_sub(1);
-        }).detach();
+        });
     }
 
     int fd_to_close = g_listen_fd.exchange(-1);
@@ -1032,5 +1065,16 @@ void stop_http_server() {
     
     if (g_server_thread.joinable()) {
         g_server_thread.join();
+    }
+
+    // Join all tracked client and delay threads cleanly
+    {
+        std::lock_guard<std::mutex> lk(g_http_threads_mtx);
+        for (auto& info : g_http_client_threads) {
+            if (info.thread.joinable()) {
+                info.thread.join();
+            }
+        }
+        g_http_client_threads.clear();
     }
 }
