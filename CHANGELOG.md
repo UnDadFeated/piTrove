@@ -1,3 +1,13 @@
+## v11.4.7 — Graphics & System Cache Relocation (May 28, 2026)
+
+### Added
+- **Centralized System and GPU Caches** — Re-routed all container graphics shader caches (Mesa/GPU) and system caches to persist inside the dedicated cache directory (`/home/pi/piTrove/cache/`) rather than the host user's home directory.
+
+## v11.4.6 — System Hardening (May 28, 2026)
+
+### Fixed
+- **Subsystem Warnings and Type Safety** — Resolved minor compilation warnings, applied type-safety void casts, and cleaned up redundant default initializations to enhance stability.
+
 ## v11.4.5 — Config Extractions & Minor Fixes (May 28, 2026)
 
 ### Added
