@@ -1151,6 +1151,8 @@ int main(int argc, char** argv) {
         }
         g_cache->commit_transaction();
         g_logger.info("Cache complete: %d items", cached);
+        draw_phase_splash(3, total_scanned, total_scanned, cached, "CACHING", dot_counter, nullptr, false);
+        SDL_Delay(500);
         g_database_complete.store(true);
     }
 
