@@ -848,7 +848,7 @@ static void handle_preview(int fd) {
 static void handle_client(int client_fd) {
     // Set client socket timeout to prevent slowloris hangs
     struct timeval client_tv;
-    client_tv.tv_sec = 2;
+    { std::lock_guard<std::mutex> lk(g_config_mtx); client_tv.tv_sec = g_cfg.http_socket_timeout; }
     client_tv.tv_usec = 0;
     setsockopt(client_fd, SOL_SOCKET, SO_RCVTIMEO, &client_tv, sizeof(client_tv));
     setsockopt(client_fd, SOL_SOCKET, SO_SNDTIMEO, &client_tv, sizeof(client_tv));
@@ -937,6 +937,7 @@ static void server_loop(int port) {
     struct sockaddr_in server_addr;
     int current_port = port;
     int max_attempts = 10;
+    { std::lock_guard<std::mutex> lk(g_config_mtx); max_attempts = g_cfg.http_bind_attempts; }
     bool bound = false;
 
     for (int attempt = 0; attempt < max_attempts; attempt++) {

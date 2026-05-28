@@ -175,26 +175,24 @@ bool CacheManager::load_cached(MediaItem& mi) {
 void CacheManager::upsert(const MediaItem& mi, int bad) {
     if (!stmt_upsert) return;
 
-    // Cast to mutable reference to allow caching the camera EXIF check dynamically outside bulk transactions
-    MediaItem& mutable_mi = const_cast<MediaItem&>(mi);
-    if (mutable_mi.is_camera == -1 && !in_transaction && mutable_mi.type == "image" && bad == 0) {
-        mutable_mi.is_camera = ImageLoader::has_camera_exif(mutable_mi.path.c_str()) ? 1 : 0;
+    if (mi.is_camera == -1 && !in_transaction && mi.type == "image" && bad == 0) {
+        mi.is_camera = ImageLoader::has_camera_exif(mi.path.c_str()) ? 1 : 0;
     }
 
     std::lock_guard<std::mutex> lk(db_mutex);
-    sqlite3_bind_text(stmt_upsert, 1, mutable_mi.path.c_str(), -1, SQLITE_STATIC);
-    sqlite3_bind_text(stmt_upsert, 2, mutable_mi.type.c_str(), -1, SQLITE_STATIC);
-    sqlite3_bind_int64(stmt_upsert, 3, mutable_mi.width);
-    sqlite3_bind_int64(stmt_upsert, 4, mutable_mi.height);
-    sqlite3_bind_int(stmt_upsert, 5, mutable_mi.exif_rotation);
-    sqlite3_bind_double(stmt_upsert, 6, mutable_mi.duration);
+    sqlite3_bind_text(stmt_upsert, 1, mi.path.c_str(), -1, SQLITE_STATIC);
+    sqlite3_bind_text(stmt_upsert, 2, mi.type.c_str(), -1, SQLITE_STATIC);
+    sqlite3_bind_int64(stmt_upsert, 3, mi.width);
+    sqlite3_bind_int64(stmt_upsert, 4, mi.height);
+    sqlite3_bind_int(stmt_upsert, 5, mi.exif_rotation);
+    sqlite3_bind_double(stmt_upsert, 6, mi.duration);
     sqlite3_bind_int(stmt_upsert, 7, bad);
-    sqlite3_bind_int64(stmt_upsert, 8, mutable_mi.last_shown);
-    sqlite3_bind_int64(stmt_upsert, 9, mutable_mi.modified_time);
-    sqlite3_bind_int(stmt_upsert, 10, mutable_mi.is_camera);
+    sqlite3_bind_int64(stmt_upsert, 8, mi.last_shown);
+    sqlite3_bind_int64(stmt_upsert, 9, mi.modified_time);
+    sqlite3_bind_int(stmt_upsert, 10, mi.is_camera);
     int step_ret = sqlite3_step(stmt_upsert);
     if (step_ret != SQLITE_DONE) {
-        g_logger.error("Failed to execute upsert for: %s", mutable_mi.path.c_str());
+        g_logger.error("Failed to execute upsert for: %s", mi.path.c_str());
     }
     sqlite3_reset(stmt_upsert);
 }

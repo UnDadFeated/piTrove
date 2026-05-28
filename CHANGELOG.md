@@ -1,3 +1,13 @@
+## v11.4.5 — Config Extractions & Minor Fixes (May 28, 2026)
+
+### Added
+- **Configurable max texture dimension** — Added `max_texture_dim` config option (under `[video]`, default 1920) to control the maximum image dimension in pixels for texture scaling.
+- **Configurable HTTP timeout & bind attempts** — Added `http_socket_timeout` (default 2s) and `http_bind_attempts` (default 10) under `[video]` for HTTP server tuning.
+
+### Fixed
+- **TUI category bar missing MQTT** — Category bar loop was hardcoded to 9 items, hiding the 10th "MQTT" category tab.
+- **Undefined behavior in cache upsert** — Replaced `const_cast<MediaItem&>` with `mutable` keyword on `is_camera` field.
+
 ## v11.4.4 — Init Lock, CIFS Hang & Double-Lock Fixes (May 28, 2026)
 
 ### Added
