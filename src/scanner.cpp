@@ -334,26 +334,35 @@ std::vector<MediaItem> MediaScanner::scan(const std::string& directory,
     g_logger.info("TRACE: scan start dir='%s' exts=%d window=%d depth=%d ignore=%d", directory.c_str(), (int)exts.size(), window_days, max_depth, (int)ignore_folders.size());
     std::vector<std::string> subdirs;
     std::vector<std::pair<std::string, struct stat>> root_files;
-    std::vector<std::string> root_entries = read_dir_timeout(directory, 15000);
-    for (const auto& name : root_entries) {
-        bool ignored = false;
-        for (const auto& ign : ignore_folders) {
-            if (name == ign) { ignored = true; break; }
-        }
-        if (ignored) continue;
 
-        std::string p = directory + "/" + name;
-        struct stat st;
-        if (stat_timeout(p, st, 5000)) {
+    std::function<void(const std::string&, int)> gather_dirs;
+    gather_dirs = [&](const std::string& dir, int d) {
+        if (d > 2) return;
+        std::vector<std::string> entries = read_dir_timeout(dir, 15000);
+        for (const auto& name : entries) {
+            std::string p = dir + "/" + name;
+            struct stat st;
+            if (!stat_timeout(p, st, 5000)) continue;
             if (S_ISDIR(st.st_mode)) {
-                if (is_month_in_window(name, window_days)) {
+                if (name[0] == '.') continue;
+                bool ignored = false;
+                for (const auto& ign : ignore_folders) {
+                    if (name == ign) { ignored = true; break; }
+                }
+                if (ignored) continue;
+                if (!is_month_in_window(name, window_days)) continue;
+                
+                if (name == "Photos" || name == "Videos") {
+                    gather_dirs(p, d + 1);
+                } else {
                     subdirs.push_back(p);
                 }
             } else if (S_ISREG(st.st_mode)) {
                 root_files.push_back({p, st});
             }
         }
-    }
+    };
+    gather_dirs(directory, 0);
 
     auto worker = [&](int start_idx, int end_idx) {
         try {
@@ -382,7 +391,7 @@ std::vector<MediaItem> MediaScanner::scan(const std::string& directory,
                         }
                     }
                 };
-                rec(target_dir, 1);
+                rec(target_dir, 2);
             }
         } catch (...) {}
     };
