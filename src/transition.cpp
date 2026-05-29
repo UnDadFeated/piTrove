@@ -78,21 +78,13 @@ static SDL_Rect calc_transition_fit_rect(int img_w, int img_h) {
 }
 
 void TransitionEngine::render_fade(SDL_Texture* prev_tex, SDL_Texture* next_tex, int screen_w, int screen_h) {
-    (void)screen_w; (void)screen_h;
     if (!renderer) return;
     
     SDL_Renderer* sdl = renderer->sdl_renderer;
     float p = config.progress;
     
-    float pw = 0.0f, ph = 0.0f;
-    int prev_w = 0, prev_h = 0;
-    if (prev_tex) { SDL_GetTextureSize(prev_tex, &pw, &ph); prev_w = (int)pw; prev_h = (int)ph; }
-    SDL_Rect prev_dst = calc_transition_fit_rect(prev_w, prev_h);
-    
-    float nw = 0.0f, nh = 0.0f;
-    int next_w = 0, next_h = 0;
-    if (next_tex) { SDL_GetTextureSize(next_tex, &nw, &nh); next_w = (int)nw; next_h = (int)nh; }
-    SDL_Rect next_dst = calc_transition_fit_rect(next_w, next_h);
+    SDL_Rect prev_dst = {0, 0, screen_w, screen_h};
+    SDL_Rect next_dst = {0, 0, screen_w, screen_h};
     
     // Draw previous texture fading out
     SDL_SetTextureAlphaMod(prev_tex, (Uint8)(255.0f * (1.0f - p)));
@@ -113,17 +105,8 @@ void TransitionEngine::render_wipe(SDL_Texture* prev_tex, SDL_Texture* next_tex,
     SDL_Renderer* sdl = renderer->sdl_renderer;
     float p = config.progress;
     
-    float pw = 0.0f, ph = 0.0f;
-    SDL_GetTextureSize(prev_tex, &pw, &ph);
-    int prev_w = (int)pw;
-    int prev_h = (int)ph;
-    SDL_Rect prev_dst = calc_transition_fit_rect(prev_w, prev_h);
-    
-    float nw = 0.0f, nh = 0.0f;
-    SDL_GetTextureSize(next_tex, &nw, &nh);
-    int next_w = (int)nw;
-    int next_h = (int)nh;
-    SDL_Rect next_dst = calc_transition_fit_rect(next_w, next_h);
+    SDL_Rect prev_dst = {0, 0, screen_w, screen_h};
+    SDL_Rect next_dst = {0, 0, screen_w, screen_h};
     
     // Draw previous texture fully
     SDL_FRect prev_dst_f = {(float)prev_dst.x, (float)prev_dst.y, (float)prev_dst.w, (float)prev_dst.h};
@@ -162,15 +145,8 @@ void TransitionEngine::render_ken_burns(SDL_Texture* tex, int screen_w, int scre
     
     float scale = 1.0f + zoom * p;
     
-    float tw = 0.0f, th = 0.0f;
-    SDL_GetTextureSize(tex, &tw, &th);
-    int tex_w = (int)tw;
-    int tex_h = (int)th;
-    
-    SDL_Rect base_dst = calc_transition_fit_rect(tex_w, tex_h);
-    
-    int dst_w = (int)(base_dst.w * scale);
-    int dst_h = (int)(base_dst.h * scale);
+    int dst_w = (int)(screen_w * scale);
+    int dst_h = (int)(screen_h * scale);
     
     float pan_x = sinf(p * 3.14159f) * screen_w * 0.05f;
     float pan_y = cosf(p * 3.14159f) * screen_h * 0.03f;
@@ -189,16 +165,10 @@ void TransitionEngine::render_pixelate(SDL_Texture* prev_tex, SDL_Texture* next_
     SDL_Renderer* sdl = renderer->sdl_renderer;
     float p = config.progress;
 
-    float pw = 0.0f, ph = 0.0f;
-    SDL_GetTextureSize(prev_tex, &pw, &ph);
-    float nw = 0.0f, nh = 0.0f;
-    SDL_GetTextureSize(next_tex, &nw, &nh);
-    int next_w = (int)nw;
-    int next_h = (int)nh;
-    SDL_Rect next_dst = calc_transition_fit_rect(next_w, next_h);
+    SDL_Rect prev_dst = {0, 0, screen_w, screen_h};
+    SDL_Rect next_dst = {0, 0, screen_w, screen_h};
 
     // Render prev normally
-    SDL_Rect prev_dst = calc_transition_fit_rect((int)pw, (int)ph);
     SDL_FRect prev_dst_f = {(float)prev_dst.x, (float)prev_dst.y, (float)prev_dst.w, (float)prev_dst.h};
     SDL_RenderTexture(sdl, prev_tex, nullptr, &prev_dst_f);
 
@@ -232,16 +202,10 @@ void TransitionEngine::render_dissolve(SDL_Texture* prev_tex, SDL_Texture* next_
     SDL_Renderer* sdl = renderer->sdl_renderer;
     float p = config.progress;
 
-    float pw = 0.0f, ph = 0.0f;
-    SDL_GetTextureSize(prev_tex, &pw, &ph);
-    float nw = 0.0f, nh = 0.0f;
-    SDL_GetTextureSize(next_tex, &nw, &nh);
-    int next_w = (int)nw;
-    int next_h = (int)nh;
-    SDL_Rect next_dst = calc_transition_fit_rect(next_w, next_h);
+    SDL_Rect prev_dst = {0, 0, screen_w, screen_h};
+    SDL_Rect next_dst = {0, 0, screen_w, screen_h};
 
     // Render prev
-    SDL_Rect prev_dst = calc_transition_fit_rect((int)pw, (int)ph);
     SDL_FRect prev_dst_f = {(float)prev_dst.x, (float)prev_dst.y, (float)prev_dst.w, (float)prev_dst.h};
     SDL_RenderTexture(sdl, prev_tex, nullptr, &prev_dst_f);
 
