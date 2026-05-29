@@ -46,6 +46,8 @@ std::vector<std::string> read_dir(const std::string& path) {
 }
 
 std::vector<std::string> read_dir_timeout(const std::string& path, int timeout_ms) {
+    // Timeout parameter is currently unused because directory listing
+    // should not block indefinitely on a standard local/mounted FS.
     (void)timeout_ms;
     return read_dir(path);
 }
@@ -209,25 +211,28 @@ std::string run_ffprobe(const std::vector<std::string>& args, int timeout_ms) {
         kill(pid, SIGKILL);
     }
     close(pipefd[0]);
-    std::thread([pid]() {
-        waitpid(pid, nullptr, 0);
-    }).detach();
+    waitpid(pid, nullptr, 0);
     return out;
 }
 
 std::string ffprobe_field(const std::string& out, const std::string& key) {
-    std::string search = "\n" + key + "=";
-    auto pos = out.find(search);
-    if (pos == std::string::npos) {
-        search = key + "=";
-        pos = out.find(search);
+    std::string target = key + "=";
+    size_t pos = 0;
+    while (true) {
+        pos = out.find(target, pos);
+        if (pos == std::string::npos) return "";
+        // Must be at the start of a line (either pos == 0, or preceded by \n or \r)
+        if (pos == 0 || out[pos - 1] == '\n' || out[pos - 1] == '\r') {
+            size_t val_start = pos + target.size();
+            size_t val_end = out.find_first_of("\r\n", val_start);
+            if (val_end == std::string::npos) {
+                return out.substr(val_start);
+            } else {
+                return out.substr(val_start, val_end - val_start);
+            }
+        }
+        pos += target.size();
     }
-    if (pos == std::string::npos) return "";
-    pos += search.size();
-    auto end2 = out.find("\n", pos);
-    std::string val = (end2 == std::string::npos) ? out.substr(pos) : out.substr(pos, end2 - pos);
-    if (!val.empty() && val.back() == '\r') val.pop_back();
-    return val;
 }
 
 double probe_video_duration(const std::string& path, int timeout_ms) {

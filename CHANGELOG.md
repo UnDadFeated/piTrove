@@ -1,3 +1,15 @@
+## v11.5.2 — Hardening, Performance & Security Optimization (May 29, 2026)
+
+### Fixed
+- **Deadlock inside Adaptive Text Rendering** — Resolved a critical deadlock that could freeze the application when rendering overlays with adaptive, contrast-aware colors.
+- **Shell Injection Security Safeguards** — Fully secured all MQTT shell command invocations by strictly sanitizing and escaping broker paths, topics, payloads, usernames, and passwords.
+- **Ambient Lighting Dimming Bug** — Fixed an issue where average color calculations for the bottom edge strip were incorrectly scaled down by a wrong sample divisor, resolving a visual bug where bottom bias-lights and miter borders appeared artificially dimmed.
+- **HTTP Server Connection Pool Exhaustion** — Added robust read/write socket timeouts to prevent slow or hanging HTTP clients from starving the web dashboard's connection pool.
+- **Stuck Log Rotation** — Restructured debug logging rotation to ensure that after rolling over a size threshold, a new timestamped file is correctly opened, preventing the logger from getting permanently locked in fallback output files.
+- **Child Process Leakage** — Prevented thread and resource accumulation when video information probes timed out, guaranteeing immediate, synchronous cleanup of subprocesses.
+- **Configuration Boundary Safety** — Implemented strict clamping boundaries for video playback volume in the configuration file parser to match the safety limits enforced in the terminal wizard.
+- **Robust Playlist Navigation** — Simplified backwards playlist index tracking to prevent arithmetic overflow and ensure smooth, wrap-around navigation when returning to previous slides.
+
 ## v11.5.1 — System Hardening, TUI Bounds & Concurrency Gaps (May 29, 2026)
 
 ### Added

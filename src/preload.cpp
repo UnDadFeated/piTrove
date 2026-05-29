@@ -253,16 +253,24 @@ static void compute_edge_data(const RawImage& raw,
     edge_bot_rgb.resize(w * 3);
     for (int x = 0; x < w; x++) {
         int ar = 0, ag = 0, ab = 0;
+        int sample_count = 0;
         for (int d = -1; d <= 1; d++) {
             int ry = h - 1 + d;
             if (ry >= 0 && ry < h) {
                 const uint8_t* p = px + x * 4 + ry * stride;
                 ar += p[0]; ag += p[1]; ab += p[2];
+                sample_count++;
             }
         }
-        edge_bot_rgb[x * 3 + 0] = (uint8_t)(ar / ns);
-        edge_bot_rgb[x * 3 + 1] = (uint8_t)(ag / ns);
-        edge_bot_rgb[x * 3 + 2] = (uint8_t)(ab / ns);
+        if (sample_count > 0) {
+            edge_bot_rgb[x * 3 + 0] = (uint8_t)(ar / sample_count);
+            edge_bot_rgb[x * 3 + 1] = (uint8_t)(ag / sample_count);
+            edge_bot_rgb[x * 3 + 2] = (uint8_t)(ab / sample_count);
+        } else {
+            edge_bot_rgb[x * 3 + 0] = 0;
+            edge_bot_rgb[x * 3 + 1] = 0;
+            edge_bot_rgb[x * 3 + 2] = 0;
+        }
     }
 
     ns = w < 3 ? w : 3;

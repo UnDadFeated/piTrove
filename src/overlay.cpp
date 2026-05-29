@@ -99,12 +99,7 @@ void OverlayManager::draw_text_with_outline(int x, int y, FontHandle& font, cons
     font_renderer->draw_text(x, y, font, text, color.r, color.g, color.b, color.a);
 }
 
-void OverlayManager::get_adaptive_colors(const ImageData* img, int x, int y, GpuColor& text_col, GpuColor& shadow_col) {
-    bool adaptive = false;
-    {
-        std::lock_guard<std::mutex> lock(g_config_mtx);
-        adaptive = g_cfg.adaptive_text_enabled;
-    }
+void OverlayManager::get_adaptive_colors(const ImageData* img, int x, int y, GpuColor& text_col, GpuColor& shadow_col, bool adaptive) {
     if (!adaptive || !img || img->width <= 0 || img->height <= 0) {
         text_col = {255, 255, 255, 255};
         shadow_col = {0, 0, 0, 200};
@@ -219,6 +214,7 @@ void OverlayManager::draw_all(int current_idx, int total_items, const MediaItem*
 
     bool diagnostics_hud_enabled = false;
     bool on_this_day_enabled = false;
+    bool adaptive_text_enabled = false;
 
     {
         std::lock_guard<std::mutex> lock(g_config_mtx);
@@ -255,20 +251,15 @@ void OverlayManager::draw_all(int current_idx, int total_items, const MediaItem*
 
         diagnostics_hud_enabled = g_cfg.diagnostics_hud_enabled;
         on_this_day_enabled = g_cfg.on_this_day_enabled;
+        adaptive_text_enabled = g_cfg.adaptive_text_enabled;
     }
 
-    // Helper to render contrast-aware text with outline or shadow
     auto draw_contrast_text = [&](int x, int y, FontHandle& font, const std::string& text, GpuColor def_col, const ImageData* img) {
         GpuColor txt_c = def_col;
         GpuColor shd_c = {0, 0, 0, 200};
-        get_adaptive_colors(img, x, y, txt_c, shd_c);
+        get_adaptive_colors(img, x, y, txt_c, shd_c, adaptive_text_enabled);
         
-        bool adaptive = false;
-        {
-            std::lock_guard<std::mutex> lock(g_config_mtx);
-            adaptive = g_cfg.adaptive_text_enabled;
-        }
-        if (adaptive) {
+        if (adaptive_text_enabled) {
             draw_text_with_outline(x, y, font, text, txt_c, shd_c);
         } else {
             draw_text_with_shadow(x, y, font, text, def_col);

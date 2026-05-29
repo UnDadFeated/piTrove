@@ -335,7 +335,8 @@ static std::string __slide_debug_fname;
 
 static std::string _slide_log_dir() {
     if (!g_logger.log_dir.empty()) return g_logger.log_dir;
-    std::string h = getenv("HOME") ? getenv("HOME") : "/home/pi";
+    const char* home = getenv("HOME");
+    std::string h = home ? home : "/home/pi";
     return h + "/piTrove/logs";
 }
 
@@ -397,14 +398,26 @@ void slide_debug(const char* fmt, ...) {
         __slide_debug_of = false;
     }
 
-    if (!__slide_debug_f) {
-        __slide_debug_f = fopen(__slide_debug_fname.empty() ? (_slide_log_dir() + "/slide_debug.log").c_str() : __slide_debug_fname.c_str(), "a");
+    if (!__slide_debug_of) {
+        auto now = std::chrono::system_clock::now();
+        auto ts = std::chrono::system_clock::to_time_t(now);
+        struct tm tmb;
+        char datestr[32];
+        localtime_r(&ts, &tmb);
+        strftime(datestr, sizeof(datestr), "%Y%m%d_%H%M%S", &tmb);
+        __slide_debug_fname = _slide_log_dir() + "/slide_debug_" + std::string(datestr) + ".log";
+        
+        // Create directories if needed
+        std::filesystem::create_directories(_slide_log_dir());
+        
+        __slide_debug_f = fopen(__slide_debug_fname.c_str(), "a");
         if (__slide_debug_f) {
-            (void)ftruncate(fileno(__slide_debug_f), 0);
             __slide_debug_of = true;
+        } else {
+            __slide_debug_of = false;
         }
-        else return;
     }
+    if (!__slide_debug_of) return;
 
     va_list ap;
     va_start(ap, fmt);
