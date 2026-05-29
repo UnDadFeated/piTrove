@@ -1736,15 +1736,18 @@ int main(int argc, char** argv) {
                     g_logger.info("SLIDESHOW: Exiting Offline Recovery Mode. Connection to NAS restored.");
                 }
                 // Generate intermediate flat textures representing full screen layout states
+                bool just_started = false;
                 if (!transition_prev_target) {
                     transition_prev_target = render_state_to_texture(g_renderer.sdl_renderer, g_renderer.screen_w, g_renderer.screen_h, current_data, current_twin_data, item_timer);
+                    just_started = true;
                 }
                 if (!transition_next_target) {
                     transition_next_target = render_state_to_texture(g_renderer.sdl_renderer, g_renderer.screen_w, g_renderer.screen_h, next_data, next_twin_data, 0.0);
+                    just_started = true;
                 }
 
                 if (transition_prev_target && transition_next_target) {
-                    if (g_transition->get_progress() <= 0.0f) {
+                    if (just_started) {
                         last_frame_time = std::chrono::steady_clock::now();
                         dt = 0.0;
                         dt_scaled = 0.0;
