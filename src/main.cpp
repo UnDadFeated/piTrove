@@ -782,7 +782,13 @@ int main(int argc, char** argv) {
 
     for (int i = 1; i < argc; i++) {
         std::string arg = argv[i];
-        if (arg == "--config") {
+        if (arg == "--config-wizard") {
+            run_config = true;
+            if (i + 1 < argc && argv[i + 1][0] != '-') {
+                config_path = argv[i + 1];
+                i++;
+            }
+        } else if (arg == "--config") {
             if (i + 1 < argc && argv[i + 1][0] != '-') {
                 config_path = argv[i + 1];
                 i++;
