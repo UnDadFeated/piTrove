@@ -241,8 +241,16 @@ static SDL_Texture* render_state_to_texture(
     // Set render target to our texture
     SDL_SetRenderTarget(renderer, target);
 
-    // Clear target texture to black
-    SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
+    bool snap_matte_color = false;
+    {
+        std::lock_guard<std::mutex> lock(g_config_mtx);
+        snap_matte_color = g_cfg.color_matched_matte;
+    }
+    if (snap_matte_color && primary) {
+        SDL_SetRenderDrawColor(renderer, primary->matte_r, primary->matte_g, primary->matte_b, 255);
+    } else {
+        SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
+    }
     SDL_RenderClear(renderer);
 
     if (twin && twin->texture && primary && primary->texture) {
@@ -282,18 +290,18 @@ static SDL_Texture* render_state_to_texture(
             g_renderer.draw_blurred_background(primary->blur_texture, (Uint8)(255.0f * vignette_str));
         }
 
-        // 2. Draw matte borders if enabled (solid black base layer)
-        if (has_matting) {
+        // 2. Draw matte borders if enabled (solid black base layer) - ONLY if NOT color-matched or blurred!
+        if (has_matting && !snap_matte_color && !snap_blurred) {
             g_renderer.draw_matte_borders(rect_l);
             g_renderer.draw_matte_borders(rect_r);
         }
 
-        // 3. Color-matched matte for each portrait (tints black matte strips with photo color)
+        // 3. Color-matched matte for each portrait (opaque and edge-to-edge if enabled)
         if (snap_matte_color) {
             g_renderer.draw_color_matched_matte(rect_l,
-                primary->matte_r, primary->matte_g, primary->matte_b, matte_op);
+                primary->matte_r, primary->matte_g, primary->matte_b, 1.0f);
             g_renderer.draw_color_matched_matte(rect_r,
-                twin->matte_r, twin->matte_g, twin->matte_b, matte_op);
+                twin->matte_r, twin->matte_g, twin->matte_b, 1.0f);
         }
 
         // 4. Draw bias lighting if enabled
@@ -354,15 +362,15 @@ static SDL_Texture* render_state_to_texture(
             g_renderer.draw_blurred_background(primary->blur_texture, (Uint8)(255.0f * vignette_str));
         }
 
-       // 2. Draw matte borders if enabled (solid black base layer)
-        if (has_matting) {
+        // 2. Draw matte borders if enabled (solid black base layer) - ONLY if NOT color-matched or blurred!
+        if (has_matting && !snap_matte_color && !snap_blurred) {
             g_renderer.draw_matte_borders(rect);
         }
 
-        // 3. Color-matched matte if enabled (tints black matte strips with photo color)
+        // 3. Color-matched matte if enabled (opaque and edge-to-edge if enabled)
         if (snap_matte_color && primary) {
             g_renderer.draw_color_matched_matte(rect,
-                primary->matte_r, primary->matte_g, primary->matte_b, matte_op);
+                primary->matte_r, primary->matte_g, primary->matte_b, 1.0f);
         }
 
         // 4. Draw bias lighting if enabled
@@ -1892,13 +1900,6 @@ int main(int argc, char** argv) {
         } else {
             bool rendered = false;
             if (current_twin_data && current_twin_data->texture && current_data && current_data->texture) {
-                g_renderer.clear(0, 0, 0, 255);
-                SDL_Rect rect_l, rect_r;
-                int sw = g_renderer.screen_w;
-                int sh = g_renderer.screen_h;
-                calculate_fit_rect_in_area(current_data->width, current_data->height, 0, 0, sw / 2, sh, rect_l);
-                calculate_fit_rect_in_area(current_twin_data->width, current_twin_data->height, sw / 2, 0, sw - (sw / 2), sh, rect_r);
-
                 bool has_bias = false;
                 bool has_matting = false;
                 bool has_border = false;
@@ -1925,24 +1926,37 @@ int main(int argc, char** argv) {
                     vignette_str = g_cfg.vignette_strength;
                 }
 
+                if (snap_matte_color && current_data) {
+                    g_renderer.clear(current_data->matte_r, current_data->matte_g, current_data->matte_b, 255);
+                } else {
+                    g_renderer.clear(0, 0, 0, 255);
+                }
+
+                SDL_Rect rect_l, rect_r;
+                int sw = g_renderer.screen_w;
+                int sh = g_renderer.screen_h;
+                calculate_fit_rect_in_area(current_data->width, current_data->height, 0, 0, sw / 2, sh, rect_l);
+                calculate_fit_rect_in_area(current_twin_data->width, current_twin_data->height, sw / 2, 0, sw - (sw / 2), sh, rect_r);
+
                 // 1. Blurred background if enabled (primary photo's blur for fullscreen)
                 if (snap_blurred && current_data && current_data->blur_texture) {
                     g_renderer.draw_blurred_background(current_data->blur_texture, (Uint8)(255.0f * vignette_str));
                 }
 
-                // 2. Draw matte borders if enabled (solid black base layer)
-                if (has_matting) {
+                // 2. Draw matte borders if enabled (solid black base layer) - ONLY if NOT color-matched or blurred!
+                if (has_matting && !snap_matte_color && !snap_blurred) {
                     g_renderer.draw_matte_borders(rect_l);
                     g_renderer.draw_matte_borders(rect_r);
                 }
 
-                // 3. Color-matched matte for each portrait (tints black matte strips with photo color)
+                // 3. Color-matched matte for each portrait (opaque and edge-to-edge if enabled)
                 if (snap_matte_color) {
                     g_renderer.draw_color_matched_matte(rect_l,
-                        current_data->matte_r, current_data->matte_g, current_data->matte_b, matte_op);
+                        current_data->matte_r, current_data->matte_g, current_data->matte_b, 1.0f);
                     g_renderer.draw_color_matched_matte(rect_r,
-                        current_twin_data->matte_r, current_twin_data->matte_g, current_twin_data->matte_b, matte_op);
+                        current_twin_data->matte_r, current_twin_data->matte_g, current_twin_data->matte_b, 1.0f);
                 }
+
 
                 // 4. Draw bias lighting if enabled
                 if (has_bias) {
@@ -1969,7 +1983,6 @@ int main(int argc, char** argv) {
                 SDL_RenderTexture(g_renderer.sdl_renderer, current_twin_data->texture, nullptr, &dst_r);
                 rendered = true;
             } else if (current_tex) {
-                g_renderer.clear(0, 0, 0, 255);
                 // Snapshot config for render frame to avoid data race
                 bool snap_bias, snap_matting, snap_border;
                 int snap_bias_strength, snap_border_width, snap_glow_depth;
@@ -1993,20 +2006,26 @@ int main(int argc, char** argv) {
                     vignette_str = g_cfg.vignette_strength;
                 }
 
+                if (snap_matte_color && current_data) {
+                    g_renderer.clear(current_data->matte_r, current_data->matte_g, current_data->matte_b, 255);
+                } else {
+                    g_renderer.clear(0, 0, 0, 255);
+                }
+
                 // 1. Blurred background if enabled (behind everything)
                 if (snap_blurred && current_data && current_data->blur_texture) {
                     g_renderer.draw_blurred_background(current_data->blur_texture, (Uint8)(255.0f * vignette_str));
                 }
 
-                // 2. Draw matte borders if enabled (solid black base layer)
-                if (snap_matting) {
+                // 2. Draw matte borders if enabled (solid black base layer) - ONLY if NOT color-matched or blurred!
+                if (snap_matting && !snap_matte_color && !snap_blurred) {
                     g_renderer.draw_matte_borders(fit_rect);
                 }
 
-                // 3. Color-matched matte if enabled (tints black matte strips with photo color)
+                // 3. Color-matched matte if enabled (opaque and edge-to-edge if enabled)
                 if (snap_matte_color && current_data) {
                     g_renderer.draw_color_matched_matte(fit_rect,
-                        current_data->matte_r, current_data->matte_g, current_data->matte_b, matte_op);
+                        current_data->matte_r, current_data->matte_g, current_data->matte_b, 1.0f);
                 }
 
                 // 4. Draw bias lighting if enabled
