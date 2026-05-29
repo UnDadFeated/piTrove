@@ -1,3 +1,8 @@
+## v11.5.6 — Video Overlay Alignment (May 29, 2026)
+
+### Fixed
+- **Video Filename Alignment** — Dynamically positioned the video filename overlay on mpv playback to sit at the exact same vertical and horizontal coordinates as the image filename overlay in the bottom left, ensuring a perfectly aligned and seamless presentation across both media types.
+
 ## v11.5.5 — Watchdog and MQTT Pipeline Hardening (May 29, 2026)
 
 ### Added
