@@ -288,3 +288,5 @@ This file tracks the active bugs, resource safety concerns, and boundary checks 
 
 
 
+## 2026-05-29 Monitoring — v11.5.8
+- [ ] Container crash/restart at ~20:31 — only ran 1s, no new log file created. Check for SIGSEGV/SIGABRT or OOM.
