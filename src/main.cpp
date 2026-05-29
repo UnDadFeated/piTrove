@@ -1529,9 +1529,17 @@ int main(int argc, char** argv) {
 
         // Apply Skip Arrow commands
         if (cmd == 1 || cmd == 2) {
+            bool was_video = (g_eligible[current_idx].type == "video");
             if (g_mpv_player.is_active()) {
                 g_logger.info("Interrupted video playback via skip request: stopping mpv.");
                 g_mpv_player.stop();
+            }
+            if (was_video) {
+                current_data = nullptr;
+                current_twin_data = nullptr;
+                current_tex = nullptr;
+                g_renderer.clear(0, 0, 0, 255);
+                g_renderer.present();
             }
             if (g_transition) {
                 g_transition->reset();
@@ -1575,6 +1583,11 @@ int main(int argc, char** argv) {
                 // If the next item is also a video, tell check_status not to reclaim DRM master context
                 if (!g_mpv_player.check_status(!next_is_video)) {
                     g_logger.info("Video EOF detected: advancing playlist.");
+                    current_data = nullptr;
+                    current_twin_data = nullptr;
+                    current_tex = nullptr;
+                    g_renderer.clear(0, 0, 0, 255);
+                    g_renderer.present();
                     transitioning = true; transition_timer = 0.0;
                     advance_playlist(1);
                 }
@@ -1595,6 +1608,11 @@ int main(int argc, char** argv) {
                 if (!g_mpv_player.play(video_path, volume)) {
                     g_logger.error("Failed to play video, skipping to next.");
                     playlist_lock.lock(); // Re-lock
+                    current_data = nullptr;
+                    current_twin_data = nullptr;
+                    current_tex = nullptr;
+                    g_renderer.clear(0, 0, 0, 255);
+                    g_renderer.present();
                     transitioning = true; transition_timer = 0.0;
                     advance_playlist(1);
                     playlist_lock.unlock();
@@ -1718,6 +1736,11 @@ int main(int argc, char** argv) {
                 }
 
                 if (transition_prev_target && transition_next_target) {
+                    if (g_transition->get_progress() <= 0.0f) {
+                        last_frame_time = std::chrono::steady_clock::now();
+                        dt = 0.0;
+                        dt_scaled = 0.0;
+                    }
                     g_renderer.clear(0, 0, 0, 255);
                     g_transition->update(dt_scaled);
                     g_transition->render(transition_prev_target, transition_next_target, g_renderer.screen_w, g_renderer.screen_h);
