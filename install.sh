@@ -349,8 +349,7 @@ if [[ -d "/etc/NetworkManager/conf.d" ]]; then
 [connection]
 wifi.powersave = 2
 EOF
-    # Restart NetworkManager in background to prevent installer SSH disconnection dropouts
-    systemctl restart NetworkManager &>/dev/null &
+    # systemctl restart NetworkManager &>/dev/null &
     ok "Disabled NetworkManager Wi-Fi Power Saving persistently"
 else
     ok "NetworkManager not active, skipping power-saving overrides"
@@ -533,6 +532,8 @@ $SHARE_IP:$SHARE_PATH $SHARE_MOUNT $SHARE_PROTOCOL defaults,_netdev,timeo=10,ret
     # Clean old entries
     sed -i '/# piTrove /d' /etc/fstab
     sed -i '/# PiTrove /d' /etc/fstab
+    # Clean any existing mount entry to the same mount point to avoid duplicates
+    sed -i "\|[[:space:]]$SHARE_MOUNT[[:space:]]|d" /etc/fstab 2>/dev/null || true
     if [[ "$SHARE_PROTOCOL" == "cifs" ]]; then
         ESCAPED_PATH=$(echo "${SHARE_PATH#/}" | sed 's/[\/]/\\&/g')
         sed -i "/^\/\/${SHARE_IP}\/${ESCAPED_PATH}/d" /etc/fstab 2>/dev/null || true
@@ -733,6 +734,16 @@ ok "Fonts system configuration complete"
 info "Building piTrove Docker Container (compiling binary inside container)..."
 cd "$PRIMARY_HOME/piTrove"
 
+# Probe active DRM card
+PROBED_CARD=$(find /sys/class/drm/ -name "card*-*" -exec grep -q "^connected$" {}/status \; -print -quit | sed -E 's|.*/(card[0-9]+)-.*|\1|')
+if [ -z "$PROBED_CARD" ]; then
+    PROBED_CARD=$(find /sys/class/drm/ -name "card[0-9]" -print -quit | sed -E 's|.*/(card[0-9]+)|\1|')
+fi
+if [ -z "$PROBED_CARD" ]; then
+    PROBED_CARD="card1"
+fi
+PROBED_INDEX=${PROBED_CARD#card}
+
 # Write local .env file first for docker-compose to use during build/run
 echo "SDL_VIDEO_KMSDRM_DEVICE=/dev/dri/$PROBED_CARD" > .env
 echo "SDL_KMSDRM_DEVICE_INDEX=$PROBED_INDEX" >> .env
@@ -909,17 +920,6 @@ chown -R $PRIMARY_USER:$PRIMARY_USER "$PRIMARY_HOME/piTrove"
 
 # ── systemd Service Deployment ─────────────────────────────────────────────────
 info "Installing daemon background service..."
-
-# Probe active DRM card
-PROBED_CARD=$(find /sys/class/drm/ -name "card*-*" -exec grep -q "^connected$" {}/status \; -print -quit | sed -E 's|.*/(card[0-9]+)-.*|\1|')
-if [ -z "$PROBED_CARD" ]; then
-    PROBED_CARD=$(find /sys/class/drm/ -name "card[0-9]" -print -quit | sed -E 's|.*/(card[0-9]+)|\1|')
-fi
-if [ -z "$PROBED_CARD" ]; then
-    PROBED_CARD="card1"
-fi
-PROBED_INDEX=${PROBED_CARD#card}
-
 info "Systemd: Using probed DRM GPU device /dev/dri/$PROBED_CARD (index $PROBED_INDEX)"
 
 # Sourcing correct KMSDRM parameters for stable SDL video playback
@@ -980,7 +980,7 @@ show_help() {
 
 case "$1" in
     config)
-        docker exec -it piTrove /app/piTrove --config /app/config/config.toml
+        docker exec -it piTrove /app/piTrove --config-wizard /app/config/config.toml
         ;;
     restart)
         echo -e "${YELLOW}[▸] Restarting piTrove service...${NC}"
