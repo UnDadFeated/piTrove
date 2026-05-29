@@ -1,3 +1,8 @@
+## v11.6.1 — Transition Freeze & Loop Lock Fix (May 29, 2026)
+
+### Fixed
+- **Slideshow Transition Freeze** — Fixed a regression introduced by the image-load lag time reset, which checked the active transition progress and inadvertently locked it in an infinite loop at exactly 0.0f. Transition start is now detected using a one-shot target texture creation check, allowing the elapsed time delta to safely advance slideshow transitions.
+
 ## v11.6.0 — Full-Screen Transition Scaling Fix (May 29, 2026)
 
 ### Fixed
