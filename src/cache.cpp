@@ -49,14 +49,13 @@ bool CacheManager::open(const std::string& dir) {
                     if (db) { sqlite3_close(db); db = nullptr; }
                     return false;
                 }
+                sqlite3_busy_timeout(db, 5000);
             }
         }
         if (stmt) {
             sqlite3_finalize(stmt);
         }
     }
-
-    sqlite3_busy_timeout(db, 5000);
 
     char* err = nullptr;
     if (sqlite3_exec(db, "PRAGMA journal_mode=WAL;", nullptr, nullptr, &err) != SQLITE_OK) {
@@ -68,12 +67,14 @@ bool CacheManager::open(const std::string& dir) {
         if (err) sqlite3_free(err);
     }
     char mmap_sql[64];
+    long long mmap_val = 0;
     {
         std::lock_guard<std::mutex> lk(g_config_mtx);
-        snprintf(mmap_sql, sizeof(mmap_sql), "PRAGMA mmap_size=%lld", (long long)g_cfg.cache_mmap_size);
+        mmap_val = (long long)g_cfg.cache_mmap_size;
     }
+    snprintf(mmap_sql, sizeof(mmap_sql), "PRAGMA mmap_size=%lld", mmap_val);
     if (sqlite3_exec(db, mmap_sql, nullptr, nullptr, &err) != SQLITE_OK) {
-        g_logger.warn("Failed to set mmap_size=%lld: %s", g_cfg.cache_mmap_size, err ? err : "unknown");
+        g_logger.warn("Failed to set mmap_size=%lld: %s", mmap_val, err ? err : "unknown");
         if (err) sqlite3_free(err);
     }
 

@@ -1028,6 +1028,20 @@ static void server_loop(int port) {
             continue;
         }
 
+        // Set a socket read/write timeout to prevent slow/hanging clients from starving the connection pool
+        struct timeval timeout;
+        {
+            std::lock_guard<std::mutex> lk(g_config_mtx);
+            timeout.tv_sec = g_cfg.http_socket_timeout;
+        }
+        timeout.tv_usec = 0;
+        if (setsockopt(client_fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout)) < 0) {
+            g_logger.warn("HTTP: Failed to set SO_RCVTIMEO on client socket.");
+        }
+        if (setsockopt(client_fd, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout)) < 0) {
+            g_logger.warn("HTTP: Failed to set SO_SNDTIMEO on client socket.");
+        }
+
         int prev = g_active_connections.fetch_add(1);
         if (prev >= 10) {
             g_active_connections.fetch_sub(1);

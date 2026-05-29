@@ -63,16 +63,12 @@ static std::string probe_connected_connector(std::string& out_card, int& out_car
                             std::string conn_part = dir_name.substr(dash + 1); // "HDMI-A-1"
                             
                             if (card_part.rfind("card", 0) == 0) {
-                                try {
-                                    int card_idx = 0;
-                            try { card_idx = std::stoi(card_part.substr(4)); } catch(...) {}
-                                    out_card = "/dev/dri/" + card_part;
-                                    out_card_index = card_idx;
-                                    connected_connector = conn_part;
-                                    break;
-                                } catch (...) {
-                                    // ignore and continue
-                                }
+                                int card_idx = 0;
+                                try { card_idx = std::stoi(card_part.substr(4)); } catch(...) {}
+                                out_card = "/dev/dri/" + card_part;
+                                out_card_index = card_idx;
+                                connected_connector = conn_part;
+                                break;
                             }
                         }
                     }
@@ -551,6 +547,8 @@ static void organize_playlist(std::vector<MediaItem>& eligible, int videos_per_p
         }
     } else {
         std::vector<MediaItem> photos, videos;
+        double photos_per_video = 10.0 / static_cast<double>(videos_per_photos);
+
         for (auto& item : eligible) {
             if (item.type == "video") videos.push_back(std::move(item));
             else photos.push_back(std::move(item));
@@ -583,7 +581,6 @@ static void organize_playlist(std::vector<MediaItem>& eligible, int videos_per_p
         } else {
             // Distribute videos mathematically and evenly across photos based on the configured user ratio
             size_t p_idx = 0, v_idx = 0;
-            double photos_per_video = 10.0 / static_cast<double>(videos_per_photos);
             double accumulator = 0.0;
 
             while (p_idx < photos.size() || v_idx < videos.size()) {
@@ -605,7 +602,6 @@ static void organize_playlist(std::vector<MediaItem>& eligible, int videos_per_p
             }
         }
 
-        double photos_per_video = 10.0 / static_cast<double>(videos_per_photos);
         g_logger.info("Playlist organized: %zu photos + %zu videos = %zu total (configured ratio: %d videos per 10 photos, spacing: %.2f photos per video)",
             final_photos_size, final_videos_size, eligible.size(), videos_per_photos, photos_per_video);
     }
@@ -675,7 +671,11 @@ static void advance_playlist(int step) {
             current_idx = next_idx;
         }
     } else {
-        current_idx = (current_idx + step + (int)g_eligible.size() * std::abs(step)) % (int)g_eligible.size();
+        int n = (int)g_eligible.size();
+        current_idx = (current_idx + step) % n;
+        if (current_idx < 0) {
+            current_idx += n;
+        }
     }
 }
 
@@ -1160,9 +1160,16 @@ int main(int argc, char** argv) {
     }
 
     // --- Dynamic Seasonal & Cooldown filter ---
-    g_eligible = filter_playlist(g_scanned_items, g_cfg.cooldown_days, g_cfg.scan_window_days);
+    int cooldown_days = 330;
+    int window_days = 5;
+    {
+        std::lock_guard<std::mutex> lock(g_config_mtx);
+        cooldown_days = g_cfg.cooldown_days;
+        window_days = g_cfg.scan_window_days;
+    }
+    g_eligible = filter_playlist(g_scanned_items, cooldown_days, window_days);
     g_logger.info("Initial Dynamic Playlist Setup: %d items eligible (cooldown=%d days, seasonal window=%d days)",
-        (int)g_eligible.size(), g_cfg.cooldown_days, g_cfg.scan_window_days);
+        (int)g_eligible.size(), cooldown_days, window_days);
 
     if (g_eligible.empty()) {
         g_logger.warn("No eligible items after dynamic filters");
@@ -1228,6 +1235,7 @@ int main(int argc, char** argv) {
     std::shared_ptr<ImageData> current_twin_data = nullptr;
     std::shared_ptr<ImageData> next_data = nullptr;
     std::shared_ptr<ImageData> next_twin_data = nullptr;
+    bool next_is_twin = false;
     SDL_Texture* current_tex = nullptr;
     SDL_Texture* transition_prev_target = nullptr;
     SDL_Texture* transition_next_target = nullptr;
@@ -1285,7 +1293,7 @@ int main(int argc, char** argv) {
 
                 if (!exists_l) {
                     g_logger.warn("MISSING_FILE: Left twin file missing: %s", path_l.c_str());
-                    g_cache->mark_bad(path_l);
+                    if (g_cache) g_cache->mark_bad(path_l);
                     g_eligible.erase(g_eligible.begin() + current_idx);
                     if (g_eligible.empty()) break;
                     if (current_idx >= (int)g_eligible.size()) current_idx = 0;
@@ -1294,7 +1302,7 @@ int main(int argc, char** argv) {
                 }
                 if (!exists_r) {
                     g_logger.warn("MISSING_FILE: Right twin file missing: %s", path_r.c_str());
-                    g_cache->mark_bad(path_r);
+                    if (g_cache) g_cache->mark_bad(path_r);
                     g_eligible.erase(g_eligible.begin() + next_idx);
                     if (g_eligible.empty()) break;
                     if (current_idx >= (int)g_eligible.size()) current_idx = 0;
@@ -1614,6 +1622,7 @@ int main(int argc, char** argv) {
             if (!next_data) {
                 int next_idx = current_idx % (int)g_eligible.size();
                 bool is_twin = should_be_twin_portrait(g_eligible, next_idx);
+                next_is_twin = is_twin;
 
                 int next_idx_twin = -1;
                 std::string next_path, next_path_twin;
@@ -1681,7 +1690,7 @@ int main(int argc, char** argv) {
             }
 
             bool is_video_transition = (g_eligible[current_idx].type == "video");
-            bool load_success = is_video_transition || (next_data && next_data->texture && (!should_be_twin_portrait(g_eligible, current_idx) || (next_twin_data && next_twin_data->texture)));
+            bool load_success = is_video_transition || (next_data && next_data->texture && (!next_is_twin || (next_twin_data && next_twin_data->texture)));
 
             if (load_success) {
                 // Generate intermediate flat textures representing full screen layout states
@@ -1706,6 +1715,7 @@ int main(int argc, char** argv) {
                         current_twin_data = next_twin_data;
                         next_data = nullptr;
                         next_twin_data = nullptr;
+                        next_is_twin = false;
 
                         if (transition_prev_target) { SDL_DestroyTexture(transition_prev_target); transition_prev_target = nullptr; }
                         if (transition_next_target) { SDL_DestroyTexture(transition_next_target); transition_next_target = nullptr; }

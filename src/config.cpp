@@ -85,7 +85,7 @@ bool Config::load(const std::string& path) {
             int p = safe_stoi(val, this->http_port);
             this->http_port = (p >= 1 && p <= 65535) ? p : 8080;
         }
-        else if (key == "volume")            this->video_volume = safe_stoi(val, this->video_volume);
+        else if (key == "volume")            this->video_volume = std::max(0, std::min(150, safe_stoi(val, this->video_volume)));
         else if (key == "probe_timeout")     this->video_probe_timeout = std::max(1, std::min(30, safe_stoi(val, this->video_probe_timeout)));
         else if (key == "enabled" && section == "date_overlay") this->date_overlay_enabled = (val == "1" || val == "true");
         else if (key == "text" && section == "date_overlay")    this->date_text = val;

@@ -72,24 +72,27 @@ void mqtt_publish(const std::string& topic, const std::string& payload, bool ret
     }
     if (!enabled) return;
 
-    std::string cmd = "mosquitto_pub -h " + broker +
+    auto escape_shell_arg = [](const std::string& input) -> std::string {
+        std::string escaped;
+        for (char c : input) {
+            if (c == '\'') escaped += "'\\''";
+            else escaped += c;
+        }
+        return escaped;
+    };
+
+    std::string cmd = "mosquitto_pub -h '" + escape_shell_arg(broker) + "'" +
                       " -p " + std::to_string(port);
     if (!user.empty()) {
-        cmd += " -u '" + user + "'";
+        cmd += " -u '" + escape_shell_arg(user) + "'";
     }
     if (!pass.empty()) {
-        cmd += " -P '" + pass + "'";
+        cmd += " -P '" + escape_shell_arg(pass) + "'";
     }
     if (retain) {
         cmd += " -r";
     }
-    // Escape single quotes in payload
-    std::string escaped_payload;
-    for (char c : payload) {
-        if (c == '\'') escaped_payload += "'\\''";
-        else escaped_payload += c;
-    }
-    cmd += " -t '" + topic + "' -m '" + escaped_payload + "'";
+    cmd += " -t '" + escape_shell_arg(topic) + "' -m '" + escape_shell_arg(payload) + "'";
 
     ensure_pub_worker_running();
     {

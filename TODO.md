@@ -263,4 +263,28 @@ This file tracks the active bugs, resource safety concerns, and boundary checks 
 - [x] **Bug #19 (Severity: Low)** — `tui.cpp` — Removed orphaned invalid enum option for `Clock 24h` toggle settings.
 - [x] **Bug #20 (Severity: Low)** — `tui.cpp` — Replaced remaining hardcoded category loops with dynamic array count calculation.
 
+## Batch #25: Hardening, Dead Code Removal & Safety Fixes (Complete 2026-05-29)
+
+- [x] **Bug #1 (Severity: Low)** — Nested duplicate `try/catch` in DRM connector probe.
+- [x] **Bug #2 (Severity: Low)** — Consolidated duplicate `photos_per_video` spacing calculation after playlist loop.
+- [x] **Bug #3 (Severity: Medium)** — Replaced complex backward modular arithmetic with safe indexing in `advance_playlist`.
+- [x] **Bug #4 (Severity: High)** — Added missing null-pointer checks on cache database manager during startup twin portrait loads.
+- [x] **Bug #5 (Severity: High)** — Prevented redundant CPU-intensive layout evaluations during active transitions.
+- [x] **Bug #6 (Severity: Medium)** — Wrapped cooldown and scan window configuration accesses in playlist filter under config mutex lock.
+- [x] **Bug #7 (Severity: Low)** — Added architecture warning docs for directory listing timeouts on standard local/mounted systems.
+- [x] **Bug #8 (Severity: High)** — Replaced detached, risk-prone waiting threads for killed child probes with immediate synchronous process reaping.
+- [x] **Bug #9 (Severity: Medium)** — Overhauled video probe outputs parsing to be completely robust to carriage return (`\r\n`) formats.
+- [x] **Bug #10 (Severity: Low)** — Removed redundant secondary SQLite database busy timeout allocation path.
+- [x] **Bug #11 (Severity: Medium)** — Locked cache memory-mapped size reads to prevent data races during database initialization.
+- [x] **Bug #12 (Severity: Medium)** — Restructured logging framework rotation logic to properly transition to new timestamped files without stalling.
+- [x] **Bug #13 (Severity: Low)** — Cached environment variables lookups to minimize duplicate system calls during logging.
+- [x] **Bug #14 (Severity: High)** — Corrected the divisor in the bottom ambient backdrop average calculation to use exact sample counts instead of a hardcoded value.
+- [x] **Bug #15 (Severity: Critical)** — Eliminated dangerous double-locking deadlock vulnerabilities inside overlay adaptive text rendering.
+- [x] **Bug #16 (Severity: Low)** — Renamed helper layout mathematics function in transitions module to prevent name shadowing.
+- [x] **Bug #17 (Severity: Critical)** — Secured MQTT dash system command execution constructs against shell injection vulnerability.
+- [x] **Bug #18 (Severity: Low)** — Documented thread lifecycle exit routines for background remote motion timers.
+- [x] **Bug #19 (Severity: High)** — Enforced connection-specific socket read/write timeouts on HTTP clients to prevent pool starvation.
+- [x] **Bug #20 (Severity: Medium)** — Clamped video volume configuration parser entries to keep them within system-supported boundaries.
+
+
 
