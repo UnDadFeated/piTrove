@@ -147,15 +147,33 @@ bool MpvPlayer::play(const std::string& path, int volume) {
 
     int matte_px = 96;
     int osd_off_x = 0, osd_off_y = 0;
+    int sw = 1920, sh = 1080;
+    float filename_x = 0.04f, filename_y = 0.966f;
     {
         std::lock_guard<std::mutex> lock(g_config_mtx);
         matte_px = g_cfg.matting_size;
         osd_off_x = g_cfg.osd_offset_x;
         osd_off_y = g_cfg.osd_offset_y;
+        sw = g_cfg.screen_w;
+        sh = g_cfg.screen_h;
+        filename_x = g_cfg.filename_x;
+        filename_y = g_cfg.filename_y;
     }
-    std::string margin_x_arg = "--osd-margin-x=" + std::to_string(matte_px + 8 + osd_off_x);
-    std::string margin_y_arg = "--osd-margin-y=" + std::to_string(matte_px + 8 + osd_off_y);
-    std::string sub_margin_y_arg = "--sub-margin-y=" + std::to_string(matte_px + 8 + osd_off_y);
+
+    // Dynamically calculate the horizontal and vertical margins to perfectly match the picture filename overlay positioning
+    int pad = 15;
+    int target_x = pad + (int)((sw - pad * 2) * filename_x) - 10;
+    int target_y = pad + (int)((sh - pad * 2) * filename_y);
+    
+    int target_margin_x = target_x + osd_off_x;
+    int target_margin_y = sh - target_y + osd_off_y;
+    
+    if (target_margin_x < 0) target_margin_x = 8; // Safeguard
+    if (target_margin_y < 0) target_margin_y = 8; // Safeguard
+
+    std::string margin_x_arg = "--osd-margin-x=" + std::to_string(target_margin_x);
+    std::string margin_y_arg = "--osd-margin-y=" + std::to_string(target_margin_y);
+    std::string sub_margin_y_arg = "--sub-margin-y=" + std::to_string(target_margin_y);
 
     // Dynamically calculate thread pool size based on CPU cores (max_cores - 1)
     unsigned int max_cores = std::thread::hardware_concurrency();
