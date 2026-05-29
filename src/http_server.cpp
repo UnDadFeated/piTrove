@@ -938,7 +938,6 @@ static void server_loop(int port) {
     int current_port = port;
     int max_attempts;
     { std::lock_guard<std::mutex> lk(g_config_mtx); max_attempts = g_cfg.http_bind_attempts; }
-    { std::lock_guard<std::mutex> lk(g_config_mtx); max_attempts = g_cfg.http_bind_attempts; }
     bool bound = false;
 
     for (int attempt = 0; attempt < max_attempts; attempt++) {

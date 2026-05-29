@@ -46,8 +46,13 @@ static void pub_worker_loop() {
 }
 
 static void ensure_pub_worker_running() {
-    bool expected = false;
-    if (g_pub_worker_running.compare_exchange_strong(expected, true)) {
+    std::lock_guard<std::mutex> lk(g_pub_mtx);
+    if (!g_running.load()) return;
+    if (!g_pub_worker_running.load()) {
+        if (g_pub_worker_thread.joinable()) {
+            g_pub_worker_thread.join();
+        }
+        g_pub_worker_running.store(true);
         g_pub_worker_thread = std::thread(pub_worker_loop);
     }
 }
@@ -322,11 +327,18 @@ void stop_mqtt_client() {
     }
     
     // Stop the publisher worker thread cleanly
-    if (g_pub_worker_running.load()) {
-        g_pub_worker_running.store(false);
-        g_pub_cv.notify_all();
-        if (g_pub_worker_thread.joinable()) {
-            g_pub_worker_thread.join();
+    std::thread to_join;
+    {
+        std::lock_guard<std::mutex> lk(g_pub_mtx);
+        if (g_pub_worker_running.load()) {
+            g_pub_worker_running.store(false);
+            if (g_pub_worker_thread.joinable()) {
+                to_join = std::move(g_pub_worker_thread);
+            }
         }
+    }
+    g_pub_cv.notify_all();
+    if (to_join.joinable()) {
+        to_join.join();
     }
 }

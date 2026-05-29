@@ -240,3 +240,27 @@ This file tracks the active bugs, resource safety concerns, and boundary checks 
 - [x] **Bug #13 (Severity: Medium)** — `mqtt.cpp` — Secure `g_mqtt_fp` allocation to happen inside lock context post popen validation.
 - [x] **Task #14 (Severity: Medium)** — `tui.cpp, config.cpp` — Implemented separate user options for `3D Border` and `3D Border Width` in the TUI Display category.
 
+## Batch #24: Hardening & TUI Gaps (Complete 2026-05-29)
+
+- [x] **Bug #1 (Severity: Low)** — `http_server.cpp` — Redundant duplicate assignment setting `max_attempts` twice.
+- [x] **Bug #2 (Severity: High)** — `mqtt.cpp` — Publisher thread spawning/joining race condition causing crashes (`std::terminate`) during concurrent re-creation and exits.
+- [x] **Bug #3 (Severity: Low)** — `tui.cpp` — Redundant duplicate `#include <chrono>` statement.
+- [x] **Bug #4 (Severity: High)** — `tui.cpp` — Hardcoded static category items count cut off `HTTP Timeout` and `HTTP Bind attempts` in `Videos` tab.
+- [x] **Bug #5 (Severity: High)** — `tui.cpp` — Hardcoded static category items count cut off `Reset Cooldown` in `Slideshow` tab.
+- [x] **Bug #6 (Severity: Medium)** — `tui.cpp` — Added `Max Brightness` integer setting to settings interface, exposing `brightness_auto_max`.
+- [x] **Bug #7 (Severity: Low)** — `tui.cpp` — strict boundary clamping on `rotation` value.
+- [x] **Bug #8 (Severity: Low)** — `tui.cpp` — strict boundary clamping on `ken_burns_zoom` value.
+- [x] **Bug #9 (Severity: Low)** — `tui.cpp` — strict boundary clamping on `ken_burns_speed` value.
+- [x] **Bug #10 (Severity: Low)** — `tui.cpp` — strict boundary clamping on `video_volume` value.
+- [x] **Bug #11 (Severity: Low)** — `tui.cpp` — strict boundary clamping on `video_probe_timeout` value.
+- [x] **Bug #12 (Severity: Low)** — `tui.cpp` — strict boundary clamping on `transition_delay` value.
+- [x] **Bug #13 (Severity: Low)** — `tui.cpp` — strict boundary clamping on `transition_duration` value.
+- [x] **Bug #14 (Severity: Low)** — `tui.cpp` — strict boundary clamping on `scan_depth` value.
+- [x] **Bug #15 (Severity: Low)** — `tui.cpp` — strict boundary clamping on `scan_window_days` value.
+- [x] **Bug #16 (Severity: Low)** — `tui.cpp` — strict boundary clamping on `max_concurrent` value.
+- [x] **Bug #17 (Severity: Low)** — `tui.cpp` — strict boundary clamping on `brightness_auto_min` value.
+- [x] **Bug #18 (Severity: Low)** — `tui.cpp` — strict boundary clamping on new `brightness_auto_max` value.
+- [x] **Bug #19 (Severity: Low)** — `tui.cpp` — Removed orphaned invalid enum option for `Clock 24h` toggle settings.
+- [x] **Bug #20 (Severity: Low)** — `tui.cpp` — Replaced remaining hardcoded category loops with dynamic array count calculation.
+
+

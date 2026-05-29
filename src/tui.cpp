@@ -16,7 +16,6 @@
 #include <mutex>
 #include <poll.h>
 #include <fcntl.h>
-#include <chrono>
 
 // ── Message flash buffer (replaces blocking usleep) ──
 static struct {
@@ -354,6 +353,7 @@ void config_wizard(const std::string& config_path) {
     static const CI CI2[] = {
         {"Log Level", ENM, "Console verbosity (debug, info, warn, error)"},
         {"Min Brightness", INT, "Floor for auto-brightness (0-100)"},
+        {"Max Brightness", INT, "Ceiling for auto-brightness (0-100)"},
         {"SQLite mmap Size", INT, "Bytes to allocate for DB memory mapping"},
         {"Log Keep Count", INT, "Number of old log files to retain (default: 5)"}
     };
@@ -370,16 +370,16 @@ void config_wizard(const std::string& config_path) {
 
     struct CAT { const char* n; const CI* i; int c; };
     static const CAT CATS[] = {
-        {"Display", CA, 6},
-        {"System", CB, 8},
-        {"Overlays", CC, 14},
-        {"Videos", CD, 10},
-        {"Slideshow", CE, 16},
-        {"Scanning", CG, 8},
-        {"Weather", CH, 3},
-        {"Hardware", CF, 4},
-        {"Advanced", CI2, 4},
-        {"MQTT", CMQ, 8}
+        {"Display", CA, sizeof(CA)/sizeof(CA[0])},
+        {"System", CB, sizeof(CB)/sizeof(CB[0])},
+        {"Overlays", CC, sizeof(CC)/sizeof(CC[0])},
+        {"Videos", CD, sizeof(CD)/sizeof(CD[0])},
+        {"Slideshow", CE, sizeof(CE)/sizeof(CE[0])},
+        {"Scanning", CG, sizeof(CG)/sizeof(CG[0])},
+        {"Weather", CH, sizeof(CH)/sizeof(CH[0])},
+        {"Hardware", CF, sizeof(CF)/sizeof(CF[0])},
+        {"Advanced", CI2, sizeof(CI2)/sizeof(CI2[0])},
+        {"MQTT", CMQ, sizeof(CMQ)/sizeof(CMQ[0])}
     };
 
     // ── DATA ACCESSORS ──
@@ -471,8 +471,9 @@ void config_wizard(const std::string& config_path) {
         if (c == 8) switch(i) {
             case 0: return g_cfg.verbose?"debug":"info";
             case 1: return std::to_string(g_cfg.brightness_auto_min);
-            case 2: return std::to_string(g_cfg.cache_mmap_size);
-            case 3: return std::to_string(g_cfg.log_keep_count);
+            case 2: return std::to_string(g_cfg.brightness_auto_max);
+            case 3: return std::to_string(g_cfg.cache_mmap_size);
+            case 4: return std::to_string(g_cfg.log_keep_count);
         }
         if (c == 9) switch(i) {
             case 0: return g_cfg.mqtt_enabled ? "[ON]" : "[OFF]";
@@ -492,8 +493,8 @@ void config_wizard(const std::string& config_path) {
         std::lock_guard<std::mutex> lk(g_config_mtx);
         try {
             if(c==0) switch(i){
-                case 0:{ try { g_cfg.rotation=std::stoi(v); } catch(...) {} break; }
-                case 1:{ try { g_cfg.ken_burns_zoom=std::stof(v); } catch(...) {} break; }
+                case 0:{ try { int rot=std::stoi(v); if(rot==0||rot==90||rot==180||rot==270) g_cfg.rotation=rot; else g_cfg.rotation=0; } catch(...) {} break; }
+                case 1:{ try { float val=std::stof(v); g_cfg.ken_burns_zoom=std::max(0.01f, std::min(5.0f, val)); } catch(...) {} break; }
                 case 2:g_cfg.auto_display_rotation=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
                 case 3:g_cfg.brightness_auto=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
                 case 4:g_cfg.border_enabled=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
@@ -519,9 +520,9 @@ void config_wizard(const std::string& config_path) {
                 case 13:g_cfg.adaptive_text_enabled=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
             }
             else if(c==3) switch(i){
-                case 0:{ try { g_cfg.video_volume=std::stoi(v); } catch(...) {} break; }
+                case 0:{ try { int val = std::stoi(v); g_cfg.video_volume=std::max(0, std::min(150, val)); } catch(...) {} break; }
                 case 1:{ try { int val = std::stoi(v); g_cfg.videos_per_photos=std::max(1, std::min(100, val)); } catch(...) {} break; }
-                case 2:{ try { g_cfg.video_probe_timeout=std::stoi(v); } catch(...) {} break; }
+                case 2:{ try { int val = std::stoi(v); g_cfg.video_probe_timeout=std::max(1, std::min(30, val)); } catch(...) {} break; }
                 case 3:g_cfg.play_just_photos=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
                 case 4:g_cfg.play_just_videos=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
                 case 5:g_cfg.closed_captions_enabled=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
@@ -533,10 +534,10 @@ void config_wizard(const std::string& config_path) {
                 case 11:{ try { g_cfg.http_bind_attempts=std::max(1, std::min(100, std::stoi(v))); } catch(...) {} break; }
             }
             else if(c==4) switch(i){
-                case 0:{ try { g_cfg.transition_delay=std::stof(v); } catch(...) {} break; } case 1:{ try { g_cfg.transition_duration=std::stof(v); } catch(...) {} break; }
+                case 0:{ try { float val = std::stof(v); g_cfg.transition_delay=std::max(1.0f, val); } catch(...) {} break; } case 1:{ try { float val = std::stof(v); g_cfg.transition_duration=std::max(0.1f, std::min(10.0f, val)); } catch(...) {} break; }
                 case 2:g_cfg.transition_effect=v;break;
                 case 3:g_cfg.ken_burns=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
-                case 4:{ try { g_cfg.ken_burns_speed=std::stof(v); } catch(...) {} break; }
+                case 4:{ try { float val = std::stof(v); g_cfg.ken_burns_speed=std::max(0.001f, std::min(5.0f, val)); } catch(...) {} break; }
                 case 5:g_cfg.bias_lighting=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
                 case 6:{ try { g_cfg.bias_anim_speed=std::stof(v); } catch(...) {} break; }
                 case 7:g_cfg.bias_anim_style=v;break; case 8:g_cfg.bias_color_mode=v;break;
@@ -551,8 +552,8 @@ void config_wizard(const std::string& config_path) {
             }
             else if(c==5) switch(i){
                 case 0:g_cfg.recursive=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
-                case 1:{ try { g_cfg.scan_depth=std::stoi(v); } catch(...) {} break; }
-                case 2:{ try { g_cfg.scan_window_days=std::stoi(v); } catch(...) {} break; }
+                case 1:{ try { int val = std::stoi(v); g_cfg.scan_depth=std::max(1, std::min(100, val)); } catch(...) {} break; }
+                case 2:{ try { int val = std::stoi(v); g_cfg.scan_window_days=std::max(0, std::min(365, val)); } catch(...) {} break; }
                 case 3:{
                     g_cfg.ignore_folders.clear();
                     std::string clean = v;
@@ -574,7 +575,7 @@ void config_wizard(const std::string& config_path) {
                     last.erase(last.find_last_not_of(" \t") + 1);
                     if (!last.empty()) g_cfg.ignore_folders.push_back(last);
                 }break;
-                case 4:{ try { g_cfg.max_concurrent=std::stoi(v); } catch(...) {} break; }
+                case 4:{ try { int val = std::stoi(v); g_cfg.max_concurrent=std::max(1, std::min(64, val)); } catch(...) {} break; }
                 case 5:g_cfg.show_people_faces=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
                 case 6:g_cfg.keep_animals=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
                 case 7:g_cfg.on_this_day_enabled=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
@@ -592,9 +593,10 @@ void config_wizard(const std::string& config_path) {
             }
             else if(c==8) switch(i){
                 case 0:{ if(v=="debug") g_cfg.verbose=true; else g_cfg.verbose=false; }break;
-                case 1:{ try { g_cfg.brightness_auto_min=std::stoi(v); } catch(...) {} break; }
-                case 2:{ try { g_cfg.cache_mmap_size = std::max(0LL, std::min(268435456LL, std::stoll(v))); } catch(...) {} break; }
-                case 3:{ try { g_cfg.log_keep_count=std::max(1, std::min(100, std::stoi(v))); } catch(...) {} break; }
+                case 1:{ try { int val = std::stoi(v); g_cfg.brightness_auto_min=std::max(0, std::min(100, val)); } catch(...) {} break; }
+                case 2:{ try { int val = std::stoi(v); g_cfg.brightness_auto_max=std::max(0, std::min(100, val)); } catch(...) {} break; }
+                case 3:{ try { g_cfg.cache_mmap_size = std::max(0LL, std::min(268435456LL, std::stoll(v))); } catch(...) {} break; }
+                case 4:{ try { g_cfg.log_keep_count=std::max(1, std::min(100, std::stoi(v))); } catch(...) {} break; }
             }
             else if(c==9) switch(i){
                 case 0:g_cfg.mqtt_enabled=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
@@ -615,7 +617,6 @@ void config_wizard(const std::string& config_path) {
         if(c==4&&i==8) return {"auto","rainbow"};
         if(c==2&&i==4) return {"yellow","white","cyan","red"};
         if(c==2&&i==9) return {"yellow","white","cyan","red"};
-        if(c==2&&i==10) return {"yellow","white","cyan","gray"};
         if(c==8&&i==0) return {"debug","info","warn","error"};
         return {};
     };
@@ -734,7 +735,7 @@ void config_wizard(const std::string& config_path) {
                     printf("\033[1;36m  piTrove Configuration Engine v%s\033[0m\n", VERSION);
                     printf("  \033[90m"); for(int i=0; i<tui_width-4; i++) printf("━"); printf("\033[0m\n\n");
                     printf("  ");
-                    for(int i=0; i<10; i++) {
+                    for(int i=0; i<(int)(sizeof(CATS)/sizeof(CATS[0])); i++) {
                         if(i==sel) printf("\033[7;33m %s \033[0m  ", CATS[i].n);
                         else printf("\033[1;37m%s\033[0m  ", CATS[i].n);
                     }
@@ -844,9 +845,9 @@ void config_wizard(const std::string& config_path) {
 
                         if(!edit_mode) {
                             if (action == 1) { if(sel_sub>0) sel_sub--; else if(sel>0){ sel--; sel_sub=CATS[sel].c-1; } }
-                            else if (action == 2) { if(sel_sub<CATS[sel].c-1) sel_sub++; else if(sel<9){ sel++; sel_sub=0; } }
+                            else if (action == 2) { if(sel_sub<CATS[sel].c-1) sel_sub++; else if(sel<(int)(sizeof(CATS)/sizeof(CATS[0]))-1){ sel++; sel_sub=0; } }
                             else if (action == 3) { if(sel>0) { sel--; sel_sub=0; } }
-                            else if (action == 4) { if(sel<9) { sel++; sel_sub=0; } }
+                            else if (action == 4) { if(sel<(int)(sizeof(CATS)/sizeof(CATS[0]))-1) { sel++; sel_sub=0; } }
                             // Mark dirty for selection change
                             dirty_full = true;
                             last_sel = sel; last_sel_sub = sel_sub; last_edit = edit_mode ? 1 : 0;
