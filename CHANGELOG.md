@@ -1,3 +1,11 @@
+## v11.5.7 — Transition & Crossfade Hardening (May 29, 2026)
+
+### Added
+- **Seamless Video-to-Photo Fades** — Overhauled slideshow state transitions when finishing or skipping video items. Stale image states are cleanly purged and the EGL display is swept to black immediately upon video termination, completely eliminating stale photo flashing and enabling beautiful, cinematic fades from black.
+
+### Fixed
+- **Slideshow Transition Stutter & Fast Swapping** — Resolved a timing discrepancy where transitions between photos would occasionally swap instantly without crossfading. The frame-timer is now dynamically reset at the start of active animations, safely discarding the blocking duration spent loading images from disk and ensuring smooth, 60 FPS transitions.
+
 ## v11.5.6 — Video Overlay Alignment (May 29, 2026)
 
 ### Fixed
