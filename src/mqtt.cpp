@@ -97,6 +97,10 @@ void mqtt_publish(const std::string& topic, const std::string& payload, bool ret
     ensure_pub_worker_running();
     {
         std::lock_guard<std::mutex> lk(g_pub_mtx);
+        if (g_pub_queue.size() >= 50) {
+            g_logger.warn("MQTT: Outbound queue cap reached (50). Dropping publish request for topic '%s'", topic.c_str());
+            return;
+        }
         g_pub_queue.push(cmd);
     }
     g_pub_cv.notify_one();

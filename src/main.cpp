@@ -700,6 +700,10 @@ static void watchman_loop() {
         localtime_r(&now, &curr_tm);
         
         if (curr_tm.tm_yday != last_yday) {
+            if (g_offline_mode.load()) {
+                g_logger.warn("Watchman: System is in Offline Recovery Mode. Skipping midnight temporal window shift.");
+                continue;
+            }
             g_logger.info("Watchman: Midnight detected! Shifting temporal window. Old day=%d, New day=%d", last_yday, curr_tm.tm_yday);
             
             // Validate media directory readability and accessibility to handle network drops gracefully
@@ -1699,6 +1703,12 @@ int main(int argc, char** argv) {
             bool load_success = is_video_transition || (next_data && next_data->texture && (!next_is_twin || (next_twin_data && next_twin_data->texture)));
 
             if (load_success) {
+                if (g_consecutive_failures.load() > 0) {
+                    g_consecutive_failures.store(0);
+                }
+                if (g_offline_mode.exchange(false)) {
+                    g_logger.info("SLIDESHOW: Exiting Offline Recovery Mode. Connection to NAS restored.");
+                }
                 // Generate intermediate flat textures representing full screen layout states
                 if (!transition_prev_target) {
                     transition_prev_target = render_state_to_texture(g_renderer.sdl_renderer, g_renderer.screen_w, g_renderer.screen_h, current_data, current_twin_data, item_timer);
@@ -1796,34 +1806,64 @@ int main(int argc, char** argv) {
                 if (transition_prev_target) { SDL_DestroyTexture(transition_prev_target); transition_prev_target = nullptr; }
                 if (transition_next_target) { SDL_DestroyTexture(transition_next_target); transition_next_target = nullptr; }
 
-                if (next_data) {
-                    current_data = next_data;
-                    current_twin_data = next_twin_data;
-                    next_data = nullptr;
-                    next_twin_data = nullptr;
-                    current_tex = current_data->texture;
-                    mark_item_shown(g_eligible[current_idx].path, false);
-                    if (current_twin_data) {
-                        mark_item_shown(g_eligible[(current_idx + 1) % (int)g_eligible.size()].path, false);
+                g_consecutive_failures.fetch_add(1);
+                g_logger.warn("SLIDESHOW: Failed to load next media item. Consecutive failure count: %d", g_consecutive_failures.load());
+                if (g_consecutive_failures.load() >= 3) {
+                    if (!g_offline_mode.exchange(true)) {
+                        g_logger.warn("SLIDESHOW: Entering Offline Recovery Mode due to multiple consecutive load failures.");
                     }
+                }
 
-                    // Update metadata
-                    if (current_data) {
-                        g_eligible[current_idx].width = current_data->width;
-                        g_eligible[current_idx].height = current_data->height;
-                        g_eligible[current_idx].exif_rotation = current_data->exif_rotation;
-                        for (auto& item : g_scanned_items) {
-                            if (item.path == g_eligible[current_idx].path) {
-                                item.width = current_data->width;
-                                item.height = current_data->height;
-                                item.exif_rotation = current_data->exif_rotation;
-                                break;
+                if (g_offline_mode.load()) {
+                    if (!current_tex) {
+                        std::string fallback_path = "src/splash.png";
+                        if (!file_exists(fallback_path)) {
+                            fallback_path = get_exe_dir() + "/src/splash.png";
+                            if (!file_exists(fallback_path)) {
+                                fallback_path = get_exe_dir() + "/splash.png";
                             }
                         }
-                        g_cache->upsert(g_eligible[current_idx], 0);
+                        if (file_exists(fallback_path)) {
+                            std::shared_ptr<ImageData> fallback_data = ImageLoader::load(fallback_path);
+                            if (fallback_data && fallback_data->valid) {
+                                ImageLoader::load_texture(fallback_data.get(), g_renderer.sdl_renderer);
+                                current_data = fallback_data;
+                                current_twin_data = nullptr;
+                                current_tex = current_data->texture;
+                                g_renderer.calculate_fit_rect(current_data->width, current_data->height, fit_rect);
+                            }
+                        }
                     }
+                } else {
+                    if (next_data) {
+                        current_data = next_data;
+                        current_twin_data = next_twin_data;
+                        next_data = nullptr;
+                        next_twin_data = nullptr;
+                        current_tex = current_data->texture;
+                        mark_item_shown(g_eligible[current_idx].path, false);
+                        if (current_twin_data) {
+                            mark_item_shown(g_eligible[(current_idx + 1) % (int)g_eligible.size()].path, false);
+                        }
 
-                    g_renderer.calculate_fit_rect(current_data->width, current_data->height, fit_rect);
+                        // Update metadata
+                        if (current_data) {
+                            g_eligible[current_idx].width = current_data->width;
+                            g_eligible[current_idx].height = current_data->height;
+                            g_eligible[current_idx].exif_rotation = current_data->exif_rotation;
+                            for (auto& item : g_scanned_items) {
+                                if (item.path == g_eligible[current_idx].path) {
+                                    item.width = current_data->width;
+                                    item.height = current_data->height;
+                                    item.exif_rotation = current_data->exif_rotation;
+                                    break;
+                                }
+                            }
+                            g_cache->upsert(g_eligible[current_idx], 0);
+                        }
+
+                        g_renderer.calculate_fit_rect(current_data->width, current_data->height, fit_rect);
+                    }
                 }
             }
         } else {
@@ -1998,7 +2038,12 @@ int main(int argc, char** argv) {
 
             {
                 double delay;
-                { std::lock_guard<std::mutex> lk(g_config_mtx); delay = g_cfg.transition_delay; }
+                if (g_offline_mode.load()) {
+                    delay = 30.0; // Enforce a 30-second back-off delay during offline recovery
+                } else {
+                    std::lock_guard<std::mutex> lk(g_config_mtx);
+                    delay = g_cfg.transition_delay;
+                }
                 if (item_timer >= delay) {
                     transitioning = true; transition_timer = 0.0;
                     advance_playlist(current_twin_data ? 2 : 1);
