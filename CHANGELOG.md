@@ -1,3 +1,13 @@
+## v11.5.9 — Edge-to-Edge Average Color Matte Backgrounds (May 29, 2026)
+
+### Added
+- **Edge-to-Edge Color-Matched Matte Backgrounds** — Seamlessly extended the color-matched average background to fill the entire screen edge-to-edge. Only the photo, its 3D miter border, and ambient glow are now fitted inside the 1" matte area, eliminating black borders and creating a cleaner visual experience.
+
+## v11.5.8 — Video Overlay Margin Restoration (May 29, 2026)
+
+### Fixed
+- **Standard Matte Margin Restoration** — Reverted the video player's OSD and subtitle margins to the classic 1" matte boundaries (matting size + offset), maintaining unified proportions across video playback.
+
 ## v11.5.7 — Transition & Crossfade Hardening (May 29, 2026)
 
 ### Added
