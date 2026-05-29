@@ -1,3 +1,10 @@
+## v11.5.3 — Installation and Configuration Wizard Stability (May 29, 2026)
+
+### Fixed
+- **DRM GPU Card Detection** — Corrected a sequence error in the installer where system GPU hardware values were written to configuration files before probing took place. The installer now persistently maps the correct physical display controller on startup.
+- **Concurrent Configuration Editing** — Resolved a conflict where opening the interactive settings wizard while the picture frame was actively running would cause startup collision errors. Setting edits are now seamlessly dispatched while the background loop is active.
+- **Mount Point Cleaning** — Hardened the network storage configuration checks to cleanly purge existing entries of the same mount point from the system filesystem table, preventing duplicate mount listings.
+
 ## v11.5.2 — Hardening, Performance & Security Optimization (May 29, 2026)
 
 ### Fixed
