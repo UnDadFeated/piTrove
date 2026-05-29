@@ -1,3 +1,14 @@
+## v11.5.1 — System Hardening, TUI Bounds & Concurrency Gaps (May 29, 2026)
+
+### Added
+- **Exposed Maximum Brightness in Terminal UI** — Exposed `Max Brightness` (integer setting, 0–100 range) to the `Advanced` category of the terminal settings wizard, providing full visual control over maximum backlight illumination limit.
+
+### Fixed
+- **Terminal UI Gaps and Sizing** — Restored complete access to previously hidden or cut-off settings like `HTTP Timeout`, `HTTP Bind attempts`, and `Reset Cooldown` by calculating terminal categories dynamically rather than relying on hardcoded arrays.
+- **Safety Boundary Clamping** — Applied strict range clamping on user-entered values in the terminal configuration utility, ensuring valid rotation angles and keeping delays, volumes, durations, thread counts, and scanning parameters within safe operating thresholds.
+- **Thread Concurrency Safety** — Synchronized background status message publishing and thread tear-down logic, preventing rare race conditions that could lead to abnormal termination during rapid system reloads or shutdown.
+- **Cleaned Up Dead Code** — Purged duplicate headers and stale, orphaned color options from the terminal configuration utility to keep compilation warning-free.
+
 ## v11.5.0 — Compiler Warning Resolution, TUI Borders & Preload Matte Fix (May 28, 2026)
 
 ### Added
