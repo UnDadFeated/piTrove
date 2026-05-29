@@ -1,3 +1,8 @@
+## v11.6.0 — Full-Screen Transition Scaling Fix (May 29, 2026)
+
+### Fixed
+- **Double-Fitting Transition Shrinkage** — Resolved a layout bug where slides would suddenly shrink, showing a 2" black matte during transitions, and leaving the active slide stuck without overlays. Every transition effect now draws pre-rendered target frames at full-screen proportions, ensuring seamless, continuous edge-to-edge backdrop rendering.
+
 ## v11.5.9 — Edge-to-Edge Average Color Matte Backgrounds (May 29, 2026)
 
 ### Added
