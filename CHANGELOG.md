@@ -1,3 +1,17 @@
+## v11.5.5 — Watchdog and MQTT Pipeline Hardening (May 29, 2026)
+
+### Added
+- **Outbound Message Queue Capping** — Hardened the message publishing client against network dropouts by capping the outbound message queue. High-frequency or duplicate status updates are gracefully discarded when offline, preventing memory depletion and ensuring immediate responsiveness upon network recovery.
+
+### Fixed
+- **Watchdog Midnight Hang** — Resolved a vulnerability where the background time-monitoring watchdog would attempt to verify remote network storage accessibility during active network dropouts. Accessibility checks are now skipped during recovery mode, preventing the background monitor thread from stalling.
+
+## v11.5.4 — Network Resilience & Offline Recovery Mode (May 29, 2026)
+
+### Added
+- **Offline Recovery Mode** — Integrated an automatic, elegant recovery state machine to handle sudden network drops or NAS mount disconnects. If the system experiences three consecutive media load failures, it automatically switches to Offline Mode, displaying the system splash screen with a red `[OFFLINE] Reconnecting to NAS...` status banner instead of a blank black screen.
+- **Resilient Fallback and Back-off Timers** — Implemented an adaptive back-off delay during network outages. The slideshow slows down filesystem checks to a stable 30-second interval, keeping the main presentation thread responsive to keypresses and remote web remote commands while waiting for the network connection to recover.
+
 ## v11.5.3 — Installation and Configuration Wizard Stability (May 29, 2026)
 
 ### Fixed

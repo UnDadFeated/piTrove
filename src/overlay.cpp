@@ -471,4 +471,26 @@ void OverlayManager::draw_all(int current_idx, int total_items, const MediaItem*
 
         font_renderer->draw_text(rx, ry, font, ribbon_text, 255, 255, 255, 255);
     }
+
+    // 8. Offline Mode Warning Banner
+    if (g_offline_mode.load()) {
+        std::string offline_text = "★ [OFFLINE] RECONNECTING TO NAS... ★";
+        FontHandle& font = font_renderer->load_font(overlay_font->path, 22);
+        int tw, th;
+        font_renderer->measure(font, offline_text, tw, th);
+        int rx = (sw - tw) / 2;
+        int ry = sh / 2 + 100; // Positioned below the center area
+
+        SDL_Rect r_bg = { rx - 20, ry - 6, tw + 40, th + 12 };
+        SDL_SetRenderDrawBlendMode(renderer->sdl_renderer, SDL_BLENDMODE_BLEND);
+        SDL_SetRenderDrawColor(renderer->sdl_renderer, 150, 0, 0, 180); // Red translucent
+        SDL_FRect r_bg_f = { (float)r_bg.x, (float)r_bg.y, (float)r_bg.w, (float)r_bg.h };
+        SDL_RenderFillRect(renderer->sdl_renderer, &r_bg_f);
+
+        SDL_SetRenderDrawColor(renderer->sdl_renderer, 255, 0, 0, 255); // Solid red outline
+        SDL_FRect r_outline = { (float)r_bg.x, (float)r_bg.y, (float)r_bg.w, (float)r_bg.h };
+        SDL_RenderRect(renderer->sdl_renderer, &r_outline);
+
+        font_renderer->draw_text(rx, ry, font, offline_text, 255, 255, 255, 255);
+    }
 }
