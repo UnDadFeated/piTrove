@@ -298,7 +298,7 @@ info "Removing deprecated desktop autostarts..."
 rm -f "$PRIMARY_HOME/.config/autostart/piTrove.desktop" 2>/dev/null || true
 rm -f "/etc/xdg/autostart/piTrove.desktop" 2>/dev/null || true
 
-# 5b. Safeguard SSH
+# 5b. Safeguard SSH & Configure Keep-Alives (prevent idle SSH/SFTP/rclone mount freezes)
 if ! systemctl is-active --quiet ssh 2>/dev/null; then
     warn "SSH service is inactive! Restoring to prevent lockout..."
     apt-get install -y -qq openssh-server 2>/dev/null || true
@@ -309,6 +309,21 @@ if ! systemctl is-active --quiet ssh 2>/dev/null; then
     else
         warn "Could not start SSH service! Verify SSH manually."
     fi
+fi
+
+if [[ -f "/etc/ssh/sshd_config" ]]; then
+    info "Configuring SSH server-side keep-alives to prevent client/rclone idle dropouts..."
+    sed -i 's/#ClientAliveInterval 0/ClientAliveInterval 60/' /etc/ssh/sshd_config
+    sed -i 's/#ClientAliveCountMax 3/ClientAliveCountMax 3/' /etc/ssh/sshd_config
+    # Force configurations if they don't exist
+    if ! grep -q "^ClientAliveInterval" /etc/ssh/sshd_config; then
+        echo "ClientAliveInterval 60" >> /etc/ssh/sshd_config
+    fi
+    if ! grep -q "^ClientAliveCountMax" /etc/ssh/sshd_config; then
+        echo "ClientAliveCountMax 3" >> /etc/ssh/sshd_config
+    fi
+    systemctl restart ssh 2>/dev/null || true
+    ok "SSH keep-alives configured persistently (60s interval)"
 fi
 
 # 6. Disk space check
