@@ -1,3 +1,8 @@
+## v11.6.2 — Transition Texture Alpha Blending Fix (May 29, 2026)
+
+### Fixed
+- **Abrupt Transition Pops** — Resolved an issue where next images would abruptly pop onto the display without blending/fading. Transition target textures now explicitly set the SDL blend mode to alpha blending (`SDL_BLENDMODE_BLEND`) upon creation, ensuring alpha modulation functions correctly for smooth fades in and out.
+
 ## v11.6.1 — Transition Freeze & Loop Lock Fix (May 29, 2026)
 
 ### Fixed
