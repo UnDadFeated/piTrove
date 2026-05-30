@@ -1,3 +1,8 @@
+## v11.6.4 — Network Mount Persistence & SSH Keep-Alives (May 30, 2026)
+
+### Added
+- **SSH Keep-Alives in Installer** — Updated the premium graphical installer to persistently configure server-side SSH/SFTP keep-alives (60-second intervals) on new Debian Trixie installations. This prevents connected remote mounts, command terminal links, and network filesystem mounts (like rclone connections from Windows clients) from dropping or freezing during periods of inactivity.
+
 ## v11.6.3 — Aggressive Video Buffering & Network Smoothness (May 29, 2026)
 
 ### Added
