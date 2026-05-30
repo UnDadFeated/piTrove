@@ -237,6 +237,7 @@ static SDL_Texture* render_state_to_texture(
     // Create a target texture
     SDL_Texture* target = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_RGBA8888, SDL_TEXTUREACCESS_TARGET, sw, sh);
     if (!target) return nullptr;
+    SDL_SetTextureBlendMode(target, SDL_BLENDMODE_BLEND);
 
     // Set render target to our texture
     SDL_SetRenderTarget(renderer, target);
