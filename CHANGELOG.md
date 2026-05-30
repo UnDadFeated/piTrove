@@ -1,3 +1,8 @@
+## v11.6.3 — Aggressive Video Buffering & Network Smoothness (May 29, 2026)
+
+### Added
+- **Aggressive Network Video Caching** — Forced enabling of aggressive read-ahead caching for video playback. By increasing the memory cache buffer limit to 150 Megabytes and the demuxer read-ahead window to 20 seconds, the media engine completely mitigates network latency, bandwidth fluctuations, and temporary throughput bottlenecks when streaming high-bitrate HEVC/H.264 video files over Wi-Fi and network mount points. Macroblock corruption ("noise"), pixelation, and playback stutter during complex video scenes are now eliminated.
+
 ## v11.6.2 — Transition Texture Alpha Blending Fix (May 29, 2026)
 
 ### Fixed
