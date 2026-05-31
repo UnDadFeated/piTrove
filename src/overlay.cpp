@@ -3,6 +3,7 @@
 #include "config.h"
 #include "media_item.h"
 #include "image_loader.h"
+#include "cache.h"
 #include <ctime>
 #include <iomanip>
 #include <sstream>
@@ -472,25 +473,74 @@ void OverlayManager::draw_all(int current_idx, int total_items, const MediaItem*
         font_renderer->draw_text(rx, ry, font, ribbon_text, 255, 255, 255, 255);
     }
 
-    // 8. Offline Mode Warning Banner
-    if (g_offline_mode.load()) {
-        std::string offline_text = "★ [OFFLINE] RECONNECTING TO NAS... ★";
-        FontHandle& font = font_renderer->load_font(overlay_font->path, 22);
-        int tw, th;
-        font_renderer->measure(font, offline_text, tw, th);
-        int rx = (sw - tw) / 2;
-        int ry = sh / 2 + 100; // Positioned below the center area
+    // 8. Offline Mode / Error Overlay Console
+    if (g_offline_mode.load() || g_active_error_code.load() != 0) {
+        int code_num = g_active_error_code.load();
+        if (code_num == 0) {
+            // Default to E101 if offline mode is triggered but no explicit error code set
+            code_num = 101;
+        }
 
-        SDL_Rect r_bg = { rx - 20, ry - 6, tw + 40, th + 12 };
+        std::string code_str = "E101";
+        if (code_num == 102) code_str = "E102";
+        else if (code_num == 201) code_str = "E201";
+        else if (code_num == 202) code_str = "E202";
+        else if (code_num == 301) code_str = "E301";
+        else if (code_num == 401) code_str = "E401";
+
+        std::string title = "NAS_MOUNT_FAILED";
+        std::string desc = "The network storage mount at /app/media is empty or inaccessible.";
+        std::string rec = "Ensure your NAS is online and credentials in nas.cred are correct.";
+
+        if (g_cache) {
+            g_cache->get_error_details(code_str, title, desc, rec);
+        }
+
+        FontHandle& header_font = font_renderer->load_font(overlay_font->path, 18);
+        FontHandle& body_font = font_renderer->load_font(overlay_font->path, 12);
+
+        std::string header_text = "★ ERROR " + code_str + ": " + title + " ★";
+        std::string desc_text = "DESC: " + desc;
+        std::string rec_text = "RECOVERY: " + rec;
+
+        int hw = 0, hh = 0;
+        int dw = 0, dh = 0;
+        int rw = 0, rh = 0;
+        font_renderer->measure(header_font, header_text, hw, hh);
+        font_renderer->measure(body_font, desc_text, dw, dh);
+        font_renderer->measure(body_font, rec_text, rw, rh);
+
+        int max_w = std::max({hw, dw, rw});
+        int total_h = hh + dh + rh + 16;
+
+        int rx = (sw - max_w) / 2;
+        int ry = sh - total_h - 60; // Placed neatly in the lower section
+
+        SDL_Rect r_bg = { rx - 30, ry - 15, max_w + 60, total_h + 30 };
         SDL_SetRenderDrawBlendMode(renderer->sdl_renderer, SDL_BLENDMODE_BLEND);
-        SDL_SetRenderDrawColor(renderer->sdl_renderer, 150, 0, 0, 180); // Red translucent
+        SDL_SetRenderDrawColor(renderer->sdl_renderer, 30, 0, 0, 220); // Deep red-black translucent
         SDL_FRect r_bg_f = { (float)r_bg.x, (float)r_bg.y, (float)r_bg.w, (float)r_bg.h };
         SDL_RenderFillRect(renderer->sdl_renderer, &r_bg_f);
 
-        SDL_SetRenderDrawColor(renderer->sdl_renderer, 255, 0, 0, 255); // Solid red outline
+        SDL_SetRenderDrawColor(renderer->sdl_renderer, 255, 30, 30, 255); // Glowing hot red border
         SDL_FRect r_outline = { (float)r_bg.x, (float)r_bg.y, (float)r_bg.w, (float)r_bg.h };
         SDL_RenderRect(renderer->sdl_renderer, &r_outline);
 
-        font_renderer->draw_text(rx, ry, font, offline_text, 255, 255, 255, 255);
+        // Render glow shadow behind the text box
+        SDL_SetRenderDrawColor(renderer->sdl_renderer, 255, 0, 0, 80);
+        for (int i = 1; i <= 3; i++) {
+            SDL_FRect glow_r = { (float)(r_bg.x - i), (float)(r_bg.y - i), (float)(r_bg.w + i*2), (float)(r_bg.h + i*2) };
+            SDL_RenderRect(renderer->sdl_renderer, &glow_r);
+        }
+
+        // Draw header centering
+        int hx = rx + (max_w - hw) / 2;
+        font_renderer->draw_text(hx, ry, header_font, header_text, 255, 255, 255, 255);
+
+        // Draw description (light red-gray phosphor)
+        font_renderer->draw_text(rx, ry + hh + 8, body_font, desc_text, 240, 180, 180, 255);
+
+        // Draw recovery (bright yellow-green command style)
+        font_renderer->draw_text(rx, ry + hh + dh + 16, body_font, rec_text, 255, 223, 0, 255);
     }
 }

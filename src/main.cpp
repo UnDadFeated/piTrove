@@ -12,6 +12,7 @@
 #include "tui.h"
 #include "http_server.h"
 #include "mqtt.h"
+#include "google_photos.h"
 
 #include <SDL3/SDL.h>
 #include <SDL3_image/SDL_image.h>
@@ -911,6 +912,26 @@ int main(int argc, char** argv) {
     g_logger.init(log_dir, LogLevel::DEBUG, keep_count);
     g_logger.info("Media dir: %s, Cache dir: %s", media_dir.c_str(), cache_dir.c_str());
 
+    // Verify if media directory exists and is populated
+    bool startup_media_empty = true;
+    try {
+        if (std::filesystem::exists(media_dir)) {
+            for (const auto& entry : std::filesystem::directory_iterator(media_dir)) {
+                (void)entry;
+                startup_media_empty = false;
+                break;
+            }
+        }
+    } catch (...) {}
+    if (startup_media_empty) {
+        g_logger.error("NAS Mount Error: Media directory '%s' is empty or inaccessible.", media_dir.c_str());
+        g_active_error_code.store(101); // E101
+    } else {
+        if (g_active_error_code.load() == 101) {
+            g_active_error_code.store(0);
+        }
+    }
+
     // --- Dynamic DRM Probing and Environment Setup ---
     {
         std::lock_guard<std::mutex> lock(g_config_mtx);
@@ -1234,6 +1255,9 @@ int main(int argc, char** argv) {
     // Start MQTT subscriber client
     start_mqtt_client();
 
+    // Start Google Photos background sync thread
+    g_google_photos.start();
+
     g_logger.info("Starting slideshow with %zu items", g_eligible.size());
 
     g_transition = new TransitionEngine();
@@ -1335,6 +1359,9 @@ int main(int argc, char** argv) {
                 if (current_data && current_data->valid && current_twin_data && current_twin_data->valid) {
                     ImageLoader::load_texture(current_data.get(), g_renderer.sdl_renderer);
                     ImageLoader::load_texture(current_twin_data.get(), g_renderer.sdl_renderer);
+                    if (g_active_error_code.load() == 201) {
+                        g_active_error_code.store(0);
+                    }
                     current_tex = current_data->texture;
                     mark_item_shown(path_l, false);
                     mark_item_shown(path_r, false);
@@ -1376,6 +1403,9 @@ int main(int argc, char** argv) {
                 current_data = single_data;
                 if (current_data && current_data->valid) {
                     ImageLoader::load_texture(current_data.get(), g_renderer.sdl_renderer);
+                    if (g_active_error_code.load() == 201) {
+                        g_active_error_code.store(0);
+                    }
                     current_tex = current_data->texture;
                     current_twin_data = nullptr;
                     mark_item_shown(g_eligible[current_idx].path, false);
@@ -1730,6 +1760,9 @@ int main(int argc, char** argv) {
             bool load_success = is_video_transition || (next_data && next_data->texture && (!next_is_twin || (next_twin_data && next_twin_data->texture)));
 
             if (load_success) {
+                if (g_active_error_code.load() == 201) {
+                    g_active_error_code.store(0);
+                }
                 if (g_consecutive_failures.load() > 0) {
                     g_consecutive_failures.store(0);
                 }
@@ -2112,6 +2145,9 @@ int main(int argc, char** argv) {
     
     // Stop background MQTT client safely
     stop_mqtt_client();
+
+    // Stop background Google Photos sync thread safely
+    g_google_photos.stop();
     
     // Stop background watchman thread safely
     g_watchman_running.store(false);

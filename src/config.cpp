@@ -185,6 +185,13 @@ bool Config::load(const std::string& path) {
         else if (key == "topic_prefix" && section == "mqtt")        this->mqtt_topic_prefix = val;
         else if (key == "motionsensor_topic" && section == "mqtt")  this->mqtt_motionsensor_topic = val;
         else if (key == "motionsensor_cooldown" && section == "mqtt") this->mqtt_motionsensor_cooldown = safe_stoi(val, this->mqtt_motionsensor_cooldown);
+        else if (key == "enabled" && section == "google_photos")             this->google_photos_enabled = (val == "1" || val == "true");
+        else if (key == "client_id" && section == "google_photos")            this->google_photos_client_id = val;
+        else if (key == "client_secret" && section == "google_photos")        this->google_photos_client_secret = val;
+        else if (key == "refresh_token" && section == "google_photos")        this->google_photos_refresh_token = val;
+        else if (key == "album_id" && section == "google_photos")             this->google_photos_album_id = val;
+        else if (key == "sync_interval_mins" && section == "google_photos")   this->google_photos_sync_interval = safe_stoi(val, this->google_photos_sync_interval);
+        else if (key == "cache_dir" && section == "google_photos")            this->google_photos_cache_dir = val;
         else if (key == "resolution") {
             auto comma = val.find(',');
             if (comma != std::string::npos) {
@@ -211,4 +218,170 @@ void Config::parse_args(int argc, char** argv) {
             i++;
         }
     }
+}
+
+bool Config::save(const std::string& path) {
+    std::ofstream f(path);
+    if (!f.is_open()) return false;
+
+    f << "# ==========================================\n";
+    f << "# piTrove Configuration File (v" << VERSION << ")\n";
+    f << "# ==========================================\n\n";
+
+    f << "[paths]\n";
+    f << "media_dir = \"" << this->media_dir << "\"\n";
+    f << "cache_dir = \"" << this->cache_dir << "\"\n";
+    f << "log_dir = \"" << this->log_dir << "\"\n";
+    f << "splash_file = \"" << this->splash_file << "\"\n\n";
+
+    f << "[display]\n";
+    f << "resolution = " << this->screen_w << "," << this->screen_h << "\n";
+    f << "fullscreen = " << (this->fullscreen ? "1" : "0") << "\n";
+    f << "rotation = " << this->rotation << "\n";
+    f << "slideshow_fps = " << this->slideshow_fps << "\n";
+    f << "splash_overlay_y = " << this->splash_overlay_y << "\n";
+    f << "auto_display_rotation = " << (this->auto_display_rotation ? "1" : "0") << "\n";
+    f << "border_enabled = " << (this->border_enabled ? "1" : "0") << "\n";
+    f << "border_width = " << this->border_width << "\n";
+    f << "vignette_enabled = " << (this->vignette_enabled ? "1" : "0") << "\n\n";
+
+    f << "[slideshow]\n";
+    f << "transition_delay = " << this->transition_delay << "\n";
+    f << "transition_duration = " << this->transition_duration << "\n";
+    f << "transition_effect = \"" << this->transition_effect << "\"\n";
+    f << "ken_burns = " << (this->ken_burns ? "1" : "0") << "\n";
+    f << "ken_burns_speed = " << this->ken_burns_speed << "\n";
+    f << "ken_burns_zoom = " << this->ken_burns_zoom << "\n";
+    f << "shuffle = " << (this->shuffle ? "1" : "0") << "\n";
+    f << "bias_lighting = " << (this->bias_lighting ? "1" : "0") << "\n";
+    f << "bias_anim_speed = " << this->bias_anim_speed << "\n";
+    f << "bias_anim_style = \"" << this->bias_anim_style << "\"\n";
+    f << "bias_color_mode = \"" << this->bias_color_mode << "\"\n";
+    f << "bias_strength = " << this->bias_strength << "\n";
+    f << "matting = " << (this->matting ? "1" : "0") << "\n";
+    f << "matting_size = " << this->matting_size << "\n";
+    f << "cooldown_days = " << this->cooldown_days << "\n";
+    f << "reset_cooldown_on_restart = " << (this->reset_cooldown_on_restart ? "1" : "0") << "\n";
+    f << "preload_capacity = " << this->preload_capacity << "\n";
+    f << "preload_workers = " << this->preload_workers << "\n";
+    f << "clock_enabled = " << (this->clock_enabled ? "1" : "0") << "\n";
+    f << "clock_x = " << this->clock_x << "\n";
+    f << "clock_y = " << this->clock_y << "\n";
+    f << "clock_font_size = " << this->clock_font_size << "\n";
+    f << "clock_color = \"" << this->clock_color << "\"\n";
+    f << "clock_24h = " << (this->clock_24h ? "1" : "0") << "\n\n";
+
+    f << "[scan]\n";
+    f << "recursive = " << (this->recursive ? "1" : "0") << "\n";
+    f << "depth = " << this->scan_depth << "\n";
+    f << "max_concurrent = " << this->max_concurrent << "\n";
+    f << "window_days = " << this->scan_window_days << "\n";
+    f << "ignore_folders = [";
+    for (size_t j = 0; j < this->ignore_folders.size(); j++)
+        f << "\"" << this->ignore_folders[j] << "\"" << (j < this->ignore_folders.size() - 1 ? ", " : "");
+    f << "]\n\n";
+
+    f << "[sqlite]\n";
+    f << "mmap_size = " << this->cache_mmap_size << "\n\n";
+
+    f << "[overlay]\n";
+    f << "timer_enabled = " << (this->timer_enabled ? "1" : "0") << "\n";
+    f << "timer_x = " << this->timer_x << "\n";
+    f << "timer_y = " << this->timer_y << "\n";
+    f << "timer_font_size = " << this->timer_font_size << "\n";
+    f << "timer_color = \"" << this->timer_color << "\"\n";
+    f << "filename_enabled = " << (this->filename_enabled ? "1" : "0") << "\n";
+    f << "filename_x = " << this->filename_x << "\n";
+    f << "filename_y = " << this->filename_y << "\n";
+    f << "count_enabled = " << (this->count_enabled ? "1" : "0") << "\n";
+    f << "count_x = " << this->count_x << "\n";
+    f << "count_y = " << this->count_y << "\n";
+    f << "videos_per_photos = " << this->videos_per_photos << "\n";
+    f << "play_just_photos = " << (this->play_just_photos ? "1" : "0") << "\n";
+    f << "play_just_videos = " << (this->play_just_videos ? "1" : "0") << "\n";
+    f << "show_people_faces = " << (this->show_people_faces ? "1" : "0") << "\n";
+    f << "keep_animals = " << (this->keep_animals ? "1" : "0") << "\n";
+    f << "sleep_time = " << (this->sleep_time.empty() ? "\"\"" : "\"" + this->sleep_time + "\"") << "\n";
+    f << "wake_time = " << (this->wake_time.empty() ? "\"\"" : "\"" + this->wake_time + "\"") << "\n";
+    f << "filename_font_size = " << this->filename_font_size << "\n";
+    f << "count_font_size = " << this->count_font_size << "\n";
+    f << "font_path = \"" << (this->font_path.empty() ? "auto" : this->font_path) << "\"\n\n";
+
+    f << "[video]\n";
+    f << "volume = " << this->video_volume << "\n";
+    f << "probe_timeout = " << this->video_probe_timeout << "\n";
+    f << "closed_captions_enabled = " << (this->closed_captions_enabled ? "1" : "0") << "\n";
+    f << "drm_connector = \"" << (this->drm_connector.empty() ? "auto" : this->drm_connector) << "\"\n";
+    f << "drm_card = \"" << (this->drm_card.empty() ? "auto" : this->drm_card) << "\"\n";
+    f << "video_audio_device = \"" << (this->video_audio_device.empty() ? "auto" : this->video_audio_device) << "\"\n";
+    f << "subtitles_dir = \"" << this->video_subtitles_dir << "\"\n";
+    f << "osd_offset_x = " << this->osd_offset_x << "\n";
+    f << "osd_offset_y = " << this->osd_offset_y << "\n";
+    f << "max_texture_dim = " << this->max_texture_dim << "\n";
+    f << "http_socket_timeout = " << this->http_socket_timeout << "\n";
+    f << "http_bind_attempts = " << this->http_bind_attempts << "\n\n";
+
+    f << "[dashboard]\n";
+    f << "weather_enabled = " << (this->weather_enabled ? "1" : "0") << "\n";
+    f << "weather_lat = " << this->weather_lat << "\n";
+    f << "weather_lon = " << this->weather_lon << "\n\n";
+
+    f << "[remote]\n";
+    f << "http_enabled = " << (this->http_enabled ? "1" : "0") << "\n";
+    f << "http_port = " << this->http_port << "\n";
+    f << "web_dashboard_enabled = " << (this->web_dashboard_enabled ? "1" : "0") << "\n\n";
+
+    f << "[features]\n";
+    f << "on_this_day_enabled = " << (this->on_this_day_enabled ? "1" : "0") << "\n";
+    f << "diagnostics_hud_enabled = " << (this->diagnostics_hud_enabled ? "1" : "0") << "\n";
+    f << "adaptive_text_enabled = " << (this->adaptive_text_enabled ? "1" : "0") << "\n";
+    f << "twin_portrait_enabled = " << (this->twin_portrait_enabled ? "1" : "0") << "\n\n";
+
+    f << "[date_overlay]\n";
+    f << "enabled = " << (this->date_overlay_enabled ? "1" : "0") << "\n";
+    f << "text = \"" << this->date_text << "\"\n";
+    f << "x = " << this->date_x << "\n";
+    f << "y = " << this->date_y << "\n";
+    f << "font_size = " << this->date_font_size << "\n";
+    f << "color = \"" << this->date_color << "\"\n\n";
+
+    f << "[brightness]\n";
+    f << "auto = " << (this->brightness_auto ? "1" : "0") << "\n";
+    f << "auto_min = " << this->brightness_auto_min << "\n";
+    f << "auto_max = " << this->brightness_auto_max << "\n\n";
+
+    f << "[touch]\n";
+    f << "enabled = " << (this->touch_enabled ? "1" : "0") << "\n\n";
+
+    f << "[collage]\n";
+    f << "enabled = " << (this->collage_enabled ? "1" : "0") << "\n";
+    f << "cols = " << this->collage_cols << "\n";
+    f << "rows = " << this->collage_rows << "\n\n";
+
+    f << "[log]\n";
+    f << "level = \"" << (this->verbose ? "debug" : "info") << "\"\n";
+    f << "log_keep_count = " << this->log_keep_count << "\n\n";
+
+    f << "[mqtt]\n";
+    f << "enabled = " << (this->mqtt_enabled ? "1" : "0") << "\n";
+    f << "broker = \"" << this->mqtt_broker << "\"\n";
+    f << "port = " << this->mqtt_port << "\n";
+    f << "user = \"" << this->mqtt_user << "\"\n";
+    f << "pass = \"" << this->mqtt_pass << "\"\n";
+    f << "topic_prefix = \"" << this->mqtt_topic_prefix << "\"\n";
+    f << "motionsensor_topic = \"" << this->mqtt_motionsensor_topic << "\"\n";
+    f << "motionsensor_cooldown = " << this->mqtt_motionsensor_cooldown << "\n\n";
+
+    f << "[google_photos]\n";
+    f << "enabled = " << (this->google_photos_enabled ? "1" : "0") << "\n";
+    f << "client_id = \"" << this->google_photos_client_id << "\"\n";
+    f << "client_secret = \"" << this->google_photos_client_secret << "\"\n";
+    f << "refresh_token = \"" << this->google_photos_refresh_token << "\"\n";
+    f << "album_id = \"" << this->google_photos_album_id << "\"\n";
+    f << "sync_interval_mins = " << this->google_photos_sync_interval << "\n";
+    f << "cache_dir = \"" << this->google_photos_cache_dir << "\"\n";
+
+    f.close();
+    g_config_changed.store(true);
+    return true;
 }
