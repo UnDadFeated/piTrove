@@ -120,4 +120,13 @@ topic_prefix = "piTrove"
 motionsensor_topic = "home/motionsensor"
 motionsensor_cooldown = 60
 
+[google_photos]
+enabled = 0
+client_id = ""
+client_secret = ""
+refresh_token = ""
+album_id = ""
+sync_interval_mins = 60
+cache_dir = "/app/cache/google_photos"
+
 

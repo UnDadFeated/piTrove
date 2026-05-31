@@ -68,6 +68,8 @@ set(PISTROVE_SOURCES
     util.cpp
     http_server.cpp
     mqtt.cpp
+    google_photos.cpp
+    error_db.cpp
 )
 
 # Optional: video player

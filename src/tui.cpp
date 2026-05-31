@@ -66,159 +66,7 @@ static void restore_termios() {
 
 void config_wizard(const std::string& config_path) {
     auto save_cfg = [&]() -> bool {
-        std::ofstream f(config_path);
-        if(!f.is_open()) return false;
-        f << "# ==========================================\n";
-        f << "# piTrove Configuration File (v" << VERSION << ")\n";
-        f << "# ==========================================\n\n";
-        
-        f << "[paths]\n";
-        f << "media_dir = \"" << g_cfg.media_dir << "\"\n";
-        f << "cache_dir = \"" << g_cfg.cache_dir << "\"\n";
-        f << "log_dir = \"" << g_cfg.log_dir << "\"\n";
-        f << "splash_file = \"" << g_cfg.splash_file << "\"\n\n";
-        
-        f << "[display]\n";
-        f << "resolution = " << g_cfg.screen_w << "," << g_cfg.screen_h << "\n";
-        f << "fullscreen = " << (g_cfg.fullscreen ? "1" : "0") << "\n";
-        f << "rotation = " << g_cfg.rotation << "\n";
-        f << "slideshow_fps = " << g_cfg.slideshow_fps << "\n";
-        f << "splash_overlay_y = " << g_cfg.splash_overlay_y << "\n";
-        f << "auto_display_rotation = " << (g_cfg.auto_display_rotation ? "1" : "0") << "\n";
-        f << "border_enabled = " << (g_cfg.border_enabled ? "1" : "0") << "\n";
-        f << "border_width = " << g_cfg.border_width << "\n";
-        f << "vignette_enabled = " << (g_cfg.vignette_enabled ? "1" : "0") << "\n\n";
-        
-        f << "[slideshow]\n";
-        f << "transition_delay = " << g_cfg.transition_delay << "\n";
-        f << "transition_duration = " << g_cfg.transition_duration << "\n";
-        f << "transition_effect = \"" << g_cfg.transition_effect << "\"\n";
-        f << "ken_burns = " << (g_cfg.ken_burns ? "1" : "0") << "\n";
-        f << "ken_burns_speed = " << g_cfg.ken_burns_speed << "\n";
-        f << "ken_burns_zoom = " << g_cfg.ken_burns_zoom << "\n";
-        f << "shuffle = " << (g_cfg.shuffle ? "1" : "0") << "\n";
-        f << "bias_lighting = " << (g_cfg.bias_lighting ? "1" : "0") << "\n";
-        f << "bias_anim_speed = " << g_cfg.bias_anim_speed << "\n";
-        f << "bias_anim_style = \"" << g_cfg.bias_anim_style << "\"\n";
-        f << "bias_color_mode = \"" << g_cfg.bias_color_mode << "\"\n";
-        f << "bias_strength = " << g_cfg.bias_strength << "\n";
-        f << "matting = " << (g_cfg.matting ? "1" : "0") << "\n";
-        f << "matting_size = " << g_cfg.matting_size << "\n";
-        f << "cooldown_days = " << g_cfg.cooldown_days << "\n";
-        f << "reset_cooldown_on_restart = " << (g_cfg.reset_cooldown_on_restart ? "1" : "0") << "\n";
-        f << "preload_capacity = " << g_cfg.preload_capacity << "\n";
-        f << "preload_workers = " << g_cfg.preload_workers << "\n";
-        f << "clock_enabled = " << (g_cfg.clock_enabled ? "1" : "0") << "\n";
-        f << "clock_x = " << g_cfg.clock_x << "\n";
-        f << "clock_y = " << g_cfg.clock_y << "\n";
-        f << "clock_font_size = " << g_cfg.clock_font_size << "\n";
-        f << "clock_color = \"" << g_cfg.clock_color << "\"\n";
-        f << "clock_24h = " << (g_cfg.clock_24h ? "1" : "0") << "\n\n";
-        
-        f << "[scan]\n";
-        f << "recursive = " << (g_cfg.recursive ? "1" : "0") << "\n";
-        f << "depth = " << g_cfg.scan_depth << "\n";
-        f << "max_concurrent = " << g_cfg.max_concurrent << "\n";
-        f << "window_days = " << g_cfg.scan_window_days << "\n";
-        f << "ignore_folders = [";
-        for (size_t j = 0; j < g_cfg.ignore_folders.size(); j++)
-            f << "\"" << g_cfg.ignore_folders[j] << "\"" << (j < g_cfg.ignore_folders.size() - 1 ? ", " : "");
-        f << "]\n\n";
-        
-        f << "[sqlite]\n";
-        f << "mmap_size = " << g_cfg.cache_mmap_size << "\n\n";
-        
-        f << "[overlay]\n";
-        f << "timer_enabled = " << (g_cfg.timer_enabled ? "1" : "0") << "\n";
-        f << "timer_x = " << g_cfg.timer_x << "\n";
-        f << "timer_y = " << g_cfg.timer_y << "\n";
-        f << "timer_font_size = " << g_cfg.timer_font_size << "\n";
-        f << "timer_color = \"" << g_cfg.timer_color << "\"\n";
-        f << "filename_enabled = " << (g_cfg.filename_enabled ? "1" : "0") << "\n";
-        f << "filename_x = " << g_cfg.filename_x << "\n";
-        f << "filename_y = " << g_cfg.filename_y << "\n";
-        f << "count_enabled = " << (g_cfg.count_enabled ? "1" : "0") << "\n";
-        f << "count_x = " << g_cfg.count_x << "\n";
-        f << "count_y = " << g_cfg.count_y << "\n";
-        f << "videos_per_photos = " << g_cfg.videos_per_photos << "\n";
-        f << "play_just_photos = " << (g_cfg.play_just_photos ? "1" : "0") << "\n";
-        f << "play_just_videos = " << (g_cfg.play_just_videos ? "1" : "0") << "\n";
-        f << "show_people_faces = " << (g_cfg.show_people_faces ? "1" : "0") << "\n";
-        f << "keep_animals = " << (g_cfg.keep_animals ? "1" : "0") << "\n";
-        f << "sleep_time = " << (g_cfg.sleep_time.empty() ? "\"\"" : "\"" + g_cfg.sleep_time + "\"") << "\n";
-        f << "wake_time = " << (g_cfg.wake_time.empty() ? "\"\"" : "\"" + g_cfg.wake_time + "\"") << "\n";
-        f << "filename_font_size = " << g_cfg.filename_font_size << "\n";
-        f << "count_font_size = " << g_cfg.count_font_size << "\n";
-        f << "font_path = \"" << (g_cfg.font_path.empty() ? "auto" : g_cfg.font_path) << "\"\n\n";
-        
-        f << "[video]\n";
-        f << "volume = " << g_cfg.video_volume << "\n";
-        f << "probe_timeout = " << g_cfg.video_probe_timeout << "\n";
-        f << "closed_captions_enabled = " << (g_cfg.closed_captions_enabled ? "1" : "0") << "\n";
-        f << "drm_connector = \"" << (g_cfg.drm_connector.empty() ? "auto" : g_cfg.drm_connector) << "\"\n";
-        f << "drm_card = \"" << (g_cfg.drm_card.empty() ? "auto" : g_cfg.drm_card) << "\"\n";
-        f << "video_audio_device = \"" << (g_cfg.video_audio_device.empty() ? "auto" : g_cfg.video_audio_device) << "\"\n";
-        f << "subtitles_dir = \"" << g_cfg.video_subtitles_dir << "\"\n";
-        f << "osd_offset_x = " << g_cfg.osd_offset_x << "\n";
-        f << "osd_offset_y = " << g_cfg.osd_offset_y << "\n";
-        f << "max_texture_dim = " << g_cfg.max_texture_dim << "\n";
-        f << "http_socket_timeout = " << g_cfg.http_socket_timeout << "\n";
-        f << "http_bind_attempts = " << g_cfg.http_bind_attempts << "\n\n";
-        
-        f << "[dashboard]\n";
-        f << "weather_enabled = " << (g_cfg.weather_enabled ? "1" : "0") << "\n";
-        f << "weather_lat = " << g_cfg.weather_lat << "\n";
-        f << "weather_lon = " << g_cfg.weather_lon << "\n\n";
-        
-        f << "[remote]\n";
-        f << "http_enabled = " << (g_cfg.http_enabled ? "1" : "0") << "\n";
-        f << "http_port = " << g_cfg.http_port << "\n";
-        f << "web_dashboard_enabled = " << (g_cfg.web_dashboard_enabled ? "1" : "0") << "\n\n";
-
-        f << "[features]\n";
-        f << "on_this_day_enabled = " << (g_cfg.on_this_day_enabled ? "1" : "0") << "\n";
-        f << "diagnostics_hud_enabled = " << (g_cfg.diagnostics_hud_enabled ? "1" : "0") << "\n";
-        f << "adaptive_text_enabled = " << (g_cfg.adaptive_text_enabled ? "1" : "0") << "\n";
-        f << "twin_portrait_enabled = " << (g_cfg.twin_portrait_enabled ? "1" : "0") << "\n\n";
-        
-        f << "[date_overlay]\n";
-        f << "enabled = " << (g_cfg.date_overlay_enabled ? "1" : "0") << "\n";
-        f << "text = \"" << g_cfg.date_text << "\"\n";
-        f << "x = " << g_cfg.date_x << "\n";
-        f << "y = " << g_cfg.date_y << "\n";
-        f << "font_size = " << g_cfg.date_font_size << "\n";
-        f << "color = \"" << g_cfg.date_color << "\"\n\n";
-        
-        f << "[brightness]\n";
-        f << "auto = " << (g_cfg.brightness_auto ? "1" : "0") << "\n";
-        f << "auto_min = " << g_cfg.brightness_auto_min << "\n";
-        f << "auto_max = " << g_cfg.brightness_auto_max << "\n\n";
-        
-        f << "[touch]\n";
-        f << "enabled = " << (g_cfg.touch_enabled ? "1" : "0") << "\n\n";
-        
-        f << "[collage]\n";
-        f << "enabled = " << (g_cfg.collage_enabled ? "1" : "0") << "\n";
-        f << "cols = " << g_cfg.collage_cols << "\n";
-        f << "rows = " << g_cfg.collage_rows << "\n\n";
-        
-        f << "[log]\n";
-        f << "level = \"" << (g_cfg.verbose ? "debug" : "info") << "\"\n";
-        f << "log_keep_count = " << g_cfg.log_keep_count << "\n\n";
-        
-        f << "[mqtt]\n";
-        f << "enabled = " << (g_cfg.mqtt_enabled ? "1" : "0") << "\n";
-        f << "broker = \"" << g_cfg.mqtt_broker << "\"\n";
-        f << "port = " << g_cfg.mqtt_port << "\n";
-        f << "user = \"" << g_cfg.mqtt_user << "\"\n";
-        f << "pass = \"" << g_cfg.mqtt_pass << "\"\n";
-        f << "topic_prefix = \"" << g_cfg.mqtt_topic_prefix << "\"\n";
-        f << "motionsensor_topic = \"" << g_cfg.mqtt_motionsensor_topic << "\"\n";
-        f << "motionsensor_cooldown = " << g_cfg.mqtt_motionsensor_cooldown << "\n";
-
-        f.close();
-        g_config_changed.store(true);
-        return true;
+        return g_cfg.save(config_path);
     };
 
     // ── TERMINAL SIZING ──
@@ -367,6 +215,15 @@ void config_wizard(const std::string& config_path) {
         {"Motion Topic", STR, "MQTT topic that transmits motion events"},
         {"Motion Cooldown", INT, "Screen off delay in seconds when no motion is detected"}
     };
+    static const CI CGP[] = {
+        {"GPhotos Enabled", TGL, "Enable Google Photos synchronization (0/1)"},
+        {"Client ID", STR, "OAuth 2.0 Client ID for Google Photos API"},
+        {"Client Secret", STR, "OAuth 2.0 Client Secret for Google Photos API"},
+        {"Refresh Token", STR, "OAuth 2.0 Refresh Token"},
+        {"Album ID", STR, "Specific Google Photos Album ID (blank for all)"},
+        {"Sync Interval", INT, "Sync interval in minutes (default 60)"},
+        {"Cache Folder", STR, "Storage path for synced cloud media"}
+    };
 
     struct CAT { const char* n; const CI* i; int c; };
     static const CAT CATS[] = {
@@ -379,7 +236,8 @@ void config_wizard(const std::string& config_path) {
         {"Weather", CH, sizeof(CH)/sizeof(CH[0])},
         {"Hardware", CF, sizeof(CF)/sizeof(CF[0])},
         {"Advanced", CI2, sizeof(CI2)/sizeof(CI2[0])},
-        {"MQTT", CMQ, sizeof(CMQ)/sizeof(CMQ[0])}
+        {"MQTT", CMQ, sizeof(CMQ)/sizeof(CMQ[0])},
+        {"GPhotos", CGP, sizeof(CGP)/sizeof(CGP[0])}
     };
 
     // ── DATA ACCESSORS ──
@@ -484,6 +342,15 @@ void config_wizard(const std::string& config_path) {
             case 5: return g_cfg.mqtt_topic_prefix;
             case 6: return g_cfg.mqtt_motionsensor_topic;
             case 7: return std::to_string(g_cfg.mqtt_motionsensor_cooldown);
+        }
+        if (c == 10) switch(i) {
+            case 0: return g_cfg.google_photos_enabled ? "[ON]" : "[OFF]";
+            case 1: return g_cfg.google_photos_client_id;
+            case 2: return g_cfg.google_photos_client_secret;
+            case 3: return g_cfg.google_photos_refresh_token;
+            case 4: return g_cfg.google_photos_album_id;
+            case 5: return std::to_string(g_cfg.google_photos_sync_interval);
+            case 6: return g_cfg.google_photos_cache_dir;
         }
         return "";
     };
@@ -608,6 +475,15 @@ void config_wizard(const std::string& config_path) {
                 case 6:g_cfg.mqtt_motionsensor_topic=v;break;
                 case 7:{ try { g_cfg.mqtt_motionsensor_cooldown=std::stoi(v); } catch(...) {} break; }
             }
+            else if(c==10) switch(i){
+                case 0:g_cfg.google_photos_enabled=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
+                case 1:g_cfg.google_photos_client_id=v;break;
+                case 2:g_cfg.google_photos_client_secret=v;break;
+                case 3:g_cfg.google_photos_refresh_token=v;break;
+                case 4:g_cfg.google_photos_album_id=v;break;
+                case 5:{ try { g_cfg.google_photos_sync_interval=std::stoi(v); } catch(...) {} break; }
+                case 6:g_cfg.google_photos_cache_dir=v;break;
+            }
         } catch(...) {}
     };
 
@@ -660,18 +536,18 @@ void config_wizard(const std::string& config_path) {
         if (cur_cols < 100 || cur_rows < 24) {
             int draw_cols = std::max(80, cur_cols);
             printf("\033[H\033[J");
-            printf("\033[1;31m╔"); for(int i=0; i<draw_cols-2; i++) printf("═"); printf("╗\033[0m\n");
-            printf("\033[1;31m║\033[0m  %-*s\033[1;31m║\033[0m\n", draw_cols-6, " [ TERMINAL WINDOW TOO SMALL ]");
-            printf("\033[1;31m║\033[0m  %-*s\033[1;31m║\033[0m\n", draw_cols-6, "");
-            printf("\033[1;31m║\033[0m  %-*s\033[1;31m║\033[0m\n", draw_cols-6, " Please stretch or expand your window until the TUI");
-            printf("\033[1;31m║\033[0m  %-*s\033[1;31m║\033[0m\n", draw_cols-6, " is clearly visible.");
-            printf("\033[1;31m║\033[0m  %-*s\033[1;31m║\033[0m\n", draw_cols-6, "");
+            printf("\033[1;31m+"); for(int i=0; i<draw_cols-2; i++) printf("-"); printf("+\033[0m\n");
+            printf("\033[1;31m|\033[0m  %-*s\033[1;31m|\033[0m\n", draw_cols-6, " [ TERMINAL WINDOW TOO SMALL ]");
+            printf("\033[1;31m|\033[0m  %-*s\033[1;31m|\033[0m\n", draw_cols-6, "");
+            printf("\033[1;31m|\033[0m  %-*s\033[1;31m|\033[0m\n", draw_cols-6, " Please stretch or expand your window until the TUI");
+            printf("\033[1;31m|\033[0m  %-*s\033[1;31m|\033[0m\n", draw_cols-6, " is clearly visible.");
+            printf("\033[1;31m|\033[0m  %-*s\033[1;31m|\033[0m\n", draw_cols-6, "");
             char sz_buf[128];
             snprintf(sz_buf, sizeof(sz_buf), " Current Terminal size:  %dx%d", cur_cols, cur_rows);
-            printf("\033[1;31m║\033[0m  %-*s\033[1;31m║\033[0m\n", draw_cols-6, sz_buf);
-            printf("\033[1;31m║\033[0m  %-*s\033[1;31m║\033[0m\n", draw_cols-6, " Minimum Required size:  100x24");
-            printf("\033[1;31m║\033[0m  %-*s\033[1;31m║\033[0m\n", draw_cols-6, "");
-            printf("\033[1;31m╚"); for(int i=0; i<draw_cols-2; i++) printf("═"); printf("╝\033[0m\n");
+            printf("\033[1;31m|\033[0m  %-*s\033[1;31m|\033[0m\n", draw_cols-6, sz_buf);
+            printf("\033[1;31m|\033[0m  %-*s\033[1;31m|\033[0m\n", draw_cols-6, " Minimum Required size:  100x24");
+            printf("\033[1;31m|\033[0m  %-*s\033[1;31m|\033[0m\n", draw_cols-6, "");
+            printf("\033[1;31m+"); for(int i=0; i<draw_cols-2; i++) printf("-"); printf("+\033[0m\n");
             fflush(stdout);
 
             struct pollfd pfd;
@@ -709,7 +585,7 @@ void config_wizard(const std::string& config_path) {
 
                 // Header
                 printf("\033[1;36m  piTrove Configuration Engine v%s\033[0m\n", VERSION);
-                printf("  \033[90m"); for(int i=0; i<tui_width-4; i++) printf("━"); printf("\033[0m\n\n");
+                printf("  \033[90m"); for(int i=0; i<tui_width-4; i++) printf("="); printf("\033[0m\n\n");
 
                 // Category bar
                 printf("  ");
@@ -721,7 +597,7 @@ void config_wizard(const std::string& config_path) {
 
                 // Column headers
                 printf("  \033[1;36m%-*s %-*s %-*s\033[0m\n", name_w, "Setting", val_w, "Value", desc_w, "Description");
-                printf("  \033[90m"); for(int i=0; i<tui_width-4; i++) printf("─"); printf("\033[0m\n");
+                printf("  \033[90m"); for(int i=0; i<tui_width-4; i++) printf("-"); printf("\033[0m\n");
 
                 dirty_from = 0; dirty_to = 0;
                 dirty_full = false;
@@ -733,7 +609,7 @@ void config_wizard(const std::string& config_path) {
 
                 if (dirty_from <= ROW_CAT_BAR && dirty_to >= ROW_CAT_BAR) {
                     printf("\033[1;36m  piTrove Configuration Engine v%s\033[0m\n", VERSION);
-                    printf("  \033[90m"); for(int i=0; i<tui_width-4; i++) printf("━"); printf("\033[0m\n\n");
+                    printf("  \033[90m"); for(int i=0; i<tui_width-4; i++) printf("="); printf("\033[0m\n\n");
                     printf("  ");
                     for(int i=0; i<(int)(sizeof(CATS)/sizeof(CATS[0])); i++) {
                         if(i==sel) printf("\033[7;33m %s \033[0m  ", CATS[i].n);
@@ -746,7 +622,7 @@ void config_wizard(const std::string& config_path) {
 
                 if (dirty_from <= ROW_COLHDR && dirty_to >= ROW_COLHDR) {
                     printf("  \033[1;36m%-*s %-*s %-*s\033[0m\n", name_w, "Setting", val_w, "Value", desc_w, "Description");
-                    printf("  \033[90m"); for(int i=0; i<tui_width-4; i++) printf("─"); printf("\033[0m\n");
+                    printf("  \033[90m"); for(int i=0; i<tui_width-4; i++) printf("-"); printf("\033[0m\n");
                     y += 2;
                     printf("\033[%d;1H", y);
                 }
@@ -781,14 +657,14 @@ void config_wizard(const std::string& config_path) {
             int footer_row = ROW_ROW0 + std::min(CATS[sel].c, 15) + 2;
             printf("\033[%d;1H\n  \033[90m", footer_row);
             for (int i = 0; i < tui_width - 4; i++) {
-                printf("─");
+                printf("-");
             }
             printf("\033[0m\n");
 
             if(!edit_mode)
-                printf("  \033[1;37m[\xE2\x86\x91\xE2\x86\x93]\033[0m Select    \033[1;37m[\xE2\x86\x90\xE2\x86\x92]\033[0m Category    \033[1;37m[SPACE/ENTER]\033[0m Toggle/Edit    \033[1;32m[S]\033[0m Save    \033[1;31m[Q]\033[0m Quit\n");
+                printf("  \033[1;37m[^/v]\033[0m Select    \033[1;37m[</>]\033[0m Category    \033[1;37m[SPACE/ENTER]\033[0m Toggle/Edit    \033[1;32m[S]\033[0m Save    \033[1;31m[Q]\033[0m Quit\n");
             else
-                printf("  \033[1;32m[ENTER]\033[0m Confirm   \033[1;31m[ESC]\033[0m Cancel      \033[1;37m[\xE2\x86\x91\xE2\x86\x93]\033[0m Cycle Options\n");
+                printf("  \033[1;32m[ENTER]\033[0m Confirm   \033[1;31m[ESC]\033[0m Cancel      \033[1;37m[^/v]\033[0m Cycle Options\n");
 
             // Message flash (non-blocking)
             if (msg_buf.active) {
