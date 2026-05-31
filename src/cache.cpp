@@ -26,7 +26,7 @@ bool CacheManager::open(const std::string& dir) {
     int flags = SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_FULLMUTEX;
     if (sqlite3_open_v2(path.c_str(), &db, flags, nullptr) != SQLITE_OK) {
         if (db) { sqlite3_close(db); db = nullptr; }
-        g_active_error_code.store(413); // E413: SQLITE_OPEN_FAILED
+        trigger_error(413); // E413: SQLITE_OPEN_FAILED
         return false;
     }
     sqlite3_busy_timeout(db, 5000);
@@ -37,8 +37,7 @@ bool CacheManager::open(const std::string& dir) {
         if (sqlite3_step(stmt) == SQLITE_ROW) {
             const char* result = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0));
             if (result && std::string(result) != "ok") {
-                g_logger.error("SQLite integrity check failed (%s). Purging corrupted cache...", result);
-                g_active_error_code.store(401); // E401: SQLITE_DB_CORRUPTED
+                trigger_error(401); // E401: SQLITE_DB_CORRUPTED
                 sqlite3_finalize(stmt);
                 stmt = nullptr;
                 sqlite3_close(db);
@@ -50,7 +49,7 @@ bool CacheManager::open(const std::string& dir) {
                 std::remove(shm.c_str());
                 if (sqlite3_open_v2(path.c_str(), &db, flags, nullptr) != SQLITE_OK) {
                     if (db) { sqlite3_close(db); db = nullptr; }
-                    g_active_error_code.store(413); // E413: SQLITE_OPEN_FAILED
+                    trigger_error(413); // E413: SQLITE_OPEN_FAILED
                     return false;
                 }
                 sqlite3_busy_timeout(db, 5000);
@@ -63,8 +62,7 @@ bool CacheManager::open(const std::string& dir) {
 
     char* err = nullptr;
     if (sqlite3_exec(db, "PRAGMA journal_mode=WAL;", nullptr, nullptr, &err) != SQLITE_OK) {
-        g_logger.warn("Failed to set WAL mode: %s", err ? err : "unknown");
-        g_active_error_code.store(406); // E406: SQLITE_JOURNAL_MODE_ERROR
+        trigger_error(406); // E406: SQLITE_JOURNAL_MODE_ERROR
         if (err) sqlite3_free(err);
     }
     if (sqlite3_exec(db, "PRAGMA synchronous=NORMAL;", nullptr, nullptr, &err) != SQLITE_OK) {
@@ -88,8 +86,7 @@ bool CacheManager::open(const std::string& dir) {
         "path TEXT PRIMARY KEY, type TEXT, w INT, h INT, duration REAL, "
         "exif INT, bad INT DEFAULT 0, last_shown INTEGER DEFAULT 0, timestamp INTEGER DEFAULT 0, is_camera INT DEFAULT -1"
         ")", nullptr, nullptr, &err) != SQLITE_OK) {
-        g_logger.error("Failed to create cache table: %s", err ? err : "unknown");
-        g_active_error_code.store(407); // E407: SQLITE_MIGRATION_FAILED
+        trigger_error(407); // E407: SQLITE_MIGRATION_FAILED
         if (err) sqlite3_free(err);
         close();
         return false;
@@ -121,8 +118,7 @@ bool CacheManager::open(const std::string& dir) {
         "duration=excluded.duration, bad=excluded.bad, "
         "last_shown=excluded.last_shown, timestamp=excluded.timestamp, is_camera=excluded.is_camera",
         -1, &stmt_upsert, nullptr) != SQLITE_OK) {
-        g_logger.error("Failed to prepare upsert statement.");
-        g_active_error_code.store(410); // E410: SQLITE_PREPARE_STMT_FAIL
+        trigger_error(410); // E410: SQLITE_PREPARE_STMT_FAIL
         close();
         return false;
     }

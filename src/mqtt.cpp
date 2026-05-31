@@ -225,8 +225,7 @@ void start_mqtt_client() {
         
         FILE* fp = popen(cmd.c_str(), "r");
         if (!fp) {
-            g_logger.error("Failed to start MQTT subscriber popen");
-            g_active_error_code.store(701); // E701: MQTT_BROKER_UNREACHABLE
+            trigger_error(701); // E701: MQTT_BROKER_UNREACHABLE
             return;
         }
         
@@ -237,7 +236,7 @@ void start_mqtt_client() {
 
         // Clear active MQTT connection error upon successful popen startup
         if (g_active_error_code.load() == 701) {
-            g_active_error_code.store(0);
+            trigger_error(0);
         }
 
         // Publish Home Assistant auto-discovery configs
