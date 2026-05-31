@@ -29,6 +29,33 @@ std::atomic<bool> g_offline_mode{false};
 std::atomic<int> g_active_error_code{0};
 std::string g_crash_cache_dir = "";
 
+void Logger::log_error_code(int code_num) {
+    if (code_num == 0) {
+        info("SYSTEM ERROR: Cleared active diagnostic code.");
+        return;
+    }
+
+    char buf[16];
+    snprintf(buf, sizeof(buf), "E%d", code_num);
+    std::string code_str = buf;
+
+    std::string title = "UNKNOWN_ERROR";
+    std::string desc = "An undocumented system diagnostic error occurred.";
+    std::string rec = "Please inspect config settings or reboot the frame.";
+
+    if (g_cache) {
+        g_cache->get_error_details(code_str, title, desc, rec);
+    }
+
+    error("SYSTEM ERROR [%s] - %s: %s (RECOVERY: %s)", 
+          code_str.c_str(), title.c_str(), desc.c_str(), rec.c_str());
+}
+
+void trigger_error(int code_num) {
+    g_active_error_code.store(code_num);
+    g_logger.log_error_code(code_num);
+}
+
 Logger g_logger;
 
 // Math, string parsing, and files helpers

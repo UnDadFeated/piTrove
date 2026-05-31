@@ -11,7 +11,10 @@ std::mutex g_config_mtx;
 
 bool Config::load(const std::string& path) {
     std::ifstream f(path);
-    if (!f.is_open()) return false;
+    if (!f.is_open()) {
+        g_active_error_code.store(802); // E802: CONFIG_SECTION_MISSING
+        return false;
+    }
 
     std::string section;
     std::string line;

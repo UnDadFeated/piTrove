@@ -1,7 +1,7 @@
 #ifndef PITROVE_UTIL_H
 #define PITROVE_UTIL_H
 
-#define VERSION "11.7.2"
+#define VERSION "11.7.4"
 #define APP_NAME "piTrove"
 
 #include <atomic>
@@ -26,6 +26,7 @@ extern std::atomic<int64_t> g_last_motion_time;
 extern std::atomic<int> g_consecutive_failures;
 extern std::atomic<bool> g_offline_mode;
 extern std::atomic<int> g_active_error_code;
+void trigger_error(int code_num);
 
 extern std::atomic<bool> g_database_complete;
 extern std::string g_crash_cache_dir;
@@ -60,6 +61,7 @@ struct Logger {
     void warn(const char* fmt, ...);
     void error(const char* fmt, ...);
     void debug(const char* fmt, ...);
+    void log_error_code(int code_num);
     bool is_initialized() const { return initialized; }
 
     Logger() = default;
