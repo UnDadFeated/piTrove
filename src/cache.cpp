@@ -2,6 +2,7 @@
 #include "config.h"
 #include "util.h"
 #include "image_loader.h"
+#include "error_db.h"
 #include <filesystem>
 #include <algorithm>
 #include <cstring>
@@ -306,30 +307,16 @@ void CacheManager::seed_error_catalog() {
         return;
     }
 
-    struct ErrSeed {
-        const char* code;
-        const char* title;
-        const char* desc;
-        const char* rec;
-    };
-
-    std::vector<ErrSeed> seeds = {
-        {"E101", "NAS_MOUNT_FAILED", "The network storage mount at /app/media is empty, inaccessible, or failed to mount.", "Ensure your NAS is online, credentials in nas.cred are correct, and fstab is re-applied."},
-        {"E102", "WIFI_DISCONNECTED", "No active network interfaces are detected, or the target gateway is unreachable.", "Check your Wi-Fi settings in NetworkManager, physical router power, or network cables."},
-        {"E201", "IMAGE_LOAD_ERROR", "The media loader encountered a fatal error while trying to decode an image.", "Verify that the file is not corrupted and its image format is fully supported by SDL3/stb."},
-        {"E202", "VIDEO_PLAYER_CRASH", "The mpv video player exited abnormally with a critical playback failure.", "Check if the video encoding is supported, or if subtitles files are malformed/incomplete."},
-        {"E301", "GOOGLE_PHOTOS_SYNC_FAILED", "The Google Photos synchronizer failed to authenticate or sync cloud media.", "Verify your internet connection and ensure your OAuth Client ID/Secret and Refresh Token are correct."},
-        {"E401", "SQLITE_DB_CORRUPTED", "The SQLite cache database encountered a disk I/O failure or structural corruption.", "Ensure the filesystem is not full and write permissions are correct, or delete cache.db to rebuild."}
-    };
+    auto seeds = get_all_error_seeds();
 
     for (const auto& seed : seeds) {
         sqlite3_stmt* stmt = nullptr;
         const char* sql = "INSERT OR REPLACE INTO error_catalog (code, title, description, recovery) VALUES (?, ?, ?, ?);";
         if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) == SQLITE_OK) {
-            sqlite3_bind_text(stmt, 1, seed.code, -1, SQLITE_STATIC);
-            sqlite3_bind_text(stmt, 2, seed.title, -1, SQLITE_STATIC);
-            sqlite3_bind_text(stmt, 3, seed.desc, -1, SQLITE_STATIC);
-            sqlite3_bind_text(stmt, 4, seed.rec, -1, SQLITE_STATIC);
+            sqlite3_bind_text(stmt, 1, seed.code.c_str(), -1, SQLITE_TRANSIENT);
+            sqlite3_bind_text(stmt, 2, seed.title.c_str(), -1, SQLITE_TRANSIENT);
+            sqlite3_bind_text(stmt, 3, seed.desc.c_str(), -1, SQLITE_TRANSIENT);
+            sqlite3_bind_text(stmt, 4, seed.rec.c_str(), -1, SQLITE_TRANSIENT);
             sqlite3_step(stmt);
             sqlite3_finalize(stmt);
         }
