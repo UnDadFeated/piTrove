@@ -1,3 +1,9 @@
+## v11.7.4 — Centralized Alphanumeric Diagnostic Logging (June 1, 2026)
+
+### Added
+- **Centralized Diagnostic Logging Subsystem** — Engineered a unified `trigger_error(CODE)` function that serves as the single source of truth for application diagnostics. Setting an active error code now automatically queries the C++ error database to log the formal error title, user-visible description, and troubleshooting recovery steps to the logs.
+- **Subsystem Cleanup** — Removed duplicate redundant hardcoded warning strings, error logs, and duplicate output statements across the entire codebase (including the database caching engine, MQTT daemon, font rendering layer, remote control server, image loaders, video player routines, and Google Photos synchronizer), drastically reducing code complexity and footprint.
+
 ## v11.7.3 — Dynamic Deep Diagnostic Code Integration (June 1, 2026)
 
 ### Added

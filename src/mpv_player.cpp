@@ -243,7 +243,7 @@ bool MpvPlayer::play(const std::string& path, int volume) {
         active.store(true);
         g_logger.info("VIDEO_PLAY: Spawned child process mpv (pid=%d) for path=%s", pid, path.c_str());
         if (g_active_error_code.load() == 202) {
-            g_active_error_code.store(0);
+            trigger_error(0);
         }
         return true;
     }
@@ -323,12 +323,11 @@ bool MpvPlayer::check_status(bool reclaim_drm_on_eof) {
         g_logger.info("VIDEO_EOF: mpv (pid=%d) finished playback (status=%d)", result, exit_code);
 
         if ((exit_code > 0 && exit_code != 0) || (is_signaled && term_sig != 15 && term_sig != 9)) {
-            g_logger.error("mpv crash detected. Exit code: %d, signal: %d", exit_code, term_sig);
-            g_active_error_code.store(202); // E202
+            trigger_error(202); // E202: VIDEO_PLAYER_CRASH
         } else {
             // Success or expected termination, clear E202
             if (g_active_error_code.load() == 202) {
-                g_active_error_code.store(0);
+                trigger_error(0);
             }
         }
 

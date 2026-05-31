@@ -51,8 +51,7 @@ FontHandle& FontRenderer::load_font(const std::string& path, int size) {
 
     TTF_Font* font = TTF_OpenFont(path.c_str(), size);
     if (!font) {
-        g_logger.error("TTF_OpenFont failed for '%s' (size=%d): %s", path.c_str(), size, SDL_GetError());
-        g_active_error_code.store(204); // E204: MISSING_FONT_FILES
+        trigger_error(204); // E204: MISSING_FONT_FILES
         throw std::runtime_error("Font load failed");
     }
 
@@ -63,7 +62,7 @@ FontHandle& FontRenderer::load_font(const std::string& path, int size) {
     fonts[key] = handle;
 
     if (g_active_error_code.load() == 204) {
-        g_active_error_code.store(0);
+        trigger_error(0);
     }
 
     g_logger.debug("Successfully loaded font: %s", key.c_str());
