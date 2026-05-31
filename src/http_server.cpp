@@ -1486,6 +1486,7 @@ static void server_loop(int port) {
 
     if (!bound) {
         g_logger.error("HTTP: Failed to bind to any port after %d attempts starting from %d.", max_attempts, port);
+        g_active_error_code.store(104); // E104: PORT_BIND_CONFLICT
         return;
     }
 

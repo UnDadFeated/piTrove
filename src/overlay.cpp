@@ -481,16 +481,13 @@ void OverlayManager::draw_all(int current_idx, int total_items, const MediaItem*
             code_num = 101;
         }
 
-        std::string code_str = "E101";
-        if (code_num == 102) code_str = "E102";
-        else if (code_num == 201) code_str = "E201";
-        else if (code_num == 202) code_str = "E202";
-        else if (code_num == 301) code_str = "E301";
-        else if (code_num == 401) code_str = "E401";
+        char buf[16];
+        snprintf(buf, sizeof(buf), "E%d", code_num);
+        std::string code_str = buf;
 
-        std::string title = "NAS_MOUNT_FAILED";
-        std::string desc = "The network storage mount at /app/media is empty or inaccessible.";
-        std::string rec = "Ensure your NAS is online and credentials in nas.cred are correct.";
+        std::string title = "SYSTEM_DIAGNOSTICS_WARNING";
+        std::string desc = "An internal diagnostic error occurred.";
+        std::string rec = "Please inspect config settings or reboot the frame.";
 
         if (g_cache) {
             g_cache->get_error_details(code_str, title, desc, rec);
