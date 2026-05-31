@@ -91,6 +91,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libstb-dev \
     mosquitto-clients \
     ca-certificates \
+    curl \
     && rm -rf /var/lib/apt/lists/*
 
 # Establish runtime directory tree

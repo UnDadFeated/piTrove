@@ -2,6 +2,7 @@
 #include "config.h"
 #include "util.h"
 #include "image_loader.h"
+#include "error_db.h"
 #include <filesystem>
 #include <algorithm>
 #include <cstring>
@@ -135,6 +136,8 @@ bool CacheManager::open(const std::string& dir) {
         close();
         return false;
     }
+
+    seed_error_catalog();
 
     return true;
 }
@@ -288,4 +291,58 @@ bool verify_database(const std::string& path) {
     }
     sqlite3_close(db);
     return ok;
+}
+
+void CacheManager::seed_error_catalog() {
+    if (!db) return;
+    std::lock_guard<std::mutex> lk(db_mutex);
+
+    char* err = nullptr;
+    if (sqlite3_exec(db,
+        "CREATE TABLE IF NOT EXISTS error_catalog ("
+        "code TEXT PRIMARY KEY, title TEXT, description TEXT, recovery TEXT"
+        ");", nullptr, nullptr, &err) != SQLITE_OK) {
+        g_logger.error("Failed to create error_catalog table: %s", err ? err : "unknown");
+        if (err) sqlite3_free(err);
+        return;
+    }
+
+    auto seeds = get_all_error_seeds();
+
+    for (const auto& seed : seeds) {
+        sqlite3_stmt* stmt = nullptr;
+        const char* sql = "INSERT OR REPLACE INTO error_catalog (code, title, description, recovery) VALUES (?, ?, ?, ?);";
+        if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) == SQLITE_OK) {
+            sqlite3_bind_text(stmt, 1, seed.code.c_str(), -1, SQLITE_TRANSIENT);
+            sqlite3_bind_text(stmt, 2, seed.title.c_str(), -1, SQLITE_TRANSIENT);
+            sqlite3_bind_text(stmt, 3, seed.desc.c_str(), -1, SQLITE_TRANSIENT);
+            sqlite3_bind_text(stmt, 4, seed.rec.c_str(), -1, SQLITE_TRANSIENT);
+            sqlite3_step(stmt);
+            sqlite3_finalize(stmt);
+        }
+    }
+}
+
+bool CacheManager::get_error_details(const std::string& code, std::string& title, std::string& desc, std::string& recovery) {
+    if (!db) return false;
+    std::lock_guard<std::mutex> lk(db_mutex);
+
+    sqlite3_stmt* stmt = nullptr;
+    const char* sql = "SELECT title, description, recovery FROM error_catalog WHERE code = ?;";
+    bool found = false;
+
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) == SQLITE_OK) {
+        sqlite3_bind_text(stmt, 1, code.c_str(), -1, SQLITE_STATIC);
+        if (sqlite3_step(stmt) == SQLITE_ROW) {
+            const char* t = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0));
+            const char* d = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1));
+            const char* r = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 2));
+            if (t) title = t;
+            if (d) desc = d;
+            if (r) recovery = r;
+            found = true;
+        }
+        sqlite3_finalize(stmt);
+    }
+    return found;
 }

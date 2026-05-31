@@ -3,6 +3,7 @@
 #include "util.h"
 #include "config.h"
 #include "mqtt.h"
+#include "google_photos.h"
 #include <iostream>
 #include <sstream>
 #include <vector>
@@ -57,6 +58,431 @@ static void spawn_tracked_thread(std::function<void()> func) {
         }
     }
     g_http_client_threads.push_back({std::move(t), finished});
+}
+
+static std::string execute_curl(const std::string& cmd) {
+    std::shared_ptr<FILE> pipe(popen((cmd + " 2>/dev/null").c_str(), "r"), pclose);
+    if (!pipe) return "";
+    char buffer[4096];
+    std::string result = "";
+    while (!feof(pipe.get())) {
+        if (fgets(buffer, sizeof(buffer), pipe.get()) != nullptr) {
+            result += buffer;
+        }
+    }
+    return result;
+}
+
+static std::string parse_json_value(const std::string& json, const std::string& key) {
+    size_t key_pos = json.find("\"" + key + "\"");
+    if (key_pos == std::string::npos) return "";
+    size_t colon_pos = json.find(":", key_pos);
+    if (colon_pos == std::string::npos) return "";
+    size_t quote_start = json.find("\"", colon_pos);
+    if (quote_start == std::string::npos) return "";
+    size_t quote_end = json.find("\"", quote_start + 1);
+    if (quote_end == std::string::npos) return "";
+    return json.substr(quote_start + 1, quote_end - quote_start - 1);
+}
+
+static std::string get_query_param(const std::string& request, const std::string& key) {
+    size_t pos = request.find(key + "=");
+    if (pos == std::string::npos) return "";
+    pos += key.length() + 1;
+    size_t end = request.find_first_of(" &\r\n", pos);
+    if (end == std::string::npos) return request.substr(pos);
+    
+    // Simple URL decoding
+    std::string val = request.substr(pos, end - pos);
+    std::string dec = "";
+    for (size_t i = 0; i < val.length(); i++) {
+        if (val[i] == '%' && i + 2 < val.length()) {
+            char hex[3] = { val[i+1], val[i+2], '\0' };
+            dec += (char)std::strtol(hex, nullptr, 16);
+            i += 2;
+        } else if (val[i] == '+') {
+            dec += ' ';
+        } else {
+            dec += val[i];
+        }
+    }
+    return dec;
+}
+
+static std::string get_host_header(const std::string& request) {
+    size_t pos = request.find("Host: ");
+    if (pos == std::string::npos) return "192.168.4.110:8080";
+    pos += 6;
+    size_t end = request.find_first_of("\r\n", pos);
+    if (end == std::string::npos) return "192.168.4.110:8080";
+    return request.substr(pos, end - pos);
+}
+
+static std::string get_setup_html(const std::string& redirect_uri) {
+    std::string html = R"HTML(
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>piTrove - Google Photos Setup</title>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&family=JetBrains+Mono&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-grad: linear-gradient(135deg, #09090b 0%, #1e0b36 50%, #03001e 100%);
+            --accent: #d946ef;
+            --accent-glow: rgba(217, 70, 239, 0.4);
+            --neon-blue: #06b6d4;
+            --card-bg: rgba(255, 255, 255, 0.03);
+            --card-border: rgba(255, 255, 255, 0.08);
+            --glass-blur: blur(20px);
+            --text-main: #f8fafc;
+            --text-muted: #94a3b8;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: 'Outfit', sans-serif;
+            background: var(--bg-grad);
+            background-attachment: fixed;
+            color: var(--text-main);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 2rem 1rem;
+        }
+        .card {
+            width: 100%;
+            max-width: 550px;
+            background: var(--card-bg);
+            border: 1px solid var(--card-border);
+            backdrop-filter: var(--glass-blur);
+            -webkit-backdrop-filter: var(--glass-blur);
+            border-radius: 24px;
+            padding: 2.5rem;
+            box-shadow: 0 16px 40px 0 rgba(0, 0, 0, 0.45);
+            position: relative;
+            overflow: hidden;
+        }
+        .card::before {
+            content: '';
+            position: absolute;
+            top: 0; left: 0; right: 0; height: 4px;
+            background: linear-gradient(90deg, var(--accent), var(--neon-blue));
+        }
+        h2 { font-weight: 800; font-size: 2rem; margin-bottom: 0.5rem; text-align: center; }
+        .subtitle { font-size: 0.9rem; color: var(--text-muted); text-align: center; margin-bottom: 2rem; }
+        .step {
+            background: rgba(255, 255, 255, 0.02);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            border-radius: 12px;
+            padding: 1rem;
+            margin-bottom: 1.5rem;
+            font-size: 0.9rem;
+            line-height: 1.4;
+        }
+        .step code {
+            font-family: 'JetBrains Mono', monospace;
+            background: rgba(0,0,0,0.3);
+            padding: 0.2rem 0.4rem;
+            border-radius: 4px;
+            color: var(--neon-blue);
+            font-size: 0.85rem;
+        }
+        .form-group {
+            margin-bottom: 1.25rem;
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+        label { font-weight: 600; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 1px; color: var(--text-muted); }
+        input[type="text"] {
+            background: rgba(0, 0, 0, 0.25);
+            border: 1px solid var(--card-border);
+            border-radius: 12px;
+            padding: 0.8rem 1rem;
+            color: var(--text-main);
+            font-family: inherit;
+            font-size: 0.95rem;
+            transition: all 0.3s ease;
+        }
+        input[type="text"]:focus {
+            outline: none;
+            border-color: var(--accent);
+            box-shadow: 0 0 10px var(--accent-glow);
+        }
+        button {
+            width: 100%;
+            background: linear-gradient(90deg, var(--accent), var(--neon-blue));
+            border: none;
+            border-radius: 12px;
+            padding: 1rem;
+            color: white;
+            font-family: inherit;
+            font-size: 1rem;
+            font-weight: 800;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 15px rgba(217, 70, 239, 0.3);
+            margin-top: 1rem;
+        }
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(217, 70, 239, 0.5);
+        }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <h2>Google Photos Link</h2>
+        <p class="subtitle">Step 1: Obtain Google Photos OAuth 2.0 Credentials</p>
+        
+        <div class="step">
+            1. Go to the <a href="https://console.cloud.google.com/" target="_blank" style="color:var(--accent); text-decoration:none; font-weight:600;">Google Cloud Console</a>.<br>
+            2. Create a Project, enable the <strong>Google Photos Library API</strong>.<br>
+            3. Set up OAuth Consent Screen, and create <strong>OAuth Client ID</strong> credentials for Web Application.<br>
+            4. In "Authorized redirect URIs", add exactly:<br>
+            <code style="display:block; margin-top:0.4rem; padding: 0.5rem; text-align:center;">redirect_uri</code>
+        </div>
+
+        <form action="/google_photos_setup" method="GET">
+            <div class="form-group" style="display:none;">
+                <input type="text" name="action" value="submit">
+            </div>
+            <div class="form-group">
+                <label for="client_id">OAuth Client ID</label>
+                <input type="text" id="client_id" name="client_id" placeholder="Paste Client ID here" required>
+            </div>
+            
+            <div class="form-group">
+                <label for="client_secret">OAuth Client Secret</label>
+                <input type="text" id="client_secret" name="client_secret" placeholder="Paste Client Secret here" required>
+            </div>
+            
+            <button type="submit">Configure & Authenticate</button>
+        </form>
+    </div>
+</body>
+</html>
+)HTML";
+    
+    // Replace redirect_uri
+    size_t r_pos = html.find("redirect_uri");
+    if (r_pos != std::string::npos) {
+        html.replace(r_pos, 12, redirect_uri);
+    }
+    return html;
+}
+
+static std::string get_success_html() {
+    std::string html = R"HTML(
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>piTrove - Integration Successful</title>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-grad: linear-gradient(135deg, #09090b 0%, #1e0b36 50%, #03001e 100%);
+            --accent: #22c55e;
+            --accent-glow: rgba(34, 197, 94, 0.4);
+            --neon-blue: #06b6d4;
+            --card-bg: rgba(255, 255, 255, 0.03);
+            --card-border: rgba(255, 255, 255, 0.08);
+            --glass-blur: blur(20px);
+            --text-main: #f8fafc;
+            --text-muted: #94a3b8;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: 'Outfit', sans-serif;
+            background: var(--bg-grad);
+            background-attachment: fixed;
+            color: var(--text-main);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 2rem 1rem;
+        }
+        .card {
+            width: 100%;
+            max-width: 500px;
+            background: var(--card-bg);
+            border: 1px solid var(--card-border);
+            backdrop-filter: var(--glass-blur);
+            -webkit-backdrop-filter: var(--glass-blur);
+            border-radius: 24px;
+            padding: 2.5rem;
+            box-shadow: 0 16px 40px 0 rgba(0, 0, 0, 0.45);
+            text-align: center;
+            position: relative;
+            overflow: hidden;
+        }
+        .card::before {
+            content: '';
+            position: absolute;
+            top: 0; left: 0; right: 0; height: 4px;
+            background: linear-gradient(90deg, var(--accent), var(--neon-blue));
+        }
+        .success-icon {
+            width: 80px; height: 80px;
+            background: rgba(34, 197, 94, 0.1);
+            border: 2px solid var(--accent);
+            border-radius: 50%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            margin: 0 auto 1.5rem;
+            color: var(--accent);
+            font-size: 2.5rem;
+            box-shadow: 0 0 20px var(--accent-glow);
+        }
+        h2 { font-weight: 800; font-size: 1.8rem; margin-bottom: 0.5rem; }
+        p { font-size: 1rem; color: var(--text-muted); line-height: 1.5; margin-bottom: 2rem; }
+        .btn {
+            display: inline-block;
+            background: linear-gradient(90deg, var(--accent), var(--neon-blue));
+            border: none;
+            border-radius: 12px;
+            padding: 0.9rem 2rem;
+            color: white;
+            font-family: inherit;
+            font-size: 0.95rem;
+            font-weight: 800;
+            text-transform: uppercase;
+            text-decoration: none;
+            letter-spacing: 1px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 15px rgba(34, 197, 94, 0.3);
+        }
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(34, 197, 94, 0.5);
+        }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <div class="success-icon">✓</div>
+        <h2>Integration Successful!</h2>
+        <p>piTrove has successfully authenticated with your Google Photos account. Cloud media synchronization is now active and will download images in the background.</p>
+        <a href="/" class="btn">Go to Dashboard</a>
+    </div>
+</body>
+</html>
+)HTML";
+    return html;
+}
+
+static std::string get_error_html(const std::string& message) {
+    std::string html = R"HTML(
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>piTrove - Integration Error</title>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-grad: linear-gradient(135deg, #09090b 0%, #1e0b36 50%, #03001e 100%);
+            --accent: #ef4444;
+            --accent-glow: rgba(239, 68, 68, 0.4);
+            --neon-blue: #06b6d4;
+            --card-bg: rgba(255, 255, 255, 0.03);
+            --card-border: rgba(255, 255, 255, 0.08);
+            --glass-blur: blur(20px);
+            --text-main: #f8fafc;
+            --text-muted: #94a3b8;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: 'Outfit', sans-serif;
+            background: var(--bg-grad);
+            background-attachment: fixed;
+            color: var(--text-main);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 2rem 1rem;
+        }
+        .card {
+            width: 100%;
+            max-width: 500px;
+            background: var(--card-bg);
+            border: 1px solid var(--card-border);
+            backdrop-filter: var(--glass-blur);
+            -webkit-backdrop-filter: var(--glass-blur);
+            border-radius: 24px;
+            padding: 2.5rem;
+            box-shadow: 0 16px 40px 0 rgba(0, 0, 0, 0.45);
+            text-align: center;
+            position: relative;
+            overflow: hidden;
+        }
+        .card::before {
+            content: '';
+            position: absolute;
+            top: 0; left: 0; right: 0; height: 4px;
+            background: linear-gradient(90deg, var(--accent), var(--neon-blue));
+        }
+        .error-icon {
+            width: 80px; height: 80px;
+            background: rgba(239, 68, 68, 0.1);
+            border: 2px solid var(--accent);
+            border-radius: 50%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            margin: 0 auto 1.5rem;
+            color: var(--accent);
+            font-size: 2.5rem;
+            box-shadow: 0 0 20px var(--accent-glow);
+        }
+        h2 { font-weight: 800; font-size: 1.8rem; margin-bottom: 0.5rem; }
+        p { font-size: 1rem; color: var(--text-muted); line-height: 1.5; margin-bottom: 2rem; }
+        .btn {
+            display: inline-block;
+            background: linear-gradient(90deg, var(--accent), var(--neon-blue));
+            border: none;
+            border-radius: 12px;
+            padding: 0.9rem 2rem;
+            color: white;
+            font-family: inherit;
+            font-size: 0.95rem;
+            font-weight: 800;
+            text-transform: uppercase;
+            text-decoration: none;
+            letter-spacing: 1px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <div class="error-icon">✗</div>
+        <h2>Integration Failed</h2>
+        <p>errorMessage</p>
+        <a href="/google_photos_setup" class="btn">Try Again</a>
+    </div>
+</body>
+</html>
+)HTML";
+    
+    // Replace error message
+    size_t m_pos = html.find("errorMessage");
+    if (m_pos != std::string::npos) {
+        html.replace(m_pos, 12, message);
+    }
+    return html;
 }
 
 // Premium Glassmorphic Dashboard HTML
@@ -863,6 +1289,97 @@ static void handle_client(int client_fd) {
         // Very simple router
         if (request.rfind("GET / ", 0) == 0 || request.rfind("GET /dashboard", 0) == 0) {
             send_response(client_fd, "HTTP/1.1 200 OK", "text/html", get_dashboard_html());
+        } 
+        else if (request.rfind("GET /google_photos_setup", 0) == 0) {
+            std::string action = get_query_param(request, "action");
+            if (action == "submit") {
+                std::string client_id = get_query_param(request, "client_id");
+                std::string client_secret = get_query_param(request, "client_secret");
+                
+                {
+                    std::lock_guard<std::mutex> lk(g_config_mtx);
+                    g_cfg.google_photos_client_id = client_id;
+                    g_cfg.google_photos_client_secret = client_secret;
+                }
+                
+                std::string host = get_host_header(request);
+                std::string redirect_uri = "http://" + host + "/google_photos_callback";
+                
+                // Build Google OAuth authorization URL
+                std::string auth_url = "https://accounts.google.com/o/oauth2/v2/auth?"
+                                       "client_id=" + client_id + "&"
+                                       "redirect_uri=" + redirect_uri + "&"
+                                       "response_type=code&"
+                                       "scope=https://www.googleapis.com/auth/photoslibrary.readonly&"
+                                       "access_type=offline&"
+                                       "prompt=consent";
+                                       
+                std::ostringstream redirect_headers;
+                redirect_headers << "HTTP/1.1 302 Found\r\n"
+                                 << "Location: " << auth_url << "\r\n"
+                                 << "Connection: close\r\n\r\n";
+                (void)write(client_fd, redirect_headers.str().data(), redirect_headers.str().size());
+            } else {
+                std::string host = get_host_header(request);
+                std::string redirect_uri = "http://" + host + "/google_photos_callback";
+                send_response(client_fd, "HTTP/1.1 200 OK", "text/html", get_setup_html(redirect_uri));
+            }
+        }
+        else if (request.rfind("GET /google_photos_callback", 0) == 0) {
+            std::string code = get_query_param(request, "code");
+            std::string error = get_query_param(request, "error");
+            
+            if (!error.empty()) {
+                send_response(client_fd, "HTTP/1.1 200 OK", "text/html", get_error_html("Access denied or authentication cancelled: " + error));
+            } else if (code.empty()) {
+                send_response(client_fd, "HTTP/1.1 200 OK", "text/html", get_error_html("OAuth code parameter is missing."));
+            } else {
+                // Exchange code for token
+                std::string client_id, client_secret;
+                {
+                    std::lock_guard<std::mutex> lk(g_config_mtx);
+                    client_id = g_cfg.google_photos_client_id;
+                    client_secret = g_cfg.google_photos_client_secret;
+                }
+                
+                std::string host = get_host_header(request);
+                std::string redirect_uri = "http://" + host + "/google_photos_callback";
+                
+                std::string cmd = "curl -s -X POST https://oauth2.googleapis.com/token "
+                                  "-d client_id=\"" + client_id + "\" "
+                                  "-d client_secret=\"" + client_secret + "\" "
+                                  "-d code=\"" + code + "\" "
+                                  "-d redirect_uri=\"" + redirect_uri + "\" "
+                                  "-d grant_type=authorization_code";
+                                  
+                std::string json = execute_curl(cmd);
+                std::string refresh_token = parse_json_value(json, "refresh_token");
+                
+                if (refresh_token.empty()) {
+                    // Try to parse error details
+                    std::string err_desc = parse_json_value(json, "error_description");
+                    if (err_desc.empty()) err_desc = parse_json_value(json, "error");
+                    if (err_desc.empty()) err_desc = "Could not obtain refresh token. Note that Google only sends the refresh_token on the FIRST authorization. If you are re-authorizing, go to your Google Account and remove piTrove's permissions first, then retry.";
+                    
+                    send_response(client_fd, "HTTP/1.1 200 OK", "text/html", get_error_html(err_desc));
+                } else {
+                    // Save and reload sync thread
+                    {
+                        std::lock_guard<std::mutex> lk(g_config_mtx);
+                        g_cfg.google_photos_refresh_token = refresh_token;
+                        g_cfg.google_photos_enabled = true;
+                    }
+                    g_cfg.save("/app/config/config.toml"); // active config location in container
+                    
+                    // Clear error and restart background sync thread safely
+                    g_active_error_code.store(0);
+                    
+                    g_google_photos.stop();
+                    g_google_photos.start();
+                    
+                    send_response(client_fd, "HTTP/1.1 200 OK", "text/html", get_success_html());
+                }
+            }
         } 
         else if (request.rfind("GET /api/status", 0) == 0) {
             send_response(client_fd, "HTTP/1.1 200 OK", "application/json", get_api_status());

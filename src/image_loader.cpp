@@ -58,6 +58,7 @@ std::shared_ptr<ImageData> ImageLoader::load(const std::string& path) {
     uint8_t* pixels = stbi_load(path.c_str(), &w, &h, &ch, 4);
     if (!pixels || w <= 0 || h <= 0) {
         g_logger.error("stbi_load failed for: %s %s", path.c_str(), stbi_failure_reason());
+        g_active_error_code.store(201); // E201
         return result;
     }
 
@@ -65,6 +66,7 @@ std::shared_ptr<ImageData> ImageLoader::load(const std::string& path) {
     if (!surf) {
         stbi_image_free(pixels);
         g_logger.error("SDL_CreateSurface failed for: %s", path.c_str());
+        g_active_error_code.store(201); // E201
         return result;
     }
 
