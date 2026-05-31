@@ -1372,7 +1372,7 @@ static void handle_client(int client_fd) {
                     g_cfg.save("/app/config/config.toml"); // active config location in container
                     
                     // Clear error and restart background sync thread safely
-                    g_active_error_code.store(0);
+                    trigger_error(0);
                     
                     g_google_photos.stop();
                     g_google_photos.start();
@@ -1485,7 +1485,7 @@ static void server_loop(int port) {
     }
 
     if (!bound) {
-        g_logger.error("HTTP: Failed to bind to any port after %d attempts starting from %d.", max_attempts, port);
+        trigger_error(104); // E104: PORT_BIND_CONFLICT
         return;
     }
 

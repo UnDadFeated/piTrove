@@ -81,7 +81,7 @@ void GooglePhotosManager::sync_now() {
     }
 
     if (client_id.empty() || client_secret.empty() || refresh_token.empty()) {
-        g_logger.warn("GooglePhotos: Setup incomplete. Missing Client ID, Client Secret, or Refresh Token.");
+        trigger_error(318); // E318: GOOGLE_PHOTOS_CONFIG_MISSING
         return;
     }
 
@@ -91,8 +91,7 @@ void GooglePhotosManager::sync_now() {
 
     std::string access_token = get_access_token();
     if (access_token.empty()) {
-        g_logger.error("GooglePhotos: Failed to obtain OAuth 2.0 access token from Google.");
-        g_active_error_code.store(301); // E301
+        trigger_error(301); // E301: GOOGLE_PHOTOS_SYNC_FAILED
         return;
     }
 
@@ -116,7 +115,19 @@ std::string GooglePhotosManager::get_access_token() {
                       "-d grant_type=refresh_token";
 
     std::string json = execute_curl(cmd);
-    return parse_json_value(json, "access_token");
+    std::string access_token = parse_json_value(json, "access_token");
+    if (access_token.empty()) {
+        std::string err = parse_json_value(json, "error");
+        std::string err_desc = parse_json_value(json, "error_description");
+        if (err == "invalid_client") {
+            trigger_error(303); // E303: GOOGLE_PHOTOS_CLIENT_INVALID
+        } else if (err == "invalid_grant" || err_desc.find("expired") != std::string::npos || err_desc.find("revoked") != std::string::npos) {
+            trigger_error(304); // E304: GOOGLE_PHOTOS_REFRESH_TOKEN_EXPIRED
+        } else {
+            trigger_error(301); // E301: GOOGLE_PHOTOS_SYNC_FAILED
+        }
+    }
+    return access_token;
 }
 
 void GooglePhotosManager::download_media(const std::string& access_token) {
@@ -141,6 +152,21 @@ void GooglePhotosManager::download_media(const std::string& access_token) {
     }
 
     std::string json = execute_curl(cmd);
+    
+    // Check for API errors in the json response
+    if (json.find("\"error\"") != std::string::npos) {
+        std::string err_msg = parse_json_value(json, "message");
+        if (json.find("RESOURCE_EXHAUSTED") != std::string::npos || json.find("429") != std::string::npos) {
+            trigger_error(302); // E302: GOOGLE_PHOTOS_RATE_LIMITED
+            return;
+        } else if (json.find("ALBUM_NOT_FOUND") != std::string::npos || err_msg.find("album") != std::string::npos) {
+            trigger_error(305); // E305: GOOGLE_PHOTOS_ALBUM_NOT_FOUND
+            return;
+        } else {
+            trigger_error(301); // E301: GOOGLE_PHOTOS_SYNC_FAILED
+            return;
+        }
+    }
     
     // Tiny, super-robust JSON list parser
     size_t pos = 0;
@@ -215,9 +241,10 @@ void GooglePhotosManager::download_media(const std::string& access_token) {
 
     g_logger.info("GooglePhotos: Sync complete. Downloaded=%d, Skipped=%d", items_downloaded, items_skipped);
     
-    // Clear Google Photos E301 error if it was previously set and we successfully finished sync
-    if (g_active_error_code.load() == 301) {
-        g_active_error_code.store(0);
+    // Clear Google Photos E301-E318 errors if sync finishes successfully
+    int current_err = g_active_error_code.load();
+    if (current_err >= 301 && current_err <= 318) {
+        trigger_error(0);
     }
 }
 

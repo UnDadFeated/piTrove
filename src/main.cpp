@@ -924,11 +924,10 @@ int main(int argc, char** argv) {
         }
     } catch (...) {}
     if (startup_media_empty) {
-        g_logger.error("NAS Mount Error: Media directory '%s' is empty or inaccessible.", media_dir.c_str());
-        g_active_error_code.store(101); // E101
+        trigger_error(101); // E101: NAS_MOUNT_FAILED
     } else {
         if (g_active_error_code.load() == 101) {
-            g_active_error_code.store(0);
+            trigger_error(0);
         }
     }
 
@@ -1360,7 +1359,7 @@ int main(int argc, char** argv) {
                     ImageLoader::load_texture(current_data.get(), g_renderer.sdl_renderer);
                     ImageLoader::load_texture(current_twin_data.get(), g_renderer.sdl_renderer);
                     if (g_active_error_code.load() == 201) {
-                        g_active_error_code.store(0);
+                        trigger_error(0);
                     }
                     current_tex = current_data->texture;
                     mark_item_shown(path_l, false);
@@ -1404,7 +1403,7 @@ int main(int argc, char** argv) {
                 if (current_data && current_data->valid) {
                     ImageLoader::load_texture(current_data.get(), g_renderer.sdl_renderer);
                     if (g_active_error_code.load() == 201) {
-                        g_active_error_code.store(0);
+                        trigger_error(0);
                     }
                     current_tex = current_data->texture;
                     current_twin_data = nullptr;
@@ -1761,7 +1760,7 @@ int main(int argc, char** argv) {
 
             if (load_success) {
                 if (g_active_error_code.load() == 201) {
-                    g_active_error_code.store(0);
+                    trigger_error(0);
                 }
                 if (g_consecutive_failures.load() > 0) {
                     g_consecutive_failures.store(0);
