@@ -1,3 +1,29 @@
+## v11.7.2 — Massive Diagnostic Error Catalog Expansion (June 1, 2026)
+
+### Added
+- **100+ Deep Diagnostic Error Codes** — Substantially expanded the system diagnostic warning subsystem with over 100 new 4-digit diagnostic codes (`E###`) to cover every layer of device operation:
+  - *Storage & Network (E106 - E125)*: Added diagnostics for Ethernet link states, NTP sync drift, CIFS timeouts, routing failures, firewall blocks, socket exhaustion, Wi-Fi signal attenuation, and secure SSH tunnels.
+  - *Media & Rendering (E206 - E225)*: Introduced deep tracking for EXIF parsing anomalies, unsupported color spaces, hardware H.265/HEVC decoder issues, FFmpeg stream analysis failures, twin layout mismatches, text margin overflows, and EGL transition failures.
+  - *Cloud Integrations (E304 - E318)*: Expanded cloud monitoring to capture OAuth refresh token expiration, invalid/private albums, network drops during sync sweeps, payload formatting errors, and missing GCP API setups.
+  - *Database & Local Storage (E404 - E418)*: Enhanced database diagnostics with codes covering SQLite constraint violations, read-only filesystem locks, WAL journal initialization errors, SD card bad sectors, disk block limitations, and temporary filesystem exhaustion.
+  - *Hardware & Operating System (E503 - E518)*: Integrated hardware alerts covering power supply undervoltage warnings, GPU out-of-memory flags, hardware watchdog timeout alarms, missing udev rule contexts, GPIO bus failures, RTC battery drainage, and obsolete kernel firmware drivers.
+  - *Graphic Pipeline & Framebuffer (E604 - E618)*: Added deep graphics logging for DRM overlay plane allocation failures, cursor texture creation issues, lost DRM master locks, screen blank timeout malfunctions, and EGL configuration mismatches.
+  - *Smart Home & Integration (E703 - E718)*: Expanded MQTT tracking to handle payload parsing errors, JSON schema format violations, heartbeat timeouts, broker authentication rejections, certificate handshake errors, and Client ID collisions.
+  - *Lifecycle & Config (E801 - E806)*: Added validations for TOML syntax errors, missing configuration blocks, lockfile write issues, invalid startup flags, thread pool stalls, and unclean application shutdowns.
+
+## v11.7.1 — Diagnostic Error Catalog Expansion (June 1, 2026)
+
+### Added
+- **Dynamic Error Database Subsystem** — Extracted the error catalog definitions into a dedicated error database module. This decouples the seed details from core database caching logic for better maintainability and modularity.
+- **Comprehensive Error Catalog Expansion** — Expanded the error catalog to over 20 distinct 4-digit diagnostic E### codes spanning every architectural layer:
+  - *Storage & Network (E101 - E105)*: Outlining NAS mount failures, Wi-Fi drops, IP address conflicts, port binding issues, and DNS resolution failures.
+  - *Media & Rendering (E201 - E205)*: Detailing decoding errors, video player crashes, invalid aspect ratios, missing TTF assets, and audio device failures.
+  - *Cloud Integrations (E301 - E303)*: Describing Google Photos authentication issues, API rate limits, and invalid Client ID credentials.
+  - *Database & Caching (E401 - E403)*: Detailing SQLite database corruption, transaction lock timeouts, and critical host disk space warnings.
+  - *System & Hardware (E501 - E502)*: Telemetry warning for critical SoC overheating and RAM allocation exhaustion.
+  - *Graphics Pipeline (E601 - E603)*: Informing on missing modesetting HDMI connectors, EGL swap page flips, and SDL frame rendering failures.
+  - *Home Assistant (E701 - E702)*: Outlining MQTT broker unreachability and sensor subscription failures.
+
 ## v11.7.0 — Google Photos Cloud Integration & Diagnostic Warning HUD (June 1, 2026)
 
 ### Added
