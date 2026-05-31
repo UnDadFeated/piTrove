@@ -29,10 +29,9 @@ std::atomic<bool> g_offline_mode{false};
 std::atomic<int> g_active_error_code{0};
 std::string g_crash_cache_dir = "";
 
-void trigger_error(int code_num) {
-    g_active_error_code.store(code_num);
+void Logger::log_error_code(int code_num) {
     if (code_num == 0) {
-        g_logger.info("SYSTEM ERROR: Cleared active diagnostic code.");
+        info("SYSTEM ERROR: Cleared active diagnostic code.");
         return;
     }
 
@@ -48,8 +47,13 @@ void trigger_error(int code_num) {
         g_cache->get_error_details(code_str, title, desc, rec);
     }
 
-    g_logger.error("SYSTEM ERROR [%s] - %s: %s (RECOVERY: %s)", 
-                   code_str.c_str(), title.c_str(), desc.c_str(), rec.c_str());
+    error("SYSTEM ERROR [%s] - %s: %s (RECOVERY: %s)", 
+          code_str.c_str(), title.c_str(), desc.c_str(), rec.c_str());
+}
+
+void trigger_error(int code_num) {
+    g_active_error_code.store(code_num);
+    g_logger.log_error_code(code_num);
 }
 
 Logger g_logger;

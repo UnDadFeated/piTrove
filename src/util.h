@@ -61,6 +61,7 @@ struct Logger {
     void warn(const char* fmt, ...);
     void error(const char* fmt, ...);
     void debug(const char* fmt, ...);
+    void log_error_code(int code_num);
     bool is_initialized() const { return initialized; }
 
     Logger() = default;
