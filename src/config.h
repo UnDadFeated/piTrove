@@ -159,12 +159,22 @@ struct Config {
     std::string mqtt_motionsensor_topic{"home/motionsensor"};
     int         mqtt_motionsensor_cooldown{60};
 
+    // [google_photos]
+    bool        google_photos_enabled{false};
+    std::string google_photos_client_id{""};
+    std::string google_photos_client_secret{""};
+    std::string google_photos_refresh_token{""};
+    std::string google_photos_album_id{""};
+    int         google_photos_sync_interval{60};
+    std::string google_photos_cache_dir{"/app/cache/google_photos"};
+
     std::vector<std::string> ignore_folders;
 
     // CLI Overrides
     bool    dry_run{false};
 
     bool load(const std::string& path);
+    bool save(const std::string& path);
     void parse_args(int argc, char** argv);
 };
 

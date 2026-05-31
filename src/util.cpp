@@ -26,6 +26,7 @@ std::atomic<bool> g_screen_blanked{false};
 std::atomic<int64_t> g_last_motion_time{0};
 std::atomic<int> g_consecutive_failures{0};
 std::atomic<bool> g_offline_mode{false};
+std::atomic<int> g_active_error_code{0};
 std::string g_crash_cache_dir = "";
 
 Logger g_logger;

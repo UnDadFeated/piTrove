@@ -1,7 +1,7 @@
 #ifndef PITROVE_UTIL_H
 #define PITROVE_UTIL_H
 
-#define VERSION "11.6.4"
+#define VERSION "11.7.0"
 #define APP_NAME "piTrove"
 
 #include <atomic>
@@ -25,6 +25,7 @@ extern std::atomic<bool> g_screen_blanked;
 extern std::atomic<int64_t> g_last_motion_time;
 extern std::atomic<int> g_consecutive_failures;
 extern std::atomic<bool> g_offline_mode;
+extern std::atomic<int> g_active_error_code;
 
 extern std::atomic<bool> g_database_complete;
 extern std::string g_crash_cache_dir;

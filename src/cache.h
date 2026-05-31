@@ -24,6 +24,8 @@ struct CacheManager {
     void begin_transaction();
     void commit_transaction();
     void reset_all_cooldowns();
+    void seed_error_catalog();
+    bool get_error_details(const std::string& code, std::string& title, std::string& desc, std::string& recovery);
     ~CacheManager();
 };
 

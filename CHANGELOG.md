@@ -1,3 +1,17 @@
+## v11.7.0 — Google Photos Cloud Integration & Diagnostic Warning HUD (June 1, 2026)
+
+### Added
+- **Google Photos Cloud Sync** — Designed and implemented a background Google Photos integration that synchronizes cloud media files directly to the local cache. Includes full C++ synchronization logic, popen-based curl requests for media item metadata retrieval, and image downloading.
+- **Glassmorphic OAuth Setup Wizard** — Built a professional Glassmorphic setup wizard served at `/google_photos_setup` via the built-in HTTP server. The wizard guides users to link their Google Photos credentials, handles Web OAuth authorization flow redirects, executes the token exchange, and secures the refresh token.
+- **Diagnostic Warning HUD & Error Catalog** — Integrated a premium 4-digit diagnostic warning overlay box featuring glowing phosphor-red frames. Seeded an SQLite-based diagnostic error catalog database with troubleshooting instructions (E101 to E401) to assist in quick diagnostics (such as empty NAS mounts, corrupted files, and video player crashes).
+- **GPhotos Category Tab in TUI** — Appended a dedicated category tab `"GPhotos"` to the terminal configuration wizard to view and toggle Google Photos status, sync interval, and credentials.
+- **Universal ASCII TUI Rendering** — Converted all UTF-8 characters and box-drawing elements within the configuration wizard to universal ASCII characters, ensuring flawless TUI display when connecting from Windows clients via SSH/Command Prompt.
+
+## v11.6.5 — Network Mount Persistence Fix (May 31, 2026)
+
+### Fixed
+- **Persistent Network Storage** — Resolved an issue where network storage mounts would automatically disconnect after short periods of inactivity. The system now maintains a persistent connection to the NAS, preventing slideshow interrupts, file loading failures, and unexpected offline recovery screens during transitions or long idle delays.
+
 ## v11.6.4 — Network Mount Persistence & SSH Keep-Alives (May 30, 2026)
 
 ### Added

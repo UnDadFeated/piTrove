@@ -136,6 +136,8 @@ bool CacheManager::open(const std::string& dir) {
         return false;
     }
 
+    seed_error_catalog();
+
     return true;
 }
 
@@ -288,4 +290,72 @@ bool verify_database(const std::string& path) {
     }
     sqlite3_close(db);
     return ok;
+}
+
+void CacheManager::seed_error_catalog() {
+    if (!db) return;
+    std::lock_guard<std::mutex> lk(db_mutex);
+
+    char* err = nullptr;
+    if (sqlite3_exec(db,
+        "CREATE TABLE IF NOT EXISTS error_catalog ("
+        "code TEXT PRIMARY KEY, title TEXT, description TEXT, recovery TEXT"
+        ");", nullptr, nullptr, &err) != SQLITE_OK) {
+        g_logger.error("Failed to create error_catalog table: %s", err ? err : "unknown");
+        if (err) sqlite3_free(err);
+        return;
+    }
+
+    struct ErrSeed {
+        const char* code;
+        const char* title;
+        const char* desc;
+        const char* rec;
+    };
+
+    std::vector<ErrSeed> seeds = {
+        {"E101", "NAS_MOUNT_FAILED", "The network storage mount at /app/media is empty, inaccessible, or failed to mount.", "Ensure your NAS is online, credentials in nas.cred are correct, and fstab is re-applied."},
+        {"E102", "WIFI_DISCONNECTED", "No active network interfaces are detected, or the target gateway is unreachable.", "Check your Wi-Fi settings in NetworkManager, physical router power, or network cables."},
+        {"E201", "IMAGE_LOAD_ERROR", "The media loader encountered a fatal error while trying to decode an image.", "Verify that the file is not corrupted and its image format is fully supported by SDL3/stb."},
+        {"E202", "VIDEO_PLAYER_CRASH", "The mpv video player exited abnormally with a critical playback failure.", "Check if the video encoding is supported, or if subtitles files are malformed/incomplete."},
+        {"E301", "GOOGLE_PHOTOS_SYNC_FAILED", "The Google Photos synchronizer failed to authenticate or sync cloud media.", "Verify your internet connection and ensure your OAuth Client ID/Secret and Refresh Token are correct."},
+        {"E401", "SQLITE_DB_CORRUPTED", "The SQLite cache database encountered a disk I/O failure or structural corruption.", "Ensure the filesystem is not full and write permissions are correct, or delete cache.db to rebuild."}
+    };
+
+    for (const auto& seed : seeds) {
+        sqlite3_stmt* stmt = nullptr;
+        const char* sql = "INSERT OR REPLACE INTO error_catalog (code, title, description, recovery) VALUES (?, ?, ?, ?);";
+        if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) == SQLITE_OK) {
+            sqlite3_bind_text(stmt, 1, seed.code, -1, SQLITE_STATIC);
+            sqlite3_bind_text(stmt, 2, seed.title, -1, SQLITE_STATIC);
+            sqlite3_bind_text(stmt, 3, seed.desc, -1, SQLITE_STATIC);
+            sqlite3_bind_text(stmt, 4, seed.rec, -1, SQLITE_STATIC);
+            sqlite3_step(stmt);
+            sqlite3_finalize(stmt);
+        }
+    }
+}
+
+bool CacheManager::get_error_details(const std::string& code, std::string& title, std::string& desc, std::string& recovery) {
+    if (!db) return false;
+    std::lock_guard<std::mutex> lk(db_mutex);
+
+    sqlite3_stmt* stmt = nullptr;
+    const char* sql = "SELECT title, description, recovery FROM error_catalog WHERE code = ?;";
+    bool found = false;
+
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) == SQLITE_OK) {
+        sqlite3_bind_text(stmt, 1, code.c_str(), -1, SQLITE_STATIC);
+        if (sqlite3_step(stmt) == SQLITE_ROW) {
+            const char* t = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0));
+            const char* d = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1));
+            const char* r = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 2));
+            if (t) title = t;
+            if (d) desc = d;
+            if (r) recovery = r;
+            found = true;
+        }
+        sqlite3_finalize(stmt);
+    }
+    return found;
 }
