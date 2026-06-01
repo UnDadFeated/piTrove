@@ -72,15 +72,6 @@ void mqtt_publish(const std::string& topic, const std::string& payload, bool ret
     }
     if (!enabled) return;
 
-    auto escape_shell_arg = [](const std::string& input) -> std::string {
-        std::string escaped;
-        for (char c : input) {
-            if (c == '\'') escaped += "'\\''";
-            else escaped += c;
-        }
-        return escaped;
-    };
-
     std::string cmd = "mosquitto_pub -h '" + escape_shell_arg(broker) + "'" +
                       " -p " + std::to_string(port);
     if (!user.empty()) {
@@ -203,7 +194,7 @@ void start_mqtt_client() {
             sensor_topic = g_cfg.mqtt_motionsensor_topic;
         }
         
-        std::string cmd = "mosquitto_sub -h " + broker +
+        std::string cmd = "mosquitto_sub -h '" + escape_shell_arg(broker) + "'" +
                           " -p " + std::to_string(port);
         std::string user, pass;
         {
@@ -212,13 +203,13 @@ void start_mqtt_client() {
             pass = g_cfg.mqtt_pass;
         }
         if (!user.empty()) {
-            cmd += " -u '" + user + "'";
+            cmd += " -u '" + escape_shell_arg(user) + "'";
         }
         if (!pass.empty()) {
-            cmd += " -P '" + pass + "'";
+            cmd += " -P '" + escape_shell_arg(pass) + "'";
         }
-        cmd += " -t '" + sensor_topic + "'";
-        cmd += " -t '" + prefix + "/command/#'";
+        cmd += " -t '" + escape_shell_arg(sensor_topic) + "'";
+        cmd += " -t '" + escape_shell_arg(prefix) + "/command/#'";
         cmd += " -F \"%t:%p\" 2>/dev/null";
 
         g_logger.info("Starting MQTT Subscriber: %s", cmd.c_str());

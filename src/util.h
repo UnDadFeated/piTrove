@@ -1,7 +1,7 @@
 #ifndef PITROVE_UTIL_H
 #define PITROVE_UTIL_H
 
-#define VERSION "11.7.5"
+#define VERSION "11.7.6"
 #define APP_NAME "piTrove"
 
 #include <atomic>
@@ -76,6 +76,8 @@ float safe_stof(const std::string& s, float def);
 double safe_stod(const std::string& s, double def);
 long long safe_stoll(const std::string& s, long long def);
 std::string trim(const std::string& s);
+std::string escape_shell_arg(const std::string& input);
+std::string sanitize_alphanumeric(const std::string& input);
 
 // Signal / crash handling
 void crash_handler(int sig);

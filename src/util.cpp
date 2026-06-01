@@ -693,3 +693,25 @@ bool get_item_date(const MediaItem& item, int& y, int& m, int& d) {
     get_modified_time_date(item.modified_time, y, m, d);
     return true;
 }
+
+std::string escape_shell_arg(const std::string& input) {
+    std::string escaped;
+    for (char c : input) {
+        if (c == '\'') {
+            escaped += "'\\''";
+        } else {
+            escaped += c;
+        }
+    }
+    return escaped;
+}
+
+std::string sanitize_alphanumeric(const std::string& input) {
+    std::string output;
+    for (char c : input) {
+        if (std::isalnum(static_cast<unsigned char>(c)) || c == '-' || c == '_') {
+            output += c;
+        }
+    }
+    return output;
+}
