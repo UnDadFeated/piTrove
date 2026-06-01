@@ -353,6 +353,12 @@ void OverlayManager::draw_all(int current_idx, int total_items, const MediaItem*
             }
         }
 
+        if (soc_temp > 80.0f) {
+            trigger_error(501); // E501: SYSTEM_OVERHEATING
+        } else if (g_active_error_code.load() == 501) {
+            trigger_error(0);
+        }
+
         std::uintmax_t db_size_kb = 0;
         {
             std::string db_dir = "/home/pi/piTrove/cache";

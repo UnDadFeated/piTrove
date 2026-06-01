@@ -1,3 +1,9 @@
+## v11.7.5 — Hardware & TOML Syntax Diagnostic Triggers (June 1, 2026)
+
+### Added
+- **Hardware Telemetry Alarm Integration** — Integrated low-level thermal sensor reading blocks into the main slideshow overlay. The system now monitors the SoC core temperature in real-time, instantly triggering `E501` (System Overheating) diagnostic alerts if the temperature crosses 80°C, and auto-clearing the warning when the system cools back down.
+- **TOML Config Parser Validation** — Hardened the default configuration loading routine by verifying line formatting structures. Malformed lines or invalid syntax in `config.toml` now immediately log and trigger `E801` (TOML Parse Failure) diagnostic warnings.
+
 ## v11.7.4 — Centralized Alphanumeric Diagnostic Logging (June 1, 2026)
 
 ### Added

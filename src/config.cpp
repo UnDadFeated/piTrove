@@ -26,7 +26,10 @@ bool Config::load(const std::string& path) {
             continue;
         }
         auto eq = line.find('=');
-        if (eq == std::string::npos) continue;
+        if (eq == std::string::npos) {
+            trigger_error(801); // E801: TOML_PARSE_FAILURE
+            continue;
+        }
 
         std::string key = trim(line.substr(0, eq));
         std::string val = trim(line.substr(eq + 1));
