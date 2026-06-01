@@ -1346,10 +1346,10 @@ static void handle_client(int client_fd) {
                 std::string redirect_uri = "http://" + host + "/google_photos_callback";
                 
                 std::string cmd = "curl -s -X POST https://oauth2.googleapis.com/token "
-                                  "-d client_id=\"" + client_id + "\" "
-                                  "-d client_secret=\"" + client_secret + "\" "
-                                  "-d code=\"" + code + "\" "
-                                  "-d redirect_uri=\"" + redirect_uri + "\" "
+                                  "-d client_id='" + escape_shell_arg(client_id) + "' "
+                                  "-d client_secret='" + escape_shell_arg(client_secret) + "' "
+                                  "-d code='" + escape_shell_arg(code) + "' "
+                                  "-d redirect_uri='" + escape_shell_arg(redirect_uri) + "' "
                                   "-d grant_type=authorization_code";
                                   
                 std::string json = execute_curl(cmd);
