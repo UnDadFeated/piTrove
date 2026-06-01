@@ -1,3 +1,8 @@
+## v11.7.6 — Security Hardening and Parameter Sanitization (June 1, 2026)
+
+### Fixed
+- **Shell Command Injection Vulnerability Hardening** — Fully secured all dynamic shell execution entry points across the network services, dashboard callback routines, and media synchronization layers. Integrated robust shell-escaping and strict parameter validation on all configuration variables, client-supplied callbacks, and network headers, completely neutralizing unauthenticated shell execution risks.
+
 ## v11.7.5 — Hardware & TOML Syntax Diagnostic Triggers (June 1, 2026)
 
 ### Added
