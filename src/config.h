@@ -125,6 +125,7 @@ struct Config {
      bool    color_matched_matte{true};
      int     blur_radius{14};
      int     glow_depth{43};
+     bool    edge_glow_shadow{true};
     float    matte_opacity{0.50f};
      float   vignette_strength{0.35f};
 

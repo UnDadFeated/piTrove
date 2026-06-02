@@ -175,7 +175,8 @@ void config_wizard(const std::string& config_path) {
         {"Twin Portrait Split", TGL, "Render consecutive portrait images side-by-side"},
         {"Preload Capacity", INT, "Max images to load in the background (default: 4)"},
         {"Preload Workers", INT, "Number of background loading threads (default: 2)"},
-        {"Reset Cooldown", TGL, "Reset all shown history on app restart"}
+        {"Reset Cooldown", TGL, "Reset all shown history on app restart"},
+        {"Edge Glow Shadow", TGL, "Apply edge glow to right/bottom only for a 3D shadow look"}
     };
     static const CI CG[] = {
         {"Recursive Scan", TGL, "Recursively scan subdirectories"},
@@ -304,6 +305,7 @@ void config_wizard(const std::string& config_path) {
             case 14: return std::to_string(g_cfg.preload_capacity);
             case 15: return std::to_string(g_cfg.preload_workers);
             case 16: return g_cfg.reset_cooldown_on_restart?"[ON]":"[OFF]";
+            case 17: return g_cfg.edge_glow_shadow?"[ON]":"[OFF]";
         }
         if (c == 5) switch(i) {
             case 0: return g_cfg.recursive?"[ON]":"[OFF]";
@@ -416,6 +418,7 @@ void config_wizard(const std::string& config_path) {
                 case 14:{ try { g_cfg.preload_capacity=std::max(1, std::min(32, std::stoi(v))); } catch(...) {} break; }
                 case 15:{ try { g_cfg.preload_workers=std::max(1, std::min(16, std::stoi(v))); } catch(...) {} break; }
                 case 16:g_cfg.reset_cooldown_on_restart=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
+                case 17:g_cfg.edge_glow_shadow=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
             }
             else if(c==5) switch(i){
                 case 0:g_cfg.recursive=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
