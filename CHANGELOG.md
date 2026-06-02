@@ -1,3 +1,9 @@
+## v11.7.7 — 3D Edge Glow Shadow Option (June 1, 2026)
+
+### Added
+- **3D Edge Glow Shadow Mode** — Introduced a premium 3D edge glow shadow layout option. When active, it isolates the ambient backlight glow strictly to the right and bottom edges of the media container, creating a realistic, high-fidelity 3D drop-shadow effect on the digital frame. This option is enabled by default.
+- **TUI & Config Wizard Integration** — Exposed the Edge Glow Shadow option in the Slideshow category within the TUI configuration engine, enabling instant visual control and seamless upgrades.
+
 ## v11.7.6 — Security Hardening and Parameter Sanitization (June 1, 2026)
 
 ### Fixed
