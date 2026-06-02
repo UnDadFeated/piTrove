@@ -870,6 +870,7 @@ bias_anim_style = "edge_glow"
 bias_color_mode = "auto"
 ken_burns_zoom = 0.15
 bias_strength = 110
+edge_glow_shadow = 1
 
 [scan]
 recursive = 1

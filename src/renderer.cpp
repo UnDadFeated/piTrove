@@ -474,37 +474,54 @@ void Renderer::draw_bias_lighting(const SDL_Rect& fit_rect, Uint8 avg_r, Uint8 a
         }
     };
 
-      // Edge glow: runs from corner to corner + 1px to cover border corner pixel
-    // Top: extends 1px past right corner so strip covers x = fit_rect.x + fit_rect.w + bw
-    { int depth = fit_rect.y - bw; if (depth > 0) glow_up(fit_rect.x - bw, fit_rect.y - bw, fit_rect.w + 2*bw + 1, depth); }
-    // Bottom
-    { int depth = sh - (fit_rect.y + fit_rect.h + bw); if (depth > 0) glow_down(fit_rect.x - bw, fit_rect.y + fit_rect.h + bw, fit_rect.w + 2*bw + 1, depth); }
-    // Left: extends 1px past bottom corner so strip covers y = fit_rect.y + fit_rect.h + bw
-    { int depth = fit_rect.x - bw; if (depth > 0) glow_left(fit_rect.x - bw, fit_rect.y - bw, depth, fit_rect.h + 2*bw + 1); }
-    // Right
-    { int depth = sw - (fit_rect.x + fit_rect.w + bw); if (depth > 0) glow_right(fit_rect.x + fit_rect.w + bw, fit_rect.y - bw, depth, fit_rect.h + 2*bw + 1); }
+    if (g_cfg.edge_glow_shadow) {
+        // 3D Shadow Look: only right and bottom glows, and bottom-right corner glow
+        { int depth = sh - (fit_rect.y + fit_rect.h + bw); if (depth > 0) glow_down(fit_rect.x - bw, fit_rect.y + fit_rect.h + bw, fit_rect.w + 2*bw + 1, depth); }
+        { int depth = sw - (fit_rect.x + fit_rect.w + bw); if (depth > 0) glow_right(fit_rect.x + fit_rect.w + bw, fit_rect.y - bw, depth, fit_rect.h + 2*bw + 1); }
 
-
-    // Corner glow: fills diagonal area only (skip i==0 or j==0 — edge glow covers straight edge)
-    auto glow_corner = [&](int px, int py, int dx, int dy, int region_w, int region_h) {
-        for (int i = 1; i <= region_w; i++) {
-            for (int j = 1; j <= region_h; j++) {
-                float dist = std::sqrtf((float)(i * i + j * j));
-                float t2 = dist / glow_steps;
-                float alpha_f = std::expf(-2.5f * t2 * t2) * sf * pulse;
-                if (alpha_f < 0.01f) continue;
-                Uint8 aa = (Uint8)(alpha_f * 255.0f);
-                SDL_SetRenderDrawColor(sdl_renderer, avg_r, avg_g, avg_b, aa);
-                SDL_FRect r = {(float)(px + i * dx), (float)(py + j * dy), 1.0f, 1.0f};
-                SDL_RenderFillRect(sdl_renderer, &r);
+        auto glow_corner = [&](int px, int py, int dx, int dy, int region_w, int region_h) {
+            for (int i = 1; i <= region_w; i++) {
+                for (int j = 1; j <= region_h; j++) {
+                    float dist = std::sqrtf((float)(i * i + j * j));
+                    float t2 = dist / glow_steps;
+                    float alpha_f = std::expf(-2.5f * t2 * t2) * sf * pulse;
+                    if (alpha_f < 0.01f) continue;
+                    Uint8 aa = (Uint8)(alpha_f * 255.0f);
+                    SDL_SetRenderDrawColor(sdl_renderer, avg_r, avg_g, avg_b, aa);
+                    SDL_FRect r = {(float)(px + i * dx), (float)(py + j * dy), 1.0f, 1.0f};
+                    SDL_RenderFillRect(sdl_renderer, &r);
+                }
             }
-        }
-    };
+        };
 
-    { int rw = fit_rect.x - bw, rh = fit_rect.y - bw; if (rw > 0 && rh > 0) glow_corner(fit_rect.x - bw, fit_rect.y - bw, -1, -1, rw, rh); }
-    { int rw = sw - (fit_rect.x + fit_rect.w + bw), rh = fit_rect.y - bw; if (rw > 0 && rh > 0) glow_corner(fit_rect.x + fit_rect.w + bw, fit_rect.y - bw, 1, -1, rw + 1, rh); }
-    { int rw = fit_rect.x - bw, rh = sh - (fit_rect.y + fit_rect.h + bw); if (rw > 0 && rh > 0) glow_corner(fit_rect.x - bw, fit_rect.y + fit_rect.h + bw, -1, 1, rw, rh + 1); }
-    { int rw = sw - (fit_rect.x + fit_rect.w + bw), rh = sh - (fit_rect.y + fit_rect.h + bw); if (rw > 0 && rh > 0) glow_corner(fit_rect.x + fit_rect.w + bw, fit_rect.y + fit_rect.h + bw, 1, 1, rw + 1, rh + 1); }
+        { int rw = sw - (fit_rect.x + fit_rect.w + bw), rh = sh - (fit_rect.y + fit_rect.h + bw); if (rw > 0 && rh > 0) glow_corner(fit_rect.x + fit_rect.w + bw, fit_rect.y + fit_rect.h + bw, 1, 1, rw + 1, rh + 1); }
+    } else {
+        // Normal 4-sided edge glow and all corners
+        { int depth = fit_rect.y - bw; if (depth > 0) glow_up(fit_rect.x - bw, fit_rect.y - bw, fit_rect.w + 2*bw + 1, depth); }
+        { int depth = sh - (fit_rect.y + fit_rect.h + bw); if (depth > 0) glow_down(fit_rect.x - bw, fit_rect.y + fit_rect.h + bw, fit_rect.w + 2*bw + 1, depth); }
+        { int depth = fit_rect.x - bw; if (depth > 0) glow_left(fit_rect.x - bw, fit_rect.y - bw, depth, fit_rect.h + 2*bw + 1); }
+        { int depth = sw - (fit_rect.x + fit_rect.w + bw); if (depth > 0) glow_right(fit_rect.x + fit_rect.w + bw, fit_rect.y - bw, depth, fit_rect.h + 2*bw + 1); }
+
+        auto glow_corner = [&](int px, int py, int dx, int dy, int region_w, int region_h) {
+            for (int i = 1; i <= region_w; i++) {
+                for (int j = 1; j <= region_h; j++) {
+                    float dist = std::sqrtf((float)(i * i + j * j));
+                    float t2 = dist / glow_steps;
+                    float alpha_f = std::expf(-2.5f * t2 * t2) * sf * pulse;
+                    if (alpha_f < 0.01f) continue;
+                    Uint8 aa = (Uint8)(alpha_f * 255.0f);
+                    SDL_SetRenderDrawColor(sdl_renderer, avg_r, avg_g, avg_b, aa);
+                    SDL_FRect r = {(float)(px + i * dx), (float)(py + j * dy), 1.0f, 1.0f};
+                    SDL_RenderFillRect(sdl_renderer, &r);
+                }
+            }
+        };
+
+        { int rw = fit_rect.x - bw, rh = fit_rect.y - bw; if (rw > 0 && rh > 0) glow_corner(fit_rect.x - bw, fit_rect.y - bw, -1, -1, rw, rh); }
+        { int rw = sw - (fit_rect.x + fit_rect.w + bw), rh = fit_rect.y - bw; if (rw > 0 && rh > 0) glow_corner(fit_rect.x + fit_rect.w + bw, fit_rect.y - bw, 1, -1, rw + 1, rh); }
+        { int rw = fit_rect.x - bw, rh = sh - (fit_rect.y + fit_rect.h + bw); if (rw > 0 && rh > 0) glow_corner(fit_rect.x - bw, fit_rect.y + fit_rect.h + bw, -1, 1, rw, rh + 1); }
+        { int rw = sw - (fit_rect.x + fit_rect.w + bw), rh = sh - (fit_rect.y + fit_rect.h + bw); if (rw > 0 && rh > 0) glow_corner(fit_rect.x + fit_rect.w + bw, fit_rect.y + fit_rect.h + bw, 1, 1, rw + 1, rh + 1); }
+    }
 }
 
 void Renderer::draw_3d_border(const SDL_Rect& fit_rect, Uint8 avg_r, Uint8 avg_g, Uint8 avg_b, int border_width) {
