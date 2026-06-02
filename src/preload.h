@@ -19,6 +19,7 @@ struct PreloadedItem {
     RawImage blur_raw;  // Blurred background (move-only)
     std::string path;
     bool valid = false;
+    int exif_rotation = 1;
     uint8_t matte_r = 0;
     uint8_t matte_g = 0;
     uint8_t matte_b = 0;
