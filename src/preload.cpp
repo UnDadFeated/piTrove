@@ -4,6 +4,7 @@
 #include "image_loader.h"
 #include "blur.h"
 #include "config.h"
+#include <stb_image.h>
 #include <algorithm>
 #include <cstring>
 #include <unordered_set>
@@ -102,8 +103,8 @@ std::shared_ptr<ImageData> PreloadQueue::try_dequeue(const std::string& target_p
                 data->valid = false;
 
                 if (item.raw.valid) {
-                    // Read EXIF (file I/O, no SDL)
-                    data->exif_rotation = ImageLoader::read_exif_rotation(item.path.c_str());
+                    // Retrieve pre-computed EXIF rotation from worker thread
+                    data->exif_rotation = item.exif_rotation;
                     data->width = item.raw.width;
                     data->height = item.raw.height;
                     data->valid = true;
@@ -332,9 +333,19 @@ void PreloadQueue::worker_thread(int thread_id) {
 
         g_logger.debug("[Worker %d] preloading: %s", thread_id, path.c_str());
 
-        RawImage raw = ImageLoader::load_raw(path);
+        std::vector<uint8_t> buffer = ImageLoader::read_file_to_buffer(path);
+        if (buffer.empty()) {
+            g_logger.warn("[Worker %d] Failed to read file to buffer: %s", thread_id, path.c_str());
+            {
+                std::lock_guard<std::mutex> lock(work_mutex);
+                active_preloads.erase(path);
+            }
+            continue;
+        }
 
-        if (!raw.valid) {
+        int w = 0, h = 0, ch = 0;
+        uint8_t* pixels = stbi_load_from_memory(buffer.data(), (int)buffer.size(), &w, &h, &ch, 4);
+        if (!pixels || w <= 0 || h <= 0) {
             g_logger.warn("[Worker %d] Failed to decode: %s", thread_id, path.c_str());
             {
                 std::lock_guard<std::mutex> lock(work_mutex);
@@ -343,7 +354,29 @@ void PreloadQueue::worker_thread(int thread_id) {
             continue;
         }
 
-        g_logger.debug("[Worker %d] Decoded %dx%d: %s", thread_id, raw.width, raw.height, path.c_str());
+        RawImage raw;
+        raw.width = w;
+        raw.height = h;
+        raw.channels = 4;
+        raw.format = ImageFormat::RGBA32;
+        raw.valid = true;
+
+        size_t buf_size = (size_t)w * h * 4;
+        raw.pixels = (uint8_t*)malloc(buf_size);
+        if (!raw.pixels) {
+            stbi_image_free(pixels);
+            {
+                std::lock_guard<std::mutex> lock(work_mutex);
+                active_preloads.erase(path);
+            }
+            continue;
+        }
+        memcpy(raw.pixels, pixels, buf_size);
+        stbi_image_free(pixels);
+
+        int exif_rotation = ImageLoader::read_exif_rotation_from_memory(buffer.data(), (unsigned int)buffer.size());
+
+        g_logger.debug("[Worker %d] Decoded %dx%d (EXIF: %d): %s", thread_id, raw.width, raw.height, exif_rotation, path.c_str());
 
         int blur_radius = 14;
         {
@@ -378,6 +411,7 @@ void PreloadQueue::worker_thread(int thread_id) {
             item.blur_raw = std::move(blur);
             item.path = path;
             item.valid = true;
+            item.exif_rotation = exif_rotation;
             item.matte_r = mr;
             item.matte_g = mg;
             item.matte_b = mb;

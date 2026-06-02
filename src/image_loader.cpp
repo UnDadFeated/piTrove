@@ -23,13 +23,69 @@
 // Public API
 // ============================================================
 
+std::vector<uint8_t> ImageLoader::read_file_to_buffer(const std::string& path) {
+    std::vector<uint8_t> buffer;
+    FILE* f = fopen(path.c_str(), "rb");
+    if (!f) {
+        return buffer;
+    }
+    if (fseek(f, 0, SEEK_END) != 0) {
+        fclose(f);
+        return buffer;
+    }
+    long size = ftell(f);
+    if (size <= 0) {
+        fclose(f);
+        return buffer;
+    }
+    // Safety check to prevent out-of-memory on invalid/massive files (e.g. > 200MB)
+    if (size > 200 * 1024 * 1024) {
+        fclose(f);
+        return buffer;
+    }
+    if (fseek(f, 0, SEEK_SET) != 0) {
+        fclose(f);
+        return buffer;
+    }
+    buffer.resize(size);
+    size_t read_bytes = fread(buffer.data(), 1, size, f);
+    if (read_bytes != (size_t)size) {
+        buffer.clear(); // Truncated read or read error, reject
+    }
+    fclose(f);
+    return buffer;
+}
+
+int ImageLoader::read_exif_rotation_from_memory(const uint8_t* buffer, unsigned int size) {
+    int rotation = 1;
+    if (!buffer || size == 0) return rotation;
+    ExifData* ed = exif_data_new_from_data(buffer, size);
+    if (!ed) return rotation;
+
+    ExifEntry* entry = exif_content_get_entry(ed->ifd[EXIF_IFD_0], EXIF_TAG_ORIENTATION);
+    if (!entry || !entry->data || entry->size < 2 || entry->format != EXIF_FORMAT_SHORT) {
+        entry = exif_content_get_entry(ed->ifd[EXIF_IFD_EXIF], EXIF_TAG_ORIENTATION);
+    }
+    if (!entry || !entry->data || entry->size < 2 || entry->format != EXIF_FORMAT_SHORT) {
+        exif_data_unref(ed);
+        return rotation;
+    }
+
+    unsigned short val = exif_get_short(entry->data, exif_data_get_byte_order(ed));
+    if (val >= 1 && val <= 8) rotation = val;
+    exif_data_unref(ed);
+    return rotation;
+}
+
 RawImage ImageLoader::load_raw(const std::string& path) {
     RawImage raw;
     raw.valid = false;
 
-    // Use stb_image (like legacy raylib LoadImage)
+    std::vector<uint8_t> buffer = read_file_to_buffer(path);
+    if (buffer.empty()) return raw;
+
     int w = 0, h = 0, ch = 0;
-    uint8_t* pixels = stbi_load(path.c_str(), &w, &h, &ch, 4); // force RGBA
+    uint8_t* pixels = stbi_load_from_memory(buffer.data(), (int)buffer.size(), &w, &h, &ch, 4); // force RGBA
     if (!pixels || w <= 0 || h <= 0) return raw;
 
     raw.width = w;
@@ -54,8 +110,14 @@ std::shared_ptr<ImageData> ImageLoader::load(const std::string& path) {
     auto result = std::make_shared<ImageData>();
     result->valid = false;
 
+    std::vector<uint8_t> buffer = read_file_to_buffer(path);
+    if (buffer.empty()) {
+        trigger_error(201); // E201: IMAGE_LOAD_ERROR
+        return result;
+    }
+
     int w = 0, h = 0, ch = 0;
-    uint8_t* pixels = stbi_load(path.c_str(), &w, &h, &ch, 4);
+    uint8_t* pixels = stbi_load_from_memory(buffer.data(), (int)buffer.size(), &w, &h, &ch, 4);
     if (!pixels || w <= 0 || h <= 0) {
         trigger_error(201); // E201: IMAGE_LOAD_ERROR
         return result;
@@ -75,7 +137,7 @@ std::shared_ptr<ImageData> ImageLoader::load(const std::string& path) {
     }
     stbi_image_free(pixels);
 
-    int exif = read_exif_rotation(path.c_str());
+    int exif = read_exif_rotation_from_memory(buffer.data(), (unsigned int)buffer.size());
     if (exif >= 2 && exif <= 8) {
         SDL_Surface* rotated = apply_exif_rotation(surf, exif);
         if (rotated) {
