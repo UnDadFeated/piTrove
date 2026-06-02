@@ -190,6 +190,12 @@ public:
     // Read EXIF orientation from file
     static int read_exif_rotation(const char* path);
 
+    // Read EXIF orientation from a memory buffer
+    static int read_exif_rotation_from_memory(const uint8_t* buffer, unsigned int size);
+
+    // Helper to read a file fully into a memory buffer with checks
+    static std::vector<uint8_t> read_file_to_buffer(const std::string& path);
+
     // Check if file has camera EXIF tags (not screenshot/screen grab)
     static bool has_camera_exif(const char* path);
 };
