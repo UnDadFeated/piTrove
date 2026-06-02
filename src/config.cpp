@@ -136,6 +136,7 @@ bool Config::load(const std::string& path) {
             int v = std::max(16, std::min(120, safe_stoi(val, this->glow_depth)));
             this->glow_depth = v;
         }
+        else if (key == "edge_glow_shadow")  this->edge_glow_shadow = (val == "1" || val == "true");
         else if (key == "matte_opacity") {
             float v = safe_stof(val, this->matte_opacity);
             this->matte_opacity = std::max(0.05f, std::min(0.50f, v));
@@ -264,6 +265,7 @@ bool Config::save(const std::string& path) {
     f << "bias_anim_style = \"" << this->bias_anim_style << "\"\n";
     f << "bias_color_mode = \"" << this->bias_color_mode << "\"\n";
     f << "bias_strength = " << this->bias_strength << "\n";
+    f << "edge_glow_shadow = " << (this->edge_glow_shadow ? "1" : "0") << "\n";
     f << "matting = " << (this->matting ? "1" : "0") << "\n";
     f << "matting_size = " << this->matting_size << "\n";
     f << "cooldown_days = " << this->cooldown_days << "\n";
