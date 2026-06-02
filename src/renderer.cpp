@@ -476,8 +476,64 @@ void Renderer::draw_bias_lighting(const SDL_Rect& fit_rect, Uint8 avg_r, Uint8 a
 
     if (g_cfg.edge_glow_shadow) {
         // 3D Shadow Look: only right and bottom glows, and bottom-right corner glow
-        { int depth = sh - (fit_rect.y + fit_rect.h + bw); if (depth > 0) glow_down(fit_rect.x - bw, fit_rect.y + fit_rect.h + bw, fit_rect.w + 2*bw + 1, depth); }
-        { int depth = sw - (fit_rect.x + fit_rect.w + bw); if (depth > 0) glow_right(fit_rect.x + fit_rect.w + bw, fit_rect.y - bw, depth, fit_rect.h + 2*bw + 1); }
+        auto glow_down_shadow = [&](int gx, int gy, int gw, int max_depth) {
+            for (int s = 0; s < max_depth; s++) {
+                // Draw the left corner part with fade: x from gx to gx + glow_steps
+                for (int i = 0; i < glow_steps && i < gw; i++) {
+                    int dx = glow_steps - i;
+                    float dist = std::sqrtf((float)(s * s + dx * dx));
+                    float t2 = dist / glow_steps;
+                    float alpha_f = std::expf(-2.5f * t2 * t2) * sf * pulse;
+                    if (alpha_f < 0.01f) continue;
+                    Uint8 aa = (Uint8)(alpha_f * 255.0f);
+                    SDL_SetRenderDrawColor(sdl_renderer, avg_r, avg_g, avg_b, aa);
+                    SDL_FRect r = {(float)(gx + i), (float)(gy + s), 1.0f, 1.0f};
+                    SDL_RenderFillRect(sdl_renderer, &r);
+                }
+                // Draw the remaining straight part: x from gx + glow_steps to gx + gw
+                if (gw > glow_steps) {
+                    float t2 = (float)s / glow_steps;
+                    float alpha_f = std::expf(-2.5f * t2 * t2) * sf * pulse;
+                    if (alpha_f >= 0.01f) {
+                        Uint8 aa = (Uint8)(alpha_f * 255.0f);
+                        SDL_SetRenderDrawColor(sdl_renderer, avg_r, avg_g, avg_b, aa);
+                        SDL_FRect r = {(float)(gx + glow_steps), (float)(gy + s), (float)(gw - glow_steps), 1.0f};
+                        SDL_RenderFillRect(sdl_renderer, &r);
+                    }
+                }
+            }
+        };
+
+        auto glow_right_shadow = [&](int gx, int gy, int max_depth, int gh) {
+            for (int s = 0; s < max_depth; s++) {
+                // Draw the top corner part with fade: y from gy to gy + glow_steps
+                for (int j = 0; j < glow_steps && j < gh; j++) {
+                    int dy = glow_steps - j;
+                    float dist = std::sqrtf((float)(s * s + dy * dy));
+                    float t2 = dist / glow_steps;
+                    float alpha_f = std::expf(-2.5f * t2 * t2) * sf * pulse;
+                    if (alpha_f < 0.01f) continue;
+                    Uint8 aa = (Uint8)(alpha_f * 255.0f);
+                    SDL_SetRenderDrawColor(sdl_renderer, avg_r, avg_g, avg_b, aa);
+                    SDL_FRect r = {(float)(gx + s), (float)(gy + j), 1.0f, 1.0f};
+                    SDL_RenderFillRect(sdl_renderer, &r);
+                }
+                // Draw the remaining straight part: y from gy + glow_steps to gy + gh
+                if (gh > glow_steps) {
+                    float t2 = (float)s / glow_steps;
+                    float alpha_f = std::expf(-2.5f * t2 * t2) * sf * pulse;
+                    if (alpha_f >= 0.01f) {
+                        Uint8 aa = (Uint8)(alpha_f * 255.0f);
+                        SDL_SetRenderDrawColor(sdl_renderer, avg_r, avg_g, avg_b, aa);
+                        SDL_FRect r = {(float)(gx + s), (float)(gy + glow_steps), 1.0f, (float)(gh - glow_steps)};
+                        SDL_RenderFillRect(sdl_renderer, &r);
+                    }
+                }
+            }
+        };
+
+        { int depth = sh - (fit_rect.y + fit_rect.h + bw); if (depth > 0) glow_down_shadow(fit_rect.x - bw, fit_rect.y + fit_rect.h + bw, fit_rect.w + 2*bw + 1, depth); }
+        { int depth = sw - (fit_rect.x + fit_rect.w + bw); if (depth > 0) glow_right_shadow(fit_rect.x + fit_rect.w + bw, fit_rect.y - bw, depth, fit_rect.h + 2*bw + 1); }
 
         auto glow_corner = [&](int px, int py, int dx, int dy, int region_w, int region_h) {
             for (int i = 1; i <= region_w; i++) {
