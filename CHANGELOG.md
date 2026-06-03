@@ -1,3 +1,12 @@
+## v11.8.1 — Critical Stability & Display Fixes (June 3, 2026)
+
+### Fixed
+- **Null Cache Pointer Protection** — Hardened cache access routines throughout the media scanner and slideshow loop, preventing potential application crashes if the SQLite cache database is corrupted or fails to open during runtime.
+- **Mismatched Transition Border Scaling** — Resolved a visual jump during image transition snapshot renders at resolutions other than 1080p by correctly scaling border widths.
+- **Redundant Video Player Exit Checks** — Simplified video player termination state checks to ensure clean recovery and OSD error clearing.
+- **Persistent Display Preferences** — Fixed an issue where display-related options (such as blurred backgrounds, color-matched mattes, opacity, and vignette parameters) were lost upon saving configuration updates.
+- **Shadowed Rendering States** — Fixed a rendering issue where dual-portrait backgrounds could render with incorrect background clear colors during active transitions.
+
 ## v11.8.0 — Interactive Google Photos Setup and Fail-safes (June 3, 2026)
 
 ### Added

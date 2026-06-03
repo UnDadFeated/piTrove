@@ -256,7 +256,13 @@ bool Config::save(const std::string& path) {
     f << "vignette_enabled = " << (this->vignette_enabled ? "1" : "0") << "\n";
     f << "bg_style = \"" << this->bg_style << "\"\n";
     f << "pattern_brightness = " << this->pattern_offset << "\n";
-    f << "pattern_style = \"" << this->pattern_style << "\"\n\n";
+    f << "pattern_style = \"" << this->pattern_style << "\"\n";
+    f << "blurred_background = " << (this->blurred_background ? "1" : "0") << "\n";
+    f << "color_matched_matte = " << (this->color_matched_matte ? "1" : "0") << "\n";
+    f << "matte_opacity = " << this->matte_opacity << "\n";
+    f << "vignette_strength = " << this->vignette_strength << "\n";
+    f << "blur_radius = " << this->blur_radius << "\n";
+    f << "glow_depth = " << this->glow_depth << "\n\n";
 
     f << "[slideshow]\n";
     f << "transition_delay = " << this->transition_delay << "\n";
