@@ -1,3 +1,8 @@
+## v11.8.2 — Database Error Handling Integration (June 3, 2026)
+
+### Added
+- **Database Health Error Reporting** — Integrated active database status checks to trigger dedicated system error codes (such as file open failures and database corruption flags) during initialization and scan sequences, automatically clearing the error states upon subsequent successful caches or fast-path database loads.
+
 ## v11.8.1 — Critical Stability & Display Fixes (June 3, 2026)
 
 ### Fixed

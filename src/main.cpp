@@ -1011,6 +1011,7 @@ int main(int argc, char** argv) {
         bool db_ok = verify_database(db_path);
         if (!db_ok) {
             g_logger.error("CORRUPT DB: cache.db is corrupted — removing and will rebuild");
+            trigger_error(401); // E401: SQLITE_DB_CORRUPTED
             std::filesystem::remove(db_path);
             std::filesystem::remove(db_path + "-wal");
             std::filesystem::remove(db_path + "-shm");
@@ -1060,6 +1061,10 @@ int main(int argc, char** argv) {
 
             if (photos > 0 || videos > 0) {
                 g_logger.info("Fast-path: skipping scan, going directly to slideshow");
+                int current_err = g_active_error_code.load();
+                if (current_err == 401 || current_err == 413) {
+                    trigger_error(0);
+                }
                 g_database_complete.store(true);
             } else {
                 g_logger.warn("Cache DB loaded 0 valid items — will re-scan and purge empty/corrupt DB files");
@@ -1072,6 +1077,7 @@ int main(int argc, char** argv) {
             }
         } else {
             g_logger.warn("Failed to open cache DB — will re-scan");
+            trigger_error(413); // E413: SQLITE_OPEN_FAILED
         }
     }
 
@@ -1140,6 +1146,7 @@ int main(int argc, char** argv) {
             g_cache = new CacheManager();
             if (!g_cache->open(cache_dir)) {
                 g_logger.error("Failed to open cache database");
+                trigger_error(413); // E413: SQLITE_OPEN_FAILED
                 g_renderer.cleanup_splash(); g_renderer.cleanup();
                 delete g_cache; return 1;
             }
@@ -1194,6 +1201,10 @@ int main(int argc, char** argv) {
         }
         g_cache->commit_transaction();
         g_logger.info("Cache complete: %d items", cached);
+        int current_err = g_active_error_code.load();
+        if (current_err == 401 || current_err == 413) {
+            trigger_error(0);
+        }
         g_renderer.render_splash(3, total_scanned, total_scanned, cached, "CACHING", dot_counter, nullptr, false);
         SDL_Delay(500);
         g_database_complete.store(true);
