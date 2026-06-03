@@ -123,6 +123,7 @@ struct Config {
     // [display] blurred background + color-matched matte
      bool    blurred_background{true};
      bool    color_matched_matte{true};
+     std::string bg_style{"pattern"};
      int     blur_radius{14};
      int     glow_depth{43};
      bool    edge_glow_shadow{true};

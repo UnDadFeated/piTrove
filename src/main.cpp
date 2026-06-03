@@ -287,9 +287,11 @@ static SDL_Texture* render_state_to_texture(
             vignette_str = g_cfg.vignette_strength;
         }
 
-        // 1. Blurred background if enabled (primary photo's blur for fullscreen)
-        if (snap_blurred && primary && primary->blur_texture) {
-            g_renderer.draw_blurred_background(primary->blur_texture, (Uint8)(255.0f * vignette_str));
+        // 1. Draw background based on style
+        std::string snap_bg_style;
+        { std::lock_guard<std::mutex> lk(g_config_mtx); snap_bg_style = g_cfg.bg_style; }
+        if (snap_blurred || snap_bg_style != "photo") {
+            g_renderer.draw_background(primary.get(), snap_bg_style, (Uint8)(255.0f * vignette_str));
         }
 
         // 2. Draw matte borders if enabled (solid black base layer) - ONLY if NOT color-matched or blurred!
@@ -359,9 +361,11 @@ static SDL_Texture* render_state_to_texture(
             vignette_str = g_cfg.vignette_strength;
         }
 
-        // 1. Blurred background if enabled (behind everything)
-        if (snap_blurred && primary && primary->blur_texture) {
-            g_renderer.draw_blurred_background(primary->blur_texture, (Uint8)(255.0f * vignette_str));
+        // 1. Draw background based on style
+        std::string snap_bg_style;
+        { std::lock_guard<std::mutex> lk(g_config_mtx); snap_bg_style = g_cfg.bg_style; }
+        if (snap_blurred || snap_bg_style != "photo") {
+            g_renderer.draw_background(primary.get(), snap_bg_style, (Uint8)(255.0f * vignette_str));
         }
 
         // 2. Draw matte borders if enabled (solid black base layer) - ONLY if NOT color-matched or blurred!
@@ -1967,9 +1971,11 @@ int main(int argc, char** argv) {
                 calculate_fit_rect_in_area(current_data->width, current_data->height, 0, 0, sw / 2, sh, rect_l);
                 calculate_fit_rect_in_area(current_twin_data->width, current_twin_data->height, sw / 2, 0, sw - (sw / 2), sh, rect_r);
 
-                // 1. Blurred background if enabled (primary photo's blur for fullscreen)
-                if (snap_blurred && current_data && current_data->blur_texture) {
-                    g_renderer.draw_blurred_background(current_data->blur_texture, (Uint8)(255.0f * vignette_str));
+                // 1. Draw background based on style
+                std::string snap_bg_style;
+                { std::lock_guard<std::mutex> lk(g_config_mtx); snap_bg_style = g_cfg.bg_style; }
+                if (snap_blurred || snap_bg_style != "photo") {
+                    g_renderer.draw_background(current_data.get(), snap_bg_style, (Uint8)(255.0f * vignette_str));
                 }
 
                 // 2. Draw matte borders if enabled (solid black base layer) - ONLY if NOT color-matched or blurred!
@@ -2041,9 +2047,11 @@ int main(int argc, char** argv) {
                     g_renderer.clear(0, 0, 0, 255);
                 }
 
-                // 1. Blurred background if enabled (behind everything)
-                if (snap_blurred && current_data && current_data->blur_texture) {
-                    g_renderer.draw_blurred_background(current_data->blur_texture, (Uint8)(255.0f * vignette_str));
+                // 1. Draw background based on style
+                std::string snap_bg_style;
+                { std::lock_guard<std::mutex> lk(g_config_mtx); snap_bg_style = g_cfg.bg_style; }
+                if (snap_blurred || snap_bg_style != "photo") {
+                    g_renderer.draw_background(current_data.get(), snap_bg_style, (Uint8)(255.0f * vignette_str));
                 }
 
                 // 2. Draw matte borders if enabled (solid black base layer) - ONLY if NOT color-matched or blurred!

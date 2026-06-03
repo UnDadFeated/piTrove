@@ -128,6 +128,7 @@ bool Config::load(const std::string& path) {
         else if (key == "vignette_enabled")  this->vignette_enabled = (val == "1" || val == "true");
         else if (key == "blurred_background") this->blurred_background = !(val == "0" || val == "false");
         else if (key == "color_matched_matte") this->color_matched_matte = !(val == "0" || val == "false");
+        else if (key == "bg_style")          this->bg_style = val;
         else if (key == "blur_radius") {
             int v = std::max(6, std::min(24, safe_stoi(val, this->blur_radius)));
             this->blur_radius = v;
@@ -250,7 +251,8 @@ bool Config::save(const std::string& path) {
     f << "auto_display_rotation = " << (this->auto_display_rotation ? "1" : "0") << "\n";
     f << "border_enabled = " << (this->border_enabled ? "1" : "0") << "\n";
     f << "border_width = " << this->border_width << "\n";
-    f << "vignette_enabled = " << (this->vignette_enabled ? "1" : "0") << "\n\n";
+    f << "vignette_enabled = " << (this->vignette_enabled ? "1" : "0") << "\n";
+    f << "bg_style = \"" << this->bg_style << "\"\n\n";
 
     f << "[slideshow]\n";
     f << "transition_delay = " << this->transition_delay << "\n";
