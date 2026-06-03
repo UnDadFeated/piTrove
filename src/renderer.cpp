@@ -326,13 +326,26 @@ void Renderer::draw_background(ImageData* data, const std::string& bg_style, Uin
         clear((Uint8)(data->avg_r * factor), (Uint8)(data->avg_g * factor), (Uint8)(data->avg_b * factor), 255);
     } else if (bg_style == "pattern") {
         float factor = (float)vignette_alpha / 255.0f * 0.35f; // slightly darker base for higher contrast
-        clear((Uint8)(data->avg_r * factor), (Uint8)(data->avg_g * factor), (Uint8)(data->avg_b * factor), 255);
+        Uint8 base_r = (Uint8)(data->avg_r * factor);
+        Uint8 base_g = (Uint8)(data->avg_g * factor);
+        Uint8 base_b = (Uint8)(data->avg_b * factor);
+        clear(base_r, base_g, base_b, 255);
 
         SDL_SetRenderDrawBlendMode(sdl_renderer, SDL_BLENDMODE_BLEND);
-        float pattern_factor = factor * 1.4f;
-        Uint8 pr = (Uint8)(data->avg_r * pattern_factor);
-        Uint8 pg = (Uint8)(data->avg_g * pattern_factor);
-        Uint8 pb = (Uint8)(data->avg_b * pattern_factor);
+        
+        // Calculate base color brightness to decide whether to make pattern lines lighter or darker
+        float brightness = 0.299f * base_r + 0.587f * base_g + 0.114f * base_b;
+        int offset_val = 30; // Visible offset to stand out against background
+        Uint8 pr, pg, pb;
+        if (brightness > 128.0f) {
+            pr = (Uint8)std::max(0, (int)base_r - offset_val);
+            pg = (Uint8)std::max(0, (int)base_g - offset_val);
+            pb = (Uint8)std::max(0, (int)base_b - offset_val);
+        } else {
+            pr = (Uint8)std::min(255, (int)base_r + offset_val);
+            pg = (Uint8)std::min(255, (int)base_g + offset_val);
+            pb = (Uint8)std::min(255, (int)base_b + offset_val);
+        }
 
         double time_sec = (double)SDL_GetTicks() / 1000.0;
         int line_spacing = scale_px(64);
@@ -340,7 +353,7 @@ void Renderer::draw_background(ImageData* data, const std::string& bg_style, Uin
 
         // Dynamic Layer 1: Forward scrolling diagonal lines
         float offset1 = fmod(time_sec * (double)scale_px(12), (double)line_spacing);
-        SDL_SetRenderDrawColor(sdl_renderer, pr, pg, pb, 15); // subtle transparent lines
+        SDL_SetRenderDrawColor(sdl_renderer, pr, pg, pb, 45); // Higher transparency alpha for visible lines
         for (float i = -screen_h - line_spacing; i < screen_w + line_spacing; i += line_spacing) {
             float x1 = i + offset1;
             SDL_RenderLine(sdl_renderer, x1, 0.0f, x1 + screen_h, (float)screen_h);
@@ -348,7 +361,7 @@ void Renderer::draw_background(ImageData* data, const std::string& bg_style, Uin
 
         // Dynamic Layer 2: Backward scrolling diagonal lines with slightly different speed/spacing
         float offset2 = fmod(-time_sec * (double)scale_px(8), (double)line_spacing);
-        SDL_SetRenderDrawColor(sdl_renderer, pr, pg, pb, 20);
+        SDL_SetRenderDrawColor(sdl_renderer, pr, pg, pb, 50);
         for (float i = -screen_h - line_spacing; i < screen_w + line_spacing; i += line_spacing) {
             float x2 = i + offset2;
             SDL_RenderLine(sdl_renderer, x2 + screen_h, 0.0f, x2, (float)screen_h);
@@ -356,7 +369,7 @@ void Renderer::draw_background(ImageData* data, const std::string& bg_style, Uin
 
         // Dynamic Layer 3: Gentle wavy ribbons scrolling horizontally for a high-end ambient feel
         float wave_offset = fmod(time_sec * (double)scale_px(6), (double)line_spacing * 2);
-        SDL_SetRenderDrawColor(sdl_renderer, pr, pg, pb, 10);
+        SDL_SetRenderDrawColor(sdl_renderer, pr, pg, pb, 35);
         for (float y = -line_spacing * 2; y < screen_h + line_spacing * 2; y += line_spacing * 2) {
             float cur_y = y + wave_offset;
             float prev_x = 0.0f;

@@ -1,3 +1,8 @@
+## v11.7.11 — Background Pattern Contrast Hardening (June 3, 2026)
+
+### Fixed
+- **Background Pattern Visibility** — Hardened the animated pattern backdrop to dynamically calculate background brightness and offset the pattern lines' brightness. This prevents the pattern from blending invisibly into the average color-matched background matte.
+
 ## v11.7.10 — Seamless Animated Pattern Background (June 3, 2026)
 
 ### Added
