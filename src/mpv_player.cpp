@@ -322,7 +322,7 @@ bool MpvPlayer::check_status(bool reclaim_drm_on_eof) {
 
         g_logger.info("VIDEO_EOF: mpv (pid=%d) finished playback (status=%d)", result, exit_code);
 
-        if ((exit_code > 0 && exit_code != 0) || (is_signaled && term_sig != 15 && term_sig != 9)) {
+        if (exit_code > 0 || (is_signaled && term_sig != 15 && term_sig != 9)) {
             trigger_error(202); // E202: VIDEO_PLAYER_CRASH
         } else {
             // Success or expected termination, clear E202

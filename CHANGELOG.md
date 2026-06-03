@@ -1,3 +1,35 @@
+## v11.8.1 — Critical Stability & Display Fixes (June 3, 2026)
+
+### Fixed
+- **Null Cache Pointer Protection** — Hardened cache access routines throughout the media scanner and slideshow loop, preventing potential application crashes if the SQLite cache database is corrupted or fails to open during runtime.
+- **Mismatched Transition Border Scaling** — Resolved a visual jump during image transition snapshot renders at resolutions other than 1080p by correctly scaling border widths.
+- **Redundant Video Player Exit Checks** — Simplified video player termination state checks to ensure clean recovery and OSD error clearing.
+- **Persistent Display Preferences** — Fixed an issue where display-related options (such as blurred backgrounds, color-matched mattes, opacity, and vignette parameters) were lost upon saving configuration updates.
+- **Shadowed Rendering States** — Fixed a rendering issue where dual-portrait backgrounds could render with incorrect background clear colors during active transitions.
+
+## v11.8.0 — Interactive Google Photos Setup and Fail-safes (June 3, 2026)
+
+### Added
+- **Interactive Google Photos Installer Prompts** — Added a dynamic step-by-step interactive configuration prompt for Google Photos in the setup installer script (`install.sh`), with fallback validation loops checking for empty client secrets, suffix structure formatting of client IDs, and valid integer range entries for synchronization periods.
+
+## v11.7.13 — Default Animated Pattern and Visibility Enhancements (June 3, 2026)
+
+### Added
+- **Default Animated Pattern Style** — Changed the default pattern style from a static combined pattern to the active animated combined pattern.
+
+### Fixed
+- **Enhanced Pattern Contrast** — Increased default pattern brightness offset to 45 and optimized all rendering layers' transparency alpha levels to ensure clear visibility against color-matched backgrounds.
+
+## v11.7.12 — Configurable Background Pattern Brightness (June 3, 2026)
+
+### Added
+- **Configurable Background Pattern Brightness** — Added a configuration parameter `pattern_brightness` and integrated it as "Pattern Brightness" under the Display category in the TUI Setup Wizard, enabling custom pattern contrast adjustment (0 to 150 offset) against the average color-matched background matte.
+
+## v11.7.11 — Background Pattern Contrast Hardening (June 3, 2026)
+
+### Fixed
+- **Background Pattern Visibility** — Hardened the animated pattern backdrop to dynamically calculate background brightness and offset the pattern lines' brightness. This prevents the pattern from blending invisibly into the average color-matched background matte.
+
 ## v11.7.10 — Seamless Animated Pattern Background (June 3, 2026)
 
 ### Added

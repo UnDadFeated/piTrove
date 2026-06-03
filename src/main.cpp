@@ -268,7 +268,7 @@ static SDL_Texture* render_state_to_texture(
         float anim_speed = 0.5f;
         std::string style = "edge_glow";
         int border_w = 10;
-        bool snap_blurred, snap_matte_color;
+        bool snap_blurred;
         int snap_glow_depth;
         float matte_op, vignette_str;
         {
@@ -279,7 +279,7 @@ static SDL_Texture* render_state_to_texture(
             bias_strength = g_cfg.bias_strength;
             anim_speed = g_cfg.bias_anim_speed;
             style = g_cfg.bias_anim_style;
-            border_w = g_cfg.border_width;
+            border_w = g_renderer.scale_px(g_cfg.border_width);
             snap_glow_depth = g_renderer.scale_px(g_cfg.glow_depth);
             snap_blurred = g_cfg.blurred_background;
             snap_matte_color = g_cfg.color_matched_matte;
@@ -342,7 +342,7 @@ static SDL_Texture* render_state_to_texture(
         float anim_speed = 0.5f;
         std::string style = "edge_glow";
         int border_w = 10;
-        bool snap_blurred, snap_matte_color;
+        bool snap_blurred;
         int snap_glow_depth;
         float matte_op, vignette_str;
         {
@@ -353,7 +353,7 @@ static SDL_Texture* render_state_to_texture(
             bias_strength = g_cfg.bias_strength;
             anim_speed = g_cfg.bias_anim_speed;
             style = g_cfg.bias_anim_style;
-            border_w = g_cfg.border_width;
+            border_w = g_renderer.scale_px(g_cfg.border_width);
             snap_glow_depth = g_renderer.scale_px(g_cfg.glow_depth);
             snap_blurred = g_cfg.blurred_background;
             snap_matte_color = g_cfg.color_matched_matte;
@@ -623,7 +623,7 @@ static void organize_playlist(std::vector<MediaItem>& eligible, int videos_per_p
 
 static void mark_item_shown(const std::string& path, bool lock_playlist) {
     int64_t now = static_cast<int64_t>(std::time(nullptr));
-    g_cache->mark_shown(path);
+    if (g_cache) g_cache->mark_shown(path);
     
     std::unique_lock<std::mutex> lock(g_playlist_mtx, std::defer_lock);
     if (lock_playlist) {
@@ -1375,17 +1375,19 @@ int main(int argc, char** argv) {
                     g_eligible[next_idx].height = current_twin_data->height;
                     g_eligible[next_idx].exif_rotation = current_twin_data->exif_rotation;
 
-                    g_cache->upsert(g_eligible[current_idx], 0);
-                    g_cache->upsert(g_eligible[next_idx], 0);
+                    if (g_cache) {
+                        g_cache->upsert(g_eligible[current_idx], 0);
+                        g_cache->upsert(g_eligible[next_idx], 0);
+                    }
 
                     g_logger.info("First item is twin-portrait, loaded successfully: %s and %s", path_l.c_str(), path_r.c_str());
                     break;
                 } else {
                     if (!current_data || !current_data->valid) {
-                        g_cache->mark_bad(path_l);
+                        if (g_cache) g_cache->mark_bad(path_l);
                         g_eligible.erase(g_eligible.begin() + current_idx);
                     } else if (!current_twin_data || !current_twin_data->valid) {
-                        g_cache->mark_bad(path_r);
+                        if (g_cache) g_cache->mark_bad(path_r);
                         g_eligible.erase(g_eligible.begin() + next_idx);
                     }
                     current_data = nullptr;
@@ -1422,14 +1424,13 @@ int main(int argc, char** argv) {
                             break;
                         }
                     }
-                    // Persist the actual values to the cache database
-                    g_cache->upsert(g_eligible[current_idx], 0);
+                    if (g_cache) g_cache->upsert(g_eligible[current_idx], 0);
 
                     g_renderer.calculate_fit_rect(g_eligible[current_idx].width, g_eligible[current_idx].height, fit_rect);
                     g_logger.info("First item is an image, loaded successfully: %s (%dx%d)", g_eligible[current_idx].path.c_str(), g_eligible[current_idx].width, g_eligible[current_idx].height);
                     break;
                 } else {
-                    g_cache->mark_bad(g_eligible[current_idx].path);
+                    if (g_cache) g_cache->mark_bad(g_eligible[current_idx].path);
                     g_logger.warn("Bad first image, skipping: %s", g_eligible[current_idx].path.c_str());
                     g_eligible.erase(g_eligible.begin() + current_idx);
                     if (g_eligible.empty()) break;
@@ -1821,7 +1822,7 @@ int main(int argc, char** argv) {
                                     break;
                                 }
                             }
-                            g_cache->upsert(g_eligible[current_idx], 0);
+                            if (g_cache) g_cache->upsert(g_eligible[current_idx], 0);
                             g_renderer.calculate_fit_rect(current_data->width, current_data->height, fit_rect);
                         }
                     }
@@ -1857,7 +1858,7 @@ int main(int argc, char** argv) {
                                     break;
                                 }
                             }
-                            g_cache->upsert(g_eligible[current_idx], 0);
+                            if (g_cache) g_cache->upsert(g_eligible[current_idx], 0);
                         }
 
                         g_renderer.calculate_fit_rect(current_data->width, current_data->height, fit_rect);
@@ -1923,7 +1924,7 @@ int main(int argc, char** argv) {
                                     break;
                                 }
                             }
-                            g_cache->upsert(g_eligible[current_idx], 0);
+                            if (g_cache) g_cache->upsert(g_eligible[current_idx], 0);
                         }
 
                         g_renderer.calculate_fit_rect(current_data->width, current_data->height, fit_rect);
