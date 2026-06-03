@@ -117,7 +117,9 @@ void config_wizard(const std::string& config_path) {
         {"Brightness Auto", TGL, "Auto backlight dimming based on time of day"},
         {"3D Border", TGL, "Enable 3D miter border around photos"},
         {"3D Border Width", INT, "Thickness of the 3D border in pixels"},
-        {"Background Style", ENM, "Background style option (photo, plain, pattern)"}
+        {"Background Style", ENM, "Background style option (photo, plain, pattern)"},
+        {"Pattern Brightness", INT, "Contrast offset for animated pattern style (0 to 150)"},
+        {"Pattern Style", ENM, "Design pattern type (combined, grid, waves, dots)"}
     };
     static const CI CB[] = {
         {"Media Directory", STR, "Root folder containing photos and videos"},
@@ -252,6 +254,8 @@ void config_wizard(const std::string& config_path) {
             case 4: return g_cfg.border_enabled?"[ON]":"[OFF]";
             case 5: return std::to_string(g_cfg.border_width);
             case 6: return g_cfg.bg_style;
+            case 7: return std::to_string(g_cfg.pattern_offset);
+            case 8: return g_cfg.pattern_style;
         }
         if (c == 1) switch(i) {
             case 0: return g_cfg.media_dir; case 1: return g_cfg.cache_dir; case 2: return g_cfg.log_dir;
@@ -371,6 +375,8 @@ void config_wizard(const std::string& config_path) {
                 case 4:g_cfg.border_enabled=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
                 case 5:{ try { int val = std::stoi(v); g_cfg.border_width=std::max(0, std::min(250, val)); } catch(...) {} break; }
                 case 6:g_cfg.bg_style=v;break;
+                case 7:{ try { int val = std::stoi(v); g_cfg.pattern_offset=std::max(0, std::min(150, val)); } catch(...) {} break; }
+                case 8:g_cfg.pattern_style=v;break;
             }
             else if(c==1) switch(i){
                 case 0:g_cfg.media_dir=v;break; case 1:g_cfg.cache_dir=v;break; case 2:g_cfg.log_dir=v;break;
@@ -495,6 +501,7 @@ void config_wizard(const std::string& config_path) {
 
     auto enums = [&](int c, int i) -> std::vector<std::string> {
         if(c==0&&i==6) return {"photo","plain","pattern"};
+        if(c==0&&i==8) return {"animated_combined", "animated_grid", "animated_waves", "animated_dots", "static_grid", "static_waves", "static_dots"};
         if(c==4&&i==2) return {"crossfade","wipe","pixelate","dissolve","ken_burns"};
         if(c==4&&i==7) return {"pulsing","radiating","absorbing","edge_glow","aura"};
         if(c==4&&i==8) return {"auto","rainbow"};

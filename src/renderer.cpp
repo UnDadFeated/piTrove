@@ -334,53 +334,90 @@ void Renderer::draw_background(ImageData* data, const std::string& bg_style, Uin
         SDL_SetRenderDrawBlendMode(sdl_renderer, SDL_BLENDMODE_BLEND);
         
         // Calculate base color brightness to decide whether to make pattern lines lighter or darker
+        int snap_pattern_offset;
+        std::string snap_pattern_style;
+        {
+            std::lock_guard<std::mutex> lk(g_config_mtx);
+            snap_pattern_offset = g_cfg.pattern_offset;
+            snap_pattern_style = g_cfg.pattern_style;
+        }
+        
         float brightness = 0.299f * base_r + 0.587f * base_g + 0.114f * base_b;
-        int offset_val = 30; // Visible offset to stand out against background
         Uint8 pr, pg, pb;
         if (brightness > 128.0f) {
-            pr = (Uint8)std::max(0, (int)base_r - offset_val);
-            pg = (Uint8)std::max(0, (int)base_g - offset_val);
-            pb = (Uint8)std::max(0, (int)base_b - offset_val);
+            pr = (Uint8)std::max(0, (int)base_r - snap_pattern_offset);
+            pg = (Uint8)std::max(0, (int)base_g - snap_pattern_offset);
+            pb = (Uint8)std::max(0, (int)base_b - snap_pattern_offset);
         } else {
-            pr = (Uint8)std::min(255, (int)base_r + offset_val);
-            pg = (Uint8)std::min(255, (int)base_g + offset_val);
-            pb = (Uint8)std::min(255, (int)base_b + offset_val);
+            pr = (Uint8)std::min(255, (int)base_r + snap_pattern_offset);
+            pg = (Uint8)std::min(255, (int)base_g + snap_pattern_offset);
+            pb = (Uint8)std::min(255, (int)base_b + snap_pattern_offset);
         }
 
-        double time_sec = (double)SDL_GetTicks() / 1000.0;
+        double time_sec = 0.0;
+        if (snap_pattern_style.rfind("animated_", 0) == 0) {
+            time_sec = (double)SDL_GetTicks() / 1000.0;
+        }
+
         int line_spacing = scale_px(64);
         if (line_spacing < 8) line_spacing = 8;
 
-        // Dynamic Layer 1: Forward scrolling diagonal lines
-        float offset1 = fmod(time_sec * (double)scale_px(12), (double)line_spacing);
-        SDL_SetRenderDrawColor(sdl_renderer, pr, pg, pb, 45); // Higher transparency alpha for visible lines
-        for (float i = -screen_h - line_spacing; i < screen_w + line_spacing; i += line_spacing) {
-            float x1 = i + offset1;
-            SDL_RenderLine(sdl_renderer, x1, 0.0f, x1 + screen_h, (float)screen_h);
+        bool draw_grid = (snap_pattern_style == "animated_combined" || snap_pattern_style == "combined" ||
+                          snap_pattern_style == "animated_grid" || snap_pattern_style == "static_grid");
+        bool draw_waves = (snap_pattern_style == "animated_combined" || snap_pattern_style == "combined" ||
+                           snap_pattern_style == "animated_waves" || snap_pattern_style == "static_waves");
+        bool draw_dots = (snap_pattern_style == "animated_dots" || snap_pattern_style == "static_dots" || snap_pattern_style == "dots");
+
+        // 1. Grid rendering
+        if (draw_grid) {
+            // Dynamic Layer 1: Forward scrolling diagonal lines
+            float offset1 = fmod(time_sec * (double)scale_px(12), (double)line_spacing);
+            SDL_SetRenderDrawColor(sdl_renderer, pr, pg, pb, 45); // Higher transparency alpha for visible lines
+            for (float i = -screen_h - line_spacing; i < screen_w + line_spacing; i += line_spacing) {
+                float x1 = i + offset1;
+                SDL_RenderLine(sdl_renderer, x1, 0.0f, x1 + screen_h, (float)screen_h);
+            }
+
+            // Dynamic Layer 2: Backward scrolling diagonal lines with slightly different speed/spacing
+            float offset2 = fmod(-time_sec * (double)scale_px(8), (double)line_spacing);
+            SDL_SetRenderDrawColor(sdl_renderer, pr, pg, pb, 50);
+            for (float i = -screen_h - line_spacing; i < screen_w + line_spacing; i += line_spacing) {
+                float x2 = i + offset2;
+                SDL_RenderLine(sdl_renderer, x2 + screen_h, 0.0f, x2, (float)screen_h);
+            }
         }
 
-        // Dynamic Layer 2: Backward scrolling diagonal lines with slightly different speed/spacing
-        float offset2 = fmod(-time_sec * (double)scale_px(8), (double)line_spacing);
-        SDL_SetRenderDrawColor(sdl_renderer, pr, pg, pb, 50);
-        for (float i = -screen_h - line_spacing; i < screen_w + line_spacing; i += line_spacing) {
-            float x2 = i + offset2;
-            SDL_RenderLine(sdl_renderer, x2 + screen_h, 0.0f, x2, (float)screen_h);
+        // 2. Waves rendering
+        if (draw_waves) {
+            float wave_offset = fmod(time_sec * (double)scale_px(6), (double)line_spacing * 2);
+            SDL_SetRenderDrawColor(sdl_renderer, pr, pg, pb, 35);
+            for (float y = -line_spacing * 2; y < screen_h + line_spacing * 2; y += line_spacing * 2) {
+                float cur_y = y + wave_offset;
+                float prev_x = 0.0f;
+                float prev_y = cur_y + sin((0.0f / (float)screen_w) * 2.0f * 3.1415926535f + time_sec) * (float)scale_px(10);
+                int step = scale_px(24);
+                if (step < 4) step = 4;
+                for (int x = 0; x <= screen_w; x += step) {
+                    float next_y = cur_y + sin(((float)x / (float)screen_w) * 2.0f * 3.1415926535f + time_sec) * (float)scale_px(10);
+                    SDL_RenderLine(sdl_renderer, prev_x, prev_y, (float)x, next_y);
+                    prev_x = (float)x;
+                    prev_y = next_y;
+                }
+            }
         }
 
-        // Dynamic Layer 3: Gentle wavy ribbons scrolling horizontally for a high-end ambient feel
-        float wave_offset = fmod(time_sec * (double)scale_px(6), (double)line_spacing * 2);
-        SDL_SetRenderDrawColor(sdl_renderer, pr, pg, pb, 35);
-        for (float y = -line_spacing * 2; y < screen_h + line_spacing * 2; y += line_spacing * 2) {
-            float cur_y = y + wave_offset;
-            float prev_x = 0.0f;
-            float prev_y = cur_y + sin((0.0f / (float)screen_w) * 2.0f * 3.1415926535f + time_sec) * (float)scale_px(10);
-            int step = scale_px(24);
-            if (step < 4) step = 4;
-            for (int x = 0; x <= screen_w; x += step) {
-                float next_y = cur_y + sin(((float)x / (float)screen_w) * 2.0f * 3.1415926535f + time_sec) * (float)scale_px(10);
-                SDL_RenderLine(sdl_renderer, prev_x, prev_y, (float)x, next_y);
-                prev_x = (float)x;
-                prev_y = next_y;
+        // 3. Dots rendering
+        if (draw_dots) {
+            float dot_offset_x = fmod(time_sec * (double)scale_px(8), (double)line_spacing);
+            float dot_offset_y = fmod(time_sec * (double)scale_px(5), (double)line_spacing);
+            SDL_SetRenderDrawColor(sdl_renderer, pr, pg, pb, 60); // Dots need slightly higher alpha to look good
+            float dot_size = (float)scale_px(4);
+            if (dot_size < 1.0f) dot_size = 1.0f;
+            for (float x = -line_spacing; x < screen_w + line_spacing; x += line_spacing) {
+                for (float y = -line_spacing; y < screen_h + line_spacing; y += line_spacing) {
+                    SDL_FRect r = { x + dot_offset_x, y + dot_offset_y, dot_size, dot_size };
+                    SDL_RenderFillRect(sdl_renderer, &r);
+                }
             }
         }
     } else {
