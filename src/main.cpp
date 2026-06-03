@@ -301,9 +301,9 @@ static SDL_Texture* render_state_to_texture(
         // 3. Color-matched matte for each portrait (opaque and edge-to-edge if enabled)
         if (snap_matte_color) {
             g_renderer.draw_color_matched_matte(rect_l,
-                primary->matte_r, primary->matte_g, primary->matte_b, 1.0f);
+                primary->matte_r, primary->matte_g, primary->matte_b, matte_op);
             g_renderer.draw_color_matched_matte(rect_r,
-                twin->matte_r, twin->matte_g, twin->matte_b, 1.0f);
+                twin->matte_r, twin->matte_g, twin->matte_b, matte_op);
         }
 
         // 4. Draw bias lighting if enabled
@@ -372,7 +372,7 @@ static SDL_Texture* render_state_to_texture(
         // 3. Color-matched matte if enabled (opaque and edge-to-edge if enabled)
         if (snap_matte_color && primary) {
             g_renderer.draw_color_matched_matte(rect,
-                primary->matte_r, primary->matte_g, primary->matte_b, 1.0f);
+                primary->matte_r, primary->matte_g, primary->matte_b, matte_op);
         }
 
         // 4. Draw bias lighting if enabled
@@ -682,10 +682,7 @@ static void advance_playlist(int step) {
         }
     } else {
         int n = (int)g_eligible.size();
-        current_idx = (current_idx + step) % n;
-        if (current_idx < 0) {
-            current_idx += n;
-        }
+        current_idx = ((current_idx + step) % n + n) % n;
     }
 }
 
@@ -1461,6 +1458,7 @@ int main(int argc, char** argv) {
                 int active_port = g_cfg.http_port;
                 g_cfg.load(config_path);
                 g_cfg.http_port = active_port;
+                transition_effect = g_cfg.transition_effect;
             }
             g_config_changed.store(false);
         }
@@ -1594,18 +1592,13 @@ int main(int argc, char** argv) {
         }
 
         if (transitioning && !g_transition->is_active()) {
-            // Force crossfade for photo-to-photo transitions
-            bool next_is_image = (g_eligible[current_idx].type == "image");
-            TransitionEffect effect;
-            if (current_data && next_is_image) {
-                effect = TransitionEffect::Fade;
-            } else {
-                effect = TransitionEffect::Fade;
-                if (transition_effect == "wipe") effect = TransitionEffect::WipeLeft;
-                else if (transition_effect == "ken_burns") effect = TransitionEffect::KenBurns;
-                else if (transition_effect == "pixelate") effect = TransitionEffect::Pixelate;
-                else if (transition_effect == "dissolve") effect = TransitionEffect::Dissolve;
-            }
+            TransitionEffect effect = TransitionEffect::Fade;
+            if (transition_effect == "wipe") effect = TransitionEffect::WipeLeft;
+            else if (transition_effect == "ken_burns") effect = TransitionEffect::KenBurns;
+            else if (transition_effect == "pixelate") effect = TransitionEffect::Pixelate;
+            else if (transition_effect == "dissolve") effect = TransitionEffect::Dissolve;
+            else if (transition_effect == "crossfade") effect = TransitionEffect::Fade;
+
             float duration = 0.0f, kb_zoom = 0.1f;
             { std::lock_guard<std::mutex> lk(g_config_mtx); duration = g_cfg.transition_duration; kb_zoom = g_cfg.ken_burns_zoom; }
             g_transition->start(effect, duration, 0, kb_zoom);
@@ -1988,9 +1981,9 @@ int main(int argc, char** argv) {
                 // 3. Color-matched matte for each portrait (opaque and edge-to-edge if enabled)
                 if (snap_matte_color) {
                     g_renderer.draw_color_matched_matte(rect_l,
-                        current_data->matte_r, current_data->matte_g, current_data->matte_b, 1.0f);
+                        current_data->matte_r, current_data->matte_g, current_data->matte_b, matte_op);
                     g_renderer.draw_color_matched_matte(rect_r,
-                        current_twin_data->matte_r, current_twin_data->matte_g, current_twin_data->matte_b, 1.0f);
+                        current_twin_data->matte_r, current_twin_data->matte_g, current_twin_data->matte_b, matte_op);
                 }
 
 
@@ -2061,7 +2054,7 @@ int main(int argc, char** argv) {
                 // 3. Color-matched matte if enabled (opaque and edge-to-edge if enabled)
                 if (snap_matte_color && current_data) {
                     g_renderer.draw_color_matched_matte(fit_rect,
-                        current_data->matte_r, current_data->matte_g, current_data->matte_b, 1.0f);
+                        current_data->matte_r, current_data->matte_g, current_data->matte_b, matte_op);
                 }
 
                 // 4. Draw bias lighting if enabled
