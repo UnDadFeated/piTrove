@@ -1,3 +1,8 @@
+## v11.7.12 — Configurable Background Pattern Brightness (June 3, 2026)
+
+### Added
+- **Configurable Background Pattern Brightness** — Added a configuration parameter `pattern_brightness` and integrated it as "Pattern Brightness" under the Display category in the TUI Setup Wizard, enabling custom pattern contrast adjustment (0 to 150 offset) against the average color-matched background matte.
+
 ## v11.7.11 — Background Pattern Contrast Hardening (June 3, 2026)
 
 ### Fixed
