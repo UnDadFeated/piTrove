@@ -1,3 +1,8 @@
+## v11.8.0 — Interactive Google Photos Setup and Fail-safes (June 3, 2026)
+
+### Added
+- **Interactive Google Photos Installer Prompts** — Added a dynamic step-by-step interactive configuration prompt for Google Photos in the setup installer script (`install.sh`), with fallback validation loops checking for empty client secrets, suffix structure formatting of client IDs, and valid integer range entries for synchronization periods.
+
 ## v11.7.13 — Default Animated Pattern and Visibility Enhancements (June 3, 2026)
 
 ### Added
