@@ -23,10 +23,12 @@
 static const char* IMAGE_EXTS[] = {"jpg", "jpeg", "png", "bmp", "tga", "gif", "webp", "tiff", "tif", "heic", "heif"};
 static const char* VIDEO_EXTS[] = {"mp4", "mkv", "avi", "mov", "webm", "m4v"};
 
-static bool has_extension(std::string_view path, std::string_view ext) {
-    if (path.size() != ext.size()) return false;
-    for (size_t i = 0; i < ext.size(); ++i) {
-        if (tolower((unsigned char)path[i]) != tolower((unsigned char)ext[i])) return false;
+// Compares only the final extension component (e.g. "jpeg", case-insensitive).
+// Both arguments must be extension components, not full file paths.
+static bool ext_matches(std::string_view ext, std::string_view target) {
+    if (ext.size() != target.size()) return false;
+    for (size_t i = 0; i < target.size(); ++i) {
+        if (tolower((unsigned char)ext[i]) != tolower((unsigned char)target[i])) return false;
     }
     return true;
 }
@@ -84,7 +86,7 @@ bool is_image(std::string_view ext_or_path) {
         ext = ext_or_path.substr(dot + 1);
     }
     for (auto e : IMAGE_EXTS) {
-        if (has_extension(ext, e)) return true;
+        if (ext_matches(ext, e)) return true;
     }
     return false;
 }
@@ -96,7 +98,7 @@ bool is_video(std::string_view ext_or_path) {
         ext = ext_or_path.substr(dot + 1);
     }
     for (auto e : VIDEO_EXTS) {
-        if (has_extension(ext, e)) return true;
+        if (ext_matches(ext, e)) return true;
     }
     return false;
 }

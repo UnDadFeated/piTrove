@@ -276,6 +276,11 @@ void ImageLoader::load_texture(ImageData* data, SDL_Renderer* renderer) {
             data->surface = scaled;
             data->width = nw;
             data->height = nh;
+        } else {
+            g_logger.warn("Failed to create scaled surface");
+            SDL_DestroySurface(data->surface);
+            data->surface = nullptr;
+            return;
         }
     }
 
@@ -368,7 +373,7 @@ bool ImageLoader::has_camera_exif(const char* path) {
 }
 
 SDL_Surface* ImageLoader::apply_exif_rotation(SDL_Surface* surface, int exif) {
-    if (!surface || exif < 2 || exif > 8) return surface;
+    if (!surface || exif < 2 || exif > 8) return nullptr;
     SDL_Surface* rotated = nullptr;
     switch (exif) {
         case 2: {
