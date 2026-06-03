@@ -66,6 +66,7 @@ public:
     void present();
     void draw_matte_borders(const SDL_Rect& fit_rect);
     void draw_blurred_background(SDL_Texture* blur_texture, Uint8 vignette_alpha);
+    void draw_background(ImageData* data, const std::string& bg_style, Uint8 vignette_alpha);
     void draw_blurred_from_raw(const RawImage& blur_raw, Uint8 vignette_alpha);
     void draw_color_matched_matte(const SDL_Rect& fit_rect, Uint8 matte_r, Uint8 matte_g, Uint8 matte_b, float matte_opacity);
     void draw_bias_lighting(const SDL_Rect& fit_rect, Uint8 avg_r, Uint8 avg_g, Uint8 avg_b,

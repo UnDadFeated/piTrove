@@ -295,6 +295,13 @@ void ImageLoader::load_texture(ImageData* data, SDL_Renderer* renderer) {
         SDL_Surface* bsurf = SDL_CreateSurface(data->blur_raw.width, data->blur_raw.height, SDL_PIXELFORMAT_RGBA32);
         if (bsurf) {
             memcpy(bsurf->pixels, data->blur_raw.pixels, (size_t)data->blur_raw.width * data->blur_raw.height * 4);
+            if (data->exif_rotation >= 2 && data->exif_rotation <= 8) {
+                SDL_Surface* rotated = apply_exif_rotation(bsurf, data->exif_rotation);
+                if (rotated) {
+                    SDL_DestroySurface(bsurf);
+                    bsurf = rotated;
+                }
+            }
             data->blur_texture = SDL_CreateTextureFromSurface(renderer, bsurf);
             if (!data->blur_texture) {
                 g_logger.error("Failed to create blur texture from surface: %s", SDL_GetError());

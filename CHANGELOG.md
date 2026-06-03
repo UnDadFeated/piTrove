@@ -1,3 +1,12 @@
+## v11.7.10 — Seamless Animated Pattern Background (June 3, 2026)
+
+### Added
+- **Seamless Animated Background Pattern** — Introduced a premium procedural ambient background matte mode. It generates multiple layers of intersecting lines moving slowly in opposite directions combined with gentle undulating waves, matching the average color of the active image to create a seamless, non-distracting, high-performance visual matte.
+- **Default Background Configuration** — Set the new animated pattern background as the default display style.
+
+### Fixed
+- **Sideways Background Rendering** — Resolved an issue where blurred photo backgrounds were rendered sideways due to missing image orientation data. EXIF rotation attributes are now correctly applied to the background matte layout.
+
 ## v11.7.9 — System Stability & Bug Audit Fixes (June 3, 2026)
 
 ### Fixed

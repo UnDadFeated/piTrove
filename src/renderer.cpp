@@ -314,6 +314,73 @@ void Renderer::draw_blurred_background(SDL_Texture* blur_texture, Uint8 vignette
     SDL_SetTextureAlphaMod(blur_texture, 255);
 }
 
+void Renderer::draw_background(ImageData* data, const std::string& bg_style, Uint8 vignette_alpha) {
+    if (!sdl_renderer) return;
+    if (!data || !data->valid) {
+        clear(0, 0, 0, 255);
+        return;
+    }
+
+    if (bg_style == "plain") {
+        float factor = (float)vignette_alpha / 255.0f * 0.7f;
+        clear((Uint8)(data->avg_r * factor), (Uint8)(data->avg_g * factor), (Uint8)(data->avg_b * factor), 255);
+    } else if (bg_style == "pattern") {
+        float factor = (float)vignette_alpha / 255.0f * 0.35f; // slightly darker base for higher contrast
+        clear((Uint8)(data->avg_r * factor), (Uint8)(data->avg_g * factor), (Uint8)(data->avg_b * factor), 255);
+
+        SDL_SetRenderDrawBlendMode(sdl_renderer, SDL_BLENDMODE_BLEND);
+        float pattern_factor = factor * 1.4f;
+        Uint8 pr = (Uint8)(data->avg_r * pattern_factor);
+        Uint8 pg = (Uint8)(data->avg_g * pattern_factor);
+        Uint8 pb = (Uint8)(data->avg_b * pattern_factor);
+
+        double time_sec = (double)SDL_GetTicks() / 1000.0;
+        int line_spacing = scale_px(64);
+        if (line_spacing < 8) line_spacing = 8;
+
+        // Dynamic Layer 1: Forward scrolling diagonal lines
+        float offset1 = fmod(time_sec * (double)scale_px(12), (double)line_spacing);
+        SDL_SetRenderDrawColor(sdl_renderer, pr, pg, pb, 15); // subtle transparent lines
+        for (float i = -screen_h - line_spacing; i < screen_w + line_spacing; i += line_spacing) {
+            float x1 = i + offset1;
+            SDL_RenderLine(sdl_renderer, x1, 0.0f, x1 + screen_h, (float)screen_h);
+        }
+
+        // Dynamic Layer 2: Backward scrolling diagonal lines with slightly different speed/spacing
+        float offset2 = fmod(-time_sec * (double)scale_px(8), (double)line_spacing);
+        SDL_SetRenderDrawColor(sdl_renderer, pr, pg, pb, 20);
+        for (float i = -screen_h - line_spacing; i < screen_w + line_spacing; i += line_spacing) {
+            float x2 = i + offset2;
+            SDL_RenderLine(sdl_renderer, x2 + screen_h, 0.0f, x2, (float)screen_h);
+        }
+
+        // Dynamic Layer 3: Gentle wavy ribbons scrolling horizontally for a high-end ambient feel
+        float wave_offset = fmod(time_sec * (double)scale_px(6), (double)line_spacing * 2);
+        SDL_SetRenderDrawColor(sdl_renderer, pr, pg, pb, 10);
+        for (float y = -line_spacing * 2; y < screen_h + line_spacing * 2; y += line_spacing * 2) {
+            float cur_y = y + wave_offset;
+            float prev_x = 0.0f;
+            float prev_y = cur_y + sin((0.0f / (float)screen_w) * 2.0f * 3.1415926535f + time_sec) * (float)scale_px(10);
+            int step = scale_px(24);
+            if (step < 4) step = 4;
+            for (int x = 0; x <= screen_w; x += step) {
+                float next_y = cur_y + sin(((float)x / (float)screen_w) * 2.0f * 3.1415926535f + time_sec) * (float)scale_px(10);
+                SDL_RenderLine(sdl_renderer, prev_x, prev_y, (float)x, next_y);
+                prev_x = (float)x;
+                prev_y = next_y;
+            }
+        }
+    } else {
+        // "photo" style (default)
+        if (data->blur_texture) {
+            draw_blurred_background(data->blur_texture, vignette_alpha);
+        } else {
+            float factor = (float)vignette_alpha / 255.0f * 0.7f;
+            clear((Uint8)(data->avg_r * factor), (Uint8)(data->avg_g * factor), (Uint8)(data->avg_b * factor), 255);
+        }
+    }
+}
+
 void Renderer::draw_blurred_from_raw(const RawImage& blur_raw, Uint8 vignette_alpha) {
     if (!blur_raw.valid || !blur_raw.pixels || !sdl_renderer) return;
 
