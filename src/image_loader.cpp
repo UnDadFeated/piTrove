@@ -276,6 +276,11 @@ void ImageLoader::load_texture(ImageData* data, SDL_Renderer* renderer) {
             data->surface = scaled;
             data->width = nw;
             data->height = nh;
+        } else {
+            g_logger.warn("Failed to create scaled surface");
+            SDL_DestroySurface(data->surface);
+            data->surface = nullptr;
+            return;
         }
     }
 
@@ -290,6 +295,13 @@ void ImageLoader::load_texture(ImageData* data, SDL_Renderer* renderer) {
         SDL_Surface* bsurf = SDL_CreateSurface(data->blur_raw.width, data->blur_raw.height, SDL_PIXELFORMAT_RGBA32);
         if (bsurf) {
             memcpy(bsurf->pixels, data->blur_raw.pixels, (size_t)data->blur_raw.width * data->blur_raw.height * 4);
+            if (data->exif_rotation >= 2 && data->exif_rotation <= 8) {
+                SDL_Surface* rotated = apply_exif_rotation(bsurf, data->exif_rotation);
+                if (rotated) {
+                    SDL_DestroySurface(bsurf);
+                    bsurf = rotated;
+                }
+            }
             data->blur_texture = SDL_CreateTextureFromSurface(renderer, bsurf);
             if (!data->blur_texture) {
                 g_logger.error("Failed to create blur texture from surface: %s", SDL_GetError());
@@ -368,7 +380,7 @@ bool ImageLoader::has_camera_exif(const char* path) {
 }
 
 SDL_Surface* ImageLoader::apply_exif_rotation(SDL_Surface* surface, int exif) {
-    if (!surface || exif < 2 || exif > 8) return surface;
+    if (!surface || exif < 2 || exif > 8) return nullptr;
     SDL_Surface* rotated = nullptr;
     switch (exif) {
         case 2: {

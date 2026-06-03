@@ -201,6 +201,32 @@ fi
 PRIMARY_HOME="/home/$PRIMARY_USER"
 info "Primary user: ${BOLD}${WHITE}$PRIMARY_USER${NC} (${CYAN}$PRIMARY_HOME${NC})"
 
+# Root check
+if [[ "$(id -u)" -ne 0 ]]; then
+    fail "This script must be run as root (sudo)"
+fi
+
+# OS check
+OS_OK=0
+if [[ -f /etc/os-release ]]; then
+    . /etc/os-release
+    if [[ "$ID" == "debian" && "$VERSION_ID" == "13" ]]; then
+        OS_OK=1
+    fi
+fi
+if [[ "$OS_OK" -ne 1 ]] && command -v lsb_release &>/dev/null; then
+    if [[ "$(lsb_release -si)" == "Debian" && "$(lsb_release -rs)" == "13" ]]; then
+        OS_OK=1
+    fi
+fi
+if [[ "$OS_OK" -ne 1 ]]; then
+    fail "This installer requires Debian Trixie (13) 64-bit"
+fi
+if [[ "$(uname -m)" != "aarch64" ]]; then
+    fail "This installer requires ARM64 (aarch64), found $(uname -m)"
+fi
+ok "Debian Trixie 64-bit validated successfully"
+
 # 2. Bootstrap packages (git, lsb_release, pkg-config, curl needed below)
 run_with_spinner "Updating system package repositories" apt-get update -qq
 run_with_spinner "Installing bootstrap tools" apt-get install -y -qq git curl lsb-release pkg-config
@@ -211,23 +237,6 @@ if ! command -v docker &>/dev/null; then
 fi
 if ! command -v docker compose &>/dev/null; then
     run_with_spinner "Installing Docker Compose Plugin" apt-get install -y -qq docker-compose-plugin
-fi
-
-# 3. OS check
-if [[ "$(lsb_release -si)" != "Debian" ]]; then
-    fail "This installer requires Debian Trixie 64-bit"
-fi
-if [[ "$(lsb_release -rs)" != "13" ]]; then
-    fail "This installer requires Debian Trixie (13), found $(lsb_release -rs)"
-fi
-if [[ "$(uname -m)" != "aarch64" ]]; then
-    fail "This installer requires ARM64 (aarch64), found $(uname -m)"
-fi
-ok "Debian Trixie 64-bit validated successfully"
-
-# 4. Root check
-if [[ "$(id -u)" -ne 0 ]]; then
-    fail "This script must be run as root (sudo)"
 fi
 
 # ── Handle Update Command Line Option ──────────────────────────────────────────
@@ -536,13 +545,16 @@ if [[ "$USE_NAS" -eq 1 ]] || [[ "$storage_choice" == "3" ]]; then
     fi
 
     # Format fstab configuration row
-    if [[ "$SHARE_PROTOCOL" == "cifs" ]]; then
-        FSTAB_LINE="# piTrove Network Share
+    generate_fstab_line() {
+        if [[ "$SHARE_PROTOCOL" == "cifs" ]]; then
+            FSTAB_LINE="# piTrove Network Share
 //$SHARE_IP/${SHARE_PATH#/} $SHARE_MOUNT cifs credentials=$PRIMARY_HOME/nas.cred,ro,uid=1000,gid=1000,vers=3.0,_netdev,nofail,x-systemd.automount,x-systemd.mount-timeout=10,soft,echo_interval=6 0 0"
-    elif [[ "$SHARE_PROTOCOL" == "nfs" ]]; then
-        FSTAB_LINE="# piTrove Network Share
+        elif [[ "$SHARE_PROTOCOL" == "nfs" ]]; then
+            FSTAB_LINE="# piTrove Network Share
 $SHARE_IP:$SHARE_PATH $SHARE_MOUNT $SHARE_PROTOCOL defaults,_netdev,timeo=10,retrans=3,nofail,x-systemd.automount,x-systemd.mount-timeout=10,soft 0 0"
-    fi
+        fi
+    }
+    generate_fstab_line
 
     # Clean old entries
     sed -i '/# piTrove /d' /etc/fstab
@@ -616,13 +628,7 @@ $SHARE_IP:$SHARE_PATH $SHARE_MOUNT $SHARE_PROTOCOL defaults,_netdev,timeo=10,ret
                         read -r _tmp ; SHARE_IP="${_tmp:-$SHARE_IP}"
                         echo -n -e "      ${BOLD}${CYAN}▸ Share Path [$SHARE_PATH]:${NC} "
                         read -r _tmp ; SHARE_PATH="${_tmp:-$SHARE_PATH}"
-                        if [[ "$SHARE_PROTOCOL" == "cifs" ]]; then
-                            FSTAB_LINE="# piTrove Network Share
-//$SHARE_IP/${SHARE_PATH#/} $SHARE_MOUNT cifs credentials=$PRIMARY_HOME/nas.cred,ro,uid=1000,gid=1000,vers=3.0,_netdev,nofail 0 0"
-                        else
-                            FSTAB_LINE="# piTrove Network Share
-$SHARE_IP:$SHARE_PATH $SHARE_MOUNT $SHARE_PROTOCOL defaults,_netdev,timeo=10,retrans=3,nofail 0 0"
-                        fi
+                        generate_fstab_line
                         sed -i '/# piTrove /d' /etc/fstab
                         echo "$FSTAB_LINE" >> /etc/fstab
                         systemctl daemon-reload 2>/dev/null || true
@@ -752,7 +758,7 @@ cd "$PRIMARY_HOME/piTrove"
 # Probe active DRM card
 PROBED_CARD=$(find /sys/class/drm/ -name "card*-*" -exec grep -q "^connected$" {}/status \; -print -quit | sed -E 's|.*/(card[0-9]+)-.*|\1|')
 if [ -z "$PROBED_CARD" ]; then
-    PROBED_CARD=$(find /sys/class/drm/ -name "card[0-9]" -print -quit | sed -E 's|.*/(card[0-9]+)|\1|')
+    PROBED_CARD=$(ls /dev/dri/card* 2>/dev/null | head -1 | xargs basename 2>/dev/null || true)
 fi
 if [ -z "$PROBED_CARD" ]; then
     PROBED_CARD="card1"
