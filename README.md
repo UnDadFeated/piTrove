@@ -7,7 +7,7 @@ A professional-grade, **containerized** digital picture frame for the Raspberry 
 [![OS](https://img.shields.io/badge/OS-Trixie%20Lite%20%28Debian%2013%29-lightgreen?style=flat-square)](https://www.debian.org/)
 [![Architecture](https://img.shields.io/badge/arch-aarch64-orange?style=flat-square)](https://en.wikipedia.org/wiki/AArch64)
 [![Graphics](https://img.shields.io/badge/graphics-SDL3-red?style=flat-square)](https://www.libsdl.org/)
-[![Version](https://img.shields.io/badge/version-11.3.0-blue?style=flat-square)]()
+[![Version](https://img.shields.io/badge/version-11.8.1-blue?style=flat-square)]()
 
 ## 🚀 Quick Start
 
@@ -79,6 +79,9 @@ Once the installation completes, the picture frame runs automatically in the bac
   - **Motion Binary Sensor** (Auto-syncs with physical room motion)
 - **Automatic Cooldown Blanking**: Monitors the room's motion sensor topic. If no motion is detected within a customizable cooldown window, it blanks the screen physically using `vcgencmd display_power 0` and clears the framebuffer to black. Wakes up instantly on new motion or key down/mouse events.
 
+### ☁️ Cloud Integration
+- **Google Photos Synchronization**: Syncs photos directly from user-selected Google Photos albums, storing them in a local cache directory with customizable check intervals. Includes robust OAuth2 authentication validation and user-friendly step-by-step setup prompts built directly into the installer.
+
 ### 🛠️ System & Control
 - **Headless Design**: Operates via DRM/KMS (native framebuffer). No X11 or Wayland required.
 - **Dynamic Display & GPU Probing**: Programmatically queries active connected DRM/KMS connector outputs and indices (sysfs `card*-*/status`), auto-configuring stable KMSDRM environments before SDL3 starts up.
@@ -120,6 +123,7 @@ graph TD
 src/
 ├── main.cpp          — Entry point, event loop, DRM master flow, motion cooldown
 ├── mqtt.cpp/h        — Background MQTT subprocess subscriber & HA discovery [NEW]
+├── google_photos.cpp/h — Google Photos cloud synchronization and album manager [NEW]
 ├── scanner.cpp/h     — Recursive media scanning (getdents64)
 ├── cache.cpp/h       — SQLite3 WAL-mode metadata persistence
 ├── config.cpp/h      — TOML config parser & boundary validation
