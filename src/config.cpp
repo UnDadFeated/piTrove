@@ -129,6 +129,8 @@ bool Config::load(const std::string& path) {
         else if (key == "blurred_background") this->blurred_background = !(val == "0" || val == "false");
         else if (key == "color_matched_matte") this->color_matched_matte = !(val == "0" || val == "false");
         else if (key == "bg_style")          this->bg_style = val;
+        else if (key == "pattern_brightness" || key == "pattern_offset") this->pattern_offset = std::max(0, std::min(150, safe_stoi(val, this->pattern_offset)));
+        else if (key == "pattern_style")     this->pattern_style = val;
         else if (key == "blur_radius") {
             int v = std::max(6, std::min(24, safe_stoi(val, this->blur_radius)));
             this->blur_radius = v;
@@ -252,7 +254,15 @@ bool Config::save(const std::string& path) {
     f << "border_enabled = " << (this->border_enabled ? "1" : "0") << "\n";
     f << "border_width = " << this->border_width << "\n";
     f << "vignette_enabled = " << (this->vignette_enabled ? "1" : "0") << "\n";
-    f << "bg_style = \"" << this->bg_style << "\"\n\n";
+    f << "bg_style = \"" << this->bg_style << "\"\n";
+    f << "pattern_brightness = " << this->pattern_offset << "\n";
+    f << "pattern_style = \"" << this->pattern_style << "\"\n";
+    f << "blurred_background = " << (this->blurred_background ? "1" : "0") << "\n";
+    f << "color_matched_matte = " << (this->color_matched_matte ? "1" : "0") << "\n";
+    f << "matte_opacity = " << this->matte_opacity << "\n";
+    f << "vignette_strength = " << this->vignette_strength << "\n";
+    f << "blur_radius = " << this->blur_radius << "\n";
+    f << "glow_depth = " << this->glow_depth << "\n\n";
 
     f << "[slideshow]\n";
     f << "transition_delay = " << this->transition_delay << "\n";

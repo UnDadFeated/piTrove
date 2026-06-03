@@ -802,6 +802,62 @@ else
 fi
 ok "Scan window initialized to $SCAN_WINDOW_DAYS days"
 
+# ── Google Photos Interactive Setup ──────────────────────────────────────────────
+echo
+GOOGLE_PHOTOS_ENABLED=0
+GP_CLIENT_ID=""
+GP_CLIENT_SECRET=""
+GP_ALBUM_ID=""
+GP_SYNC_INTERVAL=60
+
+if yesno "Configure Google Photos cloud integration?"; then
+    GOOGLE_PHOTOS_ENABLED=1
+    
+    # Validate Client ID
+    while true; do
+        echo -n -e "   ${BOLD}${YELLOW}▸ Google Photos Client ID:${NC} "
+        read -r GP_CLIENT_ID
+        if [[ -z "$GP_CLIENT_ID" ]]; then
+            warn "Client ID cannot be empty. Please enter your Google Cloud OAuth Client ID."
+        elif [[ ! "$GP_CLIENT_ID" =~ \.apps\.googleusercontent\.com$ ]]; then
+            warn "Client ID does not end with '.apps.googleusercontent.com'. Double check your credential entry."
+            if yesno "Use this Client ID anyway?"; then
+                break
+            fi
+        else
+            break
+        fi
+    done
+
+    # Validate Client Secret
+    while true; do
+        echo -n -e "   ${BOLD}${YELLOW}▸ Google Photos Client Secret:${NC} "
+        read -r GP_CLIENT_SECRET
+        if [[ -z "$GP_CLIENT_SECRET" ]]; then
+            warn "Client Secret cannot be empty. Please enter your Google Cloud OAuth Client Secret."
+        else
+            break
+        fi
+    done
+
+    echo -n -e "   ${BOLD}${YELLOW}▸ Google Photos Album ID (optional, press Enter for all):${NC} "
+    read -r GP_ALBUM_ID
+
+    # Validate Sync Interval
+    while true; do
+        echo -n -e "   ${BOLD}${YELLOW}▸ Sync Interval in minutes [default: 60]:${NC} "
+        read -r GP_SYNC_INT_INPUT
+        GP_SYNC_INTERVAL="${GP_SYNC_INT_INPUT:-60}"
+        if [[ "$GP_SYNC_INTERVAL" =~ ^[0-9]+$ ]] && [[ "$GP_SYNC_INTERVAL" -ge 1 ]] && [[ "$GP_SYNC_INTERVAL" -le 1440 ]]; then
+            break
+        else
+            warn "Invalid interval. Please specify an integer between 1 and 1440 minutes."
+        fi
+    done
+
+    ok "Google Photos configured (will require browser authorization at http://<IP>:8080/google_photos_setup)"
+fi
+
 # ── Configuration TOML ─────────────────────────────────────────────────────────
 info "Writing configuration options..."
 CONFIG_FILE="$PRIMARY_HOME/piTrove/config/config.toml"
@@ -840,6 +896,17 @@ album_id = ""
 sync_interval_mins = 60
 cache_dir = "/app/cache/google_photos"
 EOF
+    fi
+
+    # Apply interactive changes if Google Photos was configured
+    if [[ "$GOOGLE_PHOTOS_ENABLED" -eq 1 ]]; then
+        sed -i "/\[google_photos\]/,/^\[/ s/^enabled = .*/enabled = $GOOGLE_PHOTOS_ENABLED/" "$CONFIG_FILE"
+        sed -i "/\[google_photos\]/,/^\[/ s/^client_id = .*/client_id = \"$GP_CLIENT_ID\"/" "$CONFIG_FILE"
+        sed -i "/\[google_photos\]/,/^\[/ s/^client_secret = .*/client_secret = \"$GP_CLIENT_SECRET\"/" "$CONFIG_FILE"
+        sed -i "/\[google_photos\]/,/^\[/ s/^album_id = .*/album_id = \"$GP_ALBUM_ID\"/" "$CONFIG_FILE"
+        sed -i "/\[google_photos\]/,/^\[/ s/^sync_interval_mins = .*/sync_interval_mins = $GP_SYNC_INTERVAL/" "$CONFIG_FILE"
+        # Ensure HTTP remote control is enabled to receive callback redirects
+        sed -i "/\[remote\]/,/^\[/ s/^http_enabled = .*/http_enabled = 1/" "$CONFIG_FILE"
     fi
 else
     cat > "$CONFIG_FILE" <<EOF
@@ -935,7 +1002,7 @@ weather_lat = -999.0
 weather_lon = -999.0
 
 [remote]
-http_enabled = 0
+http_enabled = $GOOGLE_PHOTOS_ENABLED
 http_port = 8080
 
 [mqtt]
@@ -949,12 +1016,12 @@ motionsensor_topic = "home/motionsensor"
 motionsensor_cooldown = 60
 
 [google_photos]
-enabled = 0
-client_id = ""
-client_secret = ""
+enabled = $GOOGLE_PHOTOS_ENABLED
+client_id = "$GP_CLIENT_ID"
+client_secret = "$GP_CLIENT_SECRET"
 refresh_token = ""
-album_id = ""
-sync_interval_mins = 60
+album_id = "$GP_ALBUM_ID"
+sync_interval_mins = $GP_SYNC_INTERVAL
 cache_dir = "/app/cache/google_photos"
 EOF
 fi
@@ -1107,6 +1174,13 @@ print_success_card() {
             echo -e "${GREEN}║${NC}   • ${RED}Storage Warning: NAS mount failed.${NC}                       ${GREEN}║${NC}"
             echo -e "${GREEN}║${NC}     Manually add to /etc/fstab and run 'sudo mount -a'       ${GREEN}║${NC}"
         fi
+    fi
+
+    if [[ "$GOOGLE_PHOTOS_ENABLED" -eq 1 ]]; then
+        echo -e "${GREEN}║${NC}                                                              ${GREEN}║${NC}"
+        echo -e "${GREEN}║${NC}  ${BOLD}${YELLOW}Google Photos Authorization Required:${NC}                       ${GREEN}║${NC}"
+        echo -e "${GREEN}║${NC}   • Nav to: ${CYAN}http://${IP_ADDR}:8080/google_photos_setup${NC}       ${GREEN}║${NC}"
+        echo -e "${GREEN}║${NC}   • Log in & grant consent to complete authentication.       ${GREEN}║${NC}"
     fi
     echo -e "${GREEN}╚══════════════════════════════════════════════════════════════╝${NC}"
 }
