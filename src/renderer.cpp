@@ -372,7 +372,7 @@ void Renderer::draw_background(ImageData* data, const std::string& bg_style, Uin
         if (draw_grid) {
             // Dynamic Layer 1: Forward scrolling diagonal lines
             float offset1 = fmod(time_sec * (double)scale_px(12), (double)line_spacing);
-            SDL_SetRenderDrawColor(sdl_renderer, pr, pg, pb, 45); // Higher transparency alpha for visible lines
+            SDL_SetRenderDrawColor(sdl_renderer, pr, pg, pb, 55); // Higher transparency alpha for visible lines
             for (float i = -screen_h - line_spacing; i < screen_w + line_spacing; i += line_spacing) {
                 float x1 = i + offset1;
                 SDL_RenderLine(sdl_renderer, x1, 0.0f, x1 + screen_h, (float)screen_h);
@@ -380,7 +380,7 @@ void Renderer::draw_background(ImageData* data, const std::string& bg_style, Uin
 
             // Dynamic Layer 2: Backward scrolling diagonal lines with slightly different speed/spacing
             float offset2 = fmod(-time_sec * (double)scale_px(8), (double)line_spacing);
-            SDL_SetRenderDrawColor(sdl_renderer, pr, pg, pb, 50);
+            SDL_SetRenderDrawColor(sdl_renderer, pr, pg, pb, 60);
             for (float i = -screen_h - line_spacing; i < screen_w + line_spacing; i += line_spacing) {
                 float x2 = i + offset2;
                 SDL_RenderLine(sdl_renderer, x2 + screen_h, 0.0f, x2, (float)screen_h);
@@ -390,7 +390,7 @@ void Renderer::draw_background(ImageData* data, const std::string& bg_style, Uin
         // 2. Waves rendering
         if (draw_waves) {
             float wave_offset = fmod(time_sec * (double)scale_px(6), (double)line_spacing * 2);
-            SDL_SetRenderDrawColor(sdl_renderer, pr, pg, pb, 35);
+            SDL_SetRenderDrawColor(sdl_renderer, pr, pg, pb, 45);
             for (float y = -line_spacing * 2; y < screen_h + line_spacing * 2; y += line_spacing * 2) {
                 float cur_y = y + wave_offset;
                 float prev_x = 0.0f;
@@ -410,7 +410,7 @@ void Renderer::draw_background(ImageData* data, const std::string& bg_style, Uin
         if (draw_dots) {
             float dot_offset_x = fmod(time_sec * (double)scale_px(8), (double)line_spacing);
             float dot_offset_y = fmod(time_sec * (double)scale_px(5), (double)line_spacing);
-            SDL_SetRenderDrawColor(sdl_renderer, pr, pg, pb, 60); // Dots need slightly higher alpha to look good
+            SDL_SetRenderDrawColor(sdl_renderer, pr, pg, pb, 75); // Dots need slightly higher alpha to look good
             float dot_size = (float)scale_px(4);
             if (dot_size < 1.0f) dot_size = 1.0f;
             for (float x = -line_spacing; x < screen_w + line_spacing; x += line_spacing) {

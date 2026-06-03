@@ -1,3 +1,11 @@
+## v11.7.13 — Default Animated Pattern and Visibility Enhancements (June 3, 2026)
+
+### Added
+- **Default Animated Pattern Style** — Changed the default pattern style from a static combined pattern to the active animated combined pattern.
+
+### Fixed
+- **Enhanced Pattern Contrast** — Increased default pattern brightness offset to 45 and optimized all rendering layers' transparency alpha levels to ensure clear visibility against color-matched backgrounds.
+
 ## v11.7.12 — Configurable Background Pattern Brightness (June 3, 2026)
 
 ### Added
