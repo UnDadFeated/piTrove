@@ -90,8 +90,7 @@ std::shared_ptr<ImageData> PreloadQueue::try_dequeue(const std::string& target_p
     g_logger.info("TRACE: PreloadQueue::try_dequeue queue_size=%d target=%s", (int)loaded_queue.size(), target_path.c_str());
     std::shared_ptr<ImageData> data = nullptr;
     {
-        std::lock_guard<std::mutex> work_lk(work_mutex);
-        std::lock_guard<std::mutex> lock(queue_mutex);
+        std::scoped_lock lk(work_mutex, queue_mutex);
         while (!loaded_queue.empty()) {
             if (loaded_queue.front().path == target_path) {
                 PreloadedItem item = std::move(loaded_queue.front());
@@ -404,6 +403,8 @@ void PreloadQueue::worker_thread(int thread_id) {
             if (task_epoch != current_epoch) {
                 g_logger.debug("[Worker %d] Discarding stale preload item (epoch mismatch: %llu vs %llu) for %s",
                     thread_id, (unsigned long long)task_epoch, (unsigned long long)current_epoch, path.c_str());
+                if (raw.pixels) { free(raw.pixels); raw.pixels = nullptr; }
+                if (blur.pixels) { free(blur.pixels); blur.pixels = nullptr; }
                 continue;
             }
             PreloadedItem item;

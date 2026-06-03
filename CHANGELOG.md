@@ -1,3 +1,25 @@
+## v11.7.10 — Seamless Animated Pattern Background (June 3, 2026)
+
+### Added
+- **Seamless Animated Background Pattern** — Introduced a premium procedural ambient background matte mode. It generates multiple layers of intersecting lines moving slowly in opposite directions combined with gentle undulating waves, matching the average color of the active image to create a seamless, non-distracting, high-performance visual matte.
+- **Default Background Configuration** — Set the new animated pattern background as the default display style.
+
+### Fixed
+- **Sideways Background Rendering** — Resolved an issue where blurred photo backgrounds were rendered sideways due to missing image orientation data. EXIF rotation attributes are now correctly applied to the background matte layout.
+
+## v11.7.9 — System Stability & Bug Audit Fixes (June 3, 2026)
+
+### Fixed
+- **Slideshow Transition Selection** — Corrected an issue where customized transitions fell back to standard crossfades. Customized transition selections are now correctly respected and refreshed dynamically upon config updates.
+- **Twin Portrait Layout Navigation** — Resolved a loop boundary issue where backward navigation on smaller playlists could fail to advance or land on the currently active slide.
+- **Color-Matched Matte Borders** — Unified matte background configurations to ensure customized opacity settings are properly forwarded to matching backgrounds instead of defaulting to opaque colors.
+- **Image Downscaler Stability** — Resolved a potential graphics crash or silent load failure when system resources prevented downscaling oversized images.
+- **Media Preloader Memory Leak** — Patched a memory leak where image metadata reload events during slideshow playlist sweeps failed to release heap resources, leading to potential out-of-memory states.
+- **File Extension Compatibility** — Hardened filename pattern matching to ensure longer file formats are fully supported under all platforms.
+- **Installer Sequence & Reliability** — Reordered the system package installer sequence to perform root privilege and operating system validation checks before starting configuration or downloading external components.
+- **Auto-Reconnect Mount Recovery** — Fixed an issue where the network mount retry routine stripped auto-reconnection parameters, preventing the media library from reconnecting after a network dropout.
+- **DRM Display Controller Discovery** — Hardened active display card discovery during installation to fall back to standard GPU interfaces when connected monitors are asleep or unplugged.
+
 ## v11.7.8 — Resilient Image Loading & UI Smoothness (June 2, 2026)
 
 ### Fixed
