@@ -731,9 +731,45 @@ static void watchman_loop() {
 
             last_yday = curr_tm.tm_yday;
             
+            g_logger.info("Watchman: Midnight detected! Shifting temporal window. Old day=%d, New day=%d", last_yday, curr_tm.tm_yday);
+            g_logger.info("Watchman: Starting background media scan for shifted seasonal window...");
+            
+            std::vector<MediaItem> scanned;
+            int depth = 10;
+            int screen_w = 1920, screen_h = 1080;
+            {
+                std::lock_guard<std::mutex> lock(g_config_mtx);
+                depth = g_cfg.scan_depth;
+                screen_w = g_cfg.screen_w;
+                screen_h = g_cfg.screen_h;
+            }
+            scan_directory(media_dir, depth, scanned, nullptr);
+            g_logger.info("Watchman: Background scan complete. Scanned %zu items. Caching metadata...", scanned.size());
+
+            if (g_cache) {
+                g_cache->begin_transaction();
+                for (auto& mi : scanned) {
+                    if (g_cache->load_cached(mi)) {
+                        mi.cached = true;
+                    } else {
+                        if (mi.type == "image") {
+                            mi.exif_rotation = 1;
+                            mi.width = 1920; mi.height = 1080;
+                        } else {
+                            mi.width = screen_w;
+                            mi.height = screen_h;
+                            mi.duration = 0.0;
+                        }
+                        g_cache->upsert(mi, 0);
+                    }
+                }
+                g_cache->commit_transaction();
+            }
+            
             // Re-filter playlist under lock to prevent data race on g_scanned_items and g_eligible
             {
                 std::lock_guard<std::mutex> playlist_lock(g_playlist_mtx);
+                g_scanned_items = std::move(scanned);
                 
                 int cooldown_days = 0;
                 int window_days = 0;

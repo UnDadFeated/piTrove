@@ -450,19 +450,17 @@ void MediaScanner::process_entry(const std::string& path_str,
     std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
 
     if (std::find(exts.begin(), exts.end(), ext) != exts.end()) {
-        if (is_in_seasonal_window(path_obj.filename().string(), window_days)) {
-            MediaItem mi;
-            mi.path = path_str;
-            mi.filename = path_obj.filename().string();
-            mi.ext = ext;
-            mi.file_size = st.st_size;
-            mi.modified_time = st.st_mtime;
-            mi.type = is_image(ext) ? "image" : "video";
+        MediaItem mi;
+        mi.path = path_str;
+        mi.filename = path_obj.filename().string();
+        mi.ext = ext;
+        mi.file_size = st.st_size;
+        mi.modified_time = st.st_mtime;
+        mi.type = is_image(ext) ? "image" : "video";
 
-            std::lock_guard<std::mutex> lock(list_mutex);
-            all_items.push_back(std::move(mi));
-            live_found_count.fetch_add(1, std::memory_order_relaxed);
-        }
+        std::lock_guard<std::mutex> lock(list_mutex);
+        all_items.push_back(std::move(mi));
+        live_found_count.fetch_add(1, std::memory_order_relaxed);
     }
 }
 
