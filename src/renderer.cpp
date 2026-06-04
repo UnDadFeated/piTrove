@@ -322,7 +322,7 @@ void Renderer::draw_background(ImageData* data, const std::string& bg_style, Uin
     }
 
     static ImageData* last_data = nullptr;
-    static std::string resolved_style = "";
+    static std::vector<std::string> resolved_styles;
 
     if (bg_style == "plain") {
         float factor = (float)vignette_alpha / 255.0f * 0.7f;
@@ -339,14 +339,17 @@ void Renderer::draw_background(ImageData* data, const std::string& bg_style, Uin
         // Calculate base color brightness to decide whether to make pattern lines lighter or darker
         int snap_pattern_offset;
         std::string snap_pattern_style;
+        int snap_blend_count;
         {
             std::lock_guard<std::mutex> lk(g_config_mtx);
             snap_pattern_offset = g_cfg.pattern_offset;
             snap_pattern_style = g_cfg.pattern_style;
+            snap_blend_count = g_cfg.pattern_blend_count;
         }
 
-        if (data != last_data || resolved_style.empty()) {
+        if (data != last_data || resolved_styles.empty()) {
             last_data = data;
+            resolved_styles.clear();
             if (snap_pattern_style == "random_animated") {
                 std::vector<std::string> styles = {
                     "animated_combined", "animated_grid", "animated_waves",
@@ -354,7 +357,13 @@ void Renderer::draw_background(ImageData* data, const std::string& bg_style, Uin
                     "animated_triangles", "animated_squares", "animated_hexagons", "animated_fractals",
                     "animated_polygons", "animated_rectangles", "animated_mix"
                 };
-                resolved_style = styles[std::rand() % styles.size()];
+                int count = std::max(1, std::min(3, snap_blend_count));
+                std::vector<std::string> pool = styles;
+                for (int c = 0; c < count && !pool.empty(); ++c) {
+                    int r_idx = std::rand() % pool.size();
+                    resolved_styles.push_back(pool[r_idx]);
+                    pool.erase(pool.begin() + r_idx);
+                }
             } else if (snap_pattern_style == "random_static") {
                 std::vector<std::string> styles = {
                     "static_grid", "static_waves", "static_dots",
@@ -362,12 +371,19 @@ void Renderer::draw_background(ImageData* data, const std::string& bg_style, Uin
                     "static_squares", "static_hexagons", "static_fractals",
                     "static_polygons", "static_rectangles", "static_mix"
                 };
-                resolved_style = styles[std::rand() % styles.size()];
+                int count = std::max(1, std::min(3, snap_blend_count));
+                std::vector<std::string> pool = styles;
+                for (int c = 0; c < count && !pool.empty(); ++c) {
+                    int r_idx = std::rand() % pool.size();
+                    resolved_styles.push_back(pool[r_idx]);
+                    pool.erase(pool.begin() + r_idx);
+                }
             } else {
-                resolved_style = snap_pattern_style;
+                resolved_styles.push_back(snap_pattern_style);
             }
         } else if (snap_pattern_style != "random_animated" && snap_pattern_style != "random_static") {
-            resolved_style = snap_pattern_style;
+            resolved_styles.clear();
+            resolved_styles.push_back(snap_pattern_style);
         }
         
         float brightness = 0.299f * base_r + 0.587f * base_g + 0.114f * base_b;
@@ -382,10 +398,11 @@ void Renderer::draw_background(ImageData* data, const std::string& bg_style, Uin
             pb = (Uint8)std::min(255, (int)base_b + snap_pattern_offset);
         }
 
-        double time_sec = 0.0;
-        if (resolved_style.rfind("animated_", 0) == 0) {
-            time_sec = (double)SDL_GetTicks() / 1000.0;
-        }
+        for (const auto& resolved_style : resolved_styles) {
+            double time_sec = 0.0;
+            if (resolved_style.rfind("animated_", 0) == 0) {
+                time_sec = (double)SDL_GetTicks() / 1000.0;
+            }
 
         int line_spacing = scale_px(64);
         if (line_spacing < 8) line_spacing = 8;
@@ -827,6 +844,7 @@ void Renderer::draw_background(ImageData* data, const std::string& bg_style, Uin
                     }
                 }
             }
+        }
         }
     } else {
         // "photo" style (default)

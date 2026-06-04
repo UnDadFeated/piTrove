@@ -131,6 +131,7 @@ bool Config::load(const std::string& path) {
         else if (key == "bg_style")          this->bg_style = val;
         else if (key == "pattern_brightness" || key == "pattern_offset") this->pattern_offset = std::max(0, std::min(150, safe_stoi(val, this->pattern_offset)));
         else if (key == "pattern_style")     this->pattern_style = val;
+        else if (key == "pattern_blend_count") this->pattern_blend_count = std::max(1, std::min(3, safe_stoi(val, this->pattern_blend_count)));
         else if (key == "blur_radius") {
             int v = std::max(6, std::min(24, safe_stoi(val, this->blur_radius)));
             this->blur_radius = v;
@@ -259,6 +260,7 @@ bool Config::save(const std::string& path) {
     f << "bg_style = \"" << this->bg_style << "\"\n";
     f << "pattern_brightness = " << this->pattern_offset << "\n";
     f << "pattern_style = \"" << this->pattern_style << "\"\n";
+    f << "pattern_blend_count = " << this->pattern_blend_count << "\n";
     f << "blurred_background = " << (this->blurred_background ? "1" : "0") << "\n";
     f << "color_matched_matte = " << (this->color_matched_matte ? "1" : "0") << "\n";
     f << "matte_opacity = " << this->matte_opacity << "\n";
