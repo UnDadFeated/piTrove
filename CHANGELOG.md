@@ -1,3 +1,9 @@
+## v11.8.4 — Terminal UI Compatibility & Options Loading Fixes (June 4, 2026)
+
+### Fixed
+- **Terminal UI category text visibility** — Enforced standard text background colors and color schemes in the setup wizard, ensuring option names and category tabs remain fully visible and readable when accessing the configurations from terminal clients with light backgrounds.
+- **Terminal UI configuration options loading** — Resolved a layout rendering issue where configuration setting options failed to display in the wizard categories on the first screen redraw.
+
 ## v11.8.3 — Dynamic Midnight Temporal Rescanning (June 4, 2026)
 
 ### Added
