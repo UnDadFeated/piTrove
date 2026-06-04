@@ -1833,6 +1833,12 @@ int main(int argc, char** argv) {
                     g_renderer.clear(0, 0, 0, 255);
                     g_transition->update(dt_scaled);
                     g_transition->render(transition_prev_target, transition_next_target, g_renderer.screen_w, g_renderer.screen_h);
+                    if (g_overlay) {
+                        g_overlay->draw_all(current_idx, (int)g_eligible.size(),
+                            &g_eligible[current_idx],
+                            next_twin_data ? &g_eligible[(current_idx + 1) % (int)g_eligible.size()] : nullptr,
+                            0.0, false, active_fps, next_data ? next_data.get() : nullptr, next_twin_data ? next_twin_data.get() : nullptr);
+                    }
                     g_renderer.present();
 
                     if (g_transition->get_progress() >= 1.0f) {

@@ -1,3 +1,8 @@
+## v11.8.7 — Continuous OSD Overlay rendering (June 4, 2026)
+
+### Fixed
+- **Uninterrupted OSD Overlay rendering** — Drew on-screen overlays (filename, timer, clock, diagnostics HUD, on-this-day banners) directly over active transition frames, ensuring continuous OSD visibility and preventing black screen flickers when rotating slides.
+
 ## v11.8.6 — Background Matte Pattern Enhancements (June 4, 2026)
 
 ### Added
