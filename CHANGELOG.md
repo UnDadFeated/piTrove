@@ -1,3 +1,8 @@
+## v11.8.10 — Seamless transition buffer presentation (June 4, 2026)
+
+### Fixed
+- **Seamless transition buffer presentation** — Resolved a single-frame black screen flicker occurring when slide transitions reached completion. Allowed the transition engine to render the final frame even after the active flag is cleared.
+
 ## v11.8.9 — Animated Pattern Blending (June 4, 2026)
 
 ### Added

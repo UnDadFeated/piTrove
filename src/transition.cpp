@@ -38,7 +38,8 @@ void TransitionEngine::update(float delta_time) {
 }
 
 void TransitionEngine::render(SDL_Texture* prev_tex, SDL_Texture* next_tex, int screen_w, int screen_h) {
-    if (!renderer || !active) return;
+    if (!renderer) return;
+    if (!active && config.progress < 1.0f) return;
     if (!prev_tex || !next_tex) return;
     
     switch (config.effect) {
