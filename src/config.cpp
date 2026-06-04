@@ -131,6 +131,7 @@ bool Config::load(const std::string& path) {
         else if (key == "bg_style")          this->bg_style = val;
         else if (key == "pattern_brightness" || key == "pattern_offset") this->pattern_offset = std::max(0, std::min(150, safe_stoi(val, this->pattern_offset)));
         else if (key == "pattern_style")     this->pattern_style = val;
+        else if (key == "pattern_blend_count") this->pattern_blend_count = std::max(1, std::min(3, safe_stoi(val, this->pattern_blend_count)));
         else if (key == "blur_radius") {
             int v = std::max(6, std::min(24, safe_stoi(val, this->blur_radius)));
             this->blur_radius = v;
@@ -202,6 +203,8 @@ bool Config::load(const std::string& path) {
         else if (key == "album_id" && section == "google_photos")             this->google_photos_album_id = val;
         else if (key == "sync_interval_mins" && section == "google_photos")   this->google_photos_sync_interval = safe_stoi(val, this->google_photos_sync_interval);
         else if (key == "cache_dir" && section == "google_photos")            this->google_photos_cache_dir = val;
+        else if (key == "auto_update" && section == "updates")                this->auto_update = (val == "1" || val == "true");
+        else if (key == "auto_update_branch" && section == "updates")         this->auto_update_branch = val;
         else if (key == "resolution") {
             auto comma = val.find(',');
             if (comma != std::string::npos) {
@@ -257,6 +260,7 @@ bool Config::save(const std::string& path) {
     f << "bg_style = \"" << this->bg_style << "\"\n";
     f << "pattern_brightness = " << this->pattern_offset << "\n";
     f << "pattern_style = \"" << this->pattern_style << "\"\n";
+    f << "pattern_blend_count = " << this->pattern_blend_count << "\n";
     f << "blurred_background = " << (this->blurred_background ? "1" : "0") << "\n";
     f << "color_matched_matte = " << (this->color_matched_matte ? "1" : "0") << "\n";
     f << "matte_opacity = " << this->matte_opacity << "\n";
@@ -399,7 +403,11 @@ bool Config::save(const std::string& path) {
     f << "refresh_token = \"" << this->google_photos_refresh_token << "\"\n";
     f << "album_id = \"" << this->google_photos_album_id << "\"\n";
     f << "sync_interval_mins = " << this->google_photos_sync_interval << "\n";
-    f << "cache_dir = \"" << this->google_photos_cache_dir << "\"\n";
+    f << "cache_dir = \"" << this->google_photos_cache_dir << "\"\n\n";
+
+    f << "[updates]\n";
+    f << "auto_update = " << (this->auto_update ? "1" : "0") << "\n";
+    f << "auto_update_branch = \"" << this->auto_update_branch << "\"\n";
 
     f.close();
     g_config_changed.store(true);

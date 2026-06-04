@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# install.sh — piTrove v11.3.7 Premium Graphical Installer
+# install.sh — piTrove v11.8.5 Premium Graphical Installer
 # Target: Debian Trixie (13) 64-bit on Raspberry Pi 4/5
 
 set -eo pipefail
@@ -239,9 +239,51 @@ if ! command -v docker compose &>/dev/null; then
     run_with_spinner "Installing Docker Compose Plugin" apt-get install -y -qq docker-compose-plugin
 fi
 
+# Parse a value from config.toml
+# Usage: get_config_val "section" "key" "default"
+get_config_val() {
+    local sec="$1"
+    local key="$2"
+    local default="$3"
+    local file="$PRIMARY_HOME/piTrove/config/config.toml"
+    if [[ ! -f "$file" ]]; then
+        echo "$default"
+        return
+    fi
+    local val
+    val=$(awk -v sec="[$sec]" -v key="$key" '
+        $0 ~ "^\\[.*\\]" { in_sec = ($0 == sec) }
+        in_sec && $1 == key {
+            sub(/^[^=]*=[[:space:]]*/, "");
+            sub(/[[:space:]]*$/, "");
+            gsub(/^"|"$/, "");
+            print;
+            exit;
+        }
+    ' "$file")
+    echo "${val:-$default}"
+}
+
 # ── Handle Update Command Line Option ──────────────────────────────────────────
 if [[ "$1" == "--update" ]]; then
-    info "Initiating piTrove Update Checker..."
+    IS_CRON=0
+    if [[ "$2" == "--cron" ]]; then
+        IS_CRON=1
+    fi
+
+    CONFIG_FILE="$PRIMARY_HOME/piTrove/config/config.toml"
+    
+    AUTO_UPD_ENABLED=$(get_config_val "updates" "auto_update" "0")
+    CONFIG_BRANCH=$(get_config_val "updates" "auto_update_branch" "main")
+    
+    if [[ "$IS_CRON" -eq 1 ]]; then
+        if [[ "$AUTO_UPD_ENABLED" != "1" && "$AUTO_UPD_ENABLED" != "true" ]]; then
+            # Auto-update not enabled in config, skip cron execution silently
+            exit 0
+        fi
+    fi
+
+    info "Initiating piTrove Update Checker (Branch: $CONFIG_BRANCH)..."
     
     # Verify we are inside a git repository
     if ! sudo -u "$PRIMARY_USER" git rev-parse --is-inside-work-tree &>/dev/null; then
@@ -250,6 +292,12 @@ if [[ "$1" == "--update" ]]; then
     
     # Perform git fetch safely as the primary user
     run_with_spinner "Fetching latest repository states from origin" sudo -u "$PRIMARY_USER" git fetch --all --prune
+    
+    # Checkout configured branch if not already on it
+    CURRENT_BRANCH=$(sudo -u "$PRIMARY_USER" git rev-parse --abbrev-ref HEAD)
+    if [[ "$CURRENT_BRANCH" != "$CONFIG_BRANCH" ]]; then
+        run_with_spinner "Switching branch to $CONFIG_BRANCH" sudo -u "$PRIMARY_USER" git checkout "$CONFIG_BRANCH"
+    fi
     
     LOCAL_COMMIT=$(sudo -u "$PRIMARY_USER" git rev-parse HEAD)
     REMOTE_COMMIT=$(sudo -u "$PRIMARY_USER" git rev-parse @{u} 2>/dev/null || echo "")
@@ -898,6 +946,17 @@ cache_dir = "/app/cache/google_photos"
 EOF
     fi
 
+    # Check if [updates] section is already in the file. If not, append it!
+    if ! grep -q "\[updates\]" "$CONFIG_FILE"; then
+        info "Upgrading existing config.toml with new Updates options..."
+        cat >> "$CONFIG_FILE" <<EOF
+
+[updates]
+auto_update = 0
+auto_update_branch = "main"
+EOF
+    fi
+
     # Apply interactive changes if Google Photos was configured
     if [[ "$GOOGLE_PHOTOS_ENABLED" -eq 1 ]]; then
         sed -i "/\[google_photos\]/,/^\[/ s/^enabled = .*/enabled = $GOOGLE_PHOTOS_ENABLED/" "$CONFIG_FILE"
@@ -923,6 +982,9 @@ log_dir = "/app/logs"
 rotation = 0
 splash_file = "src/splash.png"
 splash_overlay_y = 0.5
+bg_style = "pattern"
+pattern_brightness = 45
+pattern_style = "random_animated"
 
 [slideshow]
 transition_delay = 120.0
@@ -1023,6 +1085,10 @@ refresh_token = ""
 album_id = "$GP_ALBUM_ID"
 sync_interval_mins = $GP_SYNC_INTERVAL
 cache_dir = "/app/cache/google_photos"
+
+[updates]
+auto_update = 0
+auto_update_branch = "main"
 EOF
 fi
 
@@ -1066,6 +1132,12 @@ systemctl daemon-reload
 systemctl enable piTrove.service &>/dev/null
 systemctl start piTrove.service &>/dev/null || true
 ok "piTrove.service successfully registered, enabled & started"
+
+# ── Configure Auto-Update Cron Job ─────────────────────────────────────────────
+info "Configuring auto-update cron job..."
+CRON_JOB="0 3 * * * $PRIMARY_HOME/piTrove/install.sh --update --cron >/dev/null 2>&1"
+(crontab -l 2>/dev/null | grep -v "piTrove/install.sh --update" ; echo "$CRON_JOB") | crontab -
+ok "Auto-update cron job configured persistently (runs daily at 3:00 AM)"
 
 # ── pitrove CLI Command Wrapper ─────────────────────────────────────────────────
 info "Installing 'pitrove' CLI management tool..."

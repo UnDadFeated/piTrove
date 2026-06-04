@@ -65,7 +65,7 @@ public:
 private:
     void render_fade(SDL_Texture* prev_tex, SDL_Texture* next_tex, int screen_w, int screen_h);
     void render_wipe(SDL_Texture* prev_tex, SDL_Texture* next_tex, int direction, int screen_w, int screen_h);
-    void render_ken_burns(SDL_Texture* tex, int screen_w, int screen_h, float zoom);
+    void render_ken_burns(SDL_Texture* prev_tex, SDL_Texture* next_tex, int screen_w, int screen_h, float zoom);
     void render_pixelate(SDL_Texture* prev_tex, SDL_Texture* next_tex, int screen_w, int screen_h);
     void render_dissolve(SDL_Texture* prev_tex, SDL_Texture* next_tex, int screen_w, int screen_h);
 };

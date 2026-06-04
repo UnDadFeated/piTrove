@@ -119,7 +119,8 @@ void config_wizard(const std::string& config_path) {
         {"3D Border Width", INT, "Thickness of the 3D border in pixels"},
         {"Background Style", ENM, "Background style option (photo, plain, pattern)"},
         {"Pattern Brightness", INT, "Contrast offset for animated pattern style (0 to 150)"},
-        {"Pattern Style", ENM, "Design pattern type (combined, grid, waves, dots)"}
+        {"Pattern Style", ENM, "Design pattern type (combined, grid, waves, dots)"},
+        {"Pattern Blend Count", INT, "Number of design patterns to blend (1 to 3)"}
     };
     static const CI CB[] = {
         {"Media Directory", STR, "Root folder containing photos and videos"},
@@ -129,7 +130,9 @@ void config_wizard(const std::string& config_path) {
         {"Wake Time", STR, "Time to turn on HDMI port (HH:MM, e.g. 07:30)"},
         {"HTTP Remote", TGL, "Enable local web server to skip/pause"},
         {"Web Dashboard", TGL, "Enable glassmorphic HTTP web remote control dashboard"},
-        {"Splash Overlay Y", FLT, "Vertical position of splash UI (0.0 to 1.0)"}
+        {"Splash Overlay Y", FLT, "Vertical position of splash UI (0.0 to 1.0)"},
+        {"Auto Update", TGL, "Enable automatic background system updates"},
+        {"Auto Update Branch", ENM, "Git branch to pull updates from (main/develop)"}
     };
     static const CI CC[] = {
         {"Timer Enabled", TGL, "Show remaining photo/video duration overlay"},
@@ -256,6 +259,7 @@ void config_wizard(const std::string& config_path) {
             case 6: return g_cfg.bg_style;
             case 7: return std::to_string(g_cfg.pattern_offset);
             case 8: return g_cfg.pattern_style;
+            case 9: return std::to_string(g_cfg.pattern_blend_count);
         }
         if (c == 1) switch(i) {
             case 0: return g_cfg.media_dir; case 1: return g_cfg.cache_dir; case 2: return g_cfg.log_dir;
@@ -263,6 +267,8 @@ void config_wizard(const std::string& config_path) {
             case 5: return g_cfg.http_enabled?"[ON]":"[OFF]";
             case 6: return g_cfg.web_dashboard_enabled?"[ON]":"[OFF]";
             case 7: return std::to_string(g_cfg.splash_overlay_y);
+            case 8: return g_cfg.auto_update?"[ON]":"[OFF]";
+            case 9: return g_cfg.auto_update_branch;
         }
         if (c == 2) switch(i) {
             case 0: return g_cfg.timer_enabled?"[ON]":"[OFF]";
@@ -377,6 +383,7 @@ void config_wizard(const std::string& config_path) {
                 case 6:g_cfg.bg_style=v;break;
                 case 7:{ try { int val = std::stoi(v); g_cfg.pattern_offset=std::max(0, std::min(150, val)); } catch(...) {} break; }
                 case 8:g_cfg.pattern_style=v;break;
+                case 9:{ try { int val = std::stoi(v); g_cfg.pattern_blend_count=std::max(1, std::min(3, val)); } catch(...) {} break; }
             }
             else if(c==1) switch(i){
                 case 0:g_cfg.media_dir=v;break; case 1:g_cfg.cache_dir=v;break; case 2:g_cfg.log_dir=v;break;
@@ -384,6 +391,8 @@ void config_wizard(const std::string& config_path) {
                 case 5:g_cfg.http_enabled=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
                 case 6:g_cfg.web_dashboard_enabled=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
                 case 7:{ try { g_cfg.splash_overlay_y=std::stof(v); } catch(...) {} break; }
+                case 8:g_cfg.auto_update=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
+                case 9:g_cfg.auto_update_branch=v;break;
             }
             else if(c==2) switch(i){
                 case 0:g_cfg.timer_enabled=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
@@ -501,7 +510,8 @@ void config_wizard(const std::string& config_path) {
 
     auto enums = [&](int c, int i) -> std::vector<std::string> {
         if(c==0&&i==6) return {"photo","plain","pattern"};
-        if(c==0&&i==8) return {"animated_combined", "animated_grid", "animated_waves", "animated_dots", "static_grid", "static_waves", "static_dots"};
+        if(c==0&&i==8) return {"random_animated", "random_static", "animated_combined", "animated_grid", "animated_waves", "animated_dots", "animated_circles", "animated_crosses", "animated_triangles", "animated_squares", "animated_hexagons", "animated_fractals", "animated_polygons", "animated_rectangles", "animated_mix", "static_grid", "static_waves", "static_dots", "static_circles", "static_crosses", "static_triangles", "static_squares", "static_hexagons", "static_fractals", "static_polygons", "static_rectangles", "static_mix"};
+        if(c==1&&i==9) return {"main","develop"};
         if(c==4&&i==2) return {"crossfade","wipe","pixelate","dissolve","ken_burns"};
         if(c==4&&i==7) return {"pulsing","radiating","absorbing","edge_glow","aura"};
         if(c==4&&i==8) return {"auto","rainbow"};
