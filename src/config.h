@@ -125,7 +125,7 @@ struct Config {
      bool    color_matched_matte{true};
       std::string bg_style{"pattern"};
        int     pattern_offset{45};
-       std::string pattern_style{"animated_combined"};
+       std::string pattern_style{"random_animated"};
       int     blur_radius{14};
      int     glow_depth{43};
      bool    edge_glow_shadow{true};
