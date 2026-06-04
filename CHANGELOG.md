@@ -1,3 +1,9 @@
+## v11.8.3 — Dynamic Midnight Temporal Rescanning (June 4, 2026)
+
+### Added
+- **Midnight Media Rescanning** — Enhanced the background watchman daemon to trigger an automatic directory scan at midnight to shift the active seasonal media window dynamically without requiring an application restart.
+- **Unfiltered Media Scanner** — Modified the media directory scanner to process all files during the initial scanning phase, letting the playlist filters dynamically determine seasonal window eligibility at runtime.
+
 ## v11.8.2 — Database Error Handling Integration (June 3, 2026)
 
 ### Added
