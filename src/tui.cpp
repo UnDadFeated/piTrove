@@ -90,7 +90,7 @@ void config_wizard(const std::string& config_path) {
     int tui_width = std::max(100, std::min(155, term_cols));
 
     set_termios_raw();
-    printf("\033[?1049h\033[H\033[J");
+    printf("\033[?1049h\033[40m\033[37m\033[H\033[J");
 
     // ── Dirty flag system: only redraw what changed ──
     // Row indices (0-based, matching printf output lines):
@@ -101,7 +101,7 @@ void config_wizard(const std::string& config_path) {
     //   4: blank
     //   5: column headers
     //   6+: data rows
-    enum { ROW_CAT_BAR=3, ROW_COLHDR=5, ROW_ROW0=6 };
+    enum { ROW_CAT_BAR=3, ROW_COLHDR=5, ROW_ROW0=7 };
     int dirty_from = 0, dirty_to = 0;
     int last_sel = -1, last_sel_sub = -1, last_edit = -1;
     bool dirty_full = true;
@@ -549,7 +549,7 @@ void config_wizard(const std::string& config_path) {
 
         if (cur_cols < 100 || cur_rows < 24) {
             int draw_cols = std::max(80, cur_cols);
-            printf("\033[H\033[J");
+            printf("\033[40m\033[37m\033[H\033[J");
             printf("\033[1;31m+"); for(int i=0; i<draw_cols-2; i++) printf("-"); printf("+\033[0m\n");
             printf("\033[1;31m|\033[0m  %-*s\033[1;31m|\033[0m\n", draw_cols-6, " [ TERMINAL WINDOW TOO SMALL ]");
             printf("\033[1;31m|\033[0m  %-*s\033[1;31m|\033[0m\n", draw_cols-6, "");
@@ -595,7 +595,7 @@ void config_wizard(const std::string& config_path) {
 
             // ── Full redraw ──
             if (dirty_full) {
-                printf("\033[H\033[J");
+                printf("\033[40m\033[37m\033[H\033[J");
 
                 // Header
                 printf("\033[1;36m  piTrove Configuration Engine v%s\033[0m\n", VERSION);
@@ -604,7 +604,7 @@ void config_wizard(const std::string& config_path) {
                 // Category bar
                 printf("  ");
                 for(int i=0; i<(int)(sizeof(CATS)/sizeof(CATS[0])); i++) {
-                    if(i==sel) printf("\033[7;33m %s \033[0m  ", CATS[i].n);
+                    if(i==sel) printf("\033[30;43m %s \033[0m  ", CATS[i].n);
                     else printf("\033[1;37m%s\033[0m  ", CATS[i].n);
                 }
                 printf("\n\n");
@@ -613,7 +613,8 @@ void config_wizard(const std::string& config_path) {
                 printf("  \033[1;36m%-*s %-*s %-*s\033[0m\n", name_w, "Setting", val_w, "Value", desc_w, "Description");
                 printf("  \033[90m"); for(int i=0; i<tui_width-4; i++) printf("-"); printf("\033[0m\n");
 
-                dirty_from = 0; dirty_to = 0;
+                dirty_from = ROW_ROW0;
+                dirty_to = ROW_ROW0 + CATS[sel].c - 1;
                 dirty_full = false;
             } else {
                 // ── Dirty redraw: position cursor and redraw only changed rows ──
@@ -626,7 +627,7 @@ void config_wizard(const std::string& config_path) {
                     printf("  \033[90m"); for(int i=0; i<tui_width-4; i++) printf("="); printf("\033[0m\n\n");
                     printf("  ");
                     for(int i=0; i<(int)(sizeof(CATS)/sizeof(CATS[0])); i++) {
-                        if(i==sel) printf("\033[7;33m %s \033[0m  ", CATS[i].n);
+                        if(i==sel) printf("\033[30;43m %s \033[0m  ", CATS[i].n);
                         else printf("\033[1;37m%s\033[0m  ", CATS[i].n);
                     }
                     printf("\n\n");
@@ -640,28 +641,31 @@ void config_wizard(const std::string& config_path) {
                     y += 2;
                     printf("\033[%d;1H", y);
                 }
+            }
 
-                // Render row lines
-                int row_start = std::max(0, dirty_from - ROW_ROW0);
-                int row_end = std::min(CATS[sel].c, dirty_to - ROW_ROW0 + 1);
-                if (edit_mode) { row_start = 0; row_end = CATS[sel].c; }
+            // Render row lines
+            int row_start = std::max(0, dirty_from - ROW_ROW0);
+            int row_end = std::min(CATS[sel].c, dirty_to - ROW_ROW0 + 1);
+            if (edit_mode) { row_start = 0; row_end = CATS[sel].c; }
 
-                for (int i = row_start; i < row_end; i++) {
-                    const auto& item = CATS[sel].i[i];
-                    std::string val = gv(sel, i);
-                    if (item.t == TGL) {
-                        val = (val == "1" || val == "[ON]" || val == "[  ON  ]") ? "[  ON  ]" : "[ OFF  ]";
-                    }
-                    std::string desc = item.desc;
-                    if ((int)desc.length() > desc_w) desc = desc.substr(0, desc_w - 3) + "...";
+            // Position cursor to start printing row lines
+            printf("\033[%d;1H", ROW_ROW0 + row_start + 1);
 
-                    if(edit_mode && i==sel_sub)
-                        printf("  \033[1;32m%-*s \033[7;37m%-*s\033[0m \033[90m%-*s\033[0m\n", name_w, item.n, val_w, ed_buf.c_str(), desc_w, desc.c_str());
-                    else if(i==sel_sub)
-                        printf("  \033[1;32m%-*s \033[1;37m%-*s\033[0m \033[90m%-*s\033[0m\n", name_w, item.n, val_w, val.c_str(), desc_w, desc.c_str());
-                    else
-                        printf("  %-*s \033[37m%-*s\033[0m \033[90m%-*s\033[0m\n", name_w, item.n, val_w, val.c_str(), desc_w, desc.c_str());
+            for (int i = row_start; i < row_end; i++) {
+                const auto& item = CATS[sel].i[i];
+                std::string val = gv(sel, i);
+                if (item.t == TGL) {
+                    val = (val == "1" || val == "[ON]" || val == "[  ON  ]") ? "[  ON  ]" : "[ OFF  ]";
                 }
+                std::string desc = item.desc;
+                if ((int)desc.length() > desc_w) desc = desc.substr(0, desc_w - 3) + "...";
+
+                if(edit_mode && i==sel_sub)
+                    printf("  \033[1;32m%-*s \033[30;47m%-*s\033[0m \033[90m%-*s\033[0m\n", name_w, item.n, val_w, ed_buf.c_str(), desc_w, desc.c_str());
+                else if(i==sel_sub)
+                    printf("  \033[1;32m%-*s \033[1;37m%-*s\033[0m \033[90m%-*s\033[0m\n", name_w, item.n, val_w, val.c_str(), desc_w, desc.c_str());
+                else
+                    printf("  %-*s \033[37m%-*s\033[0m \033[90m%-*s\033[0m\n", name_w, item.n, val_w, val.c_str(), desc_w, desc.c_str());
             }
 
             // Clear remaining rows to prevent stale text
@@ -844,5 +848,5 @@ void config_wizard(const std::string& config_path) {
     }
 
     restore_termios();
-    printf("\033[?1049l");
+    printf("\033[0m\033[?1049l");
 }
