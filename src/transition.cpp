@@ -52,7 +52,7 @@ void TransitionEngine::render(SDL_Texture* prev_tex, SDL_Texture* next_tex, int 
             render_wipe(prev_tex, next_tex, config.direction, screen_w, screen_h);
             break;
         case TransitionEffect::KenBurns:
-            render_ken_burns(next_tex, screen_w, screen_h, config.ken_burns_zoom);
+            render_ken_burns(prev_tex, next_tex, screen_w, screen_h, config.ken_burns_zoom);
             break;
         case TransitionEffect::Pixelate:
             render_pixelate(prev_tex, next_tex, screen_w, screen_h);
@@ -137,26 +137,37 @@ void TransitionEngine::render_wipe(SDL_Texture* prev_tex, SDL_Texture* next_tex,
     SDL_SetRenderClipRect(sdl, nullptr);
 }
 
-void TransitionEngine::render_ken_burns(SDL_Texture* tex, int screen_w, int screen_h, float zoom) {
-    if (!renderer || !tex) return;
+void TransitionEngine::render_ken_burns(SDL_Texture* prev_tex, SDL_Texture* next_tex, int screen_w, int screen_h, float zoom) {
+    if (!renderer || !next_tex) return;
     
     SDL_Renderer* sdl = renderer->sdl_renderer;
     float p = config.progress;
     
-    float scale = 1.0f + zoom * p;
+    // 1. Render previous texture fading out
+    if (prev_tex) {
+        SDL_SetTextureAlphaMod(prev_tex, (Uint8)(255.0f * (1.0f - p)));
+        SDL_FRect prev_dst_f = {0.0f, 0.0f, (float)screen_w, (float)screen_h};
+        SDL_RenderTexture(sdl, prev_tex, nullptr, &prev_dst_f);
+        SDL_SetTextureAlphaMod(prev_tex, 255);
+    }
+    
+    // 2. Render next texture fading in, smoothly zooming out and centering
+    float scale = 1.0f + zoom * (1.0f - p);
     
     int dst_w = (int)(screen_w * scale);
     int dst_h = (int)(screen_h * scale);
     
-    float pan_x = sinf(p * 3.14159f) * screen_w * 0.05f;
-    float pan_y = cosf(p * 3.14159f) * screen_h * 0.03f;
+    float pan_x = (1.0f - p) * screen_w * 0.03f;
+    float pan_y = (1.0f - p) * screen_h * 0.02f;
     
     int dst_x = (screen_w - dst_w) / 2 + (int)pan_x;
     int dst_y = (screen_h - dst_h) / 2 + (int)pan_y;
     
     SDL_FRect dst_f = {(float)dst_x, (float)dst_y, (float)dst_w, (float)dst_h};
     
-    SDL_RenderTexture(sdl, tex, nullptr, &dst_f);
+    SDL_SetTextureAlphaMod(next_tex, (Uint8)(255.0f * p));
+    SDL_RenderTexture(sdl, next_tex, nullptr, &dst_f);
+    SDL_SetTextureAlphaMod(next_tex, 255);
 }
 
 void TransitionEngine::render_pixelate(SDL_Texture* prev_tex, SDL_Texture* next_tex, int screen_w, int screen_h) {
