@@ -1,3 +1,8 @@
+## v11.8.9 — Animated Pattern Blending (June 4, 2026)
+
+### Added
+- **Multi-Pattern Blending** — Added support to layer and blend up to 3 random static or animated patterns simultaneously. Exposed the blending limit preference as "Pattern Blend Count" in the TUI Display configurations, defaulting to a blend of 3 active patterns.
+
 ## v11.8.8 — Seamless Ken Burns transition completion (June 4, 2026)
 
 ### Fixed

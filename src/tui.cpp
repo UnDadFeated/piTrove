@@ -119,7 +119,8 @@ void config_wizard(const std::string& config_path) {
         {"3D Border Width", INT, "Thickness of the 3D border in pixels"},
         {"Background Style", ENM, "Background style option (photo, plain, pattern)"},
         {"Pattern Brightness", INT, "Contrast offset for animated pattern style (0 to 150)"},
-        {"Pattern Style", ENM, "Design pattern type (combined, grid, waves, dots)"}
+        {"Pattern Style", ENM, "Design pattern type (combined, grid, waves, dots)"},
+        {"Pattern Blend Count", INT, "Number of design patterns to blend (1 to 3)"}
     };
     static const CI CB[] = {
         {"Media Directory", STR, "Root folder containing photos and videos"},
@@ -258,6 +259,7 @@ void config_wizard(const std::string& config_path) {
             case 6: return g_cfg.bg_style;
             case 7: return std::to_string(g_cfg.pattern_offset);
             case 8: return g_cfg.pattern_style;
+            case 9: return std::to_string(g_cfg.pattern_blend_count);
         }
         if (c == 1) switch(i) {
             case 0: return g_cfg.media_dir; case 1: return g_cfg.cache_dir; case 2: return g_cfg.log_dir;
@@ -381,6 +383,7 @@ void config_wizard(const std::string& config_path) {
                 case 6:g_cfg.bg_style=v;break;
                 case 7:{ try { int val = std::stoi(v); g_cfg.pattern_offset=std::max(0, std::min(150, val)); } catch(...) {} break; }
                 case 8:g_cfg.pattern_style=v;break;
+                case 9:{ try { int val = std::stoi(v); g_cfg.pattern_blend_count=std::max(1, std::min(3, val)); } catch(...) {} break; }
             }
             else if(c==1) switch(i){
                 case 0:g_cfg.media_dir=v;break; case 1:g_cfg.cache_dir=v;break; case 2:g_cfg.log_dir=v;break;
