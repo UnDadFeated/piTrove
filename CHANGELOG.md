@@ -1,3 +1,10 @@
+## v11.8.6 — Background Matte Pattern Enhancements (June 4, 2026)
+
+### Added
+- **New Background Matte Patterns** — Expanded the background patterns to include triangles, polygons, squares, rectangles, hexagons, and fractals, both static and animated.
+- **Mix & Match Pattern Style** — Added a combined background matte style that renders a randomized blend of multiple shapes dynamically.
+- **TUI & Selection Integration** — Included all background matte pattern styles in the setup wizard, enabling direct selection of specific static or animated patterns.
+
 ## v11.8.5 — Automated Updates & Configuration Control (June 4, 2026)
 
 ### Added

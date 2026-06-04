@@ -982,6 +982,9 @@ log_dir = "/app/logs"
 rotation = 0
 splash_file = "src/splash.png"
 splash_overlay_y = 0.5
+bg_style = "pattern"
+pattern_brightness = 45
+pattern_style = "random_animated"
 
 [slideshow]
 transition_delay = 120.0

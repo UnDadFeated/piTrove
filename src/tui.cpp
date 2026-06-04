@@ -507,7 +507,7 @@ void config_wizard(const std::string& config_path) {
 
     auto enums = [&](int c, int i) -> std::vector<std::string> {
         if(c==0&&i==6) return {"photo","plain","pattern"};
-        if(c==0&&i==8) return {"animated_combined", "animated_grid", "animated_waves", "animated_dots", "static_grid", "static_waves", "static_dots"};
+        if(c==0&&i==8) return {"random_animated", "random_static", "animated_combined", "animated_grid", "animated_waves", "animated_dots", "animated_circles", "animated_crosses", "animated_triangles", "animated_squares", "animated_hexagons", "animated_fractals", "animated_polygons", "animated_rectangles", "animated_mix", "static_grid", "static_waves", "static_dots", "static_circles", "static_crosses", "static_triangles", "static_squares", "static_hexagons", "static_fractals", "static_polygons", "static_rectangles", "static_mix"};
         if(c==1&&i==9) return {"main","develop"};
         if(c==4&&i==2) return {"crossfade","wipe","pixelate","dissolve","ken_burns"};
         if(c==4&&i==7) return {"pulsing","radiating","absorbing","edge_glow","aura"};
