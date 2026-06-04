@@ -1,3 +1,8 @@
+## v11.8.8 — Seamless Ken Burns transition completion (June 4, 2026)
+
+### Fixed
+- **Seamless Ken Burns transition completion** — Modified the Ken Burns transition engine to smoothly crossfade and zoom/pan back to 1.0x scale and centered alignment, preventing the visual size resize snap and jitter when transitioning to a static slide.
+
 ## v11.8.7 — Continuous OSD Overlay rendering (June 4, 2026)
 
 ### Fixed
