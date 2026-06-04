@@ -321,6 +321,9 @@ void Renderer::draw_background(ImageData* data, const std::string& bg_style, Uin
         return;
     }
 
+    static ImageData* last_data = nullptr;
+    static std::vector<std::string> resolved_styles;
+
     if (bg_style == "plain") {
         float factor = (float)vignette_alpha / 255.0f * 0.7f;
         clear((Uint8)(data->avg_r * factor), (Uint8)(data->avg_g * factor), (Uint8)(data->avg_b * factor), 255);
@@ -336,10 +339,51 @@ void Renderer::draw_background(ImageData* data, const std::string& bg_style, Uin
         // Calculate base color brightness to decide whether to make pattern lines lighter or darker
         int snap_pattern_offset;
         std::string snap_pattern_style;
+        int snap_blend_count;
         {
             std::lock_guard<std::mutex> lk(g_config_mtx);
             snap_pattern_offset = g_cfg.pattern_offset;
             snap_pattern_style = g_cfg.pattern_style;
+            snap_blend_count = g_cfg.pattern_blend_count;
+        }
+
+        if (data != last_data || resolved_styles.empty()) {
+            last_data = data;
+            resolved_styles.clear();
+            if (snap_pattern_style == "random_animated") {
+                std::vector<std::string> styles = {
+                    "animated_combined", "animated_grid", "animated_waves",
+                    "animated_dots", "animated_circles", "animated_crosses",
+                    "animated_triangles", "animated_squares", "animated_hexagons", "animated_fractals",
+                    "animated_polygons", "animated_rectangles", "animated_mix"
+                };
+                int count = std::max(1, std::min(3, snap_blend_count));
+                std::vector<std::string> pool = styles;
+                for (int c = 0; c < count && !pool.empty(); ++c) {
+                    int r_idx = std::rand() % pool.size();
+                    resolved_styles.push_back(pool[r_idx]);
+                    pool.erase(pool.begin() + r_idx);
+                }
+            } else if (snap_pattern_style == "random_static") {
+                std::vector<std::string> styles = {
+                    "static_grid", "static_waves", "static_dots",
+                    "static_circles", "static_crosses", "static_triangles",
+                    "static_squares", "static_hexagons", "static_fractals",
+                    "static_polygons", "static_rectangles", "static_mix"
+                };
+                int count = std::max(1, std::min(3, snap_blend_count));
+                std::vector<std::string> pool = styles;
+                for (int c = 0; c < count && !pool.empty(); ++c) {
+                    int r_idx = std::rand() % pool.size();
+                    resolved_styles.push_back(pool[r_idx]);
+                    pool.erase(pool.begin() + r_idx);
+                }
+            } else {
+                resolved_styles.push_back(snap_pattern_style);
+            }
+        } else if (snap_pattern_style != "random_animated" && snap_pattern_style != "random_static") {
+            resolved_styles.clear();
+            resolved_styles.push_back(snap_pattern_style);
         }
         
         float brightness = 0.299f * base_r + 0.587f * base_g + 0.114f * base_b;
@@ -354,19 +398,29 @@ void Renderer::draw_background(ImageData* data, const std::string& bg_style, Uin
             pb = (Uint8)std::min(255, (int)base_b + snap_pattern_offset);
         }
 
-        double time_sec = 0.0;
-        if (snap_pattern_style.rfind("animated_", 0) == 0) {
-            time_sec = (double)SDL_GetTicks() / 1000.0;
-        }
+        for (const auto& resolved_style : resolved_styles) {
+            double time_sec = 0.0;
+            if (resolved_style.rfind("animated_", 0) == 0) {
+                time_sec = (double)SDL_GetTicks() / 1000.0;
+            }
 
         int line_spacing = scale_px(64);
         if (line_spacing < 8) line_spacing = 8;
 
-        bool draw_grid = (snap_pattern_style == "animated_combined" || snap_pattern_style == "combined" ||
-                          snap_pattern_style == "animated_grid" || snap_pattern_style == "static_grid");
-        bool draw_waves = (snap_pattern_style == "animated_combined" || snap_pattern_style == "combined" ||
-                           snap_pattern_style == "animated_waves" || snap_pattern_style == "static_waves");
-        bool draw_dots = (snap_pattern_style == "animated_dots" || snap_pattern_style == "static_dots" || snap_pattern_style == "dots");
+        bool draw_grid = (resolved_style == "animated_combined" || resolved_style == "combined" ||
+                          resolved_style == "animated_grid" || resolved_style == "static_grid");
+        bool draw_waves = (resolved_style == "animated_combined" || resolved_style == "combined" ||
+                           resolved_style == "animated_waves" || resolved_style == "static_waves");
+        bool draw_dots = (resolved_style == "animated_dots" || resolved_style == "static_dots" || resolved_style == "dots");
+        bool draw_circles = (resolved_style == "animated_circles" || resolved_style == "static_circles" || resolved_style == "circles");
+        bool draw_crosses = (resolved_style == "animated_crosses" || resolved_style == "static_crosses" || resolved_style == "crosses");
+        bool draw_triangles = (resolved_style == "animated_triangles" || resolved_style == "static_triangles" || resolved_style == "triangles");
+        bool draw_squares = (resolved_style == "animated_squares" || resolved_style == "static_squares" || resolved_style == "squares");
+        bool draw_hexagons = (resolved_style == "animated_hexagons" || resolved_style == "static_hexagons" || resolved_style == "hexagons");
+        bool draw_fractals = (resolved_style == "animated_fractals" || resolved_style == "static_fractals" || resolved_style == "fractals");
+        bool draw_polygons = (resolved_style == "animated_polygons" || resolved_style == "static_polygons" || resolved_style == "polygons");
+        bool draw_rectangles = (resolved_style == "animated_rectangles" || resolved_style == "static_rectangles" || resolved_style == "rectangles");
+        bool draw_mix = (resolved_style == "animated_mix" || resolved_style == "static_mix" || resolved_style == "mix");
 
         // 1. Grid rendering
         if (draw_grid) {
@@ -419,6 +473,378 @@ void Renderer::draw_background(ImageData* data, const std::string& bg_style, Uin
                     SDL_RenderFillRect(sdl_renderer, &r);
                 }
             }
+        }
+
+        // 4. Circles rendering
+        if (draw_circles) {
+            SDL_SetRenderDrawColor(sdl_renderer, pr, pg, pb, 50);
+            for (float x = -line_spacing; x < screen_w + line_spacing; x += line_spacing * 2) {
+                for (float y = -line_spacing; y < screen_h + line_spacing; y += line_spacing * 2) {
+                    float cx = x + line_spacing;
+                    float cy = y + line_spacing;
+                    float rad_base = (float)line_spacing * 0.45f;
+                    float rad = rad_base;
+                    if (resolved_style.rfind("animated_", 0) == 0) {
+                        rad += sinf((cx / (float)screen_w) * 6.28f + (cy / (float)screen_h) * 6.28f + time_sec * 2.0f) * rad_base * 0.25f;
+                    }
+                    float prev_cx = cx + rad;
+                    float prev_cy = cy;
+                    for (int a = 1; a <= 16; a++) {
+                        float angle = (float)a * 6.2831853f / 16.0f;
+                        float cur_cx = cx + cosf(angle) * rad;
+                        float cur_cy = cy + sinf(angle) * rad;
+                        SDL_RenderLine(sdl_renderer, prev_cx, prev_cy, cur_cx, cur_cy);
+                        prev_cx = cur_cx;
+                        prev_cy = cur_cy;
+                    }
+                }
+            }
+        }
+
+        // 5. Crosses rendering
+        if (draw_crosses) {
+            SDL_SetRenderDrawColor(sdl_renderer, pr, pg, pb, 55);
+            float size = (float)scale_px(8);
+            if (size < 2.0f) size = 2.0f;
+            for (float x = -line_spacing; x < screen_w + line_spacing; x += line_spacing) {
+                for (float y = -line_spacing; y < screen_h + line_spacing; y += line_spacing) {
+                    float cx = x;
+                    float cy = y;
+                    if (resolved_style.rfind("animated_", 0) == 0) {
+                        cx += sinf(time_sec + y) * scale_px(4);
+                        cy += cosf(time_sec + x) * scale_px(4);
+                    }
+                    SDL_RenderLine(sdl_renderer, cx - size, cy, cx + size, cy);
+                    SDL_RenderLine(sdl_renderer, cx, cy - size, cx, cy + size);
+                }
+            }
+        }
+
+        // 6. Triangles rendering
+        if (draw_triangles) {
+            SDL_SetRenderDrawColor(sdl_renderer, pr, pg, pb, 50);
+            float size = (float)scale_px(12);
+            if (size < 3.0f) size = 3.0f;
+            for (float x = -line_spacing; x < screen_w + line_spacing; x += line_spacing) {
+                for (float y = -line_spacing; y < screen_h + line_spacing; y += line_spacing) {
+                    float cx = x;
+                    float cy = y;
+                    float angle = 0.0f;
+                    if (resolved_style.rfind("animated_", 0) == 0) {
+                        angle = time_sec + (cx + cy) * 0.01f;
+                    }
+                    float x1 = cx + cosf(angle) * size;
+                    float y1 = cy + sinf(angle) * size;
+                    float x2 = cx + cosf(angle + 2.0944f) * size;
+                    float y2 = cy + sinf(angle + 2.0944f) * size;
+                    float x3 = cx + cosf(angle + 4.1888f) * size;
+                    float y3 = cy + sinf(angle + 4.1888f) * size;
+                    SDL_RenderLine(sdl_renderer, x1, y1, x2, y2);
+                    SDL_RenderLine(sdl_renderer, x2, y2, x3, y3);
+                    SDL_RenderLine(sdl_renderer, x3, y3, x1, y1);
+                }
+            }
+        }
+
+        // 7. Squares rendering
+        if (draw_squares) {
+            SDL_SetRenderDrawColor(sdl_renderer, pr, pg, pb, 45);
+            float size = (float)scale_px(14);
+            if (size < 3.0f) size = 3.0f;
+            for (float x = -line_spacing; x < screen_w + line_spacing; x += line_spacing) {
+                for (float y = -line_spacing; y < screen_h + line_spacing; y += line_spacing) {
+                    float cx = x;
+                    float cy = y;
+                    float cur_size = size;
+                    if (resolved_style.rfind("animated_", 0) == 0) {
+                        cur_size = size * (0.6f + 0.4f * sinf(time_sec + (cx + cy) * 0.005f));
+                    }
+                    SDL_FRect r = { cx - cur_size/2, cy - cur_size/2, cur_size, cur_size };
+                    SDL_RenderRect(sdl_renderer, &r);
+                }
+            }
+        }
+
+        // 8. Hexagons rendering
+        if (draw_hexagons) {
+            SDL_SetRenderDrawColor(sdl_renderer, pr, pg, pb, 45);
+            float size = (float)scale_px(12);
+            if (size < 3.0f) size = 3.0f;
+            for (float x = -line_spacing; x < screen_w + line_spacing; x += line_spacing * 1.5f) {
+                for (float y = -line_spacing; y < screen_h + line_spacing; y += line_spacing * 1.732f) {
+                    float cx = x;
+                    float cy = y;
+                    float angle = 0.0f;
+                    if (resolved_style.rfind("animated_", 0) == 0) {
+                        angle = time_sec * 0.5f;
+                    }
+                    float px = cx + cosf(angle) * size;
+                    float py = cy + sinf(angle) * size;
+                    for (int a = 1; a <= 6; a++) {
+                        float cur_angle = angle + (float)a * 1.0472f;
+                        float nx = cx + cosf(cur_angle) * size;
+                        float ny = cy + sinf(cur_angle) * size;
+                        SDL_RenderLine(sdl_renderer, px, py, nx, ny);
+                        px = nx;
+                        py = ny;
+                    }
+                }
+            }
+        }
+
+        // 9. Fractals rendering
+        if (draw_fractals) {
+            SDL_SetRenderDrawColor(sdl_renderer, pr, pg, pb, 60);
+            int max_depth = 4;
+            float base_size = (float)scale_px(150);
+            
+            std::vector<std::pair<float, float>> centers = {
+                {(float)screen_w * 0.2f, (float)screen_h * 0.25f},
+                {(float)screen_w * 0.8f, (float)screen_h * 0.25f},
+                {(float)screen_w * 0.2f, (float)screen_h * 0.75f},
+                {(float)screen_w * 0.8f, (float)screen_h * 0.75f},
+                {(float)screen_w * 0.5f, (float)screen_h * 0.5f}
+            };
+
+            auto draw_h_fractal = [&](auto& self, float cx, float cy, float sz, int d) -> void {
+                if (d <= 0) return;
+                float h_sz = sz * 0.5f;
+                
+                float rot = 0.0f;
+                if (resolved_style.rfind("animated_", 0) == 0) {
+                    rot = time_sec * 0.1f * (5 - d);
+                }
+                
+                auto rot_draw = [&](float x_offset, float y_offset, float x_end_off, float y_end_off) {
+                    float x1 = cx + x_offset * cosf(rot) - y_offset * sinf(rot);
+                    float y1 = cy + x_offset * sinf(rot) + y_offset * cosf(rot);
+                    float x2 = cx + x_end_off * cosf(rot) - y_end_off * sinf(rot);
+                    float y2 = cy + x_end_off * sinf(rot) + y_end_off * cosf(rot);
+                    SDL_RenderLine(sdl_renderer, x1, y1, x2, y2);
+                };
+
+                rot_draw(-h_sz, 0, h_sz, 0);
+                rot_draw(-h_sz, -h_sz, -h_sz, h_sz);
+                rot_draw(h_sz, -h_sz, h_sz, h_sz);
+
+                float dx_l1 = -h_sz * cosf(rot) - (-h_sz) * sinf(rot);
+                float dy_l1 = -h_sz * sinf(rot) + (-h_sz) * cosf(rot);
+                self(self, cx + dx_l1, cy + dy_l1, h_sz, d - 1);
+
+                float dx_l2 = -h_sz * cosf(rot) - h_sz * sinf(rot);
+                float dy_l2 = -h_sz * sinf(rot) + h_sz * cosf(rot);
+                self(self, cx + dx_l2, cy + dy_l2, h_sz, d - 1);
+
+                float dx_r1 = h_sz * cosf(rot) - (-h_sz) * sinf(rot);
+                float dy_r1 = h_sz * sinf(rot) + (-h_sz) * cosf(rot);
+                self(self, cx + dx_r1, cy + dy_r1, h_sz, d - 1);
+
+                float dx_r2 = h_sz * cosf(rot) - h_sz * sinf(rot);
+                float dy_r2 = h_sz * sinf(rot) + h_sz * cosf(rot);
+                self(self, cx + dx_r2, cy + dy_r2, h_sz, d - 1);
+            };
+
+            auto recursive_h = [&](float cx, float cy, float sz, int d) {
+                draw_h_fractal(draw_h_fractal, cx, cy, sz, d);
+            };
+
+            for (auto& center : centers) {
+                float cur_sz = base_size;
+                if (resolved_style.rfind("animated_", 0) == 0) {
+                    cur_sz += sinf(time_sec + center.first) * base_size * 0.15f;
+                }
+                recursive_h(center.first, center.second, cur_sz, max_depth);
+            }
+        }
+
+        // 10. Polygons rendering
+        if (draw_polygons) {
+            SDL_SetRenderDrawColor(sdl_renderer, pr, pg, pb, 45);
+            float size = (float)scale_px(14);
+            if (size < 3.0f) size = 3.0f;
+            for (float x = -line_spacing; x < screen_w + line_spacing; x += line_spacing) {
+                for (float y = -line_spacing; y < screen_h + line_spacing; y += line_spacing) {
+                    float cx = x;
+                    float cy = y;
+                    float angle = 0.0f;
+                    int num_vertices = 5;
+                    if (((int)(x/line_spacing) + (int)(y/line_spacing)) % 2 == 0) {
+                        num_vertices = 8;
+                    }
+                    if (resolved_style.rfind("animated_", 0) == 0) {
+                        angle = time_sec * 0.8f + (cx + cy) * 0.005f;
+                    }
+                    bool is_star = (std::abs((int)(x/line_spacing) - (int)(y/line_spacing)) % 3 == 0);
+                    if (is_star) {
+                        int points = 5;
+                        float px = cx + cosf(angle) * size;
+                        float py = cy + sinf(angle) * size;
+                        for (int a = 1; a <= points * 2; a++) {
+                            float r = (a % 2 == 0) ? size : (size * 0.4f);
+                            float cur_angle = angle + (float)a * (3.14159f / (float)points);
+                            float nx = cx + cosf(cur_angle) * r;
+                            float ny = cy + sinf(cur_angle) * r;
+                            SDL_RenderLine(sdl_renderer, px, py, nx, ny);
+                            px = nx;
+                            py = ny;
+                        }
+                    } else {
+                        float px = cx + cosf(angle) * size;
+                        float py = cy + sinf(angle) * size;
+                        for (int a = 1; a <= num_vertices; a++) {
+                            float cur_angle = angle + (float)a * (6.2831853f / (float)num_vertices);
+                            float nx = cx + cosf(cur_angle) * size;
+                            float ny = cy + sinf(cur_angle) * size;
+                            SDL_RenderLine(sdl_renderer, px, py, nx, ny);
+                            px = nx;
+                            py = ny;
+                        }
+                    }
+                }
+            }
+        }
+
+        // 11. Rectangles rendering
+        if (draw_rectangles) {
+            SDL_SetRenderDrawColor(sdl_renderer, pr, pg, pb, 45);
+            float w_base = (float)scale_px(20);
+            float h_base = (float)scale_px(10);
+            if (w_base < 4.0f) w_base = 4.0f;
+            if (h_base < 2.0f) h_base = 2.0f;
+            for (float x = -line_spacing; x < screen_w + line_spacing; x += line_spacing) {
+                for (float y = -line_spacing; y < screen_h + line_spacing; y += line_spacing) {
+                    float cx = x;
+                    float cy = y;
+                    float w = w_base;
+                    float h = h_base;
+                    float angle = 0.0f;
+                    if (resolved_style.rfind("animated_", 0) == 0) {
+                        angle = time_sec * 0.4f + (cx + cy) * 0.01f;
+                        w = w_base * (0.7f + 0.3f * sinf(time_sec + cx * 0.01f));
+                        h = h_base * (0.7f + 0.3f * cosf(time_sec + cy * 0.01f));
+                    }
+                    float dx1 = -w / 2.0f, dy1 = -h / 2.0f;
+                    float dx2 = w / 2.0f,  dy2 = -h / 2.0f;
+                    float dx3 = w / 2.0f,  dy3 = h / 2.0f;
+                    float dx4 = -w / 2.0f, dy4 = h / 2.0f;
+
+                    float cos_a = cosf(angle);
+                    float sin_a = sinf(angle);
+
+                    float x1 = cx + dx1 * cos_a - dy1 * sin_a;
+                    float y1 = cy + dx1 * sin_a + dy1 * cos_a;
+                    float x2 = cx + dx2 * cos_a - dy2 * sin_a;
+                    float y2 = cy + dx2 * sin_a + dy2 * cos_a;
+                    float x3 = cx + dx3 * cos_a - dy3 * sin_a;
+                    float y3 = cy + dx3 * sin_a + dy3 * cos_a;
+                    float x4 = cx + dx4 * cos_a - dy4 * sin_a;
+                    float y4 = cy + dx4 * sin_a + dy4 * cos_a;
+
+                    SDL_RenderLine(sdl_renderer, x1, y1, x2, y2);
+                    SDL_RenderLine(sdl_renderer, x2, y2, x3, y3);
+                    SDL_RenderLine(sdl_renderer, x3, y3, x4, y4);
+                    SDL_RenderLine(sdl_renderer, x4, y4, x1, y1);
+                }
+            }
+        }
+
+        // 12. Mix & Match rendering
+        if (draw_mix) {
+            float size_base = (float)scale_px(12);
+            if (size_base < 3.0f) size_base = 3.0f;
+            for (float x = -line_spacing; x < screen_w + line_spacing; x += line_spacing * 1.5f) {
+                for (float y = -line_spacing; y < screen_h + line_spacing; y += line_spacing * 1.5f) {
+                    float cx = x;
+                    float cy = y;
+                    int i = (int)(x / (line_spacing * 1.5f));
+                    int j = (int)(y / (line_spacing * 1.5f));
+                    int shape_type = std::abs(i + j) % 6;
+
+                    float angle = 0.0f;
+                    float size = size_base;
+                    if (resolved_style.rfind("animated_", 0) == 0) {
+                        angle = time_sec * 0.6f + (cx + cy) * 0.005f;
+                        size = size_base * (0.8f + 0.2f * sinf(time_sec + (cx + cy) * 0.01f));
+                    }
+
+                    SDL_SetRenderDrawColor(sdl_renderer, pr, pg, pb, 50);
+
+                    if (shape_type == 0) {
+                        float x1 = cx + cosf(angle) * size;
+                        float y1 = cy + sinf(angle) * size;
+                        float x2 = cx + cosf(angle + 2.0944f) * size;
+                        float y2 = cy + sinf(angle + 2.0944f) * size;
+                        float x3 = cx + cosf(angle + 4.1888f) * size;
+                        float y3 = cy + sinf(angle + 4.1888f) * size;
+                        SDL_RenderLine(sdl_renderer, x1, y1, x2, y2);
+                        SDL_RenderLine(sdl_renderer, x2, y2, x3, y3);
+                        SDL_RenderLine(sdl_renderer, x3, y3, x1, y1);
+                    } else if (shape_type == 1) {
+                        SDL_FRect r = { cx - size, cy - size, size * 2, size * 2 };
+                        SDL_RenderRect(sdl_renderer, &r);
+                    } else if (shape_type == 2) {
+                        float px = cx + cosf(angle) * size;
+                        float py = cy + sinf(angle) * size;
+                        for (int a = 1; a <= 6; a++) {
+                            float cur_angle = angle + (float)a * 1.0472f;
+                            float nx = cx + cosf(cur_angle) * size;
+                            float ny = cy + sinf(cur_angle) * size;
+                            SDL_RenderLine(sdl_renderer, px, py, nx, ny);
+                            px = nx;
+                            py = ny;
+                        }
+                    } else if (shape_type == 3) {
+                        float rad = size;
+                        float prev_cx = cx + rad;
+                        float prev_cy = cy;
+                        for (int a = 1; a <= 12; a++) {
+                            float cur_angle = (float)a * 6.2831853f / 12.0f;
+                            float cur_cx = cx + cosf(cur_angle) * rad;
+                            float cur_cy = cy + sinf(cur_angle) * rad;
+                            SDL_RenderLine(sdl_renderer, prev_cx, prev_cy, cur_cx, cur_cy);
+                            prev_cx = cur_cx;
+                            prev_cy = cur_cy;
+                        }
+                    } else if (shape_type == 4) {
+                        float w = size * 1.5f;
+                        float h = size * 0.75f;
+                        float cos_a = cosf(angle);
+                        float sin_a = sinf(angle);
+                        float dx1 = -w/2, dy1 = -h/2;
+                        float dx2 = w/2,  dy2 = -h/2;
+                        float dx3 = w/2,  dy3 = h/2;
+                        float dx4 = -w/2, dy4 = h/2;
+                        float x1 = cx + dx1*cos_a - dy1*sin_a;
+                        float y1 = cy + dx1*sin_a + dy1*cos_a;
+                        float x2 = cx + dx2*cos_a - dy2*sin_a;
+                        float y2 = cy + dx2*sin_a + dy2*cos_a;
+                        float x3 = cx + dx3*cos_a - dy3*sin_a;
+                        float y3 = cy + dx3*sin_a + dy3*cos_a;
+                        float x4 = cx + dx4*cos_a - dy4*sin_a;
+                        float y4 = cy + dx4*sin_a + dy4*cos_a;
+                        SDL_RenderLine(sdl_renderer, x1, y1, x2, y2);
+                        SDL_RenderLine(sdl_renderer, x2, y2, x3, y3);
+                        SDL_RenderLine(sdl_renderer, x3, y3, x4, y4);
+                        SDL_RenderLine(sdl_renderer, x4, y4, x1, y1);
+                    } else {
+                        int points = 5;
+                        float r_inner = size * 0.4f;
+                        float r_outer = size;
+                        float px = cx + cosf(angle) * r_outer;
+                        float py = cy + sinf(angle) * r_outer;
+                        for (int a = 1; a <= points * 2; a++) {
+                            float r = (a % 2 == 0) ? r_outer : r_inner;
+                            float cur_angle = angle + (float)a * (3.14159f / (float)points);
+                            float nx = cx + cosf(cur_angle) * r;
+                            float ny = cy + sinf(cur_angle) * r;
+                            SDL_RenderLine(sdl_renderer, px, py, nx, ny);
+                            px = nx;
+                            py = ny;
+                        }
+                    }
+                }
+            }
+        }
         }
     } else {
         // "photo" style (default)

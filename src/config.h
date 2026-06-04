@@ -125,7 +125,8 @@ struct Config {
      bool    color_matched_matte{true};
       std::string bg_style{"pattern"};
        int     pattern_offset{45};
-       std::string pattern_style{"animated_combined"};
+       std::string pattern_style{"random_animated"};
+       int     pattern_blend_count{2};
       int     blur_radius{14};
      int     glow_depth{43};
      bool    edge_glow_shadow{true};
@@ -171,6 +172,10 @@ struct Config {
     std::string google_photos_album_id{""};
     int         google_photos_sync_interval{60};
     std::string google_photos_cache_dir{"/app/cache/google_photos"};
+
+    // [updates]
+    bool        auto_update{false};
+    std::string auto_update_branch{"main"};
 
     std::vector<std::string> ignore_folders;
 
