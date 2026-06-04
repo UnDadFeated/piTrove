@@ -1,3 +1,10 @@
+## v11.8.5 — Automated Updates & Configuration Control (June 4, 2026)
+
+### Added
+- **Automated Update Checking** — Introduced a background auto-update scheduling system. The Digital Picture Frame can now be configured via the settings panel to automatically query the remote repository for updates and redeploy the container without manual intervention.
+- **Git Branch Tracking** — Added support to select and track specific development channels (stable 'main' or active 'develop') directly from the settings wizard, aligning all background updates to the selected branch.
+- **TUI & Installer Integration** — Exposed the Auto-Update and Update Channel selection preferences inside the System category of the terminal setup wizard.
+
 ## v11.8.4 — Terminal UI Compatibility & Options Loading Fixes (June 4, 2026)
 
 ### Fixed

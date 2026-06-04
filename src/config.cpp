@@ -202,6 +202,8 @@ bool Config::load(const std::string& path) {
         else if (key == "album_id" && section == "google_photos")             this->google_photos_album_id = val;
         else if (key == "sync_interval_mins" && section == "google_photos")   this->google_photos_sync_interval = safe_stoi(val, this->google_photos_sync_interval);
         else if (key == "cache_dir" && section == "google_photos")            this->google_photos_cache_dir = val;
+        else if (key == "auto_update" && section == "updates")                this->auto_update = (val == "1" || val == "true");
+        else if (key == "auto_update_branch" && section == "updates")         this->auto_update_branch = val;
         else if (key == "resolution") {
             auto comma = val.find(',');
             if (comma != std::string::npos) {
@@ -399,7 +401,11 @@ bool Config::save(const std::string& path) {
     f << "refresh_token = \"" << this->google_photos_refresh_token << "\"\n";
     f << "album_id = \"" << this->google_photos_album_id << "\"\n";
     f << "sync_interval_mins = " << this->google_photos_sync_interval << "\n";
-    f << "cache_dir = \"" << this->google_photos_cache_dir << "\"\n";
+    f << "cache_dir = \"" << this->google_photos_cache_dir << "\"\n\n";
+
+    f << "[updates]\n";
+    f << "auto_update = " << (this->auto_update ? "1" : "0") << "\n";
+    f << "auto_update_branch = \"" << this->auto_update_branch << "\"\n";
 
     f.close();
     g_config_changed.store(true);

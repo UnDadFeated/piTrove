@@ -172,6 +172,10 @@ struct Config {
     int         google_photos_sync_interval{60};
     std::string google_photos_cache_dir{"/app/cache/google_photos"};
 
+    // [updates]
+    bool        auto_update{false};
+    std::string auto_update_branch{"main"};
+
     std::vector<std::string> ignore_folders;
 
     // CLI Overrides
