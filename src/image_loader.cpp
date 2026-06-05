@@ -77,34 +77,7 @@ int ImageLoader::read_exif_rotation_from_memory(const uint8_t* buffer, unsigned 
     return rotation;
 }
 
-RawImage ImageLoader::load_raw(const std::string& path) {
-    RawImage raw;
-    raw.valid = false;
 
-    std::vector<uint8_t> buffer = read_file_to_buffer(path);
-    if (buffer.empty()) return raw;
-
-    int w = 0, h = 0, ch = 0;
-    uint8_t* pixels = stbi_load_from_memory(buffer.data(), (int)buffer.size(), &w, &h, &ch, 4); // force RGBA
-    if (!pixels || w <= 0 || h <= 0) return raw;
-
-    raw.width = w;
-    raw.height = h;
-    raw.channels = 4;
-    raw.format = ImageFormat::RGBA32;
-    raw.valid = true;
-
-    size_t buf_size = (size_t)w * h * 4;
-    raw.pixels = (uint8_t*)malloc(buf_size);
-    if (!raw.pixels) {
-        stbi_image_free(pixels);
-        raw.valid = false;
-        return raw;
-    }
-    memcpy(raw.pixels, pixels, buf_size);
-    stbi_image_free(pixels);
-    return raw;
-}
 
 std::shared_ptr<ImageData> ImageLoader::load(const std::string& path) {
     auto result = std::make_shared<ImageData>();
@@ -319,48 +292,11 @@ void ImageLoader::load_texture(ImageData* data, SDL_Renderer* renderer) {
     data->surface = nullptr;
 }
 
-void ImageLoader::unload_texture(ImageData* data) {
-    if (!data) return;
-    if (data->texture) {
-        SDL_DestroyTexture(data->texture);
-        data->texture = nullptr;
-    }
-    if (data->blur_texture) {
-        SDL_DestroyTexture(data->blur_texture);
-        data->blur_texture = nullptr;
-    }
-}
 
-void ImageLoader::unload(ImageData* data) {
-    if (!data) return;
-    unload_texture(data);
-    if (data->surface) {
-        SDL_DestroySurface(data->surface);
-        data->surface = nullptr;
-    }
-    data->valid = false;
-}
 
-int ImageLoader::read_exif_rotation(const char* path) {
-    int rotation = 1;
-    ExifData* ed = exif_data_new_from_file(path);
-    if (!ed) return rotation;
 
-    // Check IFD_0 first, then IFD_EXIF (some cameras write orientation there)
-    ExifEntry* entry = exif_content_get_entry(ed->ifd[EXIF_IFD_0], EXIF_TAG_ORIENTATION);
-    if (!entry || !entry->data || entry->size < 2 || entry->format != EXIF_FORMAT_SHORT) {
-        entry = exif_content_get_entry(ed->ifd[EXIF_IFD_EXIF], EXIF_TAG_ORIENTATION);
-    }
-    if (!entry || !entry->data || entry->size < 2 || entry->format != EXIF_FORMAT_SHORT) {
-        exif_data_unref(ed);
-        return rotation;
-    }
 
-    unsigned short val = exif_get_short(entry->data, exif_data_get_byte_order(ed));
-    if (val >= 1 && val <= 8) rotation = val;
-    exif_data_unref(ed);
-    return rotation;
-}
+
 
 bool ImageLoader::has_camera_exif(const char* path) {
     ExifData* ed = exif_data_new_from_file(path);

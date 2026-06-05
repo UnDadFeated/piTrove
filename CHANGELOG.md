@@ -1,3 +1,11 @@
+## v11.8.11 — Code Quality & Dead Code Cleanup (June 4, 2026)
+
+### Added
+- **Static Analysis Infrastructure** — Integrated general-purpose C++ static analyzers and diagnostic checkers on the Pi host compiler pipeline, ensuring long-term code quality and stability.
+
+### Fixed
+- **Dead Code and Resource Cleanup** — Removed 25 unused helper functions and dead/unused variables across the image decoding, directory scanning, and graphics rendering subsystems to streamline the application footprint.
+
 ## v11.8.10 — Seamless transition buffer presentation (June 4, 2026)
 
 ### Fixed

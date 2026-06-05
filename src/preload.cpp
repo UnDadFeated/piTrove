@@ -192,15 +192,7 @@ void PreloadQueue::cancel_all() {
     work_cv.notify_all();
 }
 
-int PreloadQueue::pending_count() {
-    std::lock_guard<std::mutex> lock(work_mutex);
-    return work_queue.size();
-}
 
-int PreloadQueue::ready_count() {
-    std::lock_guard<std::mutex> lock(queue_mutex);
-    return loaded_queue.size();
-}
 
 static void compute_edge_data(const RawImage& raw,
     uint8_t edge_r[4], uint8_t edge_g[4], uint8_t edge_b[4],

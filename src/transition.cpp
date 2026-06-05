@@ -72,11 +72,7 @@ void TransitionEngine::reset() {
     elapsed = 0.0f;
 }
 
-static SDL_Rect calc_transition_fit_rect(int img_w, int img_h) {
-    SDL_Rect rect;
-    g_renderer.calculate_fit_rect(img_w, img_h, rect);
-    return rect;
-}
+
 
 void TransitionEngine::render_fade(SDL_Texture* prev_tex, SDL_Texture* next_tex, int screen_w, int screen_h) {
     if (!renderer) return;

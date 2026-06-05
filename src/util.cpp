@@ -285,12 +285,7 @@ void Logger::rotate_logs(const std::string& dir, int keep) {
     } catch (...) {}
 }
 
-void Logger::log(LogLevel lvl, const char* fmt, ...) {
-    va_list ap;
-    va_start(ap, fmt);
-    log_v(lvl, fmt, ap);
-    va_end(ap);
-}
+
 
 void Logger::log_v(LogLevel lvl, const char* fmt, va_list ap) {
     if (lvl < level) return;
@@ -355,131 +350,7 @@ void Logger::debug(const char* fmt, ...) {
     va_end(ap);
 }
 
-// slide_debug utilities
-static std::mutex __slide_debug_mtx;
-static FILE* __slide_debug_f = nullptr;
-static std::atomic<bool> __slide_debug_of{false};
-static time_t __slide_debug_last_rotate = 0;
-static bool __slide_debug_first = true;
-static std::string __slide_debug_fname;
 
-static std::string _slide_log_dir() {
-    if (!g_logger.log_dir.empty()) return g_logger.log_dir;
-    const char* home = getenv("HOME");
-    std::string h = home ? home : "/home/pi";
-    return h + "/piTrove/logs";
-}
-
-void slide_debug(const char* fmt, ...) {
-    std::lock_guard<std::mutex> lk(__slide_debug_mtx);
-    if (!__slide_debug_of) {
-        auto now = std::chrono::system_clock::now();
-        auto ts = std::chrono::system_clock::to_time_t(now);
-        struct tm tmb;
-        char datestr[32];
-        localtime_r(&ts, &tmb);
-        strftime(datestr, sizeof(datestr), "%Y%m%d_%H%M%S", &tmb);
-        __slide_debug_fname = _slide_log_dir() + "/slide_debug_" + std::string(datestr) + ".log";
-        
-        // Create directories if needed
-        std::filesystem::create_directories(_slide_log_dir());
-        
-        __slide_debug_f = fopen(__slide_debug_fname.c_str(), "a");
-        if (__slide_debug_f) {
-            __slide_debug_of = true;
-        } else {
-            __slide_debug_of = false;
-        }
-    }
-    if (!__slide_debug_of) return;
-
-    bool do_rotate = false;
-    time_t now_time = time(nullptr);
-    struct stat szWcheck;
-    if (__slide_debug_f && fstat(fileno(__slide_debug_f), &szWcheck) == 0 && szWcheck.st_size > 5 * 1024 * 1024) {
-        do_rotate = true;
-    } else if (!__slide_debug_first && now_time - __slide_debug_last_rotate > 300) {
-        __slide_debug_last_rotate = now_time;
-        do_rotate = true;
-    }
-    if (__slide_debug_first) __slide_debug_first = false;
-
-    if (do_rotate) {
-        try {
-            std::vector<std::string> files;
-            std::string logdir = _slide_log_dir();
-            for (const auto& entry : std::filesystem::directory_iterator(logdir)) {
-                std::string fn = entry.path().filename().string();
-                if (fn.find("slide_debug_") == 0 && fn.find(".log") != std::string::npos) {
-                    files.push_back(entry.path().string());
-                }
-            }
-            std::sort(files.begin(), files.end());
-            while ((int)files.size() > 3) {
-                std::filesystem::remove(files.front());
-                files.erase(files.begin());
-            }
-        } catch (...) {}
-        if (__slide_debug_f) {
-            fclose(__slide_debug_f);
-            __slide_debug_f = nullptr;
-        }
-        __slide_debug_fname.clear();
-        __slide_debug_of = false;
-    }
-
-    if (!__slide_debug_of) {
-        auto now = std::chrono::system_clock::now();
-        auto ts = std::chrono::system_clock::to_time_t(now);
-        struct tm tmb;
-        char datestr[32];
-        localtime_r(&ts, &tmb);
-        strftime(datestr, sizeof(datestr), "%Y%m%d_%H%M%S", &tmb);
-        __slide_debug_fname = _slide_log_dir() + "/slide_debug_" + std::string(datestr) + ".log";
-        
-        // Create directories if needed
-        std::filesystem::create_directories(_slide_log_dir());
-        
-        __slide_debug_f = fopen(__slide_debug_fname.c_str(), "a");
-        if (__slide_debug_f) {
-            __slide_debug_of = true;
-        } else {
-            __slide_debug_of = false;
-        }
-    }
-    if (!__slide_debug_of) return;
-
-    va_list ap;
-    va_start(ap, fmt);
-    char line[1024];
-    int n = std::vsnprintf(line, sizeof(line), fmt, ap);
-    va_end(ap);
-    if (n < 0) return;
-
-    char tb[64];
-    static time_t cached_sec = -1;
-    static struct tm cached_tm;
-    static char cached_tb[64];
-    time_t tv = time(nullptr);
-    struct tm* tm = localtime_r(&tv, &cached_tm);
-    if (!tm) return;
-    if (tv != cached_sec) {
-        cached_sec = tv;
-        snprintf(cached_tb, sizeof(cached_tb), "%02d:%02d:%02d", tm->tm_hour, tm->tm_min, tm->tm_sec);
-    }
-    snprintf(tb, sizeof(tb), "%s", cached_tb);
-    fprintf(__slide_debug_f, "[%s] %s\n", tb, line);
-    fflush(__slide_debug_f);
-}
-
-void slide_debug_close() {
-    std::lock_guard<std::mutex> lk(__slide_debug_mtx);
-    if (__slide_debug_f) {
-        fclose(__slide_debug_f);
-        __slide_debug_f = nullptr;
-        __slide_debug_of = false;
-    }
-}
 
 static bool match_keyword(const std::string& str, const std::string& kw) {
     size_t pos = str.find(kw);
