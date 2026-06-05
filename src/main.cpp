@@ -1066,9 +1066,7 @@ int main(int argc, char** argv) {
                 "SELECT path, type, w, h, duration, exif, last_shown, is_camera FROM cache WHERE bad = 0;",
                 -1, &stmt, nullptr);
             if (load_rc == SQLITE_OK) {
-                int row_count = 0;
                 while (sqlite3_step(stmt) == SQLITE_ROW) {
-                    row_count++;
                     const unsigned char* raw_path = sqlite3_column_text(stmt, 0);
                     const unsigned char* raw_type = sqlite3_column_text(stmt, 1);
                     if (!raw_path || !raw_type) continue;
@@ -1489,7 +1487,6 @@ int main(int argc, char** argv) {
     }
 
     bool transitioning = false;
-    double transition_timer = 0.0;
     std::string transition_effect;
     { std::lock_guard<std::mutex> lk(g_config_mtx); transition_effect = g_cfg.transition_effect; }
 
@@ -1635,7 +1632,7 @@ int main(int argc, char** argv) {
             if (transition_prev_target) { SDL_DestroyTexture(transition_prev_target); transition_prev_target = nullptr; }
             if (transition_next_target) { SDL_DestroyTexture(transition_next_target); transition_next_target = nullptr; }
             
-            transitioning = true; transition_timer = 0.0;
+            transitioning = true;
             if (cmd == 1) {
                 advance_playlist(current_twin_data ? 2 : 1);
             } else {
@@ -1671,7 +1668,7 @@ int main(int argc, char** argv) {
                     current_tex = nullptr;
                     g_renderer.clear(0, 0, 0, 255);
                     g_renderer.present();
-                    transitioning = true; transition_timer = 0.0;
+                    transitioning = true;
                     advance_playlist(1);
                 }
                 playlist_lock.unlock(); // Unlock before delay sleep
@@ -1696,7 +1693,7 @@ int main(int argc, char** argv) {
                     current_tex = nullptr;
                     g_renderer.clear(0, 0, 0, 255);
                     g_renderer.present();
-                    transitioning = true; transition_timer = 0.0;
+                    transitioning = true;
                     advance_playlist(1);
                     playlist_lock.unlock();
                     continue;
@@ -1725,10 +1722,7 @@ int main(int argc, char** argv) {
         // --- Image Rendering Handling ---
         double dt_scaled = g_slideshow_paused.load() ? 0.0 : dt;
         item_timer += dt_scaled;
-
         if (transitioning) {
-            transition_timer += dt_scaled;
-
             // Load next_data exactly once at the beginning of the transition
             if (!next_data) {
                 int next_idx = current_idx % (int)g_eligible.size();
@@ -1827,7 +1821,6 @@ int main(int argc, char** argv) {
                 if (transition_prev_target && transition_next_target) {
                     if (just_started) {
                         last_frame_time = std::chrono::steady_clock::now();
-                        dt = 0.0;
                         dt_scaled = 0.0;
                     }
                     g_renderer.clear(0, 0, 0, 255);
@@ -2178,7 +2171,7 @@ int main(int argc, char** argv) {
                     delay = g_cfg.transition_delay;
                 }
                 if (item_timer >= delay) {
-                    transitioning = true; transition_timer = 0.0;
+                    transitioning = true;
                     advance_playlist(current_twin_data ? 2 : 1);
                 }
             }

@@ -169,8 +169,7 @@ struct ImageData {
 
 class ImageLoader {
 public:
-    // Decode image to raw buffer (no SDL calls) — safe for worker threads
-    static RawImage load_raw(const std::string& path);
+
 
     // Load image and create SDL_Surface + texture (must be called on main thread)
     static std::shared_ptr<ImageData> load(const std::string& path);
@@ -178,17 +177,14 @@ public:
     // Upload surface to VRAM texture (must be called on main thread)
     static void load_texture(ImageData* data, SDL_Renderer* renderer);
 
-    // Unload VRAM texture
-    static void unload_texture(ImageData* data);
 
-    // Unload everything
-    static void unload(ImageData* data);
+
+
 
     // Apply EXIF rotation to an SDL surface (must be called on main thread)
     static SDL_Surface* apply_exif_rotation(SDL_Surface* surface, int exif);
 
-    // Read EXIF orientation from file
-    static int read_exif_rotation(const char* path);
+
 
     // Read EXIF orientation from a memory buffer
     static int read_exif_rotation_from_memory(const uint8_t* buffer, unsigned int size);
