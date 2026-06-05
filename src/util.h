@@ -1,7 +1,7 @@
 #ifndef PITROVE_UTIL_H
 #define PITROVE_UTIL_H
 
-#define VERSION "11.8.10"
+#define VERSION "11.8.11"
 #define APP_NAME "piTrove"
 
 #include <atomic>
@@ -55,7 +55,7 @@ struct Logger {
     void flush_loop();
     void init(const std::string& path, LogLevel lvl, int keep_count = 5);
     void rotate_logs(const std::string& dir, int keep);
-    void log(LogLevel lvl, const char* fmt, ...);
+
     void log_v(LogLevel lvl, const char* fmt, va_list ap);
     void info(const char* fmt, ...);
     void warn(const char* fmt, ...);
@@ -89,9 +89,7 @@ std::string get_exe_dir();
 bool file_exists(const std::string& path);
 std::string get_timestamp();
 
-// slide_debug utilities
-void slide_debug(const char* fmt, ...);
-void slide_debug_close();
+
 
 // Media Classification & Date parsing utilities
 void classify_media_item(const MediaItem& item, bool& has_people, bool& has_animals, bool& is_doc);

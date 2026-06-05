@@ -47,9 +47,7 @@ public:
     bool init(int w, int h, bool fullscreen);
     void cleanup();
 
-    // Screen info
-    int get_width() const { return screen_w; }
-    int get_height() const { return screen_h; }
+
     int scale_px(int base_px_1080p) const {
         return (int)((double)base_px_1080p * screen_w / 1920.0);
     }
@@ -67,25 +65,25 @@ public:
     void draw_matte_borders(const SDL_Rect& fit_rect);
     void draw_blurred_background(SDL_Texture* blur_texture, Uint8 vignette_alpha);
     void draw_background(ImageData* data, const std::string& bg_style, Uint8 vignette_alpha);
-    void draw_blurred_from_raw(const RawImage& blur_raw, Uint8 vignette_alpha);
+
     void draw_color_matched_matte(const SDL_Rect& fit_rect, Uint8 matte_r, Uint8 matte_g, Uint8 matte_b, float matte_opacity);
     void draw_bias_lighting(const SDL_Rect& fit_rect, Uint8 avg_r, Uint8 avg_g, Uint8 avg_b,
         int bias_strength, float item_timer, float anim_speed, const std::string& style, int border_width, int glow_depth = 0);
     void draw_3d_border(const SDL_Rect& fit_rect, Uint8 avg_r, Uint8 avg_g, Uint8 avg_b, int border_width);
-    void draw_solid_border(int width, uint8_t r = 0, uint8_t g = 0, uint8_t b = 0);
+
 
     // Splash Screen methods
     void load_splash(const std::string& path);
     void cleanup_splash();
     void render_splash(int phase, int progress, int total, int done, const char* label, int dot_counter, const char* filename = nullptr, bool animated = true);
-    void add_splash_log(const std::string& line);
+
     void draw_splash_box(int x, int y, int w, int h);
     void draw_splash_text(const std::string& text, int x, int y, int size, GpuColor color);
-    void draw_splash_progress_bar(int x, int y, int w, int h, float pct);
+
 
 private:
     float read_sys_f(const char* path, float divisor);
-    std::string folder_and_file(const std::string& path);
+
 };
 
 extern Renderer g_renderer;

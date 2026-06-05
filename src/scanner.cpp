@@ -21,7 +21,7 @@
 #include <random>
 
 static const char* IMAGE_EXTS[] = {"jpg", "jpeg", "png", "bmp", "tga", "gif", "webp", "tiff", "tif", "heic", "heif"};
-static const char* VIDEO_EXTS[] = {"mp4", "mkv", "avi", "mov", "webm", "m4v"};
+
 
 // Compares only the final extension component (e.g. "jpeg", case-insensitive).
 // Both arguments must be extension components, not full file paths.
@@ -62,22 +62,9 @@ std::vector<std::string> read_dir_timeout(const std::string& path, int timeout_m
     return stat(path.c_str(), &st) == 0;
 }
 
-std::string file_ext(const std::string& path) {
-    if (path.empty()) return "";
-    auto slash = path.find_last_of("/\\");
-    auto dot = path.find_last_of('.');
-    if (dot == std::string::npos || dot == path.size() - 1) return "";
-    if (slash != std::string::npos && dot < slash) return "";
-    return path.substr(dot + 1);
-}
 
-std::string file_name(const std::string& path) {
-    if (path.empty()) return "";
-    auto slash = path.find_last_of('/');
-    if (slash == std::string::npos) return path;
-    if (slash == path.size() - 1) return "";
-    return path.substr(slash + 1);
-}
+
+
 
 bool is_image(std::string_view ext_or_path) {
     std::string_view ext = ext_or_path;
@@ -91,21 +78,9 @@ bool is_image(std::string_view ext_or_path) {
     return false;
 }
 
-bool is_video(std::string_view ext_or_path) {
-    std::string_view ext = ext_or_path;
-    auto dot = ext_or_path.find_last_of('.');
-    if (dot != std::string_view::npos) {
-        ext = ext_or_path.substr(dot + 1);
-    }
-    for (auto e : VIDEO_EXTS) {
-        if (ext_matches(ext, e)) return true;
-    }
-    return false;
-}
 
-bool is_media(std::string_view ext_or_path) {
-    return is_image(ext_or_path) || is_video(ext_or_path);
-}
+
+
 
 bool is_in_seasonal_window(const std::string& filename, int window_days) {
     if (window_days <= 0) return true;
@@ -137,142 +112,13 @@ bool is_in_seasonal_window(const std::string& filename, int window_days) {
     return diff <= window_days;
 }
 
-std::string run_ffprobe(const std::vector<std::string>& args, int timeout_ms) {
-    std::vector<const char*> argv;
-    argv.push_back("ffprobe");
-    for (const auto& a : args) argv.push_back(a.c_str());
-    argv.push_back(nullptr);
-    int pipefd[2];
-    if (pipe2(pipefd, O_CLOEXEC) != 0) return "";
-    pid_t pid = fork();
-    if (pid < 0) { close(pipefd[0]); close(pipefd[1]); return ""; } // pipe fds closed on fork fail
-    if (pid == 0) {
-        dup2(pipefd[1], STDOUT_FILENO);
-        int devnull = open("/dev/null", O_WRONLY);
-        if (devnull >= 0) { dup2(devnull, STDERR_FILENO); close(devnull); }
-        close(pipefd[0]); close(pipefd[1]);
 
-        // Redirect stdin to /dev/null
-        int devnull_in = open("/dev/null", O_RDONLY);
-        if (devnull_in >= 0) { dup2(devnull_in, STDIN_FILENO); close(devnull_in); }
 
-        // Close all other file descriptors to prevent leaks to child process
-        {
-            DIR* dir = opendir("/proc/self/fd");
-            if (dir) {
-                int dir_fd = dirfd(dir);
-                std::vector<int> fds_to_close;
-                struct dirent* de;
-                while ((de = readdir(dir))) {
-                    if (de->d_name[0] == '.') continue;
-                    int fd = std::atoi(de->d_name);
-                    if (fd >= 3 && fd != pipefd[0] && fd != pipefd[1] && fd != dir_fd) {
-                        fds_to_close.push_back(fd);
-                    }
-                }
-                closedir(dir);
-                for (int fd : fds_to_close) {
-                    close(fd);
-                }
-            } else {
-                for (int i = 3; i < 1024; ++i) {
-                    close(i);
-                }
-            }
-        }
 
-        setsid();
-        struct rlimit rl{ 256u*1024*1024, 256u*1024*1024 };
-        setrlimit(RLIMIT_AS, &rl);
-        execvp("ffprobe", const_cast<char* const*>(argv.data()));
-        _exit(127);
-    }
-    close(pipefd[1]);
-    std::string out; out.reserve(512);
-    char buf[4096];
-    auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeout_ms);
-    bool eof_reached = false;
-    while (true) {
-        auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(
-            deadline - std::chrono::steady_clock::now()).count();
-        if (remaining <= 0) { break; }
-        struct pollfd pfd{ pipefd[0], POLLIN, 0 };
-        int ret = poll(&pfd, 1, (int)std::min<long>(remaining, 500));
-        if (ret < 0) { if (errno == EINTR) continue; break; }
-        if (ret == 0) continue;
-        if (pfd.revents & (POLLIN|POLLHUP)) {
-            ssize_t n = read(pipefd[0], buf, sizeof(buf));
-            if (n > 0) {
-                out.append(buf, n);
-                if (out.size() > 65536) break;
-            }
-            else { eof_reached = true; break; }
-        }
-    }
-    if (!eof_reached) {
-        kill(pid, SIGKILL);
-    }
-    close(pipefd[0]);
-    waitpid(pid, nullptr, 0);
-    return out;
-}
 
-std::string ffprobe_field(const std::string& out, const std::string& key) {
-    std::string target = key + "=";
-    size_t pos = 0;
-    while (true) {
-        pos = out.find(target, pos);
-        if (pos == std::string::npos) return "";
-        // Must be at the start of a line (either pos == 0, or preceded by \n or \r)
-        if (pos == 0 || out[pos - 1] == '\n' || out[pos - 1] == '\r') {
-            size_t val_start = pos + target.size();
-            size_t val_end = out.find_first_of("\r\n", val_start);
-            if (val_end == std::string::npos) {
-                return out.substr(val_start);
-            } else {
-                return out.substr(val_start, val_end - val_start);
-            }
-        }
-        pos += target.size();
-    }
-}
 
-double probe_video_duration(const std::string& path, int timeout_ms) {
-    if (!std::filesystem::exists(path)) return 0.0;
 
-    std::string out = run_ffprobe({"-v","quiet","-print_format","default","-show_format", path},
-                                  std::max(timeout_ms, 15000));
 
-    std::string dur_str = ffprobe_field(out, "duration");
-    if (dur_str.empty()) return 0.0;
-
-    try {
-        double dur = std::stod(dur_str);
-        return (dur > 0.1) ? dur : 0.0;
-    } catch (...) {
-        return 0.0;
-    }
-}
-
-bool probe_video_meta(const std::string& filepath, int& width, int& height, float& duration, time_t& creation_time) {
-    if (filepath.empty()) return false;
-    auto out = run_ffprobe({"-v","quiet","-print_format","default=noprint_wrappers=1:nokey=0",
-        "-select_streams","v:0","-show_entries","stream=width,height:format=duration:format_tags=creation_time",
-        filepath}, 8000);
-    if (out.empty()) return false;
-    auto sw = ffprobe_field(out, "width"), sh = ffprobe_field(out, "height"),
-        sd = ffprobe_field(out, "duration"), sts = ffprobe_field(out, "TAG:creation_time");
-    if (sw.empty() || sh.empty() || sd.empty()) return false;
-    try { width = std::stoi(sw); height = std::stoi(sh); duration = std::stof(sd); }
-    catch (...) { return false; }
-    if (!sts.empty()) {
-        struct tm t={};
-        std::istringstream s(sts);
-        s >> std::get_time(&t, "%Y-%m-%dT%H:%M:%S");
-        if (!s.fail()) creation_time = timegm(&t);
-    }
-    return (width > 0 && height > 0 && duration > 0.0f);
-}
 
 bool MediaScanner::is_month_in_window(const std::string& dirname, int window_days) {
     if (window_days <= 0) return true;
@@ -397,7 +243,7 @@ std::vector<MediaItem> MediaScanner::scan(const std::string& directory,
                             if (!is_month_in_window(name, window_days)) continue;
                             rec(p, d + 1);
                         } else if (S_ISREG(st.st_mode)) {
-                            process_entry(p, st, exts, window_days, list_mutex, all_items);
+                            process_entry(p, st, exts, list_mutex, all_items);
                             if (progress) progress(live_found_count.load());
                         }
                     }
@@ -424,7 +270,7 @@ std::vector<MediaItem> MediaScanner::scan(const std::string& directory,
     }
 
     for (const auto& pair : root_files) {
-        process_entry(pair.first, pair.second, exts, window_days, list_mutex, all_items);
+        process_entry(pair.first, pair.second, exts, list_mutex, all_items);
         if (progress) progress(live_found_count.load());
     }
 
@@ -433,14 +279,11 @@ std::vector<MediaItem> MediaScanner::scan(const std::string& directory,
     return all_items;
 }
 
-int MediaScanner::get_count() {
-    return live_found_count.load(std::memory_order_relaxed);
-}
+
 
 void MediaScanner::process_entry(const std::string& path_str,
                                  const struct stat& st,
                                  const std::vector<std::string>& exts,
-                                 int window_days,
                                  std::mutex& list_mutex,
                                  std::vector<MediaItem>& all_items) {
     std::filesystem::path path_obj(path_str);
