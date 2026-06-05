@@ -69,16 +69,7 @@ FontHandle& FontRenderer::load_font(const std::string& path, int size) {
     return *handle;
 }
 
-void FontRenderer::unload_font(const std::string& key) {
-    auto it = fonts.find(key);
-    if (it != fonts.end()) {
-        if (it->second->font) {
-            TTF_CloseFont(it->second->font);
-        }
-        fonts.erase(it);
-        g_logger.debug("Unloaded font key: %s", key.c_str());
-    }
-}
+
 
 void FontRenderer::draw_text(int x, int y, const FontHandle& font, const std::string& text,
                              uint8_t r, uint8_t g, uint8_t b, uint8_t a) {
@@ -127,17 +118,7 @@ void FontRenderer::draw_text_glow(int x, int y, const FontHandle& font, const st
     draw_text(x, y, font, text, r, g, b, a);
 }
 
-void FontRenderer::draw_text_shaded(int x, int y, const FontHandle& font, const std::string& text,
-                                    uint8_t text_r, uint8_t text_g, uint8_t text_b, uint8_t text_a,
-                                    uint8_t shade_r, uint8_t shade_g, uint8_t shade_b, uint8_t shade_a) {
-    if (!renderer || !renderer->sdl_renderer || text.empty() || !font.font) return;
 
-    // Drop shadow: render 1 offset copy in shadow color
-    draw_text(x + 2, y + 2, font, text, shade_r, shade_g, shade_b, shade_a);
-
-    // Draw main text
-    draw_text(x, y, font, text, text_r, text_g, text_b, text_a);
-}
 
 void FontRenderer::measure(const FontHandle& font, const std::string& text, int& w, int& h) {
     w = 0; h = 0;

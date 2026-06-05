@@ -53,8 +53,7 @@ public:
     // Get current progress (0.0 to 1.0)
     float get_progress() const { return config.progress; }
     
-    // Get current effect
-    TransitionEffect get_effect() const { return config.effect; }
+
     
     // Render transition frame
     void render(SDL_Texture* prev_tex, SDL_Texture* next_tex, int screen_w, int screen_h);

@@ -77,9 +77,6 @@ public:
     // Cancel all pending preloads
     void cancel_all();
 
-    int pending_count();
-    int ready_count();
-
 private:
     void worker_thread(int thread_id);
 };

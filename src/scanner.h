@@ -27,19 +27,12 @@ std::vector<std::string> read_dir(const std::string& path);
 std::vector<std::string> read_dir_timeout(const std::string& path, int timeout_ms = 15000);
 bool stat_timeout(const std::string& path, struct stat& st, int timeout_ms = 5000);
 
-// Filename and type validation helpers
-std::string file_ext(const std::string& path);
-std::string file_name(const std::string& path);
 bool is_image(std::string_view ext_or_path);
-bool is_video(std::string_view ext_or_path);
-bool is_media(std::string_view ext_or_path);
 
 // Seasonal date checkers
 bool is_in_seasonal_window(const std::string& filename, int window_days);
 
-// Video metadata probing
-bool probe_video_meta(const std::string& filepath, int& width, int& height, float& duration, time_t& creation_time);
-double probe_video_duration(const std::string& path, int timeout_ms);
+
 
 // MediaScanner class
 class MediaScanner {
@@ -55,13 +48,12 @@ public:
                                    int max_depth,
                                    const std::vector<std::string>& ignore_folders,
                                    std::function<void(int)> progress = nullptr);
-    int get_count();
+
 
 private:
     void process_entry(const std::string& path_str,
                        const struct stat& st,
                        const std::vector<std::string>& exts,
-                       int window_days,
                        std::mutex& list_mutex,
                        std::vector<MediaItem>& all_items);
 };

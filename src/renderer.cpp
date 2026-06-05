@@ -857,42 +857,7 @@ void Renderer::draw_background(ImageData* data, const std::string& bg_style, Uin
     }
 }
 
-void Renderer::draw_blurred_from_raw(const RawImage& blur_raw, Uint8 vignette_alpha) {
-    if (!blur_raw.valid || !blur_raw.pixels || !sdl_renderer) return;
 
-    SDL_ClearError();
-    // Create surface from raw pixels
-    SDL_Surface* blur_surf = SDL_CreateSurface(blur_raw.width, blur_raw.height, SDL_PIXELFORMAT_RGBA32);
-    if (!blur_surf) {
-        g_logger.error("SDL_CreateSurface failed in draw_blurred_from_raw: %s", SDL_GetError());
-        return;
-    }
-
-    uint8_t* dst_pixels = (uint8_t*)blur_surf->pixels;
-    const uint8_t* src = blur_raw.pixels;
-    for (int y = 0; y < blur_raw.height; y++) {
-        memcpy(dst_pixels + y * blur_surf->pitch, src + y * blur_raw.width * 4, blur_raw.width * 4);
-    }
-
-    // Create texture from surface
-    SDL_Texture* blur_tex = SDL_CreateTextureFromSurface(sdl_renderer, blur_surf);
-    SDL_DestroySurface(blur_surf);
-    if (!blur_tex) {
-        g_logger.error("SDL_CreateTextureFromSurface failed in draw_blurred_from_raw: %s", SDL_GetError());
-        return;
-    }
-
-    // Render with alpha modulation
-    SDL_SetRenderTarget(sdl_renderer, nullptr);
-    SDL_SetRenderDrawBlendMode(sdl_renderer, SDL_BLENDMODE_BLEND);
-    SDL_SetTextureAlphaMod(blur_tex, vignette_alpha);
-    SDL_FRect dst = {0.0f, 0.0f, (float)screen_w, (float)screen_h};
-    SDL_RenderTexture(sdl_renderer, blur_tex, nullptr, &dst);
-    SDL_SetTextureAlphaMod(blur_tex, 255);
-
-    // Clean up
-    SDL_DestroyTexture(blur_tex);
-}
 
 void Renderer::draw_color_matched_matte(const SDL_Rect& fit_rect,
     Uint8 matte_r, Uint8 matte_g, Uint8 matte_b, float matte_opacity) {
@@ -1232,27 +1197,7 @@ void Renderer::draw_3d_border(const SDL_Rect& fit_rect, Uint8 avg_r, Uint8 avg_g
     }
 }
 
-void Renderer::draw_solid_border(int width, uint8_t r, uint8_t g, uint8_t b) {
-    if (width <= 0) return;
-    
-    SDL_SetRenderDrawColor(sdl_renderer, r, g, b, 255);
-    
-    // Top
-    SDL_FRect top = {0.0f, 0.0f, (float)screen_w, (float)width};
-    SDL_RenderFillRect(sdl_renderer, &top);
-    
-    // Bottom
-    SDL_FRect bottom = {0.0f, (float)(screen_h - width), (float)screen_w, (float)width};
-    SDL_RenderFillRect(sdl_renderer, &bottom);
-    
-    // Left
-    SDL_FRect left = {0.0f, 0.0f, (float)width, (float)screen_h};
-    SDL_RenderFillRect(sdl_renderer, &left);
-    
-    // Right
-    SDL_FRect right = {(float)(screen_w - width), 0.0f, (float)width, (float)screen_h};
-    SDL_RenderFillRect(sdl_renderer, &right);
-}
+
 
 float Renderer::read_sys_f(const char* path, float divisor) {
     std::ifstream file(path);
@@ -1274,13 +1219,7 @@ float Renderer::read_sys_f(const char* path, float divisor) {
     return result;
 }
 
-std::string Renderer::folder_and_file(const std::string& path) {
-    auto slash2 = path.find_last_of('/');
-    if (slash2 == std::string::npos) return path;
-    auto slash1 = path.find_last_of('/', slash2 - 1);
-    if (slash1 == std::string::npos) return path.substr(slash2 + 1);
-    return path.substr(slash1 + 1);
-}
+
 
 void Renderer::load_splash(const std::string& path) {
     g_logger.info("[TRACE] Renderer::load_splash path=%s", path.c_str());
@@ -1393,13 +1332,7 @@ void Renderer::cleanup_splash() {
     font_loaded = false;
 }
 
-void Renderer::add_splash_log(const std::string& line) {
-    std::lock_guard<std::mutex> lock(log_mutex);
-    log_buffer.push_back(line);
-    if ((int)log_buffer.size() > 50) {
-        log_buffer.erase(log_buffer.begin());
-    }
-}
+
 
 void Renderer::draw_splash_box(int x, int y, int w, int h) {
     // Outer border
@@ -1470,20 +1403,7 @@ void Renderer::draw_splash_text(const std::string& text, int x, int y, int size,
     );
 }
 
-void Renderer::draw_splash_progress_bar(int x, int y, int w, int h, float pct) {
-    pct = std::max(0.0f, std::min(1.0f, pct));
-    float bar_w = w * 0.9f;
-    float filled = bar_w * pct;
-    if (filled > bar_w) filled = bar_w;
 
-    SDL_SetRenderDrawColor(sdl_renderer, 0, 40, 0, 200);
-    SDL_FRect rect = {(float)x, (float)y, (float)w, (float)h};
-    SDL_RenderFillRect(sdl_renderer, &rect);
-
-    SDL_SetRenderDrawColor(sdl_renderer, 0, 200, 0, 240);
-    rect = {(float)x, (float)y, filled, (float)h};
-    SDL_RenderFillRect(sdl_renderer, &rect);
-}
 
 void Renderer::render_splash(int phase, int progress, int total, int done, const char* label, int dot_counter, const char* filename, bool animated) {
     (void)label;
