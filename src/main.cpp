@@ -1912,7 +1912,6 @@ int main(int argc, char** argv) {
                 }
             } else {
                 transitioning = false;
-                item_timer = 0.0;
                 if (g_transition) g_transition->reset();
                 if (transition_prev_target) { SDL_DestroyTexture(transition_prev_target); transition_prev_target = nullptr; }
                 if (transition_next_target) { SDL_DestroyTexture(transition_next_target); transition_next_target = nullptr; }
@@ -1922,10 +1921,15 @@ int main(int argc, char** argv) {
                 if (g_consecutive_failures.load() >= 3) {
                     if (!g_offline_mode.exchange(true)) {
                         g_logger.warn("SLIDESHOW: Entering Offline Recovery Mode due to multiple consecutive load failures.");
+                        // Discard old textures so the fallback splash screen is forced to load
+                        current_data = nullptr;
+                        current_twin_data = nullptr;
+                        current_tex = nullptr;
                     }
                 }
 
                 if (g_offline_mode.load()) {
+                    item_timer = 0.0;
                     if (!current_tex) {
                         std::string fallback_path = "src/splash.png";
                         if (!file_exists(fallback_path)) {
@@ -1946,6 +1950,12 @@ int main(int argc, char** argv) {
                         }
                     }
                 } else {
+                    double delay;
+                    {
+                        std::lock_guard<std::mutex> lk(g_config_mtx);
+                        delay = g_cfg.transition_delay;
+                    }
+                    item_timer = std::max(0.0, delay - 2.0);
                     if (next_data) {
                         current_data = next_data;
                         current_twin_data = next_twin_data;

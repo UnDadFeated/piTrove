@@ -1,3 +1,9 @@
+## v11.8.12 — Resilient Offline Recovery & Failure Handling (June 5, 2026)
+
+### Fixed
+- **Stuck Slides on Media Load Failures** — Forced the slideshow to discard frozen images and immediately display the diagnostic recovery splash screen upon entering Offline Recovery Mode, resolving issues where slides would lock on screen during temporary network dropouts.
+- **Fast Media Failure Skip** — Reduced the slide retry delay to 2 seconds (from 120 seconds) when encountering a single corrupted or missing image, preventing long pauses on frozen frames before advancing to the next item.
+
 ## v11.8.11 — Code Quality & Dead Code Cleanup (June 4, 2026)
 
 ### Added
