@@ -586,3 +586,16 @@ std::string sanitize_alphanumeric(const std::string& input) {
     }
     return output;
 }
+
+bool is_media_dir_healthy(const std::string& media_dir) {
+    if (media_dir.empty()) return false;
+    std::error_code ec;
+    if (!std::filesystem::exists(media_dir, ec) || !std::filesystem::is_directory(media_dir, ec)) {
+        return false;
+    }
+    auto it = std::filesystem::directory_iterator(media_dir, ec);
+    if (ec || it == std::filesystem::directory_iterator()) {
+        return false;
+    }
+    return true;
+}

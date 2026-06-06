@@ -64,6 +64,7 @@ struct ImageData {
     int height = 0;
     int exif_rotation = 1;
     bool valid = false;
+    bool transient_error = false;
     SDL_Surface* surface = nullptr;
     SDL_Texture* texture = nullptr;
     SDL_Texture* blur_texture = nullptr;
@@ -109,6 +110,7 @@ struct ImageData {
           height(other.height),
           exif_rotation(other.exif_rotation),
           valid(other.valid),
+          transient_error(other.transient_error),
           surface(other.surface),
           texture(other.texture),
           blur_texture(other.blur_texture),
@@ -141,6 +143,7 @@ struct ImageData {
             height = other.height;
             exif_rotation = other.exif_rotation;
             valid = other.valid;
+            transient_error = other.transient_error;
             surface = other.surface;
             texture = other.texture;
             blur_texture = other.blur_texture;
