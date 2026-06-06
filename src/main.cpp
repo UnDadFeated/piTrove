@@ -1335,15 +1335,19 @@ int main(int argc, char** argv) {
         std::string path = g_eligible[current_idx].path;
         if (!file_exists(path)) {
             g_logger.warn("MISSING_FILE: First media file is missing/deleted from disk: %s", path.c_str());
-            if (g_cache) g_cache->mark_bad(path);
+            if (is_media_dir_healthy(g_cfg.media_dir)) {
+                if (g_cache) g_cache->mark_bad(path);
 
-            // Erase from g_scanned_items and g_eligible
-            auto it_scanned = std::remove_if(g_scanned_items.begin(), g_scanned_items.end(),
-                [&](const MediaItem& item) { return item.path == path; });
-            if (it_scanned != g_scanned_items.end()) {
-                g_scanned_items.erase(it_scanned, g_scanned_items.end());
+                // Erase from g_scanned_items and g_eligible
+                auto it_scanned = std::remove_if(g_scanned_items.begin(), g_scanned_items.end(),
+                    [&](const MediaItem& item) { return item.path == path; });
+                if (it_scanned != g_scanned_items.end()) {
+                    g_scanned_items.erase(it_scanned, g_scanned_items.end());
+                }
+                g_eligible.erase(g_eligible.begin() + current_idx);
+            } else {
+                g_logger.warn("Media directory is unhealthy/unmounted. Skipping removal of first item: %s", path.c_str());
             }
-            g_eligible.erase(g_eligible.begin() + current_idx);
 
             if (g_eligible.empty()) break;
             if (current_idx >= (int)g_eligible.size()) current_idx = 0;
@@ -1381,8 +1385,10 @@ int main(int argc, char** argv) {
 
                 if (!exists_l) {
                     g_logger.warn("MISSING_FILE: Left twin file missing: %s", path_l.c_str());
-                    if (g_cache) g_cache->mark_bad(path_l);
-                    g_eligible.erase(g_eligible.begin() + current_idx);
+                    if (is_media_dir_healthy(g_cfg.media_dir)) {
+                        if (g_cache) g_cache->mark_bad(path_l);
+                        g_eligible.erase(g_eligible.begin() + current_idx);
+                    }
                     if (g_eligible.empty()) break;
                     if (current_idx >= (int)g_eligible.size()) current_idx = 0;
                     load_attempts++;
@@ -1390,8 +1396,10 @@ int main(int argc, char** argv) {
                 }
                 if (!exists_r) {
                     g_logger.warn("MISSING_FILE: Right twin file missing: %s", path_r.c_str());
-                    if (g_cache) g_cache->mark_bad(path_r);
-                    g_eligible.erase(g_eligible.begin() + next_idx);
+                    if (is_media_dir_healthy(g_cfg.media_dir)) {
+                        if (g_cache) g_cache->mark_bad(path_r);
+                        g_eligible.erase(g_eligible.begin() + next_idx);
+                    }
                     if (g_eligible.empty()) break;
                     if (current_idx >= (int)g_eligible.size()) current_idx = 0;
                     load_attempts++;
@@ -1429,11 +1437,15 @@ int main(int argc, char** argv) {
                     break;
                 } else {
                     if (!current_data || !current_data->valid) {
-                        if (g_cache) g_cache->mark_bad(path_l);
-                        g_eligible.erase(g_eligible.begin() + current_idx);
+                        if (is_media_dir_healthy(g_cfg.media_dir) && (!current_data || !current_data->transient_error)) {
+                            if (g_cache) g_cache->mark_bad(path_l);
+                            g_eligible.erase(g_eligible.begin() + current_idx);
+                        }
                     } else if (!current_twin_data || !current_twin_data->valid) {
-                        if (g_cache) g_cache->mark_bad(path_r);
-                        g_eligible.erase(g_eligible.begin() + next_idx);
+                        if (is_media_dir_healthy(g_cfg.media_dir) && (!current_twin_data || !current_twin_data->transient_error)) {
+                            if (g_cache) g_cache->mark_bad(path_r);
+                            g_eligible.erase(g_eligible.begin() + next_idx);
+                        }
                     }
                     current_data = nullptr;
                     current_twin_data = nullptr;
@@ -1475,9 +1487,13 @@ int main(int argc, char** argv) {
                     g_logger.info("First item is an image, loaded successfully: %s (%dx%d)", g_eligible[current_idx].path.c_str(), g_eligible[current_idx].width, g_eligible[current_idx].height);
                     break;
                 } else {
-                    if (g_cache) g_cache->mark_bad(g_eligible[current_idx].path);
-                    g_logger.warn("Bad first image, skipping: %s", g_eligible[current_idx].path.c_str());
-                    g_eligible.erase(g_eligible.begin() + current_idx);
+                    if (is_media_dir_healthy(g_cfg.media_dir) && (!single_data || !single_data->transient_error)) {
+                        if (g_cache) g_cache->mark_bad(g_eligible[current_idx].path);
+                        g_logger.warn("Bad first image, skipping: %s", g_eligible[current_idx].path.c_str());
+                        g_eligible.erase(g_eligible.begin() + current_idx);
+                    } else {
+                        g_logger.warn("Failed to load first image due to network/unmounted media dir: %s", g_eligible[current_idx].path.c_str());
+                    }
                     if (g_eligible.empty()) break;
                     if (current_idx >= (int)g_eligible.size()) current_idx = 0;
                     load_attempts++;
@@ -1786,8 +1802,14 @@ int main(int argc, char** argv) {
                     }
                 } else {
                     if (g_eligible[next_idx].type != "video") {
-                        if (g_cache && next_data && !next_data->valid) g_cache->mark_bad(next_path);
-                        if (is_twin && g_cache && next_twin_data && !next_twin_data->valid) g_cache->mark_bad(next_path_twin);
+                        if (is_media_dir_healthy(g_cfg.media_dir)) {
+                            if (g_cache && next_data && !next_data->valid && !next_data->transient_error) {
+                                g_cache->mark_bad(next_path);
+                            }
+                            if (is_twin && g_cache && next_twin_data && !next_twin_data->valid && !next_twin_data->transient_error) {
+                                g_cache->mark_bad(next_path_twin);
+                            }
+                        }
                     }
                     next_data = nullptr;
                     next_twin_data = nullptr;

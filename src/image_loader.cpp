@@ -82,9 +82,16 @@ int ImageLoader::read_exif_rotation_from_memory(const uint8_t* buffer, unsigned 
 std::shared_ptr<ImageData> ImageLoader::load(const std::string& path) {
     auto result = std::make_shared<ImageData>();
     result->valid = false;
+    result->transient_error = false;
 
+    errno = 0;
     std::vector<uint8_t> buffer = read_file_to_buffer(path);
     if (buffer.empty()) {
+        int err = errno;
+        if (err != 0 && err != ENOENT) {
+            result->transient_error = true;
+            g_logger.warn("ImageLoader: Detected network/IO error (errno=%d: %s) for path: %s", err, strerror(err), path.c_str());
+        }
         trigger_error(201); // E201: IMAGE_LOAD_ERROR
         return result;
     }
