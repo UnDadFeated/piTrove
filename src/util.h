@@ -1,7 +1,7 @@
 #ifndef PITROVE_UTIL_H
 #define PITROVE_UTIL_H
 
-#define VERSION "11.8.12"
+#define VERSION "11.8.13"
 #define APP_NAME "piTrove"
 
 #include <atomic>
@@ -88,6 +88,7 @@ void set_display_power(bool power);
 std::string get_exe_dir();
 bool file_exists(const std::string& path);
 std::string get_timestamp();
+bool is_media_dir_healthy(const std::string& media_dir);
 
 
 

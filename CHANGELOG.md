@@ -1,3 +1,11 @@
+## v11.8.13 — Network Resilience & Keepalive Daemon (June 6, 2026)
+
+### Added
+- **Automated Network Keepalive Daemon** — Integrated a lightweight, persistent Wi-Fi keepalive script scheduled via cron that periodically monitors the local network gateway and automatically restarts the wireless interface via NetworkManager if unreachable, preventing long-term connection drops.
+
+### Fixed
+- **Resilient Media Outage Handling** — Hardened the image loading pipeline to verify media directory health and inspect filesystem error codes before flagging media files as corrupted in the cache database. This prevents transient network outages, rclone client restarts, or temporary NAS drops from marking valid files as bad.
+
 ## v11.8.12 — Resilient Offline Recovery & Failure Handling (June 5, 2026)
 
 ### Fixed

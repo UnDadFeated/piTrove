@@ -440,6 +440,38 @@ for dev in /sys/class/net/wlan*; do
 done
 ok "Configured persistent driver-level Wi-Fi power-saving overrides"
 
+# ── Wi-Fi Keepalive Daemon Setup ──────────────────────────────────────────────
+info "Configuring Wi-Fi keepalive script and cron job..."
+mkdir -p "$PRIMARY_HOME/piTrove/scripts"
+cat > "$PRIMARY_HOME/piTrove/scripts/wifi_keepalive.sh" <<'EOF'
+#!/bin/bash
+GATEWAY="192.168.4.1"
+
+# Check if we can ping the gateway
+ping -c 2 -W 3 "$GATEWAY" > /dev/null 2>&1
+
+if [ $? -ne 0 ]; then
+    echo "$(date): Gateway $GATEWAY is unreachable. Restarting wlan0..." >> /home/pi/piTrove/logs/wifi_keepalive.log
+    nmcli device disconnect wlan0
+    sleep 5
+    nmcli device connect wlan0
+else
+    # Connection is healthy
+    exit 0
+fi
+EOF
+chmod +x "$PRIMARY_HOME/piTrove/scripts/wifi_keepalive.sh"
+chown $PRIMARY_USER:$PRIMARY_USER "$PRIMARY_HOME/piTrove/scripts/wifi_keepalive.sh"
+
+# Set up cron job for PRIMARY_USER
+if ! crontab -u "$PRIMARY_USER" -l 2>/dev/null | grep -q "wifi_keepalive.sh"; then
+    (crontab -u "$PRIMARY_USER" -l 2>/dev/null || true; echo "*/2 * * * * /bin/bash $PRIMARY_HOME/piTrove/scripts/wifi_keepalive.sh") | crontab -u "$PRIMARY_USER" -
+    ok "Configured Wi-Fi keepalive cron job for $PRIMARY_USER"
+else
+    ok "Wi-Fi keepalive cron job already configured for $PRIMARY_USER"
+fi
+
+
 # ── Storage Selection Dialog ───────────────────────────────────────────────────
 echo
 echo -e "${CYAN}╔══════════════════════════════════════════════════════════════╗${NC}"
