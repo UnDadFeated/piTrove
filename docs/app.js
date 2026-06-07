@@ -45,29 +45,7 @@ document.addEventListener('DOMContentLoaded', () => {
             console.error('Failed to copy command: ', err);
         }
     });
-
-    // 3. Interactive Telemetry HUD Simulator
-    const cpuTempElement = document.querySelector('.hud-metric-card:nth-child(1) .m-val');
-    const memoryElement = document.querySelector('.hud-metric-card:nth-child(2) .m-val');
-    
-    function simulateTelemetry() {
-        // Random fluctuation for CPU Temp (41.5 to 44.5 C)
-        const baseTemp = 42.0;
-        const tempOffset = (Math.random() * 3) - 1.5;
-        const currentTemp = (baseTemp + tempOffset).toFixed(1);
-        cpuTempElement.textContent = `${currentTemp}°C`;
-
-        // Random fluctuation for Memory (80 to 88 MB)
-        const baseMem = 84;
-        const memOffset = Math.floor(Math.random() * 9) - 4;
-        const currentMem = baseMem + memOffset;
-        memoryElement.textContent = `${currentMem} MB`;
-    }
-
-    // Update telemetry values every 4 seconds to simulate active status
-    setInterval(simulateTelemetry, 4000);
-
-    // Play/Pause button interaction inside simulated HUD
+    // 3. Play/Pause button interaction inside simulated HUD
     const playBtn = document.querySelector('.hud-ctrl-btn.play');
     let isPlaying = true;
     
