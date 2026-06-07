@@ -386,43 +386,44 @@ h1, h2, h3, h4 {
     color: var(--bg-primary);
 }
 
-/* Combined Features & Setup Section */
-#features-setup {
-    padding: 35px 0;
-    background: var(--bg-secondary);
+/* Installation Section */
+#install {
+    padding: 40px 0;
+    border-bottom: 1px dashed var(--border-color);
 }
 
-.double-column-container {
-    display: flex;
-    justify-content: space-between;
-    gap: 3rem;
-}
-
-.column-left, .column-right {
-    flex: 1;
-}
-
-.column-title {
-    font-size: 1.25rem;
-    margin-bottom: 1.5rem;
-    text-decoration: underline;
+.section-title {
+    font-size: 1.5rem;
+    margin-bottom: 2rem;
     text-shadow: 0 0 5px var(--text-primary);
+    text-decoration: underline;
     display: flex;
     align-items: center;
     gap: 0.5rem;
 }
 
-/* Steps (Left Column) */
 .steps-flow {
     display: flex;
     flex-direction: column;
-    gap: 0.75rem;
+    gap: 1rem;
 }
 
 .step-card {
-    background: var(--bg-primary);
+    background: var(--bg-secondary);
     border: 1px solid var(--border-color);
-    padding: 1rem 1.25rem;
+    padding: 1.25rem;
+    display: flex;
+    align-items: center;
+    gap: 1.25rem;
+}
+
+.step-card.stack-vertical {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 1.25rem;
+}
+
+.step-header-row {
     display: flex;
     align-items: center;
     gap: 1.25rem;
@@ -442,26 +443,72 @@ h1, h2, h3, h4 {
 }
 
 .step-text h4 {
-    font-size: 0.95rem;
+    font-size: 1rem;
     margin-bottom: 0.15rem;
 }
 
 .step-text p {
     color: var(--text-secondary);
+    font-size: 0.85rem;
+}
+
+.step-card .quick-install-box {
+    margin: 0;
+    max-width: 100%;
+}
+
+/* CLI Commands Grid */
+.cli-commands-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 1rem;
+    width: 100%;
+}
+
+.cli-cmd-card {
+    background: var(--bg-primary);
+    border: 1px dashed var(--border-color);
+    padding: 1rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+}
+
+.cmd-syntax {
+    font-family: var(--font-heading);
+    font-weight: bold;
+    color: var(--bg-accent);
+    font-size: 0.95rem;
+    text-shadow: 0 0 4px rgba(0, 255, 102, 0.4);
+}
+
+.cmd-desc {
+    color: var(--text-secondary);
     font-size: 0.8rem;
 }
 
-/* Capabilities (Right Column) */
-.compact-features-list {
+/* Capabilities Section */
+#capabilities {
+    padding: 40px 0;
+    background: var(--bg-secondary);
+}
+
+.capabilities-grid {
     display: flex;
     flex-direction: column;
-    gap: 0.75rem;
+    gap: 1rem;
+}
+
+@media (max-width: 992px) {
+    .capabilities-grid {
+        grid-template-columns: 1fr;
+    }
 }
 
 .compact-feature-item {
     background: var(--bg-primary);
     border: 1px solid var(--border-color);
-    padding: 1rem 1.25rem;
+    padding: 1.25rem;
     display: flex;
     gap: 1.25rem;
     align-items: flex-start;
@@ -469,24 +516,25 @@ h1, h2, h3, h4 {
 
 .item-icon {
     border: 1px solid var(--border-color);
-    width: 36px;
-    height: 36px;
+    width: 40px;
+    height: 40px;
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 1rem;
+    font-size: 1.1rem;
     flex-shrink: 0;
+    color: var(--text-primary);
 }
 
 .compact-feature-item h3 {
-    font-size: 0.95rem;
-    margin-bottom: 0.15rem;
+    font-size: 1rem;
+    margin-bottom: 0.25rem;
     text-decoration: underline;
 }
 
 .compact-feature-item p {
     color: var(--text-secondary);
-    font-size: 0.8rem;
+    font-size: 0.85rem;
 }
 
 /* Footer */
@@ -528,15 +576,6 @@ footer {
     .hero-container {
         flex-direction: column;
         align-items: stretch;
-        gap: 2rem;
-    }
-    
-    .hero-content-right {
-        justify-content: center;
-    }
-    
-    .double-column-container {
-        flex-direction: column;
         gap: 2rem;
     }
 }

@@ -51,82 +51,113 @@
                     <p class="hero-subtitle">High-performance slideshow engine for Raspberry Pi 4 & 5. Optimized for NAS storage stability, Google Photos integration, and Home Assistant MQTT automation.</p>
                     
                     <div class="cta-actions">
-                        <a href="https://github.com/UnDadFeated/piTrove" target="_blank" rel="noopener" class="btn btn-primary" id="get-started-btn"><i class="fa-brands fa-github"></i> Get Started</a>
+                        <a href="#install" class="btn btn-primary" id="get-started-btn"><i class="fa-solid fa-terminal"></i> View Installation</a>
+                        <a href="https://github.com/UnDadFeated/piTrove" target="_blank" rel="noopener" class="btn btn-secondary" id="secondary-github-btn"><i class="fa-brands fa-github"></i> GitHub</a>
                     </div>
+                </div>
+            </div>
+        </section>
 
-                    <div class="quick-install-box" id="quick-install-container">
-                        <span class="box-label">Run this command in terminal on a fresh Raspberry Pi OS Lite (64-bit, Trixie):</span>
-                        <div class="code-line">
-                            <code>wget -qO- https://raw.githubusercontent.com/UnDadFeated/piTrove/main/install.sh | sudo bash</code>
-                            <button id="copy-btn" class="copy-button" aria-label="Copy installation command"><i class="fa-regular fa-copy"></i></button>
+        <!-- Installation Section -->
+        <section id="install">
+            <div class="container">
+                <h2 class="section-title"><i class="fa-solid fa-terminal"></i> Installation & Setup</h2>
+                
+                <div class="steps-flow">
+                    <!-- Step 1 -->
+                    <div class="step-card">
+                        <div class="step-num">1</div>
+                        <div class="step-text">
+                            <h4>Flash OS</h4>
+                            <p>Install Raspberry Pi OS Lite (64-bit, Trixie). Enable SSH and Wi-Fi.</p>
+                        </div>
+                    </div>
+                    
+                    <!-- Step 2 -->
+                    <div class="step-card stack-vertical">
+                        <div class="step-header-row">
+                            <div class="step-num">2</div>
+                            <div class="step-text">
+                                <h4>Bootstrap Installation</h4>
+                                <p>SSH into your Raspberry Pi and execute this single bootstrap command to automatically install Docker, mount NAS storage, and configure the background daemon:</p>
+                            </div>
+                        </div>
+                        <div class="quick-install-box" id="quick-install-container">
+                            <div class="code-line">
+                                <code>wget -qO- https://raw.githubusercontent.com/UnDadFeated/piTrove/main/install.sh | sudo bash</code>
+                                <button id="copy-btn" class="copy-button" aria-label="Copy installation command"><i class="fa-regular fa-copy"></i></button>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Step 3 -->
+                    <div class="step-card stack-vertical">
+                        <div class="step-header-row">
+                            <div class="step-num">3</div>
+                            <div class="step-text">
+                                <h4>Management CLI Commands</h4>
+                                <p>Manage your slideshow daemon instantly from the Pi command line using these utility wrappers:</p>
+                            </div>
+                        </div>
+                        
+                        <div class="cli-commands-grid">
+                            <div class="cli-cmd-card">
+                                <span class="cmd-syntax">pitrove config</span>
+                                <span class="cmd-desc">Interactive 10-tab terminal UI to configure NAS, MQTT, and Google Photos settings.</span>
+                            </div>
+                            <div class="cli-cmd-card">
+                                <span class="cmd-syntax">pitrove logs</span>
+                                <span class="cmd-desc">Stream active C++ slideshow logs, preload threads status, and loader updates.</span>
+                            </div>
+                            <div class="cli-cmd-card">
+                                <span class="cmd-syntax">pitrove restart</span>
+                                <span class="cmd-desc">Restart the underlying slideshow container service and re-read config values.</span>
+                            </div>
+                            <div class="cli-cmd-card">
+                                <span class="cmd-syntax">pitrove status</span>
+                                <span class="cmd-desc">Query container state, health diagnostics, and active memory allocation.</span>
+                            </div>
                         </div>
                     </div>
                 </div>
             </div>
         </section>
 
-        <!-- Features & Setup Section (Combined Side-by-Side) -->
-        <section id="features-setup">
-            <div class="container double-column-container">
-                <!-- Left Column: Installation Steps -->
-                <div class="column-left">
-                    <h2 class="column-title"><i class="fa-solid fa-terminal"></i> Installation</h2>
-                    <div class="steps-flow">
-                        <div class="step-card">
-                            <div class="step-num">1</div>
-                            <div class="step-text">
-                                <h4>Flash OS</h4>
-                                <p>Install Raspberry Pi OS Lite (64-bit, Trixie). Enable SSH and Wi-Fi.</p>
-                            </div>
-                        </div>
-                        <div class="step-card">
-                            <div class="step-num">2</div>
-                            <div class="step-text">
-                                <h4>Bootstrap</h4>
-                                <p>SSH in and run the quick bootstrap command shown above.</p>
-                            </div>
-                        </div>
-                        <div class="step-card">
-                            <div class="step-num">3</div>
-                            <div class="step-text">
-                                <h4>Configure</h4>
-                                <p>Run <code>pitrove config</code> for the TUI configuration menu.</p>
-                            </div>
+        <!-- Capabilities Section (Below Installation) -->
+        <section id="capabilities">
+            <div class="container">
+                <h2 class="section-title"><i class="fa-solid fa-microchip"></i> System Capabilities</h2>
+                
+                <div class="capabilities-grid">
+                    <div class="compact-feature-item">
+                        <div class="item-icon"><i class="fa-solid fa-bolt"></i></div>
+                        <div>
+                            <h3>DRM/KMS Hardware Acceleration</h3>
+                            <p>Zero windowing environment overhead, rendering directly to the GPU framebuffer via SDL3.</p>
                         </div>
                     </div>
-                </div>
-
-                <!-- Right Column: Technical Features -->
-                <div class="column-right">
-                    <h2 class="column-title"><i class="fa-solid fa-microchip"></i> Capabilities</h2>
-                    <div class="compact-features-list">
-                        <div class="compact-feature-item">
-                            <div class="item-icon"><i class="fa-solid fa-bolt"></i></div>
-                            <div>
-                                <h3>DRM/KMS Hardware Acceleration</h3>
-                                <p>Zero windowing environment overhead, rendering directly to the GPU framebuffer via SDL3.</p>
-                            </div>
+                    
+                    <div class="compact-feature-item">
+                        <div class="item-icon"><i class="fa-solid fa-network-wired"></i></div>
+                        <div>
+                            <h3>NAS Mount Resilience</h3>
+                            <p>Prevents CIFS hangs and stops corrupt DB caching flags during transient network dropouts.</p>
                         </div>
-                        <div class="compact-feature-item">
-                            <div class="item-icon"><i class="fa-solid fa-network-wired"></i></div>
-                            <div>
-                                <h3>NAS Mount Resilience</h3>
-                                <p>Prevents CIFS hangs and stops corrupt DB caching flags during transient drops.</p>
-                            </div>
+                    </div>
+                    
+                    <div class="compact-feature-item">
+                        <div class="item-icon"><i class="fa-brands fa-square-hacker"></i></div>
+                        <div>
+                            <h3>Home Assistant MQTT integration</h3>
+                            <p>Auto-discovery discovery, remote slideshow skip/toggles, and motion sensor wake-ups.</p>
                         </div>
-                        <div class="compact-feature-item">
-                            <div class="item-icon"><i class="fa-brands fa-square-hacker"></i></div>
-                            <div>
-                                <h3>Home Assistant MQTT integration</h3>
-                                <p>Auto-discovery discovery, remote slideshow skip/toggles, and motion sensor wake-ups.</p>
-                            </div>
-                        </div>
-                        <div class="compact-feature-item">
-                            <div class="item-icon"><i class="fa-solid fa-cloud"></i></div>
-                            <div>
-                                <h3>Google Photos sync</h3>
-                                <p>Background album download client with automated OAuth2 rotation.</p>
-                            </div>
+                    </div>
+                    
+                    <div class="compact-feature-item">
+                        <div class="item-icon"><i class="fa-solid fa-cloud"></i></div>
+                        <div>
+                            <h3>Google Photos sync</h3>
+                            <p>Background album download client with automated OAuth2 credential rotation.</p>
                         </div>
                     </div>
                 </div>
