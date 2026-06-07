@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>piTrove — Premium C++ Digital Picture Frame for Raspberry Pi</title>
+    <meta name="description" content="piTrove is an enterprise-grade, containerized digital picture frame slideshow for Raspberry Pi 4 & 5. Optimized for NAS storage, Google Photos sync, and Home Assistant MQTT.">
+    <meta name="keywords" content="raspberry pi photo frame, digital picture frame, containerized slideshow, pitrove, smart home photo frame, google photos sync, home assistant mqtt, sdl3 slideshow c++">
+    
+    <!-- Open Graph / Facebook -->
+    <meta property="og:type" content="website">
+    <meta property="og:url" content="https://undadfeated.github.io/piTrove/">
+    <meta property="og:title" content="piTrove — Premium C++ Digital Picture Frame for Raspberry Pi">
+    <meta property="og:description" content="Containerized, high-performance slideshow engine optimized for network storage, Google Photos integration, and smart home automation.">
+    <meta property="og:image" content="https://raw.githubusercontent.com/UnDadFeated/piTrove/main/src/splash.png">
+
+    <!-- Twitter -->
+    <meta property="twitter:card" content="summary_large_image">
+    <meta property="twitter:url" content="https://undadfeated.github.io/piTrove/">
+    <meta property="twitter:title" content="piTrove — Premium C++ Digital Picture Frame for Raspberry Pi">
+    <meta property="twitter:description" content="Containerized, high-performance slideshow engine optimized for network storage, Google Photos integration, and smart home automation.">
+    <meta property="twitter:image" content="https://raw.githubusercontent.com/UnDadFeated/piTrove/main/src/splash.png">
+
+    <!-- Fonts & Icons -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <link rel="stylesheet" href="style.css">
+</head>
+<body class="dark-theme">
+    <header id="site-header">
+        <div class="header-container">
+            <a href="#" class="logo-area" id="logo-link">
+                <span class="logo-icon"><i class="fa-solid fa-images"></i></span>
+                <span class="logo-text">piTrove</span>
+            </a>
+            <nav id="main-nav">
+                <a href="#features" class="nav-item">Features</a>
+                <a href="#dashboard" class="nav-item">Web HUD</a>
+                <a href="#install" class="nav-item">Install</a>
+                <a href="https://www.reddit.com/r/piTrove/" target="_blank" rel="noopener" class="nav-item"><i class="fa-brands fa-reddit"></i> r/piTrove</a>
+                <a href="https://github.com/UnDadFeated/piTrove" target="_blank" rel="noopener" class="github-btn" id="github-link-btn"><i class="fa-brands fa-github"></i> GitHub</a>
+            </nav>
+            <button id="theme-toggle" aria-label="Toggle Theme" class="theme-toggle-btn">
+                <i class="fa-solid fa-moon"></i>
+            </button>
+        </div>
+    </header>
+
+    <main>
+        <!-- Hero Section -->
+        <section id="hero">
+            <div class="hero-bg-gradients">
+                <div class="gradient-blob sphere-1"></div>
+                <div class="gradient-blob sphere-2"></div>
+            </div>
+            <div class="container hero-content">
+                <div class="badge-container">
+                    <span class="premium-badge"><i class="fa-solid fa-shield-halved"></i> Containerized C++ Engine</span>
+                </div>
+                <h1 class="hero-title">A Professional-Grade Digital Picture Frame for Raspberry Pi</h1>
+                <p class="hero-subtitle">Designed for absolute hardware acceleration, zero-maintenance network resilience, smart home discovery, and beautiful gallery-grade rendering.</p>
+                
+                <div class="cta-actions">
+                    <a href="#install" class="btn btn-primary" id="get-started-btn">Get Started <i class="fa-solid fa-arrow-right"></i></a>
+                    <a href="https://github.com/UnDadFeated/piTrove" target="_blank" rel="noopener" class="btn btn-secondary" id="secondary-github-btn"><i class="fa-brands fa-github"></i> View Source</a>
+                </div>
+
+                <div class="quick-install-box" id="quick-install-container">
+                    <span class="box-label">Bootstrap command:</span>
+                    <div class="code-line">
+                        <code>wget -qO- https://raw.githubusercontent.com/UnDadFeated/piTrove/main/install.sh | sudo bash</code>
+                        <button id="copy-btn" class="copy-button" aria-label="Copy installation command"><i class="fa-regular fa-copy"></i></button>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Features Section -->
+        <section id="features">
+            <div class="container">
+                <div class="section-header">
+                    <h2 class="section-title">Engineered for Reliability and Elegance</h2>
+                    <p class="section-subtitle">Unlike generic scripts, piTrove runs inside a containerized sandbox with native C++ SDL3 rendering and custom kernel-level display probing.</p>
+                </div>
+
+                <div class="features-grid">
+                    <div class="feature-card">
+                        <div class="card-icon"><i class="fa-solid fa-bolt-lightning"></i></div>
+                        <h3>DRM/KMS Rendering</h3>
+                        <p>Bypasses X11 and Wayland entirely. Operates directly on the GPU framebuffer for maximum performance and low thermal output.</p>
+                    </div>
+                    <div class="feature-card">
+                        <div class="card-icon"><i class="fa-solid fa-network-wired"></i></div>
+                        <h3>Network Resilient</h3>
+                        <p>Specialized low-level I/O prevents file-locking & CIFS hangs. Safeguards the cache against corruption during NAS dropouts.</p>
+                    </div>
+                    <div class="feature-card">
+                        <div class="card-icon"><i class="fa-solid fa-server"></i></div>
+                        <h3>Docker Orchestrated</h3>
+                        <p>Absolute dependency isolation. Runs safely as a systemd-controlled container with read-only root security.</p>
+                    </div>
+                    <div class="feature-card">
+                        <div class="card-icon"><i class="fa-solid fa-wand-magic-sparkles"></i></div>
+                        <h3>Twin-Portrait Collage</h3>
+                        <p>Intelligently groups adjacent vertical photos to display them side-by-side with dynamic, harmonious borders.</p>
+                    </div>
+                    <div class="feature-card">
+                        <div class="card-icon"><i class="fa-brands fa-square-hacker"></i></div>
+                        <h3>Smart Home Native</h3>
+                        <p>MQTT Auto-Discovery registers entities inside Home Assistant. Integrates sleep modes with motion detectors.</p>
+                    </div>
+                    <div class="feature-card">
+                        <div class="card-icon"><i class="fa-solid fa-cloud-arrow-down"></i></div>
+                        <h3>Google Photos Sync</h3>
+                        <p>Direct album synchronization with background downloads and automated OAuth2 token rotation.</p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Web HUD Preview -->
+        <section id="dashboard">
+            <div class="container dashboard-container">
+                <div class="dashboard-text">
+                    <div class="badge-container"><span class="sub-badge">Management</span></div>
+                    <h2>Glassmorphic HUD Remote</h2>
+                    <p>piTrove includes a lightweight, built-in web server. Monitor your frame telemetry, check CPU temperatures, control MQTT state, skip items, or preview active slides directly from your smartphone or desktop.</p>
+                    
+                    <div class="stats-list">
+                        <div class="stat-item">
+                            <span class="stat-val">75K+</span>
+                            <span class="stat-lbl">Cached Assets</span>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-val">300ms</span>
+                            <span class="stat-lbl">Fast Preload</span>
+                        </div>
+                        <div class="stat-item">
+                            <span class="stat-val">100%</span>
+                            <span class="stat-lbl">Headless Boot</span>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="dashboard-preview" id="interactive-hud">
+                    <div class="hud-glass-card">
+                        <div class="hud-header">
+                            <span class="dot red"></span>
+                            <span class="dot yellow"></span>
+                            <span class="dot green"></span>
+                            <span class="hud-title">piTrove Dashboard</span>
+                        </div>
+                        <div class="hud-body">
+                            <div class="hud-row">
+                                <div class="hud-metric-card">
+                                    <span class="m-title">CPU Temp</span>
+                                    <span class="m-val">42.4°C</span>
+                                </div>
+                                <div class="hud-metric-card">
+                                    <span class="m-title">Memory</span>
+                                    <span class="m-val">84 MB</span>
+                                </div>
+                            </div>
+                            <div class="hud-row">
+                                <div class="hud-metric-card">
+                                    <span class="m-title">MQTT State</span>
+                                    <span class="m-val green-text"><i class="fa-solid fa-circle-nodes"></i> Connected</span>
+                                </div>
+                                <div class="hud-metric-card">
+                                    <span class="m-title">Cache Count</span>
+                                    <span class="m-val">75,609</span>
+                                </div>
+                            </div>
+                            <div class="hud-controls">
+                                <button class="hud-ctrl-btn" aria-label="Previous Slide"><i class="fa-solid fa-backward-step"></i></button>
+                                <button class="hud-ctrl-btn play" aria-label="Play/Pause"><i class="fa-solid fa-play"></i></button>
+                                <button class="hud-ctrl-btn" aria-label="Next Slide"><i class="fa-solid fa-forward-step"></i></button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Installation Section -->
+        <section id="install">
+            <div class="container small-container">
+                <div class="section-header">
+                    <h2>Simple 3-Step Setup</h2>
+                    <p>Get your digital picture frame up and running on Raspberry Pi OS in minutes.</p>
+                </div>
+
+                <div class="steps-flow">
+                    <div class="step-card">
+                        <div class="step-num">1</div>
+                        <h4>Flash Raspberry Pi OS</h4>
+                        <p>Flash the official 64-bit Lite image using Raspberry Pi Imager. Enable SSH and Wi-Fi.</p>
+                    </div>
+                    <div class="step-card">
+                        <div class="step-num">2</div>
+                        <h4>Run Bootstrap Installer</h4>
+                        <p>SSH into your Pi and execute the one-command installer. It will automatically compile, configure local mounts, and register the systemd background daemon.</p>
+                    </div>
+                    <div class="step-card">
+                        <div class="step-num">3</div>
+                        <h4>Configure Settings</h4>
+                        <p>Run <code>pitrove config</code> anytime to access the interactive 10-tab configuration wizard to setup MQTT, NAS credentials, and Google Photos.</p>
+                    </div>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <footer>
+        <div class="container footer-content">
+            <p>&copy; 2026 piTrove. Released under the MIT License.</p>
+            <div class="footer-links">
+                <a href="https://github.com/UnDadFeated/piTrove" target="_blank" rel="noopener"><i class="fa-brands fa-github"></i> Repository</a>
+                <a href="https://www.reddit.com/r/piTrove/" target="_blank" rel="noopener"><i class="fa-brands fa-reddit"></i> Subreddit</a>
+            </div>
+        </div>
+    </footer>
+
+    <script src="app.js"></script>
+</body>
+</html>
