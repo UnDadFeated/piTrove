@@ -1,13 +1,15 @@
-# piTrove - C++ Digital Picture Frame
+# piTrove — C++ Digital Picture Frame for Raspberry Pi
 
-A professional-grade, **containerized** digital picture frame for the Raspberry Pi. Orchestrated via **Docker & Compose** for absolute dependency isolation and read-only media storage safety. Designed for extreme stability on network-attached storage (NAS), cinematic visual presentation, smart home integrations (MQTT + Home Assistant Auto-Discovery), and seamless hardware acceleration on Pi 4 and Pi 5.
+🌐 **[View Live Premium Documentation & Landing Page](https://undadfeated.github.io/piTrove/)**
+
+A professional-grade, **containerized** digital picture frame application for the Raspberry Pi 4 & 5. Orchestrated via **Docker & Compose** for absolute dependency isolation and read-only media storage safety. Designed for extreme stability on network-attached storage (NAS), cinematic visual presentation, smart home integrations (MQTT + Home Assistant Auto-Discovery), and seamless hardware acceleration.
 
 [![Platform](https://img.shields.io/badge/platform-Pi%204%20%7C%20Pi%205-blue?style=flat-square)](https://www.raspberrypi.com/)
 [![Docker](https://img.shields.io/badge/container-Docker%20%7C%20Compose-blueviolet?style=flat-square&logo=docker)](https://www.docker.com/)
 [![OS](https://img.shields.io/badge/OS-Trixie%20Lite%20%28Debian%2013%29-lightgreen?style=flat-square)](https://www.debian.org/)
 [![Architecture](https://img.shields.io/badge/arch-aarch64-orange?style=flat-square)](https://en.wikipedia.org/wiki/AArch64)
 [![Graphics](https://img.shields.io/badge/graphics-SDL3-red?style=flat-square)](https://www.libsdl.org/)
-[![Version](https://img.shields.io/badge/version-11.8.11-blue?style=flat-square)]()
+[![Version](https://img.shields.io/badge/version-11.8.13-blue?style=flat-square)]()
 
 ## 🚀 Quick Start
 
