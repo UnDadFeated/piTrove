@@ -3,6 +3,7 @@ piTrove
 build/
 src/build/
 src/build_new/
+src/build_tidy/
 test_render
 
 # Runtime data
