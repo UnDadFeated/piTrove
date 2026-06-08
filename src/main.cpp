@@ -887,7 +887,7 @@ int main(int argc, char** argv) {
         
         if (g_config_changed.load()) {
             printf("\n  \033[1;32m[OK]\033[0m Configuration updated successfully.\n");
-            printf("  \033[1;33m[NOTICE]\033[0m Use \033[1;36mpiTrove --restart\033[0m to apply your new settings.\n\n");
+            printf("  \033[1;33m[NOTICE]\033[0m Use \033[1;36mpitrove restart\033[0m to apply your new settings.\n\n");
         }
         return 0;
     }
