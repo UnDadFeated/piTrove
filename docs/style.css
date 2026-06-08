@@ -177,7 +177,7 @@ h1, h2, h3, h4, h5 {
 /* Hero Section */
 #hero {
     position: relative;
-    padding: 140px 0 60px;
+    padding: 95px 0 35px;
     background: radial-gradient(circle at top, rgba(228, 228, 231, 0.03) 0%, transparent 60%);
     border-bottom: 1px solid var(--border-color);
 }
@@ -227,6 +227,16 @@ h1, h2, h3, h4, h5 {
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
     font-weight: 800;
+}
+
+.hero-subtitle-tag {
+    display: block;
+    font-size: 1.75rem;
+    font-weight: 500;
+    color: var(--text-secondary);
+    margin-top: 0.55rem;
+    -webkit-text-fill-color: var(--text-secondary);
+    letter-spacing: 0.02em;
 }
 
 .hero-subtitle {
@@ -342,13 +352,13 @@ h1, h2, h3, h4, h5 {
 
 /* Common Section Layout */
 section {
-    padding: 80px 0;
+    padding: 50px 0;
     border-bottom: 1px solid var(--border-color);
 }
 
 .section-title {
     font-size: 1.75rem;
-    margin-bottom: 2.5rem;
+    margin-bottom: 1.5rem;
     display: flex;
     align-items: center;
     gap: 0.75rem;
