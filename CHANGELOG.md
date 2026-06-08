@@ -1,4 +1,4 @@
-## v11.8.14 — Media Archive Reorganization Strategies (June 7, 2026)
+## v11.9.0 — Media Archive Reorganization Strategies (June 7, 2026)
 
 ### Added
 - **Interactive Reorganization Menu** — Added an interactive strategy selection menu during media reorganization to choose between sorting files into chronological folders (`Photos/YYYY-MM/` and `Videos/YYYY-MM/`) or prefixing filenames in-place with dates (`YYYY-MM-DD_`) to maintain the existing directory structure.
