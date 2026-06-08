@@ -9,7 +9,7 @@ A professional-grade, **containerized** digital picture frame application for th
 [![OS](https://img.shields.io/badge/OS-Trixie%20Lite%20%28Debian%2013%29-lightgreen?style=flat-square)](https://www.debian.org/)
 [![Architecture](https://img.shields.io/badge/arch-aarch64-orange?style=flat-square)](https://en.wikipedia.org/wiki/AArch64)
 [![Graphics](https://img.shields.io/badge/graphics-SDL3-red?style=flat-square)](https://www.libsdl.org/)
-[![Version](https://img.shields.io/badge/version-11.8.13-blue?style=flat-square)]()
+[![Version](https://img.shields.io/badge/version-11.9.0-blue?style=flat-square)]()
 
 ## 🚀 Quick Start
 
@@ -43,6 +43,12 @@ Once the installation completes, the picture frame runs automatically in the bac
   ```bash
   pitrove status
   ```
+- **Reorganize Media Archive**:
+  ```bash
+  sudo ./install.sh --organize /path/to/archive
+  ```
+  *(Launches the interactive organizer to group files chronologically, add date-prefixes in-place, or disable seasonal scanning in config.toml)*
+  
   *(For raw manual execution, the CLI transparently runs: `docker exec -it piTrove /app/piTrove --config /app/config/config.toml`)*
 
 ---
