@@ -579,6 +579,82 @@ else
 fi
 
 
+# ── Branch Selection Dialog ────────────────────────────────────────────────────
+echo
+echo -e "${CYAN}╔══════════════════════════════════════════════════════════════╗${NC}"
+echo -e "${CYAN}║${NC}  ${BOLD}${WHITE}               SELECT INSTALLATION BRANCH                   ${NC}  ${CYAN}║${NC}"
+echo -e "${CYAN}╠══════════════════════════════════════════════════════════════╣${NC}"
+echo -e "${CYAN}║${NC}  ${BOLD}${GREEN}1)${NC} ${WHITE}main${NC} (Recommended) — Stable production release          ${CYAN}║${NC}"
+echo -e "${CYAN}║${NC}     - Production-ready, tested and verified                  ${CYAN}║${NC}"
+echo -e "${CYAN}║${NC}                                                              ${CYAN}║${NC}"
+echo -e "${CYAN}║${NC}  ${BOLD}${GREEN}2)${NC} ${WHITE}develop${NC} — Active development, features under test        ${CYAN}║${NC}"
+echo -e "${CYAN}║${NC}     - Cutting-edge updates, may contain experimental features  ${CYAN}║${NC}"
+echo -e "${CYAN}║${NC}                                                              ${CYAN}║${NC}"
+echo -e "${CYAN}║${NC}  ${BOLD}${GREEN}3)${NC} ${WHITE}Use currently checked-out branch                         ${CYAN}║${NC}"
+echo -e "${CYAN}║${NC}     - Use whatever branch is already checked out locally       ${CYAN}║${NC}"
+echo -e "${CYAN}╚══════════════════════════════════════════════════════════════╝${NC}"
+echo
+info "${BOLD}Default: main${NC} (press Enter to accept)"
+echo -n -e "   ${BOLD}${YELLOW}▸ Enter your choice [1-3]:${NC} "
+read -r branch_choice
+branch_choice="${branch_choice:-1}"
+
+INSTALL_BRANCH="main"
+BRANCH_LABEL="main"
+case "$branch_choice" in
+    1)
+        INSTALL_BRANCH="main"
+        BRANCH_LABEL="main"
+        ;;
+    2)
+        INSTALL_BRANCH="develop"
+        BRANCH_LABEL="develop"
+        ;;
+    3)
+        if [[ -d "$PRIMARY_HOME/piTrove/.git" ]]; then
+            INSTALL_BRANCH=$(cd "$PRIMARY_HOME/piTrove" 2>/dev/null && git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
+            if [[ -z "$INSTALL_BRANCH" ]]; then
+                INSTALL_BRANCH="main"
+                BRANCH_LABEL="main"
+            else
+                BRANCH_LABEL="$INSTALL_BRANCH"
+            fi
+        else
+            INSTALL_BRANCH="main"
+            BRANCH_LABEL="main"
+        fi
+        ;;
+    *)
+        warn "Invalid choice. Defaulting to main branch."
+        INSTALL_BRANCH="main"
+        BRANCH_LABEL="main"
+        ;;
+esac
+
+if [[ "$BRANCH_LABEL" == "main" ]]; then
+    info "${GREEN}✓${NC} Installation branch: ${BOLD}${GREEN}main${NC} (stable production)"
+else
+    info "${YELLOW}⚠${NC} Installation branch: ${BOLD}${YELLOW}${BRANCH_LABEL}${NC} (development/testing)"
+fi
+
+# ── Clone / Update Git Repository ──────────────────────────────────────────────
+info "Setting up piTrove repository clone..."
+if [[ ! -d "$PRIMARY_HOME/piTrove/.git" ]]; then
+    run_with_spinner "Cloning piTrove repository (branch: $INSTALL_BRANCH)" git clone --branch "$INSTALL_BRANCH" --single-branch https://github.com/UnDadFeated/piTrove.git "$PRIMARY_HOME/piTrove"
+else
+    info "Repository exists. Updating source..."
+    cd "$PRIMARY_HOME/piTrove"
+    CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
+    if [[ "$CURRENT_BRANCH" != "$INSTALL_BRANCH" ]]; then
+        info "Switching from branch '$CURRENT_BRANCH' to '$INSTALL_BRANCH'..."
+        git fetch origin
+        git checkout "$INSTALL_BRANCH"
+    fi
+    git pull origin "$INSTALL_BRANCH" || warn "Repository update failed. Using active local copy."
+fi
+chown -R $PRIMARY_USER:$PRIMARY_USER "$PRIMARY_HOME/piTrove"
+info "Repository ready at: ${CYAN}$PRIMARY_HOME/piTrove${NC} (branch: ${BOLD}${BRANCH_LABEL}${NC})"
+
 # ── Media Archive Organizer Script Setup ─────────────────────────────────────
 info "Configuring media archive organizer script..."
 mkdir -p "$PRIMARY_HOME/piTrove/scripts"
@@ -1114,81 +1190,102 @@ $SHARE_IP:$SHARE_PATH $SHARE_MOUNT $SHARE_PROTOCOL defaults,_netdev,timeo=10,ret
     fi
 fi
 
-# ── Branch Selection Dialog ────────────────────────────────────────────────────
+# ── Media Archive Reorganization Prompt ─────────────────────────────────────────
 echo
 echo -e "${CYAN}╔══════════════════════════════════════════════════════════════╗${NC}"
-echo -e "${CYAN}║${NC}  ${BOLD}${WHITE}               SELECT INSTALLATION BRANCH                   ${NC}  ${CYAN}║${NC}"
-echo -e "${CYAN}╠══════════════════════════════════════════════════════════════╣${NC}"
-echo -e "${CYAN}║${NC}  ${BOLD}${GREEN}1)${NC} ${WHITE}main${NC} (Recommended) — Stable production release          ${CYAN}║${NC}"
-echo -e "${CYAN}║${NC}     - Production-ready, tested and verified                  ${CYAN}║${NC}"
-echo -e "${CYAN}║${NC}                                                              ${CYAN}║${NC}"
-echo -e "${CYAN}║${NC}  ${BOLD}${GREEN}2)${NC} ${WHITE}develop${NC} — Active development, features under test        ${CYAN}║${NC}"
-echo -e "${CYAN}║${NC}     - Cutting-edge updates, may contain experimental features  ${CYAN}║${NC}"
-echo -e "${CYAN}║${NC}                                                              ${CYAN}║${NC}"
-echo -e "${CYAN}║${NC}  ${BOLD}${GREEN}3)${NC} ${WHITE}Use currently checked-out branch                         ${CYAN}║${NC}"
-echo -e "${CYAN}║${NC}     - Use whatever branch is already checked out locally       ${CYAN}║${NC}"
+echo -e "${CYAN}║${NC}  ${BOLD}${WHITE}         piTrove Media Archive Reorganization Option        ${NC}  ${CYAN}║${NC}"
 echo -e "${CYAN}╚══════════════════════════════════════════════════════════════╝${NC}"
+echo -e "   Target archive directory: ${GREEN}$SHARE_MOUNT${NC}"
+if [[ -d "$SHARE_MOUNT" ]] && ls "$SHARE_MOUNT" >/dev/null 2>&1; then
+    ok "Archive connection verified. Files detected successfully."
+else
+    warn "Archive directory is empty or not yet active. Reorganization will be skipped."
+fi
 echo
-info "${BOLD}Default: main${NC} (press Enter to accept)"
-echo -n -e "   ${BOLD}${YELLOW}▸ Enter your choice [1-3]:${NC} "
-read -r branch_choice
-branch_choice="${branch_choice:-1}"
+echo -e "   Please select an organization strategy for your archive:"
+echo -e "   (Note: Re-organization is required for the seasonal window feature to work.)"
+echo -e "   ${BOLD}${GREEN}1)${NC} ${BOLD}Chronological Folders${NC}"
+echo -e "      Move files into Photos/YYYY-MM/ and Videos/YYYY-MM/ directories."
+echo -e "   ${BOLD}${GREEN}2)${NC} ${BOLD}In-Place Prefix${NC}"
+echo -e "      Add the YYYY-MM-DD_ prefix to files inside their existing folder structures."
+echo -e "   ${BOLD}${GREEN}3)${NC} ${BOLD}Keep As Is (Disable Seasonal Scanning)${NC}"
+echo -e "      Keep all folders and files exactly as they are. Disables the seasonal"
+echo -e "      scanning window so all photos play without date-based filtering."
+echo
 
-INSTALL_BRANCH="main"
-BRANCH_LABEL="main"
-case "$branch_choice" in
-    1)
-        INSTALL_BRANCH="main"
-        BRANCH_LABEL="main"
-        ;;
-    2)
-        INSTALL_BRANCH="develop"
-        BRANCH_LABEL="develop"
-        ;;
-    3)
-        if [[ -d "$PRIMARY_HOME/piTrove/.git" ]]; then
-            INSTALL_BRANCH=$(cd "$PRIMARY_HOME/piTrove" 2>/dev/null && git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
-            if [[ -z "$INSTALL_BRANCH" ]]; then
-                INSTALL_BRANCH="main"
-                BRANCH_LABEL="main"
-            else
-                BRANCH_LABEL="$INSTALL_BRANCH"
+# Read choice
+echo -n -e "   ${BOLD}${YELLOW}▸ Select an option [1-3]:${NC} "
+read -r ORG_STRATEGY
+
+if [[ "$ORG_STRATEGY" == "1" || "$ORG_STRATEGY" == "2" ]]; then
+    # We require double-confirm and warnings about rw remounting
+    MOUNT_POINT=$(df --output=target "$SHARE_MOUNT" | tail -n 1)
+    
+    echo -e "${RED}[!] WARNING: The target archive is located on $MOUNT_POINT.${NC}"
+    echo -e "    This operation will:"
+    echo -e "    1. Temporarily remount '$MOUNT_POINT' from Read-Only (ro) to Read-Write (rw)."
+    if [[ "$ORG_STRATEGY" == "1" ]]; then
+        echo -e "    2. Scan, rename, and group all photos and videos under:"
+        echo -e "       - $SHARE_MOUNT/Photos/YYYY-MM/YYYY-MM-DD_filename.ext"
+        echo -e "       - $SHARE_MOUNT/Videos/YYYY-MM/YYYY-MM-DD_filename.ext"
+    else
+        echo -e "    2. Scan and rename all files in-place with the 'YYYY-MM-DD_' prefix"
+        echo -e "       within their current directories."
+    fi
+    echo -e "    3. Retain original file timestamps and resolve naming conflicts."
+    echo -e "    4. Restore '$MOUNT_POINT' to Read-Only (ro) mount mode on completion."
+    echo ""
+    
+    read -p "▸ Are you sure you want to proceed? (y/N): " CONF1
+    if [[ "$CONF1" =~ ^[Yy]$ ]]; then
+        read -p "▸ CONFIRM ONCE MORE: Are you absolutely sure? This will rewrite files on the storage. (y/N): " CONF2
+        if [[ "$CONF2" =~ ^[Yy]$ ]]; then
+            IS_RO=0
+            if findmnt -n -o OPTIONS "$MOUNT_POINT" | grep -q "ro"; then
+                IS_RO=1
+                info "Remounting $MOUNT_POINT as Read-Write (rw)..."
+                mount -o remount,rw "$MOUNT_POINT"
+                if [[ $? -ne 0 ]]; then
+                    warn "Failed to remount $MOUNT_POINT as read-write. Skipping reorganization."
+                    ORG_STRATEGY="3"
+                fi
+            fi
+            
+            if [[ "$ORG_STRATEGY" == "1" ]]; then
+                info "Organizing media archive (Chronological Folders) at $SHARE_MOUNT..."
+                python3 "$PRIMARY_HOME/piTrove/scripts/organize.py" "$SHARE_MOUNT"
+            elif [[ "$ORG_STRATEGY" == "2" ]]; then
+                info "Organizing media archive (In-Place Prefix) at $SHARE_MOUNT..."
+                python3 "$PRIMARY_HOME/piTrove/scripts/organize.py" "$SHARE_MOUNT" --in-place
+            fi
+            
+            if [[ "$IS_RO" -eq 1 ]]; then
+                info "Restoring $MOUNT_POINT mount mode to Read-Only (ro)..."
+                mount -o remount,ro "$MOUNT_POINT"
+                if [[ $? -ne 0 ]]; then
+                    warn "Failed to restore $MOUNT_POINT to read-only mount. Please restore manually!"
+                else
+                    ok "$MOUNT_POINT successfully restored to Read-Only mode."
+                fi
             fi
         else
-            INSTALL_BRANCH="main"
-            BRANCH_LABEL="main"
+            info "Reorganization cancelled. Defaulting to Option 3 (Keep As Is)."
+            ORG_STRATEGY="3"
         fi
-        ;;
-    *)
-        warn "Invalid choice. Defaulting to main branch."
-        INSTALL_BRANCH="main"
-        BRANCH_LABEL="main"
-        ;;
-esac
-
-if [[ "$BRANCH_LABEL" == "main" ]]; then
-    info "${GREEN}✓${NC} Installation branch: ${BOLD}${GREEN}main${NC} (stable production)"
-else
-    info "${YELLOW}⚠${NC} Installation branch: ${BOLD}${YELLOW}${BRANCH_LABEL}${NC} (development/testing)"
-fi
-
-# ── Clone / Update Git Repository ──────────────────────────────────────────────
-info "Setting up piTrove repository clone..."
-if [[ ! -d "$PRIMARY_HOME/piTrove/.git" ]]; then
-    run_with_spinner "Cloning piTrove repository (branch: $INSTALL_BRANCH)" git clone --branch "$INSTALL_BRANCH" --single-branch https://github.com/UnDadFeated/piTrove.git "$PRIMARY_HOME/piTrove"
-else
-    info "Repository exists. Updating source..."
-    cd "$PRIMARY_HOME/piTrove"
-    CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
-    if [[ "$CURRENT_BRANCH" != "$INSTALL_BRANCH" ]]; then
-        info "Switching from branch '$CURRENT_BRANCH' to '$INSTALL_BRANCH'..."
-        git fetch origin
-        git checkout "$INSTALL_BRANCH"
+    else
+        info "Reorganization cancelled. Defaulting to Option 3 (Keep As Is)."
+        ORG_STRATEGY="3"
     fi
-    git pull origin "$INSTALL_BRANCH" || warn "Repository update failed. Using active local copy."
+else
+    # Default/Option 3
+    info "Keeping folder structure unmodified. Disabling seasonal scanning window."
+    ORG_STRATEGY="3"
 fi
-chown -R $PRIMARY_USER:$PRIMARY_USER "$PRIMARY_HOME/piTrove"
-info "Repository ready at: ${CYAN}$PRIMARY_HOME/piTrove${NC} (branch: ${BOLD}${BRANCH_LABEL}${NC})"
+
+if [[ "$ORG_STRATEGY" == "3" ]]; then
+    # Automatically set SCAN_WINDOW_DAYS to 0 to bypass seasonal scanning
+    SCAN_WINDOW_DAYS=0
+fi
 
 # ── Font Setup ────────────────────────────────────────────────────────────────
 info "Configuring application typography..."
