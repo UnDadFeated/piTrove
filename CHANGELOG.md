@@ -1,3 +1,12 @@
+## v11.9.0 — Media Archive Reorganization Strategies (June 7, 2026)
+
+### Added
+- **Interactive Reorganization Menu** — Added an interactive strategy selection menu during media reorganization to choose between sorting files into chronological folders (`Photos/YYYY-MM/` and `Videos/YYYY-MM/`) or prefixing filenames in-place with dates (`YYYY-MM-DD_`) to maintain the existing directory structure.
+- **In-Place Date Prefixing** — Integrated file sorting without changing path hierarchies, ensuring that existing folder configurations are preserved while enabling date-based temporal window features.
+
+### Fixed
+- **Installer Cron Job Registration** — Resolved an installer script pipeline failure under strict error handling when encountering environments with empty crontabs.
+
 ## v11.8.13 — Network Resilience & Keepalive Daemon (June 6, 2026)
 
 ### Added
