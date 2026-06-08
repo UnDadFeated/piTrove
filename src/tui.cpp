@@ -701,7 +701,7 @@ void config_wizard(const std::string& config_path) {
 
             // Restart notice
             if (!edit_mode && g_config_changed.load()) {
-                printf("  \033[1;33m[NOTICE]\033[0m Previous changes detected. Use \033[1;32m[S]\033[0m to save, then \033[1;36mpiTrove --restart\033[0m to apply.\n");
+                printf("  \033[1;33m[NOTICE]\033[0m Previous changes detected. Use \033[1;32m[S]\033[0m to save, then \033[1;36mpitrove restart\033[0m to apply.\n");
             }
 
             fflush(stdout);
