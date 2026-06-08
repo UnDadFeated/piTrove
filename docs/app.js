@@ -25,38 +25,35 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-    // 2. Copy to Clipboard Command Logic
-    const copyBtn = document.getElementById('copy-btn');
-    const commandText = "wget -qO- https://raw.githubusercontent.com/UnDadFeated/piTrove/main/install.sh | sudo bash";
+    // Helper function to handle copy to clipboard
+    const setupClipboardButton = (buttonId, textToCopy) => {
+        const copyBtn = document.getElementById(buttonId);
+        if (!copyBtn) return;
 
-    copyBtn.addEventListener('click', async () => {
-        try {
-            await navigator.clipboard.writeText(commandText);
-            
-            // Visual feedback transition
-            copyBtn.innerHTML = '<i class="fa-solid fa-check" style="color: #10b981;"></i>';
-            copyBtn.setAttribute('aria-label', 'Command copied!');
-            
-            setTimeout(() => {
-                copyBtn.innerHTML = '<i class="fa-regular fa-copy"></i>';
-                copyBtn.setAttribute('aria-label', 'Copy installation command');
-            }, 2000);
-        } catch (err) {
-            console.error('Failed to copy command: ', err);
-        }
-    });
-    // 3. Play/Pause button interaction inside simulated HUD
-    const playBtn = document.querySelector('.hud-ctrl-btn.play');
-    let isPlaying = true;
-    
-    playBtn.addEventListener('click', () => {
-        isPlaying = !isPlaying;
-        if (isPlaying) {
-            playBtn.innerHTML = '<i class="fa-solid fa-play"></i>';
-            playBtn.style.background = 'var(--bg-accent)';
-        } else {
-            playBtn.innerHTML = '<i class="fa-solid fa-pause"></i>';
-            playBtn.style.background = '#64748b';
-        }
-    });
+        copyBtn.addEventListener('click', async () => {
+            try {
+                await navigator.clipboard.writeText(textToCopy);
+                
+                // Visual feedback transition
+                const originalIcon = copyBtn.innerHTML;
+                copyBtn.innerHTML = '<i class="fa-solid fa-check" style="color: #10b981;"></i>';
+                copyBtn.setAttribute('aria-label', 'Copied!');
+                
+                setTimeout(() => {
+                    copyBtn.innerHTML = originalIcon;
+                    copyBtn.setAttribute('aria-label', 'Copy to clipboard');
+                }, 2000);
+            } catch (err) {
+                console.error('Failed to copy text: ', err);
+            }
+        });
+    };
+
+    // 2. Copy to Clipboard for Bootstrap Command
+    const bootstrapCommand = "wget -qO- https://raw.githubusercontent.com/UnDadFeated/piTrove/main/install.sh | sudo bash";
+    setupClipboardButton('copy-btn', bootstrapCommand);
+
+    // 3. Copy to Clipboard for Organizer Command
+    const organizerCommand = "sudo ./install.sh --organize /path/to/media";
+    setupClipboardButton('copy-organize-btn', organizerCommand);
 });
