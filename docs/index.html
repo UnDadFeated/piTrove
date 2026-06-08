@@ -48,7 +48,7 @@
                     <div class="badge-container">
                         <span class="premium-badge"><i class="fa-solid fa-shield-halved"></i> C++ DRM/KMS ENGINE</span>
                     </div>
-                    <h1 class="hero-title">Containerized Digital Picture Frame</h1>
+                    <h1 class="hero-title">Docker Containerized<br>Digital Picture Frame</h1>
                     <p class="hero-subtitle">High-performance slideshow engine for Raspberry Pi 4 & 5. Optimized for NAS storage stability, Google Photos integration, and Home Assistant MQTT automation.</p>
                     
                     <div class="cta-actions">
@@ -118,9 +118,48 @@
                                 <span class="cmd-syntax">pitrove status</span>
                                 <span class="cmd-desc">Query container state, health diagnostics, and active memory allocation.</span>
                             </div>
-                            <div class="cli-cmd-card">
-                                <span class="cmd-syntax">sudo ./install.sh --organize &lt;path&gt;</span>
-                                <span class="cmd-desc">Launch the interactive menu to sort folders chronologically, add prefixes in-place, or disable seasonal scanning.</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Built-in Archive Organizer Section -->
+        <section id="organizer">
+            <div class="container">
+                <h2 class="section-title"><i class="fa-solid fa-folder-open"></i> Built-in Archive Organizer</h2>
+                
+                <div class="organizer-card">
+                    <p class="organizer-intro">Maintain your library structure cleanly with piTrove's interactive media organizer wizard. Perfect for sorting files to work seamlessly with seasonal scanning rules.</p>
+                    
+                    <div class="quick-install-box" id="organize-command-container">
+                        <span class="box-label">Run the organizer:</span>
+                        <div class="code-line">
+                            <code>sudo ./install.sh --organize /path/to/media</code>
+                            <button id="copy-organize-btn" class="copy-button" aria-label="Copy organize command"><i class="fa-regular fa-copy"></i></button>
+                        </div>
+                    </div>
+                    
+                    <div class="organizer-features">
+                        <div class="organizer-feature">
+                            <i class="fa-solid fa-calendar-days"></i>
+                            <div>
+                                <h5>Chronological Sorting</h5>
+                                <p>Automatically structures loose photo and video archives into organized <code>YYYY-MM</code> month directories based on metadata or creation dates.</p>
+                            </div>
+                        </div>
+                        <div class="organizer-feature">
+                            <i class="fa-solid fa-spell-check"></i>
+                            <div>
+                                <h5>In-Place Prefixing & Dry-Runs</h5>
+                                <p>Add structured prefixes to file names safely. The dry-run feature lets you preview all proposed file changes before writing them to disk.</p>
+                            </div>
+                        </div>
+                        <div class="organizer-feature">
+                            <i class="fa-solid fa-clock-rotate-left"></i>
+                            <div>
+                                <h5>Seasonal Display Alignment</h5>
+                                <p>Ensures folder naming conventions line up with the year-agnostic seasonal scanning engine to display memories from the current time of year.</p>
                             </div>
                         </div>
                     </div>
