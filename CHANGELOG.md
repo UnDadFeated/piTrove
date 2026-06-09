@@ -4,12 +4,6 @@
 - **Safe Configuration Merging** — Introduced an automated settings migration system during installation that merges the latest version defaults and new sections into your existing `config.toml` without overwriting any custom modifications.
 - **Maintenance Command Flags** — Added and documented advanced command-line arguments in the installer to check/deploy updates manually or automatically via daily background schedules.
 
-## v11.9.1 — Safe Configuration Merging & Maintenance Updates (June 8, 2026)
-
-### Added
-- **Safe Configuration Merging** — Introduced an automated settings migration system during installation that merges the latest version defaults and new sections into your existing `config.toml` without overwriting any custom modifications.
-- **Maintenance Command Flags** — Added and documented advanced command-line arguments in the installer to check/deploy updates manually or automatically via daily background schedules.
-
 ## v11.9.0 — Media Archive Reorganization Strategies (June 7, 2026)
 
 ### Added
