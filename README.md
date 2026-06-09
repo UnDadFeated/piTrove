@@ -1,4 +1,4 @@
-﻿# piTrove â€” C++ Digital Picture Frame for Raspberry Pi
+﻿# piTrove — C++ Digital Picture Frame for Raspberry Pi
 
 ðŸŒ **[View Live Premium Documentation & Landing Page](https://undadfeated.github.io/piTrove/)**
 
@@ -11,7 +11,7 @@ A professional-grade, **containerized** digital picture frame application for th
 [![Graphics](https://img.shields.io/badge/graphics-SDL3-red?style=flat-square)](https://www.libsdl.org/)
 [![Version](https://img.shields.io/badge/version-11.9.1-blue?style=flat-square)]()
 
-## ðŸš€ Quick Start
+## 🚀 Quick Start
 
 ### 1. OS Installation
 1. Flash **Raspberry Pi OS Lite (64-bit)** using the [Raspberry Pi Imager](https://www.raspberrypi.com/software/).
@@ -53,9 +53,9 @@ Once the installation completes, the picture frame runs automatically in the bac
 
 ---
 
-## âœ¨ Key Features
+## ✨ Key Features
 
-### ðŸ–¼ï¸ High-Performance Media Engine
+### 🖼️ High-Performance Media Engine
 - **Broad Format Support**: Native loading for JPEG, PNG, TIFF, WebP, HEIC/HEIF, BMP, and TGA.
 - **Cinematic Visuals**: 
   - **Twin-Portrait Collage**: Automatically groups adjacent portrait-format images to display them side-by-side in a split-screen collage with individual frame borders and animations.
@@ -66,7 +66,7 @@ Once the installation completes, the picture frame runs automatically in the bac
 - **Video Integration**: Seamless interleaving of H.264/H.265 videos using an accelerated `mpv` subprocess rendering directly via native DRM/KMS.
 - **Dynamic CPU Core Scaling**: Dynamically detects available hardware cores and allocates `max_cores - 1` decoding threads to play videos, maximizing hardware efficiency while keeping a core free for background system integrity.
 
-### ðŸ“‚ Enterprise-Grade Scanning & Cache
+### 📂 Enterprise-Grade Scanning & Cache
 - **NAS Optimized**: Specialized `getdents64` implementation with timeout wrappers to prevent the "CIFS hang" common in standard filesystem libraries.
 - **SQLite3 Persistence**: Uses a WAL-mode database to track file metadata, preventing redundant scans and tracking corrupted files to skip them permanently.
 - **Smart Content Filtering**: Built-in zero-overhead deterministic classifier to filter out non-photographic clutter and prioritize family/wildlife photos.
@@ -78,7 +78,7 @@ Once the installation completes, the picture frame runs automatically in the bac
 - **Intelligent Cooldown**: Ensures the same photo isn't shown too frequently (default 330-day cooldown).
 - **Robust Skip Pipeline**: Gracefully intercepts deleted, missing, or corrupt assets, dynamically marking them bad in the cache database and removing them from the queue to prevent application interruptions.
 
-### ðŸ›°ï¸ MQTT & Home Assistant Smart Home Integration
+### 🛰️ MQTT & Home Assistant Smart Home Integration
 - **Lightweight Subscriber Pipe**: Spawns a background subprocess listener executing `mosquitto_sub -F "%t:%p"` to receive remote controls instantly and safely with zero rendering loop delay.
 - **Home Assistant Auto-Discovery**: Automatically publishes standard JSON config payloads to `homeassistant/` on startup. Instantly registers:
   - **Screen Switch** (Toggles physical backlight and solid black blanking overlay)
@@ -87,10 +87,10 @@ Once the installation completes, the picture frame runs automatically in the bac
   - **Motion Binary Sensor** (Auto-syncs with physical room motion)
 - **Automatic Cooldown Blanking**: Monitors the room's motion sensor topic. If no motion is detected within a customizable cooldown window, it blanks the screen physically using `vcgencmd display_power 0` and clears the framebuffer to black. Wakes up instantly on new motion or key down/mouse events.
 
-### â˜ï¸ Cloud Integration
+### ☁️ Cloud Integration
 - **Google Photos Synchronization**: Syncs photos directly from user-selected Google Photos albums, storing them in a local cache directory with customizable check intervals. Includes robust OAuth2 authentication validation and user-friendly step-by-step setup prompts built directly into the installer.
 
-### ðŸ› ï¸ System & Control
+### 🛠️ System & Control
 - **Headless Design**: Operates via DRM/KMS (native framebuffer). No X11 or Wayland required.
 - **Dynamic Display & GPU Probing**: Programmatically queries active connected DRM/KMS connector outputs and indices (sysfs `card*-*/status`), auto-configuring stable KMSDRM environments before SDL3 starts up.
 - **Low Power**: Scheduled display sleep/wake times and automatic backlight dimming.
@@ -100,7 +100,7 @@ Once the installation completes, the picture frame runs automatically in the bac
 
 ---
 
-## âš™ï¸ Technical Architecture
+## ⚙️ Technical Architecture
 
 ```mermaid
 graph TD
@@ -126,28 +126,28 @@ graph TD
 - **Core Libraries**: SDL3, SDL3_image, SDL3_ttf, libmpv, SQLite3, libexif, libheif, `mosquitto-clients`.
 - **Hardware Accel**: Pi 4/5 VC4 DRM/KMS via SDL3 rendering.
 
-## ðŸ“ Project Structure
+## 📂 Project Structure
 ```
 src/
-â”œâ”€â”€ main.cpp          â€” Entry point, event loop, DRM master flow, motion cooldown
-â”œâ”€â”€ mqtt.cpp/h        â€” Background MQTT subprocess subscriber & HA discovery [NEW]
-â”œâ”€â”€ google_photos.cpp/h â€” Google Photos cloud synchronization and album manager [NEW]
-â”œâ”€â”€ scanner.cpp/h     â€” Recursive media scanning (getdents64)
-â”œâ”€â”€ cache.cpp/h       â€” SQLite3 WAL-mode metadata persistence
-â”œâ”€â”€ config.cpp/h      â€” TOML config parser & boundary validation
-â”œâ”€â”€ tui.cpp/h         â€” Terminal-based setup & configuration wizard (10 categories)
-â”œâ”€â”€ preload.cpp/h     â€” Two-phase async preload (surface â†’ texture upload)
-â”œâ”€â”€ renderer.cpp/h    â€” SDL_Renderer primitives, EXIF rotation, bias lighting, CRT vignette
-â”œâ”€â”€ overlay.cpp/h     â€” OSD widgets (date, filename, count, timer, clock)
-â”œâ”€â”€ transition.cpp/h  â€” High-performance SDL3 transitions (crossfade, wipe, pixelate, dissolve)
-â”œâ”€â”€ mpv_player.cpp/h  â€” mpv subprocess controller (drmDropMaster/drmSetMaster)
-â”œâ”€â”€ image_loader.cpp/h â€” IMG_Load wrapper (JPEG, PNG, TIFF, WebP, HEIC)
-â”œâ”€â”€ font_render.cpp/h  â€” TTF_RenderUTF8_Blended glow text
-â”œâ”€â”€ media_item.h      â€” Photo and video data structures
-â”œâ”€â”€ util.cpp/h         â€” String parsing, safety, and path utilities
-â”œâ”€â”€ fonts/             â€” Monospace layout fonts (DejaVuSansMono-Bold.ttf)
-â”œâ”€â”€ config.toml        â€” Default config template
-â””â”€â”€ splash.png         â€” Boot splash screen image
+├── main.cpp          — Entry point, event loop, DRM master flow, motion cooldown
+├── mqtt.cpp/h        — Background MQTT subprocess subscriber & HA discovery [NEW]
+├── google_photos.cpp/h — Google Photos cloud synchronization and album manager [NEW]
+├── scanner.cpp/h     — Recursive media scanning (getdents64)
+├── cache.cpp/h       — SQLite3 WAL-mode metadata persistence
+├── config.cpp/h      — TOML config parser & boundary validation
+├── tui.cpp/h         — Terminal-based setup & configuration wizard (10 categories)
+├── preload.cpp/h     — Two-phase async preload (surface → texture upload)
+├── renderer.cpp/h    — SDL_Renderer primitives, EXIF rotation, bias lighting, CRT vignette
+├── overlay.cpp/h     — OSD widgets (date, filename, count, timer, clock)
+├── transition.cpp/h  — High-performance SDL3 transitions (crossfade, wipe, pixelate, dissolve)
+├── mpv_player.cpp/h  — mpv subprocess controller (drmDropMaster/drmSetMaster)
+├── image_loader.cpp/h — IMG_Load wrapper (JPEG, PNG, TIFF, WebP, HEIC)
+├── font_render.cpp/h  — TTF_RenderUTF8_Blended glow text
+├── media_item.h      — Photo and video data structures
+├── util.cpp/h         — String parsing, safety, and path utilities
+├── fonts/             — Monospace layout fonts (DejaVuSansMono-Bold.ttf)
+├── config.toml        — Default config template
+└── splash.png         — Boot splash screen image
 ```
 - `install.sh`: Bootstrap installer (sets up Docker Compose plugins, NAS mounts, and systemd units).
 - `CHANGELOG.md`: Detailed version history.
