@@ -48,6 +48,11 @@ Once the installation completes, the picture frame runs automatically in the bac
   sudo ./install.sh --organize /path/to/archive
   ```
   *(Launches the interactive organizer to group files chronologically, add date-prefixes in-place, or disable seasonal scanning in config.toml)*
+- **Update Application & Run Migration**:
+  ```bash
+  sudo ./install.sh --update [--cron]
+  ```
+  *(Fetches the latest code/binary, rebuilds the container, and safely merges new configurations. Adding the `--cron` flag schedules this check to run daily in the background.)*
   
   *(For raw manual execution, the CLI transparently runs: `docker exec -it piTrove /app/piTrove --config /app/config/config.toml`)*
 
