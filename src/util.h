@@ -1,7 +1,7 @@
-#ifndef PITROVE_UTIL_H
+﻿#ifndef PITROVE_UTIL_H
 #define PITROVE_UTIL_H
 
-#define VERSION "11.9.0"
+#define VERSION "11.9.1"
 #define APP_NAME "piTrove"
 
 #include <atomic>
@@ -99,3 +99,4 @@ void get_modified_time_date(int64_t mtime, int& y, int& m, int& d);
 bool get_item_date(const MediaItem& item, int& y, int& m, int& d);
 
 #endif // PITROVE_UTIL_H
+
