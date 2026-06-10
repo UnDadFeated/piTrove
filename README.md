@@ -101,6 +101,7 @@ Once the installation completes, the picture frame runs automatically in the bac
 - **Low Power**: Scheduled display sleep/wake times and automatic backlight dimming.
 - **Glassmorphic HTTP HUD & Settings Control Panel**: Built-in glassmorphic web dashboard featuring interactive player controls, dynamic slideshow diagnostics telemetry (temp, cache DB size, queue size), complete configuration settings editing, live system logs stream, active MQTT broker connection cards, screen switches, and simulated motion triggers.
 - **TUI Hardware & Config Wizard**: A robust, 10-tab terminal-based configurator menu over SSH featuring dedicated `"Hardware Settings"` and `"MQTT Integration"` menus to dynamically configure all frame variables.
+- **Interactive Touchscreen Config Menu & Keyboard**: When touchscreen mode is enabled, tapping anywhere on the slideshow triggers an interactive quick settings overlay. Features +/- buttons, visual volume sliders, and a full numerical keyboard modal rendered on-screen to easily update delay intervals and volumes directly on touch displays.
 - **Config Clamping Safety**: Implements 10 strict boundary checks and clamp safety validation logic inside the TOML configuration loader to guarantee system resilience.
 
 ---
