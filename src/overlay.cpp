@@ -4,6 +4,7 @@
 #include "media_item.h"
 #include "image_loader.h"
 #include "cache.h"
+#include "mqtt.h"
 #include <ctime>
 #include <iomanip>
 #include <sstream>
@@ -550,6 +551,9 @@ void OverlayManager::draw_all(int current_idx, int total_items, const MediaItem*
     if (menu_active) {
         draw_popup_menu();
     }
+    if (keyboard_active) {
+        draw_virtual_keyboard();
+    }
 }
 
 void OverlayManager::draw_popup_menu() {
@@ -558,15 +562,15 @@ void OverlayManager::draw_popup_menu() {
     int sw = g_renderer.screen_w;
     int sh = g_renderer.screen_h;
 
-    int menu_w = 420;
-    int menu_h = 280;
+    int menu_w = 520;
+    int menu_h = 380;
     int menu_x = (sw - menu_w) / 2;
     int menu_y = (sh - menu_h) / 2;
 
     // Draw background card (translucent dark slate grey)
     SDL_Rect container = { menu_x, menu_y, menu_w, menu_h };
     SDL_SetRenderDrawBlendMode(renderer->sdl_renderer, SDL_BLENDMODE_BLEND);
-    SDL_SetRenderDrawColor(renderer->sdl_renderer, 15, 15, 17, 245);
+    SDL_SetRenderDrawColor(renderer->sdl_renderer, 15, 15, 17, 245); // Zinc dark background
     SDL_FRect container_f = { (float)container.x, (float)container.y, (float)container.w, (float)container.h };
     SDL_RenderFillRect(renderer->sdl_renderer, &container_f);
 
@@ -576,57 +580,211 @@ void OverlayManager::draw_popup_menu() {
 
     FontHandle& title_font = font_renderer->load_font(overlay_font->path, 18);
     FontHandle& item_font = font_renderer->load_font(overlay_font->path, 13);
+    FontHandle& btn_font = font_renderer->load_font(overlay_font->path, 12);
     FontHandle& footer_font = font_renderer->load_font(overlay_font->path, 11);
 
     // Draw Title centered
-    std::string title_text = "piTrove Configuration";
+    std::string title_text = "piTrove Quick Configuration";
     int tw, th;
     font_renderer->measure(title_font, title_text, tw, th);
-    font_renderer->draw_text(menu_x + (menu_w - tw) / 2, menu_y + 20, title_font, title_text, 244, 244, 245, 255); // White-zinc text
+    font_renderer->draw_text(menu_x + (menu_w - tw) / 2, menu_y + 18, title_font, title_text, 244, 244, 245, 255);
 
     // Separator line
     SDL_SetRenderDrawColor(renderer->sdl_renderer, 161, 161, 170, 40);
     SDL_RenderLine(renderer->sdl_renderer, menu_x + 15, menu_y + 45, menu_x + menu_w - 15, menu_y + 45);
 
-    // Get menu options states
+    // Get settings states
     bool paused = g_slideshow_paused.load();
     bool shuffle = false;
     double delay = 120.0;
+    int volume = 0;
     {
         std::lock_guard<std::mutex> lk(g_config_mtx);
         shuffle = g_cfg.shuffle;
         delay = g_cfg.transition_delay;
+        volume = g_cfg.video_volume;
     }
     bool blanked = g_screen_blanked.load();
 
-    // Menu options text array
-    std::vector<std::string> options;
-    options.push_back(std::string("Play/Pause slideshow: ") + (paused ? "PAUSED" : "PLAYING"));
-    options.push_back(std::string("Shuffle playlist:     ") + (shuffle ? "ON" : "OFF"));
-    options.push_back("Interval delay:       " + std::to_string((int)delay) + "s");
-    options.push_back(std::string("Screen blanking:      ") + (blanked ? "OFF (blanked)" : "ON (active)"));
-    options.push_back("Close quick menu");
+    // Now, render settings rows. Let's arrange them neatly in a layout:
+    int start_y = menu_y + 55;
+    int row_h = 32;
 
-    int start_y = menu_y + 60;
-    for (int i = 0; i < (int)options.size(); i++) {
-        int iy = start_y + i * 32;
-        int ih = 28;
-        int ix = menu_x + 20;
-        int iw = menu_w - 40;
+    // Row 0: Play / Pause
+    {
+        int iy = start_y + 0 * row_h;
+        font_renderer->draw_text(menu_x + 24, iy + 4, item_font, "Slideshow Status:", 161, 161, 170, 255);
+        std::string status_btn = paused ? "[ PAUSED - Play ]" : "[ PLAYING - Pause ]";
+        SDL_FRect r_btn = { (float)(menu_x + 240), (float)iy, 240.0f, 26.0f };
+        SDL_SetRenderDrawColor(renderer->sdl_renderer, 161, 161, 170, 30);
+        SDL_RenderFillRect(renderer->sdl_renderer, &r_btn);
+        SDL_SetRenderDrawColor(renderer->sdl_renderer, 161, 161, 170, 80);
+        SDL_RenderRect(renderer->sdl_renderer, &r_btn);
+        int bw, bh;
+        font_renderer->measure(btn_font, status_btn, bw, bh);
+        font_renderer->draw_text(menu_x + 240 + (240 - bw)/2, iy + 4, btn_font, status_btn, 244, 244, 245, 255);
+    }
 
-        // Draw highlight background if selected
-        if (i == menu_selected) {
-            SDL_Rect highlight = { ix, iy - 2, iw, ih };
-            SDL_FRect highlight_f = { (float)highlight.x, (float)highlight.y, (float)highlight.w, (float)highlight.h };
-            SDL_SetRenderDrawColor(renderer->sdl_renderer, 161, 161, 170, 50); // Zinc transparent selection
-            SDL_RenderFillRect(renderer->sdl_renderer, &highlight_f);
-            SDL_SetRenderDrawColor(renderer->sdl_renderer, 244, 244, 245, 180);
-            SDL_RenderRect(renderer->sdl_renderer, &highlight_f);
+    // Row 1: Shuffle
+    {
+        int iy = start_y + 1 * row_h;
+        font_renderer->draw_text(menu_x + 24, iy + 4, item_font, "Playlist Shuffle:", 161, 161, 170, 255);
+        std::string shuffle_btn = shuffle ? "SHUFFLE: ON" : "SHUFFLE: OFF";
+        SDL_FRect r_btn = { (float)(menu_x + 240), (float)iy, 240.0f, 26.0f };
+        SDL_SetRenderDrawColor(renderer->sdl_renderer, 161, 161, 170, 30);
+        SDL_RenderFillRect(renderer->sdl_renderer, &r_btn);
+        SDL_SetRenderDrawColor(renderer->sdl_renderer, 161, 161, 170, 80);
+        SDL_RenderRect(renderer->sdl_renderer, &r_btn);
+        int bw, bh;
+        font_renderer->measure(btn_font, shuffle_btn, bw, bh);
+        font_renderer->draw_text(menu_x + 240 + (240 - bw)/2, iy + 4, btn_font, shuffle_btn, 244, 244, 245, 255);
+    }
 
-            font_renderer->draw_text(ix + 10, iy + 2, item_font, options[i], 255, 255, 255, 255); // Highlighted white text
-        } else {
-            font_renderer->draw_text(ix + 10, iy + 2, item_font, options[i], 161, 161, 170, 255); // Zinc text
+    // Row 2: Interval Delay with - / + buttons and click-to-input
+    {
+        int iy = start_y + 2 * row_h;
+        font_renderer->draw_text(menu_x + 24, iy + 4, item_font, "Interval Delay (s):", 161, 161, 170, 255);
+        
+        // [-] button
+        SDL_FRect r_minus = { (float)(menu_x + 240), (float)iy, 40.0f, 26.0f };
+        SDL_SetRenderDrawColor(renderer->sdl_renderer, 161, 161, 170, 30);
+        SDL_RenderFillRect(renderer->sdl_renderer, &r_minus);
+        SDL_SetRenderDrawColor(renderer->sdl_renderer, 161, 161, 170, 80);
+        SDL_RenderRect(renderer->sdl_renderer, &r_minus);
+        font_renderer->draw_text(menu_x + 256, iy + 4, btn_font, "-", 244, 244, 245, 255);
+
+        // Value button (click to type)
+        std::string val_str = std::to_string((int)delay) + "s";
+        SDL_FRect r_val = { (float)(menu_x + 290), (float)iy, 140.0f, 26.0f };
+        SDL_SetRenderDrawColor(renderer->sdl_renderer, 161, 161, 170, 15);
+        SDL_RenderFillRect(renderer->sdl_renderer, &r_val);
+        SDL_SetRenderDrawColor(renderer->sdl_renderer, 161, 161, 170, 60);
+        SDL_RenderRect(renderer->sdl_renderer, &r_val);
+        int bw, bh;
+        font_renderer->measure(btn_font, val_str, bw, bh);
+        font_renderer->draw_text(menu_x + 290 + (140 - bw)/2, iy + 4, btn_font, val_str, 255, 255, 255, 255);
+
+        // [+] button
+        SDL_FRect r_plus = { (float)(menu_x + 440), (float)iy, 40.0f, 26.0f };
+        SDL_SetRenderDrawColor(renderer->sdl_renderer, 161, 161, 170, 30);
+        SDL_RenderFillRect(renderer->sdl_renderer, &r_plus);
+        SDL_SetRenderDrawColor(renderer->sdl_renderer, 161, 161, 170, 80);
+        SDL_RenderRect(renderer->sdl_renderer, &r_plus);
+        font_renderer->draw_text(menu_x + 456, iy + 4, btn_font, "+", 244, 244, 245, 255);
+    }
+
+    // Row 3: Video Volume with - / + buttons and slider
+    {
+        int iy = start_y + 3 * row_h;
+        font_renderer->draw_text(menu_x + 24, iy + 4, item_font, "Video Volume (%):", 161, 161, 170, 255);
+
+        // [-] button
+        SDL_FRect r_minus = { (float)(menu_x + 240), (float)iy, 40.0f, 26.0f };
+        SDL_SetRenderDrawColor(renderer->sdl_renderer, 161, 161, 170, 30);
+        SDL_RenderFillRect(renderer->sdl_renderer, &r_minus);
+        SDL_SetRenderDrawColor(renderer->sdl_renderer, 161, 161, 170, 80);
+        SDL_RenderRect(renderer->sdl_renderer, &r_minus);
+        font_renderer->draw_text(menu_x + 256, iy + 4, btn_font, "-", 244, 244, 245, 255);
+
+        // Value button (click to type)
+        std::string val_str = std::to_string(volume) + "%";
+        SDL_FRect r_val = { (float)(menu_x + 290), (float)iy, 140.0f, 26.0f };
+        SDL_SetRenderDrawColor(renderer->sdl_renderer, 161, 161, 170, 15);
+        SDL_RenderFillRect(renderer->sdl_renderer, &r_val);
+        SDL_SetRenderDrawColor(renderer->sdl_renderer, 161, 161, 170, 60);
+        SDL_RenderRect(renderer->sdl_renderer, &r_val);
+        int bw, bh;
+        font_renderer->measure(btn_font, val_str, bw, bh);
+        font_renderer->draw_text(menu_x + 290 + (140 - bw)/2, iy + 4, btn_font, val_str, 255, 255, 255, 255);
+
+        // [+] button
+        SDL_FRect r_plus = { (float)(menu_x + 440), (float)iy, 40.0f, 26.0f };
+        SDL_SetRenderDrawColor(renderer->sdl_renderer, 161, 161, 170, 30);
+        SDL_RenderFillRect(renderer->sdl_renderer, &r_plus);
+        SDL_SetRenderDrawColor(renderer->sdl_renderer, 161, 161, 170, 80);
+        SDL_RenderRect(renderer->sdl_renderer, &r_plus);
+        font_renderer->draw_text(menu_x + 456, iy + 4, btn_font, "+", 244, 244, 245, 255);
+    }
+
+    // Row 4: Volume Slider underneath volume control
+    {
+        int iy = start_y + 4 * row_h - 2;
+        int track_x = menu_x + 240;
+        int track_w = 240;
+        int track_y = iy + 6;
+        int track_h = 4;
+
+        SDL_FRect track_r = { (float)track_x, (float)track_y, (float)track_w, (float)track_h };
+        SDL_SetRenderDrawColor(renderer->sdl_renderer, 63, 63, 70, 255);
+        SDL_RenderFillRect(renderer->sdl_renderer, &track_r);
+
+        float pct = std::max(0.0f, std::min(1.0f, volume / 100.0f));
+        int active_w = (int)(track_w * pct);
+        if (active_w > 0) {
+            SDL_FRect active_r = { (float)track_x, (float)track_y, (float)active_w, (float)track_h };
+            SDL_SetRenderDrawColor(renderer->sdl_renderer, 244, 244, 245, 255);
+            SDL_RenderFillRect(renderer->sdl_renderer, &active_r);
         }
+
+        int knob_x = track_x + active_w;
+        int knob_w = 12;
+        int knob_h = 12;
+        SDL_FRect knob_r = { (float)(knob_x - knob_w/2), (float)(track_y + track_h/2 - knob_h/2), (float)knob_w, (float)knob_h };
+        SDL_SetRenderDrawColor(renderer->sdl_renderer, 244, 244, 245, 255);
+        SDL_RenderFillRect(renderer->sdl_renderer, &knob_r);
+        SDL_SetRenderDrawColor(renderer->sdl_renderer, 161, 161, 170, 255);
+        SDL_RenderRect(renderer->sdl_renderer, &knob_r);
+    }
+
+    // Row 5: Screen Blanking
+    {
+        int iy = start_y + 5 * row_h;
+        font_renderer->draw_text(menu_x + 24, iy + 4, item_font, "Physical Screen Power:", 161, 161, 170, 255);
+        std::string screen_btn = blanked ? "SCREEN: OFF (Blanked)" : "SCREEN: ON (Active)";
+        SDL_FRect r_btn = { (float)(menu_x + 240), (float)iy, 240.0f, 26.0f };
+        SDL_SetRenderDrawColor(renderer->sdl_renderer, 161, 161, 170, 30);
+        SDL_RenderFillRect(renderer->sdl_renderer, &r_btn);
+        SDL_SetRenderDrawColor(renderer->sdl_renderer, 161, 161, 170, 80);
+        SDL_RenderRect(renderer->sdl_renderer, &r_btn);
+        int bw, bh;
+        font_renderer->measure(btn_font, screen_btn, bw, bh);
+        font_renderer->draw_text(menu_x + 240 + (240 - bw)/2, iy + 4, btn_font, screen_btn, 244, 244, 245, 255);
+    }
+
+    // Row 6: Playlist Control Buttons
+    {
+        int iy = start_y + 6 * row_h;
+        font_renderer->draw_text(menu_x + 24, iy + 4, item_font, "Playlist Control:", 161, 161, 170, 255);
+
+        SDL_FRect r_prev = { (float)(menu_x + 240), (float)iy, 115.0f, 26.0f };
+        SDL_SetRenderDrawColor(renderer->sdl_renderer, 161, 161, 170, 30);
+        SDL_RenderFillRect(renderer->sdl_renderer, &r_prev);
+        SDL_SetRenderDrawColor(renderer->sdl_renderer, 161, 161, 170, 80);
+        SDL_RenderRect(renderer->sdl_renderer, &r_prev);
+        int bw, bh;
+        font_renderer->measure(btn_font, "◀ Previous", bw, bh);
+        font_renderer->draw_text(menu_x + 240 + (115 - bw)/2, iy + 4, btn_font, "◀ Previous", 244, 244, 245, 255);
+
+        SDL_FRect r_next = { (float)(menu_x + 365), (float)iy, 115.0f, 26.0f };
+        SDL_SetRenderDrawColor(renderer->sdl_renderer, 161, 161, 170, 30);
+        SDL_RenderFillRect(renderer->sdl_renderer, &r_next);
+        SDL_SetRenderDrawColor(renderer->sdl_renderer, 161, 161, 170, 80);
+        SDL_RenderRect(renderer->sdl_renderer, &r_next);
+        font_renderer->measure(btn_font, "Next ▶", bw, bh);
+        font_renderer->draw_text(menu_x + 365 + (115 - bw)/2, iy + 4, btn_font, "Next ▶", 244, 244, 245, 255);
+    }
+
+    // Row 7: Close Quick Menu Button
+    {
+        int iy = start_y + 7 * row_h + 4;
+        SDL_FRect r_btn = { (float)(menu_x + 24), (float)iy, 472.0f, 30.0f };
+        SDL_SetRenderDrawColor(renderer->sdl_renderer, 228, 228, 231, 240);
+        SDL_RenderFillRect(renderer->sdl_renderer, &r_btn);
+        SDL_SetRenderDrawColor(renderer->sdl_renderer, 255, 255, 255, 255);
+        SDL_RenderRect(renderer->sdl_renderer, &r_btn);
+        int bw, bh;
+        font_renderer->measure(item_font, "Close Settings Overlay Menu", bw, bh);
+        font_renderer->draw_text(menu_x + 24 + (472 - bw)/2, iy + 6, item_font, "Close Settings Overlay Menu", 15, 15, 17, 255);
     }
 
     // Separator line before footer
@@ -634,8 +792,346 @@ void OverlayManager::draw_popup_menu() {
     SDL_RenderLine(renderer->sdl_renderer, menu_x + 15, menu_y + menu_h - 40, menu_x + menu_w - 15, menu_y + menu_h - 40);
 
     // Footer notice text
-    std::string footer_text = "SSH to Pi and run 'piTrove TUI' for advanced settings.";
+    std::string footer_text = "Run 'piTrove TUI' over SSH for advanced console settings.";
     int fw, fh;
     font_renderer->measure(footer_font, footer_text, fw, fh);
-    font_renderer->draw_text(menu_x + (menu_w - fw) / 2, menu_y + menu_h - 28, footer_font, footer_text, 113, 113, 122, 255); // Muted gray text
+    font_renderer->draw_text(menu_x + (menu_w - fw) / 2, menu_y + menu_h - 28, footer_font, footer_text, 113, 113, 122, 255);
+}
+
+void OverlayManager::draw_virtual_keyboard() {
+    if (!font_loaded || !font_renderer || !overlay_font) return;
+
+    int sw = g_renderer.screen_w;
+    int sh = g_renderer.screen_h;
+
+    int kb_w = 340;
+    int kb_h = 380;
+    int kb_x = (sw - kb_w) / 2;
+    int kb_y = (sh - kb_h) / 2;
+
+    // Semi-translucent screen overlay to dim background
+    SDL_FRect screen_overlay = { 0, 0, (float)sw, (float)sh };
+    SDL_SetRenderDrawBlendMode(renderer->sdl_renderer, SDL_BLENDMODE_BLEND);
+    SDL_SetRenderDrawColor(renderer->sdl_renderer, 0, 0, 0, 130);
+    SDL_RenderFillRect(renderer->sdl_renderer, &screen_overlay);
+
+    // Draw keyboard card
+    SDL_FRect kb_r = { (float)kb_x, (float)kb_y, (float)kb_w, (float)kb_h };
+    SDL_SetRenderDrawColor(renderer->sdl_renderer, 20, 20, 23, 250);
+    SDL_RenderFillRect(renderer->sdl_renderer, &kb_r);
+    SDL_SetRenderDrawColor(renderer->sdl_renderer, 161, 161, 170, 255); // Zinc border
+    SDL_RenderRect(renderer->sdl_renderer, &kb_r);
+
+    FontHandle& title_font = font_renderer->load_font(overlay_font->path, 15);
+    FontHandle& input_font = font_renderer->load_font(overlay_font->path, 22);
+    FontHandle& key_font = font_renderer->load_font(overlay_font->path, 18);
+
+    // Header title
+    std::string title = (keyboard_target == 0) ? "Enter Interval Delay (sec)" : "Enter Video Volume (0-100%)";
+    int tw, th;
+    font_renderer->measure(title_font, title, tw, th);
+    font_renderer->draw_text(kb_x + (kb_w - tw) / 2, kb_y + 15, title_font, title, 161, 161, 170, 255);
+
+    // Input display box
+    SDL_FRect display_r = { (float)(kb_x + 20), (float)(kb_y + 45), (float)(kb_w - 40), 45.0f };
+    SDL_SetRenderDrawColor(renderer->sdl_renderer, 9, 9, 11, 255);
+    SDL_RenderFillRect(renderer->sdl_renderer, &display_r);
+    SDL_SetRenderDrawColor(renderer->sdl_renderer, 63, 63, 70, 255);
+    SDL_RenderRect(renderer->sdl_renderer, &display_r);
+
+    std::string display_val = keyboard_input.empty() ? "0" : keyboard_input;
+    int dw, dh;
+    font_renderer->measure(input_font, display_val, dw, dh);
+    font_renderer->draw_text(kb_x + kb_w - 35 - dw, kb_y + 53, input_font, display_val, 255, 255, 255, 255);
+
+    // Render Keys Grid (1-9, Backspace, 0, OK)
+    int start_kx = kb_x + 20;
+    int start_ky = kb_y + 110;
+    int kw = 90;
+    int kh = 50;
+    int gap = 10;
+
+    std::vector<std::string> keys = {
+        "1", "2", "3",
+        "4", "5", "6",
+        "7", "8", "9",
+        "⌫", "0", "OK"
+    };
+
+    for (int i = 0; i < 12; i++) {
+        int col = i % 3;
+        int row = i / 3;
+        int kx = start_kx + col * (kw + gap);
+        int ky = start_ky + row * (kh + gap);
+
+        SDL_FRect key_r = { (float)kx, (float)ky, (float)kw, (float)kh };
+        if (keys[i] == "OK") {
+            SDL_SetRenderDrawColor(renderer->sdl_renderer, 244, 244, 245, 220); // OK is bright white
+            SDL_RenderFillRect(renderer->sdl_renderer, &key_r);
+            SDL_SetRenderDrawColor(renderer->sdl_renderer, 255, 255, 255, 255);
+            SDL_RenderRect(renderer->sdl_renderer, &key_r);
+            int kw_m, kh_m;
+            font_renderer->measure(key_font, keys[i], kw_m, kh_m);
+            font_renderer->draw_text(kx + (kw - kw_m)/2, ky + 12, key_font, keys[i], 15, 15, 17, 255);
+        } else {
+            SDL_SetRenderDrawColor(renderer->sdl_renderer, 39, 39, 42, 255);
+            SDL_RenderFillRect(renderer->sdl_renderer, &key_r);
+            SDL_SetRenderDrawColor(renderer->sdl_renderer, 82, 82, 91, 255);
+            SDL_RenderRect(renderer->sdl_renderer, &key_r);
+            int kw_m, kh_m;
+            font_renderer->measure(key_font, keys[i], kw_m, kh_m);
+            font_renderer->draw_text(kx + (kw - kw_m)/2, ky + 12, key_font, keys[i], 244, 244, 245, 255);
+        }
+    }
+
+    // Cancel key button
+    SDL_FRect cancel_r = { (float)(kb_x + 20), (float)(kb_y + 325), (float)(kb_w - 40), 36.0f };
+    SDL_SetRenderDrawColor(renderer->sdl_renderer, 39, 39, 42, 100);
+    SDL_RenderFillRect(renderer->sdl_renderer, &cancel_r);
+    SDL_SetRenderDrawColor(renderer->sdl_renderer, 161, 161, 170, 100);
+    SDL_RenderRect(renderer->sdl_renderer, &cancel_r);
+    int cw, ch;
+    font_renderer->measure(title_font, "Cancel / Close Keyboard", cw, ch);
+    font_renderer->draw_text(kb_x + 20 + (kb_w - 40 - cw)/2, kb_y + 333, title_font, "Cancel / Close Keyboard", 161, 161, 170, 255);
+}
+
+bool OverlayManager::handle_touch_click(float x, float y) {
+    if (!menu_active) return false;
+
+    int sw = g_renderer.screen_w;
+    int sh = g_renderer.screen_h;
+
+    // 1. Keyboard Clicks
+    if (keyboard_active) {
+        int kb_w = 340;
+        int kb_h = 380;
+        int kb_x = (sw - kb_w) / 2;
+        int kb_y = (sh - kb_h) / 2;
+
+        if (x >= kb_x + 20 && x <= kb_x + kb_w - 20 && y >= kb_y + 325 && y <= kb_y + 361) {
+            keyboard_active = false;
+            keyboard_input = "";
+            return true;
+        }
+
+        int start_kx = kb_x + 20;
+        int start_ky = kb_y + 110;
+        int kw = 90;
+        int kh = 50;
+        int gap = 10;
+
+        std::vector<std::string> keys = {
+            "1", "2", "3",
+            "4", "5", "6",
+            "7", "8", "9",
+            "⌫", "0", "OK"
+        };
+
+        for (int i = 0; i < 12; i++) {
+            int col = i % 3;
+            int row = i / 3;
+            int kx = start_kx + col * (kw + gap);
+            int ky = start_ky + row * (kh + gap);
+
+            if (x >= kx && x <= kx + kw && y >= ky && y <= ky + kh) {
+                std::string key = keys[i];
+                if (key == "OK") {
+                    int val = safe_stoi(keyboard_input, 0);
+                    if (keyboard_target == 0) {
+                        if (val < 1) val = 1;
+                        {
+                            std::lock_guard<std::mutex> lk(g_config_mtx);
+                            g_cfg.transition_delay = (double)val;
+                            g_cfg.save("/app/config/config.toml");
+                        }
+                        g_config_changed.store(true);
+                        g_logger.info("TOUCH_INPUT: Set transition delay to %d seconds.", val);
+                    } else if (keyboard_target == 1) {
+                        if (val < 0) val = 0;
+                        if (val > 100) val = 100;
+                        {
+                            std::lock_guard<std::mutex> lk(g_config_mtx);
+                            g_cfg.video_volume = val;
+                            g_cfg.save("/app/config/config.toml");
+                        }
+                        g_config_changed.store(true);
+                        g_logger.info("TOUCH_INPUT: Set video volume to %d%%.", val);
+                    }
+                    keyboard_active = false;
+                    keyboard_input = "";
+                } else if (key == "⌫") {
+                    if (!keyboard_input.empty()) {
+                        keyboard_input.pop_back();
+                    }
+                } else {
+                    if (keyboard_input.length() < 4) {
+                        keyboard_input += key;
+                    }
+                }
+                return true;
+            }
+        }
+
+        if (x < kb_x || x > kb_x + kb_w || y < kb_y || y > kb_y + kb_h) {
+            keyboard_active = false;
+            keyboard_input = "";
+            return true;
+        }
+        return true;
+    }
+
+    // 2. Menu Clicks
+    int menu_w = 520;
+    int menu_h = 380;
+    int menu_x = (sw - menu_w) / 2;
+    int menu_y = (sh - menu_h) / 2;
+
+    int start_y = menu_y + 55;
+    int row_h = 32;
+
+    // Row 0: Play/Pause Toggle
+    if (x >= menu_x + 240 && x <= menu_x + 480 && y >= start_y && y <= start_y + 26) {
+        g_slideshow_paused = !g_slideshow_paused.load();
+        g_logger.info("TOUCH: Slideshow state changed via touch.");
+        return true;
+    }
+
+    // Row 1: Shuffle Toggle
+    if (x >= menu_x + 240 && x <= menu_x + 480 && y >= start_y + 1 * row_h && y <= start_y + 1 * row_h + 26) {
+        bool curr;
+        {
+            std::lock_guard<std::mutex> lk(g_config_mtx);
+            g_cfg.shuffle = !g_cfg.shuffle;
+            g_cfg.save("/app/config/config.toml");
+            curr = g_cfg.shuffle;
+        }
+        g_config_changed.store(true);
+        g_logger.info("TOUCH: Shuffle state set to %s.", curr ? "ON" : "OFF");
+        return true;
+    }
+
+    // Row 2: Interval Delay
+    int r2_y = start_y + 2 * row_h;
+    if (y >= r2_y && y <= r2_y + 26) {
+        double current_val;
+        { std::lock_guard<std::mutex> lk(g_config_mtx); current_val = g_cfg.transition_delay; }
+        
+        if (x >= menu_x + 240 && x <= menu_x + 280) {
+            current_val = std::max(5.0, current_val - 5.0);
+            {
+                std::lock_guard<std::mutex> lk(g_config_mtx);
+                g_cfg.transition_delay = current_val;
+                g_cfg.save("/app/config/config.toml");
+            }
+            g_config_changed.store(true);
+            return true;
+        }
+        if (x >= menu_x + 440 && x <= menu_x + 480) {
+            current_val = std::min(3600.0, current_val + 5.0);
+            {
+                std::lock_guard<std::mutex> lk(g_config_mtx);
+                g_cfg.transition_delay = current_val;
+                g_cfg.save("/app/config/config.toml");
+            }
+            g_config_changed.store(true);
+            return true;
+        }
+        if (x >= menu_x + 290 && x <= menu_x + 430) {
+            keyboard_active = true;
+            keyboard_target = 0;
+            keyboard_input = "";
+            return true;
+        }
+    }
+
+    // Row 3: Video Volume
+    int r3_y = start_y + 3 * row_h;
+    if (y >= r3_y && y <= r3_y + 26) {
+        int current_val;
+        { std::lock_guard<std::mutex> lk(g_config_mtx); current_val = g_cfg.video_volume; }
+
+        if (x >= menu_x + 240 && x <= menu_x + 280) {
+            current_val = std::max(0, current_val - 5);
+            {
+                std::lock_guard<std::mutex> lk(g_config_mtx);
+                g_cfg.video_volume = current_val;
+                g_cfg.save("/app/config/config.toml");
+            }
+            g_config_changed.store(true);
+            return true;
+        }
+        if (x >= menu_x + 440 && x <= menu_x + 480) {
+            current_val = std::min(100, current_val + 5);
+            {
+                std::lock_guard<std::mutex> lk(g_config_mtx);
+                g_cfg.video_volume = current_val;
+                g_cfg.save("/app/config/config.toml");
+            }
+            g_config_changed.store(true);
+            return true;
+        }
+        if (x >= menu_x + 290 && x <= menu_x + 430) {
+            keyboard_active = true;
+            keyboard_target = 1;
+            keyboard_input = "";
+            return true;
+        }
+    }
+
+    // Volume Slider Touch Track (Row 4)
+    int r4_y = start_y + 4 * row_h - 2;
+    if (x >= menu_x + 230 && x <= menu_x + 490 && y >= r4_y && y <= r4_y + 16) {
+        float pct = (x - (menu_x + 240)) / 240.0f;
+        if (pct < 0.0f) pct = 0.0f;
+        if (pct > 1.0f) pct = 1.0f;
+        int val = (int)(pct * 100);
+        {
+            std::lock_guard<std::mutex> lk(g_config_mtx);
+            g_cfg.video_volume = val;
+            g_cfg.save("/app/config/config.toml");
+        }
+        g_config_changed.store(true);
+        return true;
+    }
+
+    // Row 5: Screen Blanking Toggles
+    if (x >= menu_x + 240 && x <= menu_x + 480 && y >= start_y + 5 * row_h && y <= start_y + 5 * row_h + 26) {
+        bool expected = g_screen_blanked.load();
+        bool desired = !expected;
+        while (!g_screen_blanked.compare_exchange_weak(expected, desired)) {
+            desired = !expected;
+        }
+        set_display_power(expected);
+        std::string prefix;
+        { std::lock_guard<std::mutex> lk(g_config_mtx); prefix = g_cfg.mqtt_topic_prefix; }
+        mqtt_publish(prefix + "/status/screen", g_screen_blanked.load() ? "OFF" : "ON", true);
+        return true;
+    }
+
+    // Row 6: Playlist Control Buttons
+    int r6_y = start_y + 6 * row_h;
+    if (y >= r6_y && y <= r6_y + 26) {
+        if (x >= menu_x + 240 && x <= menu_x + 355) {
+            g_remote_command.store(2);
+            return true;
+        }
+        if (x >= menu_x + 365 && x <= menu_x + 480) {
+            g_remote_command.store(1);
+            return true;
+        }
+    }
+
+    // Row 7: Close Quick Menu
+    int r7_y = start_y + 7 * row_h + 4;
+    if (x >= menu_x + 24 && x <= menu_x + 496 && y >= r7_y && y <= r7_y + 30) {
+        menu_active = false;
+        return true;
+    }
+
+    if (x < menu_x || x > menu_x + menu_w || y < menu_y || y > menu_y + menu_h) {
+        menu_active = false;
+        return true;
+    }
+
+    return true;
 }

@@ -1,3 +1,10 @@
+## v11.9.5 — Interactive Touchscreen Mode & Virtual Keyboard Overlay (June 10, 2026)
+
+### Added
+- **Touchscreen Mode Support** — Introduced a dedicated touchscreen capability, toggleable directly from the terminal configuration wizard. When active, tapping anywhere on the slideshow opens the quick configuration menu rather than advancing the slide.
+- **Premium Numerical Virtual Keyboard** — Created an on-screen numerical keyboard overlay to easily enter interval delays and video volumes directly via finger touch, featuring a clean keys grid, backspace delete, and input validation.
+- **Visual Settings Controls** — Added interactive increment/decrement buttons and a draggable volume slider track to the quick configuration menu overlay for quick, touch-friendly adjustments.
+
 ## v11.9.4 — Modern Grey Dashboard, Live Timer, and Popup Config Menu (June 10, 2026)
 
 ### Added

@@ -133,7 +133,8 @@ void config_wizard(const std::string& config_path) {
         {"HTTP Port", INT, "Port for local web server and dashboard (default: 9000)"},
         {"Splash Overlay Y", FLT, "Vertical position of splash UI (0.0 to 1.0)"},
         {"Auto Update", TGL, "Enable automatic background system updates"},
-        {"Auto Update Branch", ENM, "Git branch to pull updates from (main/develop)"}
+        {"Auto Update Branch", ENM, "Git branch to pull updates from (main/develop)"},
+        {"Touchscreen Mode", TGL, "Enable touchscreen tap-to-menu and virtual keyboard controls"}
     };
     static const CI CC[] = {
         {"Timer Enabled", TGL, "Show remaining photo/video duration overlay"},
@@ -271,6 +272,7 @@ void config_wizard(const std::string& config_path) {
             case 8: return std::to_string(g_cfg.splash_overlay_y);
             case 9: return g_cfg.auto_update?"[ON]":"[OFF]";
             case 10: return g_cfg.auto_update_branch;
+            case 11: return g_cfg.touch_enabled?"[ON]":"[OFF]";
         }
         if (c == 2) switch(i) {
             case 0: return g_cfg.timer_enabled?"[ON]":"[OFF]";
@@ -396,6 +398,7 @@ void config_wizard(const std::string& config_path) {
                 case 8:{ try { g_cfg.splash_overlay_y=std::stof(v); } catch(...) {} break; }
                 case 9:g_cfg.auto_update=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
                 case 10:g_cfg.auto_update_branch=v;break;
+                case 11:g_cfg.touch_enabled=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
             }
             else if(c==2) switch(i){
                 case 0:g_cfg.timer_enabled=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;

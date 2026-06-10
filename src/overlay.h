@@ -20,6 +20,11 @@ public:
     bool menu_active{false};
     int menu_selected{0};
 
+    // Touchscreen / virtual keyboard state
+    bool keyboard_active{false};
+    std::string keyboard_input{""};
+    int keyboard_target{0}; // 0 = delay, 1 = volume
+
     OverlayManager(Renderer* renderer);
     ~OverlayManager();
 
@@ -29,6 +34,10 @@ public:
     // Render all configured overlays
     void draw_all(int current_idx, int total_items, const MediaItem* item, const MediaItem* twin_item, double item_timer, bool is_video, int active_fps, const ImageData* current_data, const ImageData* current_twin_data);
     void draw_popup_menu();
+    void draw_virtual_keyboard();
+
+    // Handle touch/click events on menu or keyboard. Returns true if handled.
+    bool handle_touch_click(float x, float y);
 
 private:
     GpuColor get_color_from_str(const std::string& name);

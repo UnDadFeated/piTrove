@@ -1645,37 +1645,56 @@ int main(int argc, char** argv) {
                             g_overlay->menu_active = !g_overlay->menu_active;
                         }
                     } else if (event.button.button == SDL_BUTTON_LEFT) {
-                        if (g_overlay && g_overlay->menu_active) {
-                            float mx = event.button.x;
-                            float my = event.button.y;
-                            int sw = g_renderer.screen_w;
-                            int sh = g_renderer.screen_h;
-                            int menu_w = 420;
-                            int menu_h = 280;
-                            int menu_x = (sw - menu_w) / 2;
-                            int menu_y = (sh - menu_h) / 2;
-
-                            int start_y = menu_y + 60;
-                            bool clicked_item = false;
-                            for (int i = 0; i < 5; i++) {
-                                int iy = start_y + i * 32;
-                                int ih = 28;
-                                int ix = menu_x + 20;
-                                int iw = menu_w - 40;
-                                if (mx >= ix && mx <= ix + iw && my >= iy - 2 && my <= iy - 2 + ih) {
-                                    g_overlay->menu_selected = i;
-                                    execute_menu_action(i);
-                                    clicked_item = true;
-                                    break;
+                        if (g_overlay) {
+                            bool touch_mode = false;
+                            {
+                                std::lock_guard<std::mutex> lk(g_config_mtx);
+                                touch_mode = g_cfg.touch_enabled;
+                            }
+                            if (g_overlay->menu_active) {
+                                float mx = event.button.x;
+                                float my = event.button.y;
+                                g_overlay->handle_touch_click(mx, my);
+                            } else {
+                                if (touch_mode) {
+                                    if (g_mpv_player.is_active()) {
+                                        g_logger.info("Touch during video: stopping mpv to open config menu.");
+                                        g_mpv_player.stop();
+                                    }
+                                    g_overlay->menu_active = true;
+                                } else {
+                                    g_remote_command.store(1);
                                 }
                             }
-                            if (!clicked_item) {
-                                if (mx < menu_x || mx > menu_x + menu_w || my < menu_y || my > menu_y + menu_h) {
-                                    g_overlay->menu_active = false;
+                        }
+                    }
+                    break;
+                case SDL_EVENT_FINGER_DOWN:
+                    if (g_screen_blanked.exchange(false)) {
+                        set_display_power(true);
+                        g_last_motion_time.store(static_cast<int64_t>(std::time(nullptr)));
+                        std::string prefix;
+                        { std::lock_guard<std::mutex> lk(g_config_mtx); prefix = g_cfg.mqtt_topic_prefix; }
+                        mqtt_publish(prefix + "/status/screen", "ON", true);
+                    }
+                    if (g_overlay) {
+                        bool touch_mode = false;
+                        {
+                            std::lock_guard<std::mutex> lk(g_config_mtx);
+                            touch_mode = g_cfg.touch_enabled;
+                        }
+                        if (touch_mode) {
+                            float mx = event.tfinger.x * g_renderer.screen_w;
+                            float my = event.tfinger.y * g_renderer.screen_h;
+                            if (g_overlay->menu_active) {
+                                g_overlay->handle_touch_click(mx, my);
+                            } else {
+                                if (g_mpv_player.is_active()) {
+                                    g_logger.info("Finger touch during video: stopping mpv to open config menu.");
+                                    g_mpv_player.stop();
                                 }
+                                g_overlay->menu_active = true;
                             }
-                        } else {
-                            g_remote_command.store(1);
                         }
                     }
                     break;
