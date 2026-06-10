@@ -1,3 +1,14 @@
+## v11.9.4 — Modern Grey Dashboard, Live Timer, and Popup Config Menu (June 10, 2026)
+
+### Added
+- **Modern Zinc Dashboard & Accent Themes** — Restyled the web HUD control interface with a modern, neutral gray (Zinc/Slate) appearance. Introduced user-selectable Light/Dark themes and color palette options (Zinc, Emerald, Sapphire, Amber) persisted client-side.
+- **Direct-to-Device Quick Configuration Menu** — Implemented an overlay configuration menu that pops up on the display when right-clicking with a directly connected mouse. Allows immediate toggling of playback state, shuffle, interval delays, and screen blanking, with keyboard and mouse navigation support.
+- **Live Slideshow Timer Display** — Exposed the active slideshow progression timer to the web dashboard, adding a live countdown badge that shows the seconds remaining before the next photo loads.
+
+### Fixed
+- **Dashboard Preview Routing Loop** — Corrected a route conflict that was causing the web remote to repeatedly trigger manual slideshow advance commands when loading preview images.
+- **Preview Image Load Reliability** — Replaced socket stream writing logic with an interrupt-safe transmission loop to ensure complete, uncorrupted preview image deliveries.
+
 ## v11.9.3 — Consolidated Web Dashboard & Buffering Enhancements (June 10, 2026)
 
 ### Added
