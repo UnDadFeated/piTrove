@@ -106,6 +106,36 @@ Once the installation completes, the picture frame runs automatically in the bac
 
 ---
 
+## 🎮 Interactive Quick Settings Menu & Touch Controls
+
+piTrove features an interactive, direct-to-device **Quick Configuration Overlay** rendered directly over the slideshow framebuffer.
+
+### Accessing the Overlay
+* **Mouse Control**: Connect a standard USB/wireless mouse to the Raspberry Pi and **right-click** anywhere on the display to toggle the menu card.
+* **Touchscreen Control**: Connect a touch-sensitive HDMI/DSI monitor. When **Touchscreen Mode** is enabled, tapping anywhere on the screen triggers the config card (replacing the default tap-to-skip gesture).
+
+### Touch Friendly Settings Controls
+* **Toggle Options**: Tap on the **Slideshow Status** (Play/Pause), **Playlist Shuffle**, or **Physical Screen Power** rows to toggle values instantly.
+* **Navigation**: Click/tap **◀ Previous** or **Next ▶** buttons to cycle through files.
+* **Increment Adjusters**: Use the **`[-]`** and **`[+]`** buttons on the **Interval Delay** and **Video Volume** rows to increase or decrease values in steps of 5.
+* **Draggable Slider**: Slide your finger directly on the **Volume Slider track** to set volume levels dynamically from `0%` to `100%`.
+* **Numerical Keyboard Modal**: Tap on the active value label button (e.g. `120s` or `50%`) to bring up a premium on-screen numerical keyboard overlay to type values directly. Includes number keys `1-9`, `0`, backspace (`⌫`), `OK` validation, and `Cancel`.
+
+### Enabling Touchscreen Mode
+To activate touchscreen gestures:
+1. Open the configuration wizard via SSH:
+   ```bash
+   pitrove config
+   ```
+2. Navigate to the **System** tab, toggle **Touchscreen Mode** to **`[ON]`**, and save/exit.
+3. Alternatively, edit `/app/config/config.toml` and configure the touch block:
+   ```toml
+   [touch]
+   enabled = 1
+   ```
+
+---
+
 ## ⚙️ Technical Architecture
 
 ```mermaid

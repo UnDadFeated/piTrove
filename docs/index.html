@@ -142,6 +142,49 @@
             </div>
         </section>
 
+        <!-- Interactive Controls Section -->
+        <section id="interactive-controls" style="background: var(--bg-primary); border-top: 1px solid var(--border-color); border-bottom: 1px solid var(--border-color);">
+            <div class="container">
+                <h2 class="section-title"><i class="fa-solid fa-gamepad"></i> Direct-to-Device Quick Settings & Touch Controls</h2>
+                <p class="organizer-intro" style="margin-bottom: 1.5rem;">Configure the slideshow and frame preferences dynamically right on the device screen using a connected mouse or finger touch interface.</p>
+                
+                <div class="format-card" style="background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 12px; padding: 1.75rem; box-shadow: var(--shadow-premium); display: grid; grid-template-columns: 1fr 1fr; gap: 2.5rem;">
+                    <!-- Mouse & Right-Click -->
+                    <div style="display: flex; flex-direction: column; gap: 0.75rem;">
+                        <h3 style="font-size: 1.15rem; display: flex; align-items: center; gap: 0.5rem; color: var(--text-primary);"><i class="fa-solid fa-mouse-pointer" style="color: var(--text-secondary);"></i> Connected Mouse Control</h3>
+                        <p style="color: var(--text-secondary); font-size: 0.85rem; line-height: 1.5; margin-bottom: 0.5rem;">
+                            Connect any standard USB or wireless mouse to your Raspberry Pi. Right-clicking anywhere on the screen instantly summons the translucent <strong>piTrove Quick Configuration Menu</strong> directly over the running slideshow.
+                        </p>
+                        <ul style="color: var(--text-secondary); font-size: 0.8rem; padding-left: 1.25rem; line-height: 1.5; display: flex; flex-direction: column; gap: 0.4rem;">
+                            <li><strong>Right-Click</strong> — Toggle Settings Overlay Menu</li>
+                            <li><strong>Click Buttons</strong> — Adjust options, delays, volume, and toggle playback</li>
+                            <li><strong>Draggable Track</strong> — Change audio volume levels smoothly</li>
+                        </ul>
+                    </div>
+                    
+                    <!-- Touchscreen Mode -->
+                    <div style="display: flex; flex-direction: column; gap: 0.75rem; border-left: 1px solid rgba(255,255,255,0.06); padding-left: 2.5rem;">
+                        <h3 style="font-size: 1.15rem; display: flex; align-items: center; gap: 0.5rem; color: var(--text-primary);"><i class="fa-solid fa-hand-pointer" style="color: var(--text-secondary);"></i> Finger Touch Interface</h3>
+                        <p style="color: var(--text-secondary); font-size: 0.85rem; line-height: 1.5; margin-bottom: 0.5rem;">
+                            Enable <strong>Touchscreen Mode</strong> to control the slideshow using finger gestures. Instead of standard slide skips, finger taps trigger the settings card, volume sliders, increment adjusters, and a numerical keyboard modal on the display.
+                        </p>
+                        <ul style="color: var(--text-secondary); font-size: 0.8rem; padding-left: 1.25rem; line-height: 1.5; display: flex; flex-direction: column; gap: 0.4rem;">
+                            <li><strong>Taps</strong> — Open menu card, tap toggles (Play/Pause, Shuffle, Power)</li>
+                            <li><strong>+/- Increment Buttons</strong> — Raise/lower volume and delay increments</li>
+                            <li><strong>On-Screen Keyboard Modal</strong> — Select value buttons to pop open the virtual keypad to type values directly</li>
+                        </ul>
+                    </div>
+                </div>
+                
+                <div style="margin-top: 1.5rem; background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: 8px; padding: 1rem; display: flex; align-items: center; justify-content: space-between; font-size: 0.85rem;">
+                    <div style="display: flex; align-items: center; gap: 0.5rem; color: var(--text-secondary);">
+                        <i class="fa-solid fa-circle-info" style="color: var(--text-secondary); font-size: 1.1rem;"></i>
+                        <span>To enable touchscreen mode, configure the <code>[touch]</code> block in your <code>config.toml</code> or toggle <strong>Touchscreen Mode</strong> inside the <strong>System</strong> category in the <code>pitrove config</code> SSH settings wizard.</span>
+                    </div>
+                </div>
+            </div>
+        </section>
+
         <!-- Capabilities Section -->
         <section id="capabilities">
             <div class="container">
