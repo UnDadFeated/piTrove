@@ -1,7 +1,7 @@
 #ifndef PITROVE_UTIL_H
 #define PITROVE_UTIL_H
 
-#define VERSION "11.9.3"
+#define VERSION "11.9.4"
 #define APP_NAME "piTrove"
 
 #include <atomic>
@@ -18,6 +18,7 @@ struct MediaItem; // Forward declaration
 extern std::atomic<bool> g_running;
 extern std::atomic<bool> g_slideshow_paused;
 extern std::atomic<int> g_remote_command; // 1=Next, 2=Prev, 3=PauseToggle
+extern std::atomic<float> g_item_timer; // Shared slideshow timer progress
 extern std::atomic<float> g_weather_temp;
 extern std::atomic<int> g_weather_code;
 extern std::atomic<bool> g_config_changed;

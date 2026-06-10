@@ -1539,6 +1539,57 @@ int main(int argc, char** argv) {
             fps_timer -= 1.0;
         }
 
+        auto execute_menu_action = [&](int selection) {
+            switch (selection) {
+                case 0:
+                    g_slideshow_paused = !g_slideshow_paused.load();
+                    g_logger.info("SLIDESHOW: Play/pause toggled via pop-up menu. Paused = %s", g_slideshow_paused.load() ? "YES" : "NO");
+                    break;
+                case 1:
+                    {
+                        std::lock_guard<std::mutex> lk(g_config_mtx);
+                        g_cfg.shuffle = !g_cfg.shuffle;
+                        g_cfg.save(config_path);
+                    }
+                    g_config_changed.store(true);
+                    g_logger.info("SLIDESHOW: Shuffle toggled via pop-up menu.");
+                    break;
+                case 2:
+                    {
+                        std::lock_guard<std::mutex> lk(g_config_mtx);
+                        double curr = g_cfg.transition_delay;
+                        if (curr < 15.0) g_cfg.transition_delay = 30.0;
+                        else if (curr < 45.0) g_cfg.transition_delay = 60.0;
+                        else if (curr < 90.0) g_cfg.transition_delay = 120.0;
+                        else if (curr < 210.0) g_cfg.transition_delay = 300.0;
+                        else g_cfg.transition_delay = 10.0;
+                        g_cfg.save(config_path);
+                    }
+                    g_config_changed.store(true);
+                    g_logger.info("SLIDESHOW: Interval changed via pop-up menu.");
+                    break;
+                case 3:
+                    {
+                        bool expected = g_screen_blanked.load();
+                        bool desired = !expected;
+                        while (!g_screen_blanked.compare_exchange_weak(expected, desired)) {
+                            desired = !expected;
+                        }
+                        set_display_power(expected);
+                        std::string prefix;
+                        { std::lock_guard<std::mutex> lk(g_config_mtx); prefix = g_cfg.mqtt_topic_prefix; }
+                        mqtt_publish(prefix + "/status/screen", g_screen_blanked.load() ? "OFF" : "ON", true);
+                        g_logger.info("SLIDESHOW: Screen power toggled via pop-up menu.");
+                    }
+                    break;
+                case 4:
+                    if (g_overlay) {
+                        g_overlay->menu_active = false;
+                    }
+                    break;
+            }
+        };
+
         SDL_Event event;
         while (SDL_PollEvent(&event)) {
             switch (event.type) {
@@ -1551,11 +1602,30 @@ int main(int argc, char** argv) {
                         { std::lock_guard<std::mutex> lk(g_config_mtx); prefix = g_cfg.mqtt_topic_prefix; }
                         mqtt_publish(prefix + "/status/screen", "ON", true);
                     }
-                    switch (event.key.key) {
-                        case SDLK_ESCAPE: case SDLK_Q: g_running.store(false); break;
-                        case SDLK_RIGHT: case SDLK_SPACE: g_remote_command.store(1); break;
-                        case SDLK_LEFT: g_remote_command.store(2); break;
-                        case SDLK_P: g_remote_command.store(3); break;
+                    if (g_overlay && g_overlay->menu_active) {
+                        switch (event.key.key) {
+                            case SDLK_ESCAPE:
+                            case SDLK_Q:
+                                g_overlay->menu_active = false;
+                                break;
+                            case SDLK_UP:
+                                g_overlay->menu_selected = (g_overlay->menu_selected - 1 + 5) % 5;
+                                break;
+                            case SDLK_DOWN:
+                                g_overlay->menu_selected = (g_overlay->menu_selected + 1) % 5;
+                                break;
+                            case SDLK_RETURN:
+                            case SDLK_SPACE:
+                                execute_menu_action(g_overlay->menu_selected);
+                                break;
+                        }
+                    } else {
+                        switch (event.key.key) {
+                            case SDLK_ESCAPE: case SDLK_Q: g_running.store(false); break;
+                            case SDLK_RIGHT: case SDLK_SPACE: g_remote_command.store(1); break;
+                            case SDLK_LEFT: g_remote_command.store(2); break;
+                            case SDLK_P: g_remote_command.store(3); break;
+                        }
                     }
                     break;
                 case SDL_EVENT_MOUSE_BUTTON_DOWN:
@@ -1566,7 +1636,48 @@ int main(int argc, char** argv) {
                         { std::lock_guard<std::mutex> lk(g_config_mtx); prefix = g_cfg.mqtt_topic_prefix; }
                         mqtt_publish(prefix + "/status/screen", "ON", true);
                     }
-                    g_remote_command.store(1);
+                    if (event.button.button == SDL_BUTTON_RIGHT) {
+                        if (g_overlay) {
+                            if (g_mpv_player.is_active()) {
+                                g_logger.info("Right-click during video: stopping mpv to open config menu.");
+                                g_mpv_player.stop();
+                            }
+                            g_overlay->menu_active = !g_overlay->menu_active;
+                        }
+                    } else if (event.button.button == SDL_BUTTON_LEFT) {
+                        if (g_overlay && g_overlay->menu_active) {
+                            float mx = event.button.x;
+                            float my = event.button.y;
+                            int sw = g_renderer.screen_w;
+                            int sh = g_renderer.screen_h;
+                            int menu_w = 420;
+                            int menu_h = 280;
+                            int menu_x = (sw - menu_w) / 2;
+                            int menu_y = (sh - menu_h) / 2;
+
+                            int start_y = menu_y + 60;
+                            bool clicked_item = false;
+                            for (int i = 0; i < 5; i++) {
+                                int iy = start_y + i * 32;
+                                int ih = 28;
+                                int ix = menu_x + 20;
+                                int iw = menu_w - 40;
+                                if (mx >= ix && mx <= ix + iw && my >= iy - 2 && my <= iy - 2 + ih) {
+                                    g_overlay->menu_selected = i;
+                                    execute_menu_action(i);
+                                    clicked_item = true;
+                                    break;
+                                }
+                            }
+                            if (!clicked_item) {
+                                if (mx < menu_x || mx > menu_x + menu_w || my < menu_y || my > menu_y + menu_h) {
+                                    g_overlay->menu_active = false;
+                                }
+                            }
+                        } else {
+                            g_remote_command.store(1);
+                        }
+                    }
                     break;
             }
         }
@@ -1630,6 +1741,7 @@ int main(int argc, char** argv) {
 
         // Apply Skip Arrow commands
         if (cmd == 1 || cmd == 2) {
+            item_timer = 0.0;
             bool was_video = (g_eligible[current_idx].type == "video");
             if (g_mpv_player.is_active()) {
                 g_logger.info("Interrupted video playback via skip request: stopping mpv.");
@@ -1738,6 +1850,7 @@ int main(int argc, char** argv) {
         // --- Image Rendering Handling ---
         double dt_scaled = g_slideshow_paused.load() ? 0.0 : dt;
         item_timer += dt_scaled;
+        g_item_timer.store((float)item_timer);
         if (transitioning) {
             // Load next_data exactly once at the beginning of the transition
             if (!next_data) {
