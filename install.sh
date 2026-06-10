@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# install.sh — piTrove v11.9.0 Premium Graphical Installer
+# install.sh — piTrove v11.9.6 Premium Graphical Installer
 # Target: Debian Trixie (13) 64-bit on Raspberry Pi 4/5
 
 set -eo pipefail
@@ -354,10 +354,10 @@ if [[ "$1" == "--organize" ]]; then
     
     if [[ "$STRATEGY" == "1" ]]; then
         info "Organizing media archive (Chronological Folders) at $TARGET_DIR..."
-        python3 /home/pi/piTrove/scripts/organize.py "$TARGET_DIR"
+        python3 "$PRIMARY_HOME/piTrove/scripts/organize.py" "$TARGET_DIR"
     else
         info "Organizing media archive (In-Place Prefix) at $TARGET_DIR..."
-        python3 /home/pi/piTrove/scripts/organize.py "$TARGET_DIR" --in-place
+        python3 "$PRIMARY_HOME/piTrove/scripts/organize.py" "$TARGET_DIR" --in-place
     fi
     
     if [[ "$IS_RO" -eq 1 ]]; then
@@ -567,6 +567,8 @@ else
     exit 0
 fi
 EOF
+# Fix hardcoded /home/pi path to match actual primary user home
+sed -i "s|/home/pi/piTrove|${PRIMARY_HOME}/piTrove|g" "$PRIMARY_HOME/piTrove/scripts/wifi_keepalive.sh"
 chmod +x "$PRIMARY_HOME/piTrove/scripts/wifi_keepalive.sh"
 chown $PRIMARY_USER:$PRIMARY_USER "$PRIMARY_HOME/piTrove/scripts/wifi_keepalive.sh"
 
@@ -914,6 +916,8 @@ if __name__ == "__main__":
         
     organize_archive(args[0], in_place=in_place)
 EOF
+# Fix hardcoded /home/pi path to match actual primary user home
+sed -i "s|/home/pi/piTrove|${PRIMARY_HOME}/piTrove|g" "$PRIMARY_HOME/piTrove/scripts/organize.py"
 chmod +x "$PRIMARY_HOME/piTrove/scripts/organize.py"
 chown $PRIMARY_USER:$PRIMARY_USER "$PRIMARY_HOME/piTrove/scripts/organize.py"
 ok "Configured media archive organizer script"
@@ -1478,7 +1482,7 @@ if yesno "Configure Google Photos cloud integration?"; then
         fi
     done
 
-    ok "Google Photos configured (will require browser authorization at http://<IP>:8080/google_photos_setup)"
+    ok "Google Photos configured (will require browser authorization at http://<IP>:9000/google_photos_setup)"
 fi
 
 # ── Configuration TOML ─────────────────────────────────────────────────────────
@@ -1598,8 +1602,8 @@ weather_lat = -999.0
 weather_lon = -999.0
 
 [remote]
-http_enabled = $GOOGLE_PHOTOS_ENABLED
-http_port = 8080
+http_enabled = 1
+http_port = 9000
 
 [mqtt]
 enabled = 0
@@ -1749,7 +1753,7 @@ print_success_card() {
     if [[ -z "$IP_ADDR" ]]; then
         IP_ADDR="127.0.0.1"
     fi
-    local url="http://${IP_ADDR}:8080/"
+    local url="http://${IP_ADDR}:9000/"
     local text="   • URL: $url"
     local pad=$(( 60 - ${#text} ))
     local spaces=""
@@ -1786,7 +1790,7 @@ print_success_card() {
     if [[ "$GOOGLE_PHOTOS_ENABLED" -eq 1 ]]; then
         echo -e "${GREEN}║${NC}                                                              ${GREEN}║${NC}"
         echo -e "${GREEN}║${NC}  ${BOLD}${YELLOW}Google Photos Authorization Required:${NC}                       ${GREEN}║${NC}"
-        echo -e "${GREEN}║${NC}   • Nav to: ${CYAN}http://${IP_ADDR}:8080/google_photos_setup${NC}       ${GREEN}║${NC}"
+        echo -e "${GREEN}║${NC}   • Nav to: ${CYAN}http://${IP_ADDR}:9000/google_photos_setup${NC}       ${GREEN}║${NC}"
         echo -e "${GREEN}║${NC}   • Log in & grant consent to complete authentication.       ${GREEN}║${NC}"
     fi
     echo -e "${GREEN}╚══════════════════════════════════════════════════════════════╝${NC}"
