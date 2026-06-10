@@ -73,7 +73,7 @@ std::vector<ErrorSeed> get_all_error_seeds() {
             "E112",
             "FIREWALL_BLOCK_HTTP",
             "Local firewall rules (iptables/ufw) are blocking the HTTP server port.",
-            "Add a firewall rule to allow traffic on the configured http_port (default 8080)."
+            "Add a firewall rule to allow traffic on the configured http_port (default 9000)."
         },
         {
             "E113",

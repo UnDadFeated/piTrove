@@ -1,3 +1,18 @@
+## v11.9.3 — Consolidated Web Dashboard & Buffering Enhancements (June 10, 2026)
+
+### Added
+- **Consolidated Control Dashboard Layout** — Redesigned the interactive web control interface to reduce vertical spacing, merge fragmented telemetry boxes, and place all playback indicators and buttons into a single cohesive control card.
+- **Enhanced 4K Video Buffering** — Optimized video playback buffer sizes and startup caching logic to enable stutter-free, smooth rendering of high-bitrate 4K@60fps video clips over local networks and NAS storage.
+
+### Fixed
+- **Documentation Spacing & Layout** — Cleaned up the documentation landing page by combining installation scripts and command lists into unified layout sections, removing redundant outline borders, and streamlining capabilities feature items.
+
+## v11.9.2 — Interactive Web Settings & Diagnostics HUD (June 10, 2026)
+
+### Added
+- **Interactive Web Settings Control Panel** — Introduced an interactive configuration dashboard to dynamically customize slideshow preferences, overlay features, and automation settings directly from the web remote interface.
+- **Live System Diagnostics Logs** — Integrated a real-time log terminal viewer on the dashboard to inspect system events, media indexing status, and diagnostic reports without requiring SSH terminal sessions.
+
 ## v11.9.1 — Safe Configuration Merging & Maintenance Updates (June 8, 2026)
 
 ### Added

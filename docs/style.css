@@ -579,20 +579,19 @@ section {
 }
 
 .compact-feature-item {
-    background: var(--card-bg);
-    border: 1px solid var(--border-color);
-    border-radius: 8px;
-    padding: 1.5rem;
+    background: transparent;
+    border: none;
+    border-radius: 0;
+    padding: 0.75rem 0.5rem;
     display: flex;
     gap: 1.25rem;
     align-items: flex-start;
     transition: var(--transition-smooth);
-    box-shadow: var(--shadow-premium);
+    box-shadow: none;
 }
 
 .compact-feature-item:hover {
-    border-color: var(--border-color-glow);
-    transform: translateY(-2px);
+    transform: translateY(-1px);
 }
 
 .item-icon {
