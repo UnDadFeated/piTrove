@@ -546,4 +546,96 @@ void OverlayManager::draw_all(int current_idx, int total_items, const MediaItem*
         // Draw recovery (bright yellow-green command style)
         font_renderer->draw_text(rx, ry + hh + dh + 16, body_font, rec_text, 255, 223, 0, 255);
     }
+
+    if (menu_active) {
+        draw_popup_menu();
+    }
+}
+
+void OverlayManager::draw_popup_menu() {
+    if (!font_loaded || !font_renderer || !overlay_font) return;
+
+    int sw = g_renderer.screen_w;
+    int sh = g_renderer.screen_h;
+
+    int menu_w = 420;
+    int menu_h = 280;
+    int menu_x = (sw - menu_w) / 2;
+    int menu_y = (sh - menu_h) / 2;
+
+    // Draw background card (translucent dark slate grey)
+    SDL_Rect container = { menu_x, menu_y, menu_w, menu_h };
+    SDL_SetRenderDrawBlendMode(renderer->sdl_renderer, SDL_BLENDMODE_BLEND);
+    SDL_SetRenderDrawColor(renderer->sdl_renderer, 15, 15, 17, 245);
+    SDL_FRect container_f = { (float)container.x, (float)container.y, (float)container.w, (float)container.h };
+    SDL_RenderFillRect(renderer->sdl_renderer, &container_f);
+
+    // Draw card border (zinc gray/silver)
+    SDL_SetRenderDrawColor(renderer->sdl_renderer, 161, 161, 170, 100); // Zinc border
+    SDL_RenderRect(renderer->sdl_renderer, &container_f);
+
+    FontHandle& title_font = font_renderer->load_font(overlay_font->path, 18);
+    FontHandle& item_font = font_renderer->load_font(overlay_font->path, 13);
+    FontHandle& footer_font = font_renderer->load_font(overlay_font->path, 11);
+
+    // Draw Title centered
+    std::string title_text = "piTrove Configuration";
+    int tw, th;
+    font_renderer->measure(title_font, title_text, tw, th);
+    font_renderer->draw_text(menu_x + (menu_w - tw) / 2, menu_y + 20, title_font, title_text, 244, 244, 245, 255); // White-zinc text
+
+    // Separator line
+    SDL_SetRenderDrawColor(renderer->sdl_renderer, 161, 161, 170, 40);
+    SDL_RenderLine(renderer->sdl_renderer, menu_x + 15, menu_y + 45, menu_x + menu_w - 15, menu_y + 45);
+
+    // Get menu options states
+    bool paused = g_slideshow_paused.load();
+    bool shuffle = false;
+    double delay = 120.0;
+    {
+        std::lock_guard<std::mutex> lk(g_config_mtx);
+        shuffle = g_cfg.shuffle;
+        delay = g_cfg.transition_delay;
+    }
+    bool blanked = g_screen_blanked.load();
+
+    // Menu options text array
+    std::vector<std::string> options;
+    options.push_back(std::string("Play/Pause slideshow: ") + (paused ? "PAUSED" : "PLAYING"));
+    options.push_back(std::string("Shuffle playlist:     ") + (shuffle ? "ON" : "OFF"));
+    options.push_back("Interval delay:       " + std::to_string((int)delay) + "s");
+    options.push_back(std::string("Screen blanking:      ") + (blanked ? "OFF (blanked)" : "ON (active)"));
+    options.push_back("Close quick menu");
+
+    int start_y = menu_y + 60;
+    for (int i = 0; i < (int)options.size(); i++) {
+        int iy = start_y + i * 32;
+        int ih = 28;
+        int ix = menu_x + 20;
+        int iw = menu_w - 40;
+
+        // Draw highlight background if selected
+        if (i == menu_selected) {
+            SDL_Rect highlight = { ix, iy - 2, iw, ih };
+            SDL_FRect highlight_f = { (float)highlight.x, (float)highlight.y, (float)highlight.w, (float)highlight.h };
+            SDL_SetRenderDrawColor(renderer->sdl_renderer, 161, 161, 170, 50); // Zinc transparent selection
+            SDL_RenderFillRect(renderer->sdl_renderer, &highlight_f);
+            SDL_SetRenderDrawColor(renderer->sdl_renderer, 244, 244, 245, 180);
+            SDL_RenderRect(renderer->sdl_renderer, &highlight_f);
+
+            font_renderer->draw_text(ix + 10, iy + 2, item_font, options[i], 255, 255, 255, 255); // Highlighted white text
+        } else {
+            font_renderer->draw_text(ix + 10, iy + 2, item_font, options[i], 161, 161, 170, 255); // Zinc text
+        }
+    }
+
+    // Separator line before footer
+    SDL_SetRenderDrawColor(renderer->sdl_renderer, 161, 161, 170, 40);
+    SDL_RenderLine(renderer->sdl_renderer, menu_x + 15, menu_y + menu_h - 40, menu_x + menu_w - 15, menu_y + menu_h - 40);
+
+    // Footer notice text
+    std::string footer_text = "SSH to Pi and run 'piTrove TUI' for advanced settings.";
+    int fw, fh;
+    font_renderer->measure(footer_font, footer_text, fw, fh);
+    font_renderer->draw_text(menu_x + (menu_w - fw) / 2, menu_y + menu_h - 28, footer_font, footer_text, 113, 113, 122, 255); // Muted gray text
 }

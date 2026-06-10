@@ -18,6 +18,7 @@
 std::atomic<bool> g_running{true};
 std::atomic<bool> g_slideshow_paused{false};
 std::atomic<int> g_remote_command{0};
+std::atomic<float> g_item_timer{0.0f};
 std::atomic<float> g_weather_temp{0.0f};
 std::atomic<int> g_weather_code{0};
 std::atomic<bool> g_config_changed{false};
