@@ -90,7 +90,7 @@ struct Config {
 
     // [remote]
     bool    http_enabled{false};
-    int     http_port{8080};
+    int     http_port{9000};
 
     // [date_overlay]
     bool    date_overlay_enabled{false};

@@ -130,6 +130,7 @@ void config_wizard(const std::string& config_path) {
         {"Wake Time", STR, "Time to turn on HDMI port (HH:MM, e.g. 07:30)"},
         {"HTTP Remote", TGL, "Enable local web server to skip/pause"},
         {"Web Dashboard", TGL, "Enable glassmorphic HTTP web remote control dashboard"},
+        {"HTTP Port", INT, "Port for local web server and dashboard (default: 9000)"},
         {"Splash Overlay Y", FLT, "Vertical position of splash UI (0.0 to 1.0)"},
         {"Auto Update", TGL, "Enable automatic background system updates"},
         {"Auto Update Branch", ENM, "Git branch to pull updates from (main/develop)"}
@@ -266,9 +267,10 @@ void config_wizard(const std::string& config_path) {
             case 3: return g_cfg.sleep_time; case 4: return g_cfg.wake_time;
             case 5: return g_cfg.http_enabled?"[ON]":"[OFF]";
             case 6: return g_cfg.web_dashboard_enabled?"[ON]":"[OFF]";
-            case 7: return std::to_string(g_cfg.splash_overlay_y);
-            case 8: return g_cfg.auto_update?"[ON]":"[OFF]";
-            case 9: return g_cfg.auto_update_branch;
+            case 7: return std::to_string(g_cfg.http_port);
+            case 8: return std::to_string(g_cfg.splash_overlay_y);
+            case 9: return g_cfg.auto_update?"[ON]":"[OFF]";
+            case 10: return g_cfg.auto_update_branch;
         }
         if (c == 2) switch(i) {
             case 0: return g_cfg.timer_enabled?"[ON]":"[OFF]";
@@ -390,9 +392,10 @@ void config_wizard(const std::string& config_path) {
                 case 3:g_cfg.sleep_time=v;break; case 4:g_cfg.wake_time=v;break;
                 case 5:g_cfg.http_enabled=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
                 case 6:g_cfg.web_dashboard_enabled=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
-                case 7:{ try { g_cfg.splash_overlay_y=std::stof(v); } catch(...) {} break; }
-                case 8:g_cfg.auto_update=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
-                case 9:g_cfg.auto_update_branch=v;break;
+                case 7:{ try { int val = std::stoi(v); if(val>=1&&val<=65535) g_cfg.http_port=val; } catch(...) {} break; }
+                case 8:{ try { g_cfg.splash_overlay_y=std::stof(v); } catch(...) {} break; }
+                case 9:g_cfg.auto_update=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
+                case 10:g_cfg.auto_update_branch=v;break;
             }
             else if(c==2) switch(i){
                 case 0:g_cfg.timer_enabled=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;

@@ -198,9 +198,12 @@ bool MpvPlayer::play(const std::string& path, int volume) {
             "--osd-font-size=10",
             threads_arg,
             "--cache=yes",
-            "--demuxer-max-bytes=500M",
-            "--demuxer-readahead-secs=45",
-            "--demuxer-max-back-bytes=150M"
+            "--demuxer-max-bytes=800M",
+            "--demuxer-readahead-secs=60",
+            "--demuxer-max-back-bytes=256M",
+            "--cache-pause=yes",
+            "--cache-pause-initial=yes",
+            "--cache-pause-wait=5"
         };
 
         if (volume > 0) {

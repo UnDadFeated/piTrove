@@ -102,7 +102,7 @@ weather_lon = -999.0
 
 [remote]
 http_enabled = 1
-http_port = 8080
+http_port = 9000
 web_dashboard_enabled = 1
 
 [features]
