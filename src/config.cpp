@@ -89,7 +89,7 @@ bool Config::load(const std::string& path) {
         else if (key == "http_enabled")      this->http_enabled = (val == "1" || val == "true");
         else if (key == "http_port") {
             int p = safe_stoi(val, this->http_port);
-            this->http_port = (p >= 1 && p <= 65535) ? p : 8080;
+            this->http_port = (p >= 1 && p <= 65535) ? p : 9000;
         }
         else if (key == "volume")            this->video_volume = std::max(0, std::min(150, safe_stoi(val, this->video_volume)));
         else if (key == "probe_timeout")     this->video_probe_timeout = std::max(1, std::min(30, safe_stoi(val, this->video_probe_timeout)));

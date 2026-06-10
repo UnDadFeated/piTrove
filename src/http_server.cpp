@@ -111,10 +111,16 @@ static std::string get_query_param(const std::string& request, const std::string
 
 static std::string get_host_header(const std::string& request) {
     size_t pos = request.find("Host: ");
-    if (pos == std::string::npos) return "192.168.4.110:8080";
+    int port = 9000;
+    {
+        std::lock_guard<std::mutex> lk(g_config_mtx);
+        port = g_cfg.http_port;
+    }
+    std::string default_host = "192.168.4.110:" + std::to_string(port);
+    if (pos == std::string::npos) return default_host;
     pos += 6;
     size_t end = request.find_first_of("\r\n", pos);
-    if (end == std::string::npos) return "192.168.4.110:8080";
+    if (end == std::string::npos) return default_host;
     return request.substr(pos, end - pos);
 }
 
@@ -534,7 +540,7 @@ static std::string get_dashboard_html() {
             max-width: 600px;
             display: flex;
             flex-direction: column;
-            gap: 1.5rem;
+            gap: 0.8rem;
         }
 
         /* Glassmorphic Header */
@@ -574,6 +580,38 @@ static std::string get_dashboard_html() {
             text-transform: uppercase;
             letter-spacing: 2px;
             margin-top: 0.25rem;
+        }
+
+        /* Tabs System styling */
+        .tabs {
+            display: flex;
+            gap: 0.5rem;
+            background: rgba(255, 255, 255, 0.02);
+            border: 1px solid var(--card-border);
+            padding: 0.35rem;
+            border-radius: 16px;
+        }
+        .tab-btn {
+            flex: 1;
+            background: transparent;
+            border: none;
+            padding: 0.75rem;
+            color: var(--text-muted);
+            font-family: inherit;
+            font-weight: 600;
+            font-size: 0.95rem;
+            border-radius: 12px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        .tab-btn:hover {
+            color: var(--text-main);
+            background: rgba(255, 255, 255, 0.03);
+        }
+        .tab-btn.active {
+            color: var(--text-main);
+            background: linear-gradient(90deg, var(--accent), var(--neon-blue));
+            box-shadow: 0 4px 12px rgba(217, 70, 239, 0.25);
         }
 
         /* Live Preview Card */
@@ -814,11 +852,187 @@ static std::string get_dashboard_html() {
             color: var(--text-main);
         }
 
+        /* Config Forms styling */
+        .form-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 1rem;
+        }
+        .form-group {
+            display: flex;
+            flex-direction: column;
+            gap: 0.4rem;
+        }
+        .form-group label {
+            font-weight: 600;
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: var(--text-muted);
+        }
+        .form-group input[type="text"],
+        .form-group input[type="number"],
+        .form-group select {
+            background: rgba(0, 0, 0, 0.25);
+            border: 1px solid var(--card-border);
+            border-radius: 12px;
+            padding: 0.7rem 0.9rem;
+            color: var(--text-main);
+            font-family: inherit;
+            font-size: 0.9rem;
+            transition: all 0.3s ease;
+        }
+        .form-group input:focus,
+        .form-group select:focus {
+            outline: none;
+            border-color: var(--accent);
+            box-shadow: 0 0 8px var(--accent-glow);
+        }
+        .form-group input[type="range"] {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 100%;
+            height: 6px;
+            background: rgba(255,255,255,0.1);
+            border-radius: 3px;
+            outline: none;
+            margin: 1rem 0;
+        }
+        .form-group input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 18px;
+            height: 18px;
+            border-radius: 50%;
+            background: var(--accent);
+            cursor: pointer;
+            box-shadow: 0 0 10px var(--accent-glow);
+            transition: transform 0.1s;
+        }
+        .form-group input[type="range"]::-webkit-slider-thumb:hover {
+            transform: scale(1.2);
+        }
+
+        /* Toggle switches styling */
+        .switch-grid {
+            display: flex;
+            flex-direction: column;
+            gap: 0.8rem;
+        }
+        .switch-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0.5rem 0;
+            border-bottom: 1px solid rgba(255,255,255,0.04);
+        }
+        .switch-item:last-child {
+            border-bottom: none;
+        }
+        .switch-item span {
+            font-size: 0.95rem;
+            color: var(--text-main);
+        }
+        .switch {
+            position: relative;
+            display: inline-block;
+            width: 46px;
+            height: 26px;
+        }
+        .switch input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+        .slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background-color: rgba(255,255,255,0.1);
+            transition: .4s;
+            border-radius: 34px;
+            border: 1px solid var(--card-border);
+        }
+        .slider:before {
+            position: absolute;
+            content: "";
+            height: 18px;
+            width: 18px;
+            left: 3px;
+            bottom: 3px;
+            background-color: var(--text-muted);
+            transition: .4s;
+            border-radius: 50%;
+        }
+        input:checked + .slider {
+            background-color: rgba(217, 70, 239, 0.2);
+            border-color: var(--accent);
+        }
+        input:checked + .slider:before {
+            transform: translateX(20px);
+            background-color: var(--accent);
+            box-shadow: 0 0 8px var(--accent-glow);
+        }
+
+        /* Log console styling */
+        .log-console {
+            background: #020205;
+            border: 1px solid var(--card-border);
+            border-radius: 12px;
+            padding: 1rem;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.8rem;
+            color: #4ade80;
+            height: 320px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            line-height: 1.4;
+            text-shadow: 0 0 2px rgba(74, 222, 128, 0.4);
+        }
+
+        /* Toast styling */
+        .toast {
+            position: fixed;
+            bottom: 2rem;
+            left: 50%;
+            transform: translateX(-50%) translateY(100px);
+            background: rgba(16, 185, 129, 0.15);
+            border: 1px solid #10b981;
+            color: #f8fafc;
+            padding: 1rem 2rem;
+            border-radius: 16px;
+            backdrop-filter: var(--glass-blur);
+            -webkit-backdrop-filter: var(--glass-blur);
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5), 0 0 15px rgba(16, 185, 129, 0.3);
+            font-weight: 600;
+            transition: transform 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            z-index: 1000;
+            pointer-events: none;
+        }
+        .toast.show {
+            transform: translateX(-50%) translateY(0);
+        }
+
+        /* Button save */
+        .btn-save {
+            width: 100%;
+            border-radius: 14px;
+            padding: 1rem;
+            font-size: 1rem;
+            font-weight: 800;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        .btn-save:hover {
+            transform: translateY(-2px);
+        }
+
         /* Responsive */
         @media (max-width: 480px) {
             h1 { font-size: 1.5rem; }
             .btn { padding: 1rem; font-size: 0.9rem; }
             .btn-icon { font-size: 1.25rem; }
+            .form-grid { grid-template-columns: 1fr; }
         }
     </style>
 </head>
@@ -830,97 +1044,451 @@ static std::string get_dashboard_html() {
             <div class="subtitle">v11.0.0 glassmorphic system</div>
         </header>
 
-        <!-- Live Preview -->
-        <div class="preview-card">
-            <div class="preview-container">
-                <img id="preview" class="preview-image" src="/api/preview" alt="Slideshow Preview" onload="onPreviewLoaded()" onerror="onPreviewError()">
-                <div id="loading" class="preview-loading">Syncing...</div>
-            </div>
-            <div class="media-info">
-                <div id="media-title" class="media-title">Fetching media...</div>
-                <div class="media-meta">
-                    <span id="media-type" class="badge">IMAGE</span>
-                    <span id="media-progress">0 / 0</span>
+        <!-- Tabs -->
+        <div class="tabs">
+            <button class="tab-btn active" onclick="switchTab('remote')">Remote</button>
+            <button class="tab-btn" onclick="switchTab('settings')">Settings</button>
+            <button class="tab-btn" onclick="switchTab('logs')">Diagnostics</button>
+        </div>
+
+        <!-- Remote Tab -->
+        <div id="tab-remote-content" class="tab-content">
+            <div style="display: flex; flex-direction: column; gap: 0.8rem;">
+                <!-- Live Preview & Playback Controls -->
+                <div class="preview-card">
+                    <div class="preview-container">
+                        <img id="preview" class="preview-image" src="/api/preview" alt="Slideshow Preview" onload="onPreviewLoaded()" onerror="onPreviewError()">
+                        <div id="loading" class="preview-loading">Syncing...</div>
+                    </div>
+                    <div class="media-info">
+                        <div id="media-title" class="media-title" style="margin-bottom: 0.4rem;">Fetching media...</div>
+                        <div class="media-meta" style="margin-bottom: 0.6rem;">
+                            <span id="media-type" class="badge">IMAGE</span>
+                            <span id="media-progress">0 / 0</span>
+                        </div>
+                    </div>
+                    <!-- Playback Controls Row -->
+                    <div class="playback-controls-row" style="display: flex; gap: 0.5rem; width: 100%;">
+                        <button class="btn btn-blue" onclick="sendCommand('/api/prev')" style="flex: 1; padding: 0.75rem; border-radius: 12px; font-size: 0.9rem; flex-direction: row; gap: 0.2rem;">
+                            <span class="btn-icon">⏮</span>
+                        </button>
+                        <button id="btn-pause" class="btn btn-accent" onclick="sendCommand('/api/pause')" style="flex: 1.5; padding: 0.75rem; border-radius: 12px; font-size: 0.9rem; flex-direction: row; gap: 0.2rem;">
+                            <span id="icon-pause" class="btn-icon">⏸</span>
+                            <span id="txt-pause">Pause</span>
+                        </button>
+                        <button class="btn btn-blue" onclick="sendCommand('/api/next')" style="flex: 1; padding: 0.75rem; border-radius: 12px; font-size: 0.9rem; flex-direction: row; gap: 0.2rem;">
+                            <span class="btn-icon">⏭</span>
+                        </button>
+                        <button id="btn-shuffle" class="btn btn-toggle" onclick="sendCommand('/api/toggle_shuffle')" style="flex: 1; padding: 0.75rem; border-radius: 12px; font-size: 0.9rem; flex-direction: row; gap: 0.2rem;">
+                            <span class="btn-icon">🔀</span>
+                            <span><strong id="lbl-shuffle">ON</strong></span>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- System & Automation Panel -->
+                <div class="telemetry-card">
+                    <div class="telemetry-title">System & Automation</div>
+                    <div class="telemetry-grid" style="grid-template-columns: repeat(3, 1fr); gap: 0.5rem; margin-bottom: 0.75rem;">
+                        <div class="telemetry-item">
+                            <span class="telemetry-label">CPU Temp</span>
+                            <span id="stat-temp" class="telemetry-value">--°C</span>
+                        </div>
+                        <div class="telemetry-item">
+                            <span class="telemetry-label">Cache DB</span>
+                            <span id="stat-db" class="telemetry-value">-- MB</span>
+                        </div>
+                        <div class="telemetry-item">
+                            <span class="telemetry-label">Queue Size</span>
+                            <span id="stat-queue" class="telemetry-value">--</span>
+                        </div>
+                        <div class="telemetry-item" style="grid-column: span 3; border-top: 1px solid rgba(255,255,255,0.04); padding-top: 0.4rem; margin-top: 0.2rem;">
+                            <span class="telemetry-label">MQTT Connection Status</span>
+                            <span id="stat-mqtt-status" class="telemetry-value" style="font-size: 0.95rem; font-family: inherit;">Disabled</span>
+                            <span id="stat-mqtt-broker" style="font-size: 0.75rem; color: var(--text-muted); display: block; margin-top: 0.1rem;">Broker: --</span>
+                        </div>
+                    </div>
+                    <div class="action-buttons-row" style="display: flex; gap: 0.5rem; width: 100%;">
+                        <button id="btn-screen" class="btn btn-toggle" onclick="sendCommand('/api/toggle_screen')" style="flex: 1.2; padding: 0.6rem; border-radius: 12px; font-size: 0.85rem; flex-direction: row; gap: 0.4rem;">
+                            <span class="btn-icon" style="font-size: 1rem;">📺</span>
+                            <span>Screen: <strong id="lbl-screen">ON</strong></span>
+                        </button>
+                        <button class="btn btn-blue" onclick="sendCommand('/api/trigger_motion')" style="flex: 1; padding: 0.6rem; border-radius: 12px; font-size: 0.85rem; flex-direction: row; gap: 0.4rem;">
+                            <span class="btn-icon" style="font-size: 1rem;">🏃</span>
+                            <span>Motion</span>
+                        </button>
+                        <button class="btn btn-danger" onclick="confirmRestart()" style="flex: 1; padding: 0.6rem; border-radius: 12px; font-size: 0.85rem; flex-direction: row; gap: 0.4rem;">
+                            <span class="btn-icon" style="font-size: 1rem;">🔄</span>
+                            <span>Restart</span>
+                        </button>
+                    </div>
                 </div>
             </div>
         </div>
 
-        <!-- Controls Grid -->
-        <div class="controls-grid">
-            <button class="btn btn-blue" onclick="sendCommand('/api/prev')">
-                <span class="btn-icon">⏮</span>
-                <span>Previous</span>
-            </button>
-            <button id="btn-pause" class="btn btn-accent" onclick="sendCommand('/api/pause')">
-                <span id="icon-pause" class="btn-icon">⏸</span>
-                <span id="txt-pause">Pause</span>
-            </button>
-            <button class="btn btn-blue" onclick="sendCommand('/api/next')">
-                <span class="btn-icon">⏭</span>
-                <span>Next</span>
-            </button>
-        </div>
+        <!-- Settings Tab -->
+        <div id="tab-settings-content" class="tab-content" style="display: none;">
+            <div style="display: flex; flex-direction: column; gap: 0.8rem;">
+                <div class="telemetry-card">
+                    <div class="telemetry-title">App Settings</div>
+                    
+                    <form id="settings-form" onsubmit="event.preventDefault(); saveSettings();" style="display: flex; flex-direction: column; gap: 1rem;">
+                        <!-- Section 1: Playback -->
+                        <div>
+                            <h3 style="font-size: 0.85rem; text-transform: uppercase; color: var(--accent); letter-spacing: 1px; margin-bottom: 0.6rem; border-bottom: 1px solid rgba(255,255,255,0.06); padding-bottom: 0.2rem; font-weight: 800;">Slideshow & Playback</h3>
+                            <div class="form-grid" style="gap: 0.75rem;">
+                                <div class="form-group">
+                                    <label for="set-transition-delay">Interval (sec)</label>
+                                    <input type="number" id="set-transition-delay" min="1" step="1">
+                                </div>
+                                <div class="form-group">
+                                    <label for="set-transition-duration">Speed (sec)</label>
+                                    <input type="number" id="set-transition-duration" min="0.1" max="10" step="0.1">
+                                </div>
+                                <div class="form-group">
+                                    <label for="set-transition-effect">Transition Style</label>
+                                    <select id="set-transition-effect">
+                                        <option value="crossfade">Crossfade</option>
+                                        <option value="wipe">Wipe</option>
+                                        <option value="dissolve">Dissolve</option>
+                                        <option value="pixelate">Pixelate</option>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label for="set-video-volume">Volume: <span id="vol-value" style="color:var(--text-main); font-weight:800;">0</span></label>
+                                    <input type="range" id="set-video-volume" min="0" max="150" value="0" oninput="document.getElementById('vol-value').innerText = this.value" style="margin: 0.3rem 0;">
+                                </div>
+                            </div>
+                            
+                            <div class="switch-grid" style="margin-top: 0.6rem; display: grid; grid-template-columns: 1fr 1fr; gap: 0.4rem 0.8rem;">
+                                <div class="switch-item" style="border: none; padding: 0.15rem 0;">
+                                    <span style="font-size: 0.85rem; color: var(--text-main);">Ken Burns (Pan/Zoom)</span>
+                                    <label class="switch" style="width: 40px; height: 22px;">
+                                        <input type="checkbox" id="set-ken-burns">
+                                        <span class="slider" style="border-radius: 20px;"></span>
+                                    </label>
+                                </div>
+                                <div class="switch-item" style="border: none; padding: 0.15rem 0;">
+                                    <span style="font-size: 0.85rem; color: var(--text-main);">Shuffle Playlist</span>
+                                    <label class="switch" style="width: 40px; height: 22px;">
+                                        <input type="checkbox" id="set-shuffle">
+                                        <span class="slider" style="border-radius: 20px;"></span>
+                                    </label>
+                                </div>
+                                <div class="switch-item" style="border: none; padding: 0.15rem 0;">
+                                    <span style="font-size: 0.85rem; color: var(--text-main);">Only Photos</span>
+                                    <label class="switch" style="width: 40px; height: 22px;">
+                                        <input type="checkbox" id="set-play-just-photos" onchange="if(this.checked)document.getElementById('set-play-just-videos').checked=false">
+                                        <span class="slider" style="border-radius: 20px;"></span>
+                                    </label>
+                                </div>
+                                <div class="switch-item" style="border: none; padding: 0.15rem 0;">
+                                    <span style="font-size: 0.85rem; color: var(--text-main);">Only Videos</span>
+                                    <label class="switch" style="width: 40px; height: 22px;">
+                                        <input type="checkbox" id="set-play-just-videos" onchange="if(this.checked)document.getElementById('set-play-just-photos').checked=false">
+                                        <span class="slider" style="border-radius: 20px;"></span>
+                                    </label>
+                                </div>
+                                <div class="switch-item" style="border: none; padding: 0.15rem 0; grid-column: span 2;">
+                                    <span style="font-size: 0.85rem; color: var(--text-main);">Twin Portrait Collage</span>
+                                    <label class="switch" style="width: 40px; height: 22px;">
+                                        <input type="checkbox" id="set-twin-portrait">
+                                        <span class="slider" style="border-radius: 20px;"></span>
+                                    </label>
+                                </div>
+                            </div>
+                        </div>
 
-        <!-- Toggle Row -->
-        <div class="toggle-row">
-            <button id="btn-shuffle" class="btn btn-toggle" onclick="sendCommand('/api/toggle_shuffle')">
-                <span class="btn-icon">🔀</span>
-                <span>Shuffle: <strong id="lbl-shuffle">ON</strong></span>
-            </button>
-            <button class="btn btn-danger btn-toggle" onclick="confirmRestart()">
-                <span class="btn-icon">🔄</span>
-                <span>Soft Restart</span>
-            </button>
-        </div>
+                        <!-- Section 2: Overlays -->
+                        <div>
+                            <h3 style="font-size: 0.85rem; text-transform: uppercase; color: var(--accent); letter-spacing: 1px; margin-bottom: 0.6rem; border-bottom: 1px solid rgba(255,255,255,0.06); padding-bottom: 0.2rem; font-weight: 800;">Overlays & Visuals</h3>
+                            <div class="switch-grid" style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.4rem 0.8rem;">
+                                <div class="switch-item" style="border: none; padding: 0.15rem 0;">
+                                    <span style="font-size: 0.85rem; color: var(--text-main);">Clock Overlay</span>
+                                    <label class="switch" style="width: 40px; height: 22px;">
+                                        <input type="checkbox" id="set-clock">
+                                        <span class="slider" style="border-radius: 20px;"></span>
+                                    </label>
+                                </div>
+                                <div class="switch-item" style="border: none; padding: 0.15rem 0;">
+                                    <span style="font-size: 0.85rem; color: var(--text-main);">Date Overlay</span>
+                                    <label class="switch" style="width: 40px; height: 22px;">
+                                        <input type="checkbox" id="set-date">
+                                        <span class="slider" style="border-radius: 20px;"></span>
+                                    </label>
+                                </div>
+                                <div class="switch-item" style="border: none; padding: 0.15rem 0;">
+                                    <span style="font-size: 0.85rem; color: var(--text-main);">Timer Countdown</span>
+                                    <label class="switch" style="width: 40px; height: 22px;">
+                                        <input type="checkbox" id="set-timer">
+                                        <span class="slider" style="border-radius: 20px;"></span>
+                                    </label>
+                                </div>
+                                <div class="switch-item" style="border: none; padding: 0.15rem 0;">
+                                    <span style="font-size: 0.85rem; color: var(--text-main);">Show Filename</span>
+                                    <label class="switch" style="width: 40px; height: 22px;">
+                                        <input type="checkbox" id="set-filename">
+                                        <span class="slider" style="border-radius: 20px;"></span>
+                                    </label>
+                                </div>
+                                <div class="switch-item" style="border: none; padding: 0.15rem 0;">
+                                    <span style="font-size: 0.85rem; color: var(--text-main);">Blurred Background</span>
+                                    <label class="switch" style="width: 40px; height: 22px;">
+                                        <input type="checkbox" id="set-blurred-bg">
+                                        <span class="slider" style="border-radius: 20px;"></span>
+                                    </label>
+                                </div>
+                                <div class="switch-item" style="border: none; padding: 0.15rem 0;">
+                                    <span style="font-size: 0.85rem; color: var(--text-main);">Matched Matte</span>
+                                    <label class="switch" style="width: 40px; height: 22px;">
+                                        <input type="checkbox" id="set-matched-matte">
+                                        <span class="slider" style="border-radius: 20px;"></span>
+                                    </label>
+                                </div>
+                            </div>
+                        </div>
 
-        <!-- Telemetry Panel -->
-        <div class="telemetry-card">
-            <div class="telemetry-title">Diagnostics Telemetry</div>
-            <div class="telemetry-grid">
-                <div class="telemetry-item">
-                    <span class="telemetry-label">CPU Temp</span>
-                    <span id="stat-temp" class="telemetry-value">--°C</span>
-                </div>
-                <div class="telemetry-item">
-                    <span class="telemetry-label">Cache DB</span>
-                    <span id="stat-db" class="telemetry-value">-- MB</span>
-                </div>
-                <div class="telemetry-item">
-                    <span class="telemetry-label">Queue Size</span>
-                    <span id="stat-queue" class="telemetry-value">--</span>
+                        <!-- Section 3: Automations -->
+                        <div>
+                            <h3 style="font-size: 0.85rem; text-transform: uppercase; color: var(--accent); letter-spacing: 1px; margin-bottom: 0.6rem; border-bottom: 1px solid rgba(255,255,255,0.06); padding-bottom: 0.2rem; font-weight: 800;">Automation & Integrations</h3>
+                            
+                            <!-- MQTT -->
+                            <div style="margin-bottom: 0.75rem;">
+                                <div class="switch-item" style="border: none; padding: 0; margin-bottom: 0.4rem;">
+                                    <span style="font-weight: 600; font-size: 0.85rem; color: var(--text-main);">MQTT Services</span>
+                                    <label class="switch" style="width: 40px; height: 22px;">
+                                        <input type="checkbox" id="set-mqtt-enabled">
+                                        <span class="slider" style="border-radius: 20px;"></span>
+                                    </label>
+                                </div>
+                                <div class="form-grid" style="gap: 0.5rem;">
+                                    <div class="form-group">
+                                        <label for="set-mqtt-broker">Broker Address</label>
+                                        <input type="text" id="set-mqtt-broker" style="padding: 0.5rem 0.7rem; font-size: 0.85rem;">
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="set-mqtt-port">Broker Port</label>
+                                        <input type="number" id="set-mqtt-port" min="1" max="65535" style="padding: 0.5rem 0.7rem; font-size: 0.85rem;">
+                                    </div>
+                                    <div class="form-group" style="grid-column: span 2;">
+                                        <label for="set-mqtt-prefix">Topic Prefix</label>
+                                        <input type="text" id="set-mqtt-prefix" style="padding: 0.5rem 0.7rem; font-size: 0.85rem;">
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Google Photos -->
+                            <div>
+                                <div class="switch-item" style="border: none; padding: 0; margin-bottom: 0.4rem;">
+                                    <span style="font-weight: 600; font-size: 0.85rem; color: var(--text-main);">Google Photos Sync</span>
+                                    <label class="switch" style="width: 40px; height: 22px;">
+                                        <input type="checkbox" id="set-gphotos-enabled">
+                                        <span class="slider" style="border-radius: 20px;"></span>
+                                    </label>
+                                </div>
+                                <div class="form-grid" style="gap: 0.5rem;">
+                                    <div class="form-group" style="grid-column: span 2;">
+                                        <label for="set-gphotos-album">Google Photos Album ID</label>
+                                        <input type="text" id="set-gphotos-album" placeholder="Album ID (Leave empty for default)" style="padding: 0.5rem 0.7rem; font-size: 0.85rem;">
+                                    </div>
+                                    <div class="form-group" style="grid-column: span 2;">
+                                        <label for="set-gphotos-interval">Sync Interval (Minutes)</label>
+                                        <input type="number" id="set-gphotos-interval" min="1" style="padding: 0.5rem 0.7rem; font-size: 0.85rem;">
+                                    </div>
+                                </div>
+                                <a href="/google_photos_setup" class="btn btn-blue" style="justify-content: center; width: 100%; font-size: 0.8rem; padding: 0.5rem 1rem; border-radius: 8px; margin-top: 0.6rem; min-height: unset; flex-direction: row; gap: 0.3rem;">
+                                    <span>Configure OAuth Credentials</span>
+                                </a>
+                            </div>
+                        </div>
+
+                        <button type="submit" class="btn btn-save" style="background: linear-gradient(90deg, var(--accent), var(--neon-blue)); border: none; font-weight: 800; text-transform: uppercase; letter-spacing: 1px; box-shadow: 0 4px 20px var(--accent-glow); margin-top: 0.5rem; border-radius: 12px; padding: 0.75rem;">
+                            Save Configuration
+                        </button>
+                    </form>
                 </div>
             </div>
         </div>
 
-        <!-- MQTT Integration Panel -->
-        <div class="telemetry-card" style="margin-top: 1rem;">
-            <div class="telemetry-title">MQTT & Home Assistant Integration</div>
-            <div class="telemetry-grid" style="grid-template-columns: repeat(2, 1fr);">
-                <div class="telemetry-item">
-                    <span class="telemetry-label">Broker IP</span>
-                    <span id="stat-mqtt-broker" class="telemetry-value">--</span>
+        <!-- Diagnostics Tab -->
+        <div id="tab-logs-content" class="tab-content" style="display: none;">
+            <div class="telemetry-card" style="display: flex; flex-direction: column; gap: 0.75rem;">
+                <div class="telemetry-title" style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
+                    <span>Live System Diagnostics Logs</span>
+                    <button class="btn btn-blue" onclick="fetchLogs()" style="padding: 0.4rem 0.8rem; font-size: 0.75rem; border-radius: 8px; min-height: unset; flex-direction: row; gap: 0.25rem;">
+                        <span>Refresh</span>
+                    </button>
                 </div>
-                <div class="telemetry-item">
-                    <span class="telemetry-label">Status</span>
-                    <span id="stat-mqtt-status" class="telemetry-value">Disabled</span>
+                <div class="log-console" id="log-console">
+                    Fetching logs...
                 </div>
-            </div>
-            <div class="toggle-row" style="margin-top: 1rem; gap: 0.75rem; display: flex; width: 100%;">
-                <button id="btn-screen" class="btn btn-toggle" onclick="sendCommand('/api/toggle_screen')" style="flex: 1; min-height: 48px; border-radius: 14px;">
-                    <span class="btn-icon">📺</span>
-                    <span>Screen: <strong id="lbl-screen">ON</strong></span>
-                </button>
-                <button class="btn btn-blue" onclick="sendCommand('/api/trigger_motion')" style="flex: 1; min-height: 48px; border-radius: 14px; display: flex; align-items: center; justify-content: center; gap: 0.5rem; border: 1px solid var(--card-border); background: var(--card-bg); color: var(--text-main); font-weight: 600;">
-                    <span class="btn-icon">🏃</span>
-                    <span>Trigger Motion</span>
-                </button>
+                <div class="switch-item" style="border: none; padding: 0.25rem 0;">
+                    <span style="font-size: 0.85rem; color: var(--text-muted);">Auto-refresh logs (2s)</span>
+                    <label class="switch" style="width: 40px; height: 22px;">
+                        <input type="checkbox" id="set-log-autorefresh" checked>
+                        <span class="slider" style="border-radius: 20px;"></span>
+                    </label>
+                </div>
             </div>
         </div>
     </div>
 
+    <!-- Toast Notification -->
+    <div id="toast" class="toast">Configuration Saved Successfully!</div>
+
     <script>
         let currentFilename = "";
         let isPolling = false;
+        let activeTab = 'remote';
+        let logInterval = null;
+
+        function switchTab(tabId) {
+            // Hide all tab contents
+            document.querySelectorAll('.tab-content').forEach(el => el.style.display = 'none');
+            // Deactivate all tab buttons
+            document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
+
+            // Show selected tab content
+            document.getElementById(`tab-${tabId}-content`).style.display = 'block';
+            
+            // Activate selected tab button
+            event.target.classList.add('active');
+
+            activeTab = tabId;
+
+            // Handle specific tab transitions
+            if (tabId === 'settings') {
+                loadSettings();
+            }
+            
+            // Manage log polling
+            if (tabId === 'logs') {
+                fetchLogs();
+                startLogPolling();
+            } else {
+                stopLogPolling();
+            }
+        }
+
+        async function loadSettings() {
+            try {
+                const res = await fetch('/api/settings');
+                if (res.ok) {
+                    const data = await res.json();
+                    
+                    document.getElementById('set-transition-delay').value = data.transition_delay;
+                    document.getElementById('set-transition-duration').value = data.transition_duration;
+                    document.getElementById('set-transition-effect').value = data.transition_effect;
+                    document.getElementById('set-video-volume').value = data.video_volume;
+                    document.getElementById('vol-value').innerText = data.video_volume;
+                    
+                    document.getElementById('set-ken-burns').checked = data.ken_burns;
+                    document.getElementById('set-shuffle').checked = data.shuffle;
+                    document.getElementById('set-play-just-photos').checked = data.play_just_photos;
+                    document.getElementById('set-play-just-videos').checked = data.play_just_videos;
+                    document.getElementById('set-twin-portrait').checked = data.twin_portrait_enabled;
+                    
+                    document.getElementById('set-clock').checked = data.clock_enabled;
+                    document.getElementById('set-date').checked = data.date_overlay_enabled;
+                    document.getElementById('set-timer').checked = data.timer_enabled;
+                    document.getElementById('set-filename').checked = data.filename_enabled;
+                    document.getElementById('set-blurred-bg').checked = data.blurred_background;
+                    document.getElementById('set-matched-matte').checked = data.color_matched_matte;
+                    
+                    document.getElementById('set-mqtt-enabled').checked = data.mqtt_enabled;
+                    document.getElementById('set-mqtt-broker').value = data.mqtt_broker;
+                    document.getElementById('set-mqtt-port').value = data.mqtt_port;
+                    document.getElementById('set-mqtt-prefix').value = data.mqtt_topic_prefix;
+                    
+                    document.getElementById('set-gphotos-enabled').checked = data.google_photos_enabled;
+                    document.getElementById('set-gphotos-album').value = data.google_photos_album_id;
+                    document.getElementById('set-gphotos-interval').value = data.google_photos_sync_interval;
+                }
+            } catch (err) {
+                console.error("Failed to load settings:", err);
+            }
+        }
+
+        async function saveSettings() {
+            const params = new URLSearchParams();
+            params.append('transition_delay', document.getElementById('set-transition-delay').value);
+            params.append('transition_duration', document.getElementById('set-transition-duration').value);
+            params.append('transition_effect', document.getElementById('set-transition-effect').value);
+            params.append('video_volume', document.getElementById('set-video-volume').value);
+            
+            params.append('ken_burns', document.getElementById('set-ken-burns').checked ? 'true' : 'false');
+            params.append('shuffle', document.getElementById('set-shuffle').checked ? 'true' : 'false');
+            params.append('play_just_photos', document.getElementById('set-play-just-photos').checked ? 'true' : 'false');
+            params.append('play_just_videos', document.getElementById('set-play-just-videos').checked ? 'true' : 'false');
+            params.append('twin_portrait_enabled', document.getElementById('set-twin-portrait').checked ? 'true' : 'false');
+            
+            params.append('clock_enabled', document.getElementById('set-clock').checked ? 'true' : 'false');
+            params.append('date_overlay_enabled', document.getElementById('set-date').checked ? 'true' : 'false');
+            params.append('timer_enabled', document.getElementById('set-timer').checked ? 'true' : 'false');
+            params.append('filename_enabled', document.getElementById('set-filename').checked ? 'true' : 'false');
+            params.append('blurred_background', document.getElementById('set-blurred-bg').checked ? 'true' : 'false');
+            params.append('color_matched_matte', document.getElementById('set-matched-matte').checked ? 'true' : 'false');
+            
+            params.append('mqtt_enabled', document.getElementById('set-mqtt-enabled').checked ? 'true' : 'false');
+            params.append('mqtt_broker', document.getElementById('set-mqtt-broker').value);
+            params.append('mqtt_port', document.getElementById('set-mqtt-port').value);
+            params.append('mqtt_topic_prefix', document.getElementById('set-mqtt-prefix').value);
+            
+            params.append('google_photos_enabled', document.getElementById('set-gphotos-enabled').checked ? 'true' : 'false');
+            params.append('google_photos_album_id', document.getElementById('set-gphotos-album').value);
+            params.append('google_photos_sync_interval', document.getElementById('set-gphotos-interval').value);
+
+            try {
+                const res = await fetch(`/api/settings/update?${params.toString()}`);
+                if (res.ok) {
+                    showToast();
+                }
+            } catch (err) {
+                console.error("Failed to save settings:", err);
+                alert("Failed to save settings: Network Error");
+            }
+        }
+
+        function showToast() {
+            const toast = document.getElementById('toast');
+            toast.classList.add('show');
+            setTimeout(() => {
+                toast.classList.remove('show');
+            }, 3000);
+        }
+
+        async function fetchLogs() {
+            try {
+                const res = await fetch('/api/logs');
+                if (res.ok) {
+                    const data = await res.json();
+                    const consoleEl = document.getElementById('log-console');
+                    const shouldScroll = consoleEl.scrollTop + consoleEl.clientHeight >= consoleEl.scrollHeight - 50;
+                    consoleEl.innerText = data.logs;
+                    if (shouldScroll) {
+                        consoleEl.scrollTop = consoleEl.scrollHeight;
+                    }
+                }
+            } catch (err) {
+                console.error("Failed to fetch logs:", err);
+            }
+        }
+
+        function startLogPolling() {
+            stopLogPolling();
+            logInterval = setInterval(() => {
+                if (document.getElementById('set-log-autorefresh').checked) {
+                    fetchLogs();
+                }
+            }, 2000);
+        }
+
+        function stopLogPolling() {
+            if (logInterval) {
+                clearInterval(logInterval);
+                logInterval = null;
+            }
+        }
 
         async function fetchStatus() {
             if (isPolling) return;
@@ -1176,6 +1744,38 @@ static std::string get_api_status() {
     return oss.str();
 }
 
+static std::string get_api_settings() {
+    std::lock_guard<std::mutex> lk(g_config_mtx);
+    std::ostringstream oss;
+    oss << "{\n"
+        << "  \"transition_delay\": " << g_cfg.transition_delay << ",\n"
+        << "  \"transition_duration\": " << g_cfg.transition_duration << ",\n"
+        << "  \"transition_effect\": \"" << escape_json(g_cfg.transition_effect) << "\",\n"
+        << "  \"ken_burns\": " << (g_cfg.ken_burns ? "true" : "false") << ",\n"
+        << "  \"ken_burns_speed\": " << g_cfg.ken_burns_speed << ",\n"
+        << "  \"shuffle\": " << (g_cfg.shuffle ? "true" : "false") << ",\n"
+        << "  \"play_just_photos\": " << (g_cfg.play_just_photos ? "true" : "false") << ",\n"
+        << "  \"play_just_videos\": " << (g_cfg.play_just_videos ? "true" : "false") << ",\n"
+        << "  \"twin_portrait_enabled\": " << (g_cfg.twin_portrait_enabled ? "true" : "false") << ",\n"
+        << "  \"video_volume\": " << g_cfg.video_volume << ",\n"
+        << "  \"timer_enabled\": " << (g_cfg.timer_enabled ? "true" : "false") << ",\n"
+        << "  \"filename_enabled\": " << (g_cfg.filename_enabled ? "true" : "false") << ",\n"
+        << "  \"count_enabled\": " << (g_cfg.count_enabled ? "true" : "false") << ",\n"
+        << "  \"date_overlay_enabled\": " << (g_cfg.date_overlay_enabled ? "true" : "false") << ",\n"
+        << "  \"clock_enabled\": " << (g_cfg.clock_enabled ? "true" : "false") << ",\n"
+        << "  \"blurred_background\": " << (g_cfg.blurred_background ? "true" : "false") << ",\n"
+        << "  \"color_matched_matte\": " << (g_cfg.color_matched_matte ? "true" : "false") << ",\n"
+        << "  \"mqtt_enabled\": " << (g_cfg.mqtt_enabled ? "true" : "false") << ",\n"
+        << "  \"mqtt_broker\": \"" << escape_json(g_cfg.mqtt_broker) << "\",\n"
+        << "  \"mqtt_port\": " << g_cfg.mqtt_port << ",\n"
+        << "  \"mqtt_topic_prefix\": \"" << escape_json(g_cfg.mqtt_topic_prefix) << "\",\n"
+        << "  \"google_photos_enabled\": " << (g_cfg.google_photos_enabled ? "true" : "false") << ",\n"
+        << "  \"google_photos_album_id\": \"" << escape_json(g_cfg.google_photos_album_id) << "\",\n"
+        << "  \"google_photos_sync_interval\": " << g_cfg.google_photos_sync_interval << "\n"
+        << "}";
+    return oss.str();
+}
+
 static const std::string VIDEO_FALLBACK_SVG = R"SVG(
 <svg xmlns="http://www.w3.org/2000/svg" width="400" height="300" viewBox="0 0 400 300">
   <defs>
@@ -1381,6 +1981,161 @@ static void handle_client(int client_fd) {
                 }
             }
         } 
+        else if (request.rfind("GET /api/settings/update", 0) == 0) {
+            bool changed = false;
+            {
+                std::lock_guard<std::mutex> lock(g_config_mtx);
+                
+                if (request.find("transition_delay=") != std::string::npos) {
+                    double val = safe_stod(get_query_param(request, "transition_delay"), g_cfg.transition_delay);
+                    if (val >= 1.0) { g_cfg.transition_delay = val; changed = true; }
+                }
+                if (request.find("transition_duration=") != std::string::npos) {
+                    double val = safe_stod(get_query_param(request, "transition_duration"), g_cfg.transition_duration);
+                    if (val >= 0.1 && val <= 10.0) { g_cfg.transition_duration = val; changed = true; }
+                }
+                if (request.find("transition_effect=") != std::string::npos) {
+                    std::string val = get_query_param(request, "transition_effect");
+                    if (!val.empty()) { g_cfg.transition_effect = val; changed = true; }
+                }
+                if (request.find("ken_burns=") != std::string::npos) {
+                    std::string val = get_query_param(request, "ken_burns");
+                    g_cfg.ken_burns = (val == "true" || val == "1");
+                    changed = true;
+                }
+                if (request.find("ken_burns_speed=") != std::string::npos) {
+                    double val = safe_stod(get_query_param(request, "ken_burns_speed"), g_cfg.ken_burns_speed);
+                    if (val >= 0.001 && val <= 5.0) { g_cfg.ken_burns_speed = val; changed = true; }
+                }
+                if (request.find("shuffle=") != std::string::npos) {
+                    std::string val = get_query_param(request, "shuffle");
+                    g_cfg.shuffle = (val == "true" || val == "1");
+                    changed = true;
+                }
+                if (request.find("play_just_photos=") != std::string::npos) {
+                    std::string val = get_query_param(request, "play_just_photos");
+                    g_cfg.play_just_photos = (val == "true" || val == "1");
+                    changed = true;
+                }
+                if (request.find("play_just_videos=") != std::string::npos) {
+                    std::string val = get_query_param(request, "play_just_videos");
+                    g_cfg.play_just_videos = (val == "true" || val == "1");
+                    changed = true;
+                }
+                if (request.find("twin_portrait_enabled=") != std::string::npos) {
+                    std::string val = get_query_param(request, "twin_portrait_enabled");
+                    g_cfg.twin_portrait_enabled = (val == "true" || val == "1");
+                    changed = true;
+                }
+                if (request.find("video_volume=") != std::string::npos) {
+                    int val = safe_stoi(get_query_param(request, "video_volume"), g_cfg.video_volume);
+                    if (val >= 0 && val <= 150) { g_cfg.video_volume = val; changed = true; }
+                }
+                if (request.find("timer_enabled=") != std::string::npos) {
+                    std::string val = get_query_param(request, "timer_enabled");
+                    g_cfg.timer_enabled = (val == "true" || val == "1");
+                    changed = true;
+                }
+                if (request.find("filename_enabled=") != std::string::npos) {
+                    std::string val = get_query_param(request, "filename_enabled");
+                    g_cfg.filename_enabled = (val == "true" || val == "1");
+                    changed = true;
+                }
+                if (request.find("count_enabled=") != std::string::npos) {
+                    std::string val = get_query_param(request, "count_enabled");
+                    g_cfg.count_enabled = (val == "true" || val == "1");
+                    changed = true;
+                }
+                if (request.find("date_overlay_enabled=") != std::string::npos) {
+                    std::string val = get_query_param(request, "date_overlay_enabled");
+                    g_cfg.date_overlay_enabled = (val == "true" || val == "1");
+                    changed = true;
+                }
+                if (request.find("clock_enabled=") != std::string::npos) {
+                    std::string val = get_query_param(request, "clock_enabled");
+                    g_cfg.clock_enabled = (val == "true" || val == "1");
+                    changed = true;
+                }
+                if (request.find("blurred_background=") != std::string::npos) {
+                    std::string val = get_query_param(request, "blurred_background");
+                    g_cfg.blurred_background = (val == "true" || val == "1");
+                    changed = true;
+                }
+                if (request.find("color_matched_matte=") != std::string::npos) {
+                    std::string val = get_query_param(request, "color_matched_matte");
+                    g_cfg.color_matched_matte = (val == "true" || val == "1");
+                    changed = true;
+                }
+                if (request.find("mqtt_enabled=") != std::string::npos) {
+                    std::string val = get_query_param(request, "mqtt_enabled");
+                    g_cfg.mqtt_enabled = (val == "true" || val == "1");
+                    changed = true;
+                }
+                if (request.find("mqtt_broker=") != std::string::npos) {
+                    std::string val = get_query_param(request, "mqtt_broker");
+                    if (!val.empty()) { g_cfg.mqtt_broker = val; changed = true; }
+                }
+                if (request.find("mqtt_port=") != std::string::npos) {
+                    int val = safe_stoi(get_query_param(request, "mqtt_port"), g_cfg.mqtt_port);
+                    if (val >= 1 && val <= 65535) { g_cfg.mqtt_port = val; changed = true; }
+                }
+                if (request.find("mqtt_topic_prefix=") != std::string::npos) {
+                    std::string val = get_query_param(request, "mqtt_topic_prefix");
+                    if (!val.empty()) { g_cfg.mqtt_topic_prefix = val; changed = true; }
+                }
+                if (request.find("google_photos_enabled=") != std::string::npos) {
+                    std::string val = get_query_param(request, "google_photos_enabled");
+                    g_cfg.google_photos_enabled = (val == "true" || val == "1");
+                    changed = true;
+                }
+                if (request.find("google_photos_album_id=") != std::string::npos) {
+                    std::string val = get_query_param(request, "google_photos_album_id");
+                    g_cfg.google_photos_album_id = val;
+                    changed = true;
+                }
+                if (request.find("google_photos_sync_interval=") != std::string::npos) {
+                    int val = safe_stoi(get_query_param(request, "google_photos_sync_interval"), g_cfg.google_photos_sync_interval);
+                    if (val >= 1) { g_cfg.google_photos_sync_interval = val; changed = true; }
+                }
+            }
+            if (changed) {
+                g_cfg.save("/app/config/config.toml");
+                g_config_changed.store(true);
+            }
+            send_response(client_fd, "HTTP/1.1 200 OK", "application/json", "{\"status\":\"ok\"}");
+        }
+        else if (request.rfind("GET /api/settings", 0) == 0) {
+            send_response(client_fd, "HTTP/1.1 200 OK", "application/json", get_api_settings());
+        }
+        else if (request.rfind("GET /api/logs", 0) == 0) {
+            std::string log_content = "";
+            std::string path = g_logger.log_file_path;
+            if (!path.empty() && std::filesystem::exists(path)) {
+                std::ifstream log_file(path);
+                if (log_file.is_open()) {
+                    log_file.seekg(0, std::ios::end);
+                    size_t size = log_file.tellg();
+                    size_t offset = (size > 30720) ? (size - 30720) : 0;
+                    log_file.seekg(offset, std::ios::beg);
+                    
+                    std::string line;
+                    if (offset > 0) {
+                        std::getline(log_file, line);
+                    }
+                    while (std::getline(log_file, line)) {
+                        log_content += line + "\n";
+                    }
+                }
+            }
+            if (log_content.empty()) {
+                log_content = "No logs available or log file not initialized yet.";
+            }
+            std::ostringstream json_oss;
+            json_oss << "{\n"
+                     << "  \"logs\": \"" << escape_json(log_content) << "\"\n"
+                     << "}";
+            send_response(client_fd, "HTTP/1.1 200 OK", "application/json", json_oss.str());
+        }
         else if (request.rfind("GET /api/status", 0) == 0) {
             send_response(client_fd, "HTTP/1.1 200 OK", "application/json", get_api_status());
         } 

@@ -1,15 +1,15 @@
-﻿# piTrove — C++ Digital Picture Frame for Raspberry Pi
+# piTrove — C++ Digital Picture & Video Frame for Raspberry Pi
 
-ðŸŒ **[View Live Premium Documentation & Landing Page](https://undadfeated.github.io/piTrove/)**
+ðŸŒ  **[View Live Premium Documentation & Landing Page](https://undadfeated.github.io/piTrove/)**
 
-A professional-grade, **containerized** digital picture frame application for the Raspberry Pi 4 & 5. Orchestrated via **Docker & Compose** for absolute dependency isolation and read-only media storage safety. Designed for extreme stability on network-attached storage (NAS), cinematic visual presentation, smart home integrations (MQTT + Home Assistant Auto-Discovery), and seamless hardware acceleration.
+A professional-grade, **containerized** digital picture & video frame application for the Raspberry Pi 4 & 5. Orchestrated via **Docker & Compose** for absolute dependency isolation and read-only media storage safety. Designed for extreme stability on network-attached storage (NAS), cinematic visual presentation, native H.264/H.265 video integration, smart home integrations (MQTT + Home Assistant Auto-Discovery), premium glassmorphic web controls, and seamless hardware acceleration.
 
 [![Platform](https://img.shields.io/badge/platform-Pi%204%20%7C%20Pi%205-blue?style=flat-square)](https://www.raspberrypi.com/)
 [![Docker](https://img.shields.io/badge/container-Docker%20%7C%20Compose-blueviolet?style=flat-square&logo=docker)](https://www.docker.com/)
 [![OS](https://img.shields.io/badge/OS-Trixie%20Lite%20%28Debian%2013%29-lightgreen?style=flat-square)](https://www.debian.org/)
 [![Architecture](https://img.shields.io/badge/arch-aarch64-orange?style=flat-square)](https://en.wikipedia.org/wiki/AArch64)
 [![Graphics](https://img.shields.io/badge/graphics-SDL3-red?style=flat-square)](https://www.libsdl.org/)
-[![Version](https://img.shields.io/badge/version-11.9.1-blue?style=flat-square)]()
+[![Version](https://img.shields.io/badge/version-11.9.3-blue?style=flat-square)]()
 
 ## 🚀 Quick Start
 
@@ -99,7 +99,7 @@ Once the installation completes, the picture frame runs automatically in the bac
 - **Headless Design**: Operates via DRM/KMS (native framebuffer). No X11 or Wayland required.
 - **Dynamic Display & GPU Probing**: Programmatically queries active connected DRM/KMS connector outputs and indices (sysfs `card*-*/status`), auto-configuring stable KMSDRM environments before SDL3 starts up.
 - **Low Power**: Scheduled display sleep/wake times and automatic backlight dimming.
-- **Glassmorphic HTTP HUD Remote**: Built-in HTTP web dashboard featuring interactive player controls, dynamic slideshow diagnostics telemetry (temp, cache DB size, queue size), active MQTT broker connection cards, screen switches, and simulated motion triggers.
+- **Glassmorphic HTTP HUD & Settings Control Panel**: Built-in glassmorphic web dashboard featuring interactive player controls, dynamic slideshow diagnostics telemetry (temp, cache DB size, queue size), complete configuration settings editing, live system logs stream, active MQTT broker connection cards, screen switches, and simulated motion triggers.
 - **TUI Hardware & Config Wizard**: A robust, 10-tab terminal-based configurator menu over SSH featuring dedicated `"Hardware Settings"` and `"MQTT Integration"` menus to dynamically configure all frame variables.
 - **Config Clamping Safety**: Implements 10 strict boundary checks and clamp safety validation logic inside the TOML configuration loader to guarantee system resilience.
 
