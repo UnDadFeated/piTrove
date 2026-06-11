@@ -1,3 +1,11 @@
+## v12.0.0 — Web Remote Refinements & Scroll Usability (June 10, 2026)
+
+### Added
+- **Configuration Help Hint** — Added a reminder below the dashboard settings form highlighting that more advanced configuration options are available via the `ssh pitrove config` command-line utility.
+
+### Fixed
+- **Diagnostics Log Scroll Lock** — Modified the log terminal window to only auto-scroll to the bottom when new events arrive if the user was already scrolled to the bottom. If the user scrolls up to read older log history, the console now maintains their scroll position, preventing the view from jumping down.
+
 ## v11.9.9 — Settings Expansion & Log Console Formatting (June 10, 2026)
 
 ### Added
