@@ -75,23 +75,19 @@ static std::string execute_curl(const std::string& cmd) {
 }
 
 static std::string parse_json_value(const std::string& json, const std::string& key) {
-    size_t key_pos = json.find("\"" + key + "\"");
-    if (key_pos == std::string::npos) return "";
-    size_t colon_pos = json.find(":", key_pos);
-    if (colon_pos == std::string::npos) return "";
-    size_t quote_start = json.find("\"", colon_pos);
-    if (quote_start == std::string::npos) return "";
-    size_t quote_end = json.find("\"", quote_start + 1);
-    if (quote_end == std::string::npos) return "";
-    return json.substr(quote_start + 1, quote_end - quote_start - 1);
+    if (auto key_pos = json.find("\"" + key + "\""); key_pos == std::string::npos) return "";
+    else if (auto colon_pos = json.find(":", key_pos); colon_pos == std::string::npos) return "";
+    else if (auto quote_start = json.find("\"", colon_pos); quote_start == std::string::npos) return "";
+    else if (auto quote_end = json.find("\"", quote_start + 1); quote_end == std::string::npos) return "";
+    else return json.substr(quote_start + 1, quote_end - quote_start - 1);
 }
 
 static std::string get_query_param(const std::string& request, const std::string& key) {
-    size_t pos = request.find(key + "=");
-    if (pos == std::string::npos) return "";
+    if (auto pos = request.find(key + "="); pos == std::string::npos) return "";
+    else {
     pos += key.length() + 1;
-    size_t end = request.find_first_of(" &\r\n", pos);
-    if (end == std::string::npos) return request.substr(pos);
+    if (auto end = request.find_first_of(" &\r\n", pos); end == std::string::npos) return request.substr(pos);
+    else {
     
     // Simple URL decoding
     std::string val = request.substr(pos, end - pos);
@@ -108,6 +104,8 @@ static std::string get_query_param(const std::string& request, const std::string
         }
     }
     return dec;
+    } // else (end != npos)
+    } // else (pos != npos)
 }
 
 static std::string get_host_header(const std::string& request) {

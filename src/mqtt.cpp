@@ -39,8 +39,7 @@ static void pub_worker_loop() {
             }
         }
         if (!cmd.empty()) {
-            int res = ::system(cmd.c_str());
-            (void)res;
+            [[maybe_unused]] int res = ::system(cmd.c_str());
         }
     }
     g_logger.info("MQTT Publisher worker thread stopped");

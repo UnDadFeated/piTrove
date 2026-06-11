@@ -1,7 +1,7 @@
 #ifndef PITROVE_UTIL_H
 #define PITROVE_UTIL_H
 
-#define VERSION "12.4.0"
+#define VERSION "12.5.0"
 #define APP_NAME "piTrove"
 
 #include <atomic>
@@ -12,6 +12,10 @@
 #include <condition_variable>
 #include <thread>
 #include <cstdarg>
+#include <charconv>
+#include <type_traits>
+#include <optional>
+#include <tuple>
 
 struct MediaItem; // Forward declaration
 
@@ -73,10 +77,24 @@ struct Logger {
 inline Logger g_logger;
 
 // Math, string parsing, and files helpers
-[[nodiscard]] int safe_stoi(const std::string& s, int def);
-[[nodiscard]] float safe_stof(const std::string& s, float def);
-[[nodiscard]] double safe_stod(const std::string& s, double def);
-[[nodiscard]] long long safe_stoll(const std::string& s, long long def);
+// Unified safe number parser using std::from_chars (noexcept, zero-allocation)
+template<typename T>
+[[nodiscard]] inline T safe_parse(std::string_view s, T def) {
+    // Trim leading whitespace (from_chars doesn't skip it)
+    auto start = s.find_first_not_of(" \t\r\n");
+    if (start == std::string_view::npos) return def;
+    s.remove_prefix(start);
+    T value{};
+    auto [ptr, ec] = std::from_chars(s.data(), s.data() + s.size(), value);
+    return (ec == std::errc{}) ? value : def;
+}
+
+// Legacy wrappers — call sites unchanged
+[[nodiscard]] inline int safe_stoi(const std::string& s, int def) { return safe_parse<int>(s, def); }
+[[nodiscard]] inline float safe_stof(const std::string& s, float def) { return safe_parse<float>(s, def); }
+[[nodiscard]] inline double safe_stod(const std::string& s, double def) { return safe_parse<double>(s, def); }
+[[nodiscard]] inline long long safe_stoll(const std::string& s, long long def) { return safe_parse<long long>(s, def); }
+
 [[nodiscard]] std::string trim(std::string_view s);
 [[nodiscard]] std::string escape_shell_arg(std::string_view input);
 [[nodiscard]] std::string sanitize_alphanumeric(std::string_view input);
@@ -96,9 +114,9 @@ void set_display_power(bool power);
 
 // Media Classification & Date parsing utilities
 void classify_media_item(const MediaItem& item, bool& has_people, bool& has_animals, bool& is_doc);
-bool parse_filename_date(const std::string& filename, int& y, int& m, int& d);
+[[nodiscard]] std::optional<std::tuple<int,int,int>> parse_filename_date(std::string_view filename);
 void get_modified_time_date(int64_t mtime, int& y, int& m, int& d);
-bool get_item_date(const MediaItem& item, int& y, int& m, int& d);
+[[nodiscard]] std::optional<std::tuple<int,int,int>> get_item_date(const MediaItem& item);
 
 #endif // PITROVE_UTIL_H
 

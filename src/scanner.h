@@ -30,7 +30,7 @@ bool stat_timeout(const std::string& path, struct stat& st, int timeout_ms = 500
 bool is_image(std::string_view ext_or_path);
 
 // Seasonal date checkers
-bool is_in_seasonal_window(const std::string& filename, int window_days);
+bool is_in_seasonal_window(std::string_view filename, int window_days);
 
 
 
@@ -41,7 +41,7 @@ public:
 
     MediaScanner() = default;
 
-  bool is_month_in_window(const std::string& dirname, int window_days);
+  bool is_month_in_window(std::string_view dirname, int window_days);
     std::vector<MediaItem> scan(const std::string& directory,
                                    const std::vector<std::string>& exts,
                                    int window_days,

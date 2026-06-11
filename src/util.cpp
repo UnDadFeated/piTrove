@@ -47,37 +47,9 @@ void trigger_error(int code_num) {
 
 
 // Math, string parsing, and files helpers
-int safe_stoi(const std::string& s, int def) {
-    try {
-        return std::stoi(s);
-    } catch (...) {
-        return def;
-    }
-}
+// NOTE: safe_stoi/safe_stof/safe_stod/safe_stoll are now inline wrappers
+// in util.h using the safe_parse<T>() template with std::from_chars.
 
-float safe_stof(const std::string& s, float def) {
-    try {
-        return std::stof(s);
-    } catch (...) {
-        return def;
-    }
-}
-
-double safe_stod(const std::string& s, double def) {
-    try {
-        return std::stod(s);
-    } catch (...) {
-        return def;
-    }
-}
-
-long long safe_stoll(const std::string& s, long long def) {
-    try {
-        return std::stoll(s);
-    } catch (...) {
-        return def;
-    }
-}
 
 std::string trim(std::string_view s) {
     auto start = s.find_first_not_of(" \t\r\n");
@@ -159,8 +131,7 @@ void set_display_power(bool power) {
     }
     // Also try vcgencmd as fallback in case we are on standard Raspbian without sysfs permission
     std::string cmd = "vcgencmd display_power " + std::string(power ? "1" : "0") + " >/dev/null 2>&1";
-    int res = ::system(cmd.c_str());
-    (void)res;
+    [[maybe_unused]] int res = ::system(cmd.c_str());
 }
 
 // System diagnostics and file path helpers
@@ -340,14 +311,13 @@ void Logger::debug(const char* fmt, ...) {
 
 
 
-static bool match_keyword(const std::string& str, const std::string& kw) {
-    size_t pos = str.find(kw);
-    if (pos == std::string::npos) return false;
+static bool match_keyword(std::string_view str, std::string_view kw) {
+    if (auto pos = str.find(kw); pos == std::string_view::npos) return false;
 
     // For very short keywords prone to false positives, enforce strict word boundary checks
     if (kw.size() <= 3 || kw == "self") {
-        pos = 0;
-        while ((pos = str.find(kw, pos)) != std::string::npos) {
+        size_t pos = 0;
+        while ((pos = str.find(kw, pos)) != std::string_view::npos) {
             bool before_ok = true;
             if (pos > 0) {
                 char c = str[pos - 1];
@@ -381,14 +351,14 @@ void classify_media_item(const MediaItem& item, bool& has_people, bool& has_anim
     std::transform(name_lower.begin(), name_lower.end(), name_lower.begin(), ::tolower);
 
     // List of common document / screenshot / web-grab indicators
-    static const std::vector<std::string> doc_keywords = {
+    static constexpr std::string_view doc_keywords[] = {
         "screenshot", "screen shot", "scan", "document", "invoice", "receipt", "bill", "ticket", "paper", 
         "page", "chart", "diagram", "slide", "text", "whatsapp", "telegram", "download", "discord", 
         "logo", "banner", "icon", "wallpaper", "avatar", "clipart", "pdf", "docx", "txt", "xlsx"
     };
 
     // List of common people / faces / selfies / portraits keywords
-    static const std::vector<std::string> people_keywords = {
+    static constexpr std::string_view people_keywords[] = {
         "people", "person", "man", "woman", "kid", "child", "baby", "face", "selfie", "family", "portrait", 
         "wedding", "party", "graduation", "trip", "vacation", "group", "friends", "us", "me", "dad", "mom", 
         "brother", "sister", "grandpa", "grandma", "uncle", "aunt", "cousin", "son", "daughter", "wife", 
@@ -396,7 +366,7 @@ void classify_media_item(const MediaItem& item, bool& has_people, bool& has_anim
     };
 
     // List of common animal keywords
-    static const std::vector<std::string> animal_keywords = {
+    static constexpr std::string_view animal_keywords[] = {
         "cat", "dog", "pet", "animal", "bird", "fish", "horse", "cow", "sheep", "pig", "chicken", "duck", 
         "wildlife", "zoo", "safari", "squirrel", "rabbit", "deer", "fox", "bear", "tiger", "lion", "elephant", 
         "puppy", "kitten", "paw", "kitty", "doggie"
@@ -483,8 +453,8 @@ void classify_media_item(const MediaItem& item, bool& has_people, bool& has_anim
     }
 }
 
-bool parse_filename_date(const std::string& filename, int& y, int& m, int& d) {
-    if (filename.length() < 8) return false;
+std::optional<std::tuple<int,int,int>> parse_filename_date(std::string_view filename) {
+    if (filename.length() < 8) return std::nullopt;
     
     // 1. Try YYYY-MM-DD or YYYY_MM_DD
     for (size_t i = 0; i + 9 < filename.length(); ++i) {
@@ -500,11 +470,11 @@ bool parse_filename_date(const std::string& filename, int& y, int& m, int& d) {
             (sep2 == '-' || sep2 == '_') &&
             std::isdigit(c8) && std::isdigit(c9)) {
             
-            y = (c0 - '0')*1000 + (c1 - '0')*100 + (c2 - '0')*10 + (c3 - '0');
-            m = (c5 - '0')*10 + (c6 - '0');
-            d = (c8 - '0')*10 + (c9 - '0');
+            int y = (c0 - '0')*1000 + (c1 - '0')*100 + (c2 - '0')*10 + (c3 - '0');
+            int m = (c5 - '0')*10 + (c6 - '0');
+            int d = (c8 - '0')*10 + (c9 - '0');
             if (m >= 1 && m <= 12 && d >= 1 && d <= 31) {
-                return true;
+                return std::tuple{y, m, d};
             }
         }
     }
@@ -523,13 +493,12 @@ bool parse_filename_date(const std::string& filename, int& y, int& m, int& d) {
             int tm = (filename[i+4] - '0')*10 + (filename[i+5] - '0');
             int td = (filename[i+6] - '0')*10 + (filename[i+7] - '0');
             if (ty >= 1900 && ty <= 2100 && tm >= 1 && tm <= 12 && td >= 1 && td <= 31) {
-                y = ty; m = tm; d = td;
-                return true;
+                return std::tuple{ty, tm, td};
             }
         }
     }
     
-    return false;
+    return std::nullopt;
 }
 
 void get_modified_time_date(int64_t mtime, int& y, int& m, int& d) {
@@ -545,12 +514,13 @@ void get_modified_time_date(int64_t mtime, int& y, int& m, int& d) {
     }
 }
 
-bool get_item_date(const MediaItem& item, int& y, int& m, int& d) {
-    if (parse_filename_date(item.filename, y, m, d)) {
-        return true;
+std::optional<std::tuple<int,int,int>> get_item_date(const MediaItem& item) {
+    if (auto date = parse_filename_date(item.filename)) {
+        return date;
     }
+    int y, m, d;
     get_modified_time_date(item.modified_time, y, m, d);
-    return true;
+    return std::tuple{y, m, d};
 }
 
 std::string escape_shell_arg(std::string_view input) {
