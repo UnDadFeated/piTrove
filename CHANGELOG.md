@@ -1,3 +1,8 @@
+## v11.9.8 — Auto-Refreshing Remote Web UI Preview (June 10, 2026)
+
+### Fixed
+- **Web UI Preview Synchronization** — Implemented an automatic preview refresh trigger within the web remote dashboard. The dashboard now monitors active slide change events and dynamically reloads the visual preview image using cache-busting timestamp parameters and custom loading indicators, eliminating static visual state desync.
+
 ## v11.9.7 — API Validation & Log Diagnostics Hardening (June 10, 2026)
 
 ### Added
