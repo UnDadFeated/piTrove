@@ -1,3 +1,12 @@
+## v11.9.9 — Settings Expansion & Log Console Formatting (June 10, 2026)
+
+### Added
+- **Expanded Web Settings Control** — Introduced direct dashboard toggle switches for Touchscreen Mode, Shuffle, Ken Burns, Blurred Background, and Color-Matched Matte configurations.
+
+### Fixed
+- **Settings Label Clarification** — Renamed the generic volume slider in the remote dashboard settings panel to "Video Volume" for clear user guidance.
+- **Log Console Font Sizing** — Reduced log viewer console text size to 0.65rem, optimizing information density and screen space utilization.
+
 ## v11.9.8 — Auto-Refreshing Remote Web UI Preview (June 10, 2026)
 
 ### Fixed

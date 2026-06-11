@@ -988,7 +988,7 @@ static std::string get_dashboard_html() {
             border-radius: 12px;
             padding: 1rem;
             font-family: 'JetBrains Mono', monospace;
-            font-size: 0.8rem;
+            font-size: 0.65rem;
             color: #4ade80;
             height: 320px;
             overflow-y: auto;
@@ -1119,15 +1119,35 @@ static std::string get_dashboard_html() {
         <div id="tab-settings-content" class="tab-content" style="display: none;">
             <div class="telemetry-card">
                 <div class="telemetry-title">App Settings</div>
-                <form id="settings-form" onsubmit="event.preventDefault(); saveSettings();" style="display: flex; flex-direction: column; gap: 1rem;">
+                <form id="settings-form" onsubmit="event.preventDefault(); saveSettings();" style="display: flex; flex-direction: column; gap: 1.2rem;">
                     <div>
-                        <h3 style="font-size: 0.85rem; text-transform: uppercase; color: var(--accent); letter-spacing: 1px; margin-bottom: 0.6rem; border-bottom: 1px solid var(--border-color); padding-bottom: 0.2rem; font-weight: 800;">Slideshow</h3>
-                        <div class="form-grid">
-                            <div class="form-group"><label for="set-transition-delay">Interval (sec)</label><input type="number" id="set-transition-delay"></div>
-                            <div class="form-group"><label for="set-video-volume">Volume</label><div style="display:flex; align-items:center; gap:0.5rem;"><input type="range" id="set-video-volume" min="0" max="150" style="flex:1;" oninput="document.getElementById('lbl-video-volume-val').innerText = this.value + '%'"><span id="lbl-video-volume-val">--%</span></div></div>
+                        <h3 style="font-size: 0.85rem; text-transform: uppercase; color: var(--accent); letter-spacing: 1px; margin-bottom: 0.6rem; border-bottom: 1px solid var(--border-color); padding-bottom: 0.2rem; font-weight: 800;">Slideshow & Playback</h3>
+                        <div class="form-grid" style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 0.8rem; margin-bottom: 0.6rem;">
+                            <div class="form-group"><label for="set-transition-delay">Interval (sec)</label><input type="number" id="set-transition-delay" style="width:100%; padding:0.4rem; border-radius:8px; border:1px solid var(--border-color); background:rgba(0,0,0,0.2); color:var(--text-main);"></div>
+                            <div class="form-group"><label for="set-video-volume">Video Volume</label><div style="display:flex; align-items:center; gap:0.5rem;"><input type="range" id="set-video-volume" min="0" max="150" style="flex:1;" oninput="document.getElementById('lbl-video-volume-val').innerText = this.value + '%'"><span id="lbl-video-volume-val">--%</span></div></div>
+                        </div>
+                        <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 0.8rem;">
+                            <div style="display:flex; align-items:center; gap:0.4rem;"><input type="checkbox" id="set-shuffle" style="cursor:pointer;"><label for="set-shuffle" style="font-size:0.85rem; color:var(--text-muted); cursor:pointer;">Shuffle Playlist</label></div>
+                            <div style="display:flex; align-items:center; gap:0.4rem;"><input type="checkbox" id="set-ken-burns" style="cursor:pointer;"><label for="set-ken-burns" style="font-size:0.85rem; color:var(--text-muted); cursor:pointer;">Ken Burns Effect</label></div>
                         </div>
                     </div>
-                    <button type="submit" class="btn btn-save">Save Configuration</button>
+                    
+                    <div>
+                        <h3 style="font-size: 0.85rem; text-transform: uppercase; color: var(--accent); letter-spacing: 1px; margin-bottom: 0.6rem; border-bottom: 1px solid var(--border-color); padding-bottom: 0.2rem; font-weight: 800;">Display Options</h3>
+                        <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 0.8rem;">
+                            <div style="display:flex; align-items:center; gap:0.4rem;"><input type="checkbox" id="set-blurred-background" style="cursor:pointer;"><label for="set-blurred-background" style="font-size:0.85rem; color:var(--text-muted); cursor:pointer;">Blurred Background</label></div>
+                            <div style="display:flex; align-items:center; gap:0.4rem;"><input type="checkbox" id="set-color-matched-matte" style="cursor:pointer;"><label for="set-color-matched-matte" style="font-size:0.85rem; color:var(--text-muted); cursor:pointer;">Color-Matched Matte</label></div>
+                        </div>
+                    </div>
+
+                    <div>
+                        <h3 style="font-size: 0.85rem; text-transform: uppercase; color: var(--accent); letter-spacing: 1px; margin-bottom: 0.6rem; border-bottom: 1px solid var(--border-color); padding-bottom: 0.2rem; font-weight: 800;">Input & Touch</h3>
+                        <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 0.8rem;">
+                            <div style="display:flex; align-items:center; gap:0.4rem;"><input type="checkbox" id="set-touch-enabled" style="cursor:pointer;"><label for="set-touch-enabled" style="font-size:0.85rem; color:var(--text-muted); cursor:pointer;">Enable Touchscreen Mode</label></div>
+                        </div>
+                    </div>
+                    
+                    <button type="submit" class="btn btn-save" style="margin-top:0.4rem;">Save Configuration</button>
                 </form>
             </div>
         </div>
@@ -1194,6 +1214,12 @@ static std::string get_dashboard_html() {
                     document.getElementById('set-transition-delay').value = settings.transition_delay;
                     document.getElementById('set-video-volume').value = settings.video_volume;
                     document.getElementById('lbl-video-volume-val').innerText = settings.video_volume + '%';
+                    
+                    document.getElementById('set-shuffle').checked = settings.shuffle;
+                    document.getElementById('set-ken-burns').checked = settings.ken_burns;
+                    document.getElementById('set-blurred-background').checked = settings.blurred_background;
+                    document.getElementById('set-color-matched-matte').checked = settings.color_matched_matte;
+                    document.getElementById('set-touch-enabled').checked = settings.touch_enabled;
                 }
             } catch (err) {
                 console.error("Failed to load settings:", err);
@@ -1203,8 +1229,15 @@ static std::string get_dashboard_html() {
         async function saveSettings() {
             const delay = document.getElementById('set-transition-delay').value;
             const volume = document.getElementById('set-video-volume').value;
+            const shuffle = document.getElementById('set-shuffle').checked ? "1" : "0";
+            const kenBurns = document.getElementById('set-ken-burns').checked ? "1" : "0";
+            const blurredBg = document.getElementById('set-blurred-background').checked ? "1" : "0";
+            const matte = document.getElementById('set-color-matched-matte').checked ? "1" : "0";
+            const touch = document.getElementById('set-touch-enabled').checked ? "1" : "0";
+            
             try {
-                const res = await fetch(`/api/settings/update?transition_delay=${delay}&video_volume=${volume}`);
+                const url = `/api/settings/update?transition_delay=${delay}&video_volume=${volume}&shuffle=${shuffle}&ken_burns=${kenBurns}&blurred_background=${blurredBg}&color_matched_matte=${matte}&touch_enabled=${touch}`;
+                const res = await fetch(url);
                 if (res.ok) {
                     showToast("Configuration Saved Successfully!");
                 } else {
@@ -1474,7 +1507,8 @@ static std::string get_api_settings() {
         << "  \"mqtt_topic_prefix\": \"" << escape_json(g_cfg.mqtt_topic_prefix) << "\",\n"
         << "  \"google_photos_enabled\": " << (g_cfg.google_photos_enabled ? "true" : "false") << ",\n"
         << "  \"google_photos_album_id\": \"" << escape_json(g_cfg.google_photos_album_id) << "\",\n"
-        << "  \"google_photos_sync_interval\": " << g_cfg.google_photos_sync_interval << "\n"
+        << "  \"google_photos_sync_interval\": " << g_cfg.google_photos_sync_interval << ",\n"
+        << "  \"touch_enabled\": " << (g_cfg.touch_enabled ? "true" : "false") << "\n"
         << "}";
     return oss.str();
 }
@@ -1866,6 +1900,11 @@ static void handle_client(int client_fd) {
                     if (request.find("google_photos_sync_interval=") != std::string::npos) {
                         int val = safe_stoi(get_query_param(request, "google_photos_sync_interval"), g_cfg.google_photos_sync_interval);
                         if (g_cfg.google_photos_sync_interval != val) { g_cfg.google_photos_sync_interval = val; changed = true; }
+                    }
+                    if (request.find("touch_enabled=") != std::string::npos) {
+                        std::string val = get_query_param(request, "touch_enabled");
+                        bool desired = (val == "true" || val == "1");
+                        if (g_cfg.touch_enabled != desired) { g_cfg.touch_enabled = desired; changed = true; }
                     }
                 }
             }
