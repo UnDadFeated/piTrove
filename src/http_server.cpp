@@ -1149,6 +1149,9 @@ static std::string get_dashboard_html() {
                     
                     <button type="submit" class="btn btn-save" style="margin-top:0.4rem;">Save Configuration</button>
                 </form>
+                <div style="margin-top: 1.2rem; font-size: 0.75rem; color: var(--text-muted); text-align: center; border-top: 1px solid var(--card-border); padding-top: 0.8rem; line-height: 1.4;">
+                    More configuration options are available via the <code style="background: rgba(0,0,0,0.25); padding: 0.15rem 0.35rem; border-radius: 6px; font-family: 'JetBrains Mono', monospace; font-size: 0.7rem; color: var(--accent); border: 1px solid var(--card-border);">ssh pitrove config</code> command.
+                </div>
             </div>
         </div>
 
@@ -1254,8 +1257,11 @@ static std::string get_dashboard_html() {
                 if (res.ok) {
                     const data = await res.json();
                     const consoleEl = document.getElementById('log-console');
+                    const isScrolledToBottom = consoleEl.scrollHeight - consoleEl.clientHeight - consoleEl.scrollTop < 50;
                     consoleEl.innerText = data.logs;
-                    consoleEl.scrollTop = consoleEl.scrollHeight;
+                    if (isScrolledToBottom) {
+                        consoleEl.scrollTop = consoleEl.scrollHeight;
+                    }
                 }
             } catch (err) {
                 console.error("Failed to fetch logs:", err);
