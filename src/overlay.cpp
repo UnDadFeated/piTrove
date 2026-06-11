@@ -439,8 +439,8 @@ void OverlayManager::draw_all(int current_idx, int total_items, const MediaItem*
     bool show_ribbon = false;
     int anniversary_years = 0;
     if (on_this_day_enabled && item) {
-        int y = 0, m = 0, d = 0;
-        if (get_item_date(*item, y, m, d)) {
+        if (auto date = get_item_date(*item)) {
+            auto [y, m, d] = *date;
             time_t now_t = time(nullptr);
             struct tm tm_now;
             struct tm* tmi = localtime_r(&now_t, &tm_now);

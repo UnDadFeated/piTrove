@@ -418,8 +418,8 @@ static std::vector<MediaItem> filter_playlist(const std::vector<MediaItem>& item
 
         std::vector<MediaItem> anniversary_items;
         for (const auto& item : items) {
-            int y = 0, m = 0, d = 0;
-            if (get_item_date(item, y, m, d)) {
+            if (auto date = get_item_date(item)) {
+                auto [y, m, d] = *date;
                 if (m == today_m && d == today_d) {
                     anniversary_items.push_back(item);
                 }
@@ -769,32 +769,20 @@ static void watchman_loop() {
             
             // Re-filter playlist under lock to prevent data race on g_scanned_items and g_eligible
             {
-                std::lock_guard<std::mutex> playlist_lock(g_playlist_mtx);
+                std::scoped_lock lock(g_playlist_mtx, g_config_mtx);
                 g_scanned_items = std::move(scanned);
                 
-                int cooldown_days = 0;
-                int window_days = 0;
-                bool shuffle_enabled = true;
-                {
-                    std::lock_guard lock(g_config_mtx);
-                    cooldown_days = g_cfg.cooldown_days;
-                    window_days = g_cfg.scan_window_days;
-                    shuffle_enabled = g_cfg.shuffle;
-                }
+                int cooldown_days = g_cfg.cooldown_days;
+                int window_days = g_cfg.scan_window_days;
+                bool shuffle_enabled = g_cfg.shuffle;
                 
                 std::vector<MediaItem> new_eligible = filter_playlist(g_scanned_items, cooldown_days, window_days);
                 g_logger.info("Watchman: New seasonal window calculation: %zu / %zu items eligible", new_eligible.size(), g_scanned_items.size());
                 
                 if (!new_eligible.empty()) {
-                    bool play_just_photos = false;
-                    bool play_just_videos = false;
-                    int videos_per_photos = 10;
-                    {
-                        std::lock_guard lock(g_config_mtx);
-                        play_just_photos = g_cfg.play_just_photos;
-                        play_just_videos = g_cfg.play_just_videos;
-                        videos_per_photos = g_cfg.videos_per_photos;
-                    }
+                    bool play_just_photos = g_cfg.play_just_photos;
+                    bool play_just_videos = g_cfg.play_just_videos;
+                    int videos_per_photos = g_cfg.videos_per_photos;
                     organize_playlist(new_eligible, videos_per_photos, play_just_photos, play_just_videos, shuffle_enabled);
                     
                     // Try to preserve current playing item
@@ -902,8 +890,8 @@ int main(int argc, char** argv) {
     }
     
     // Write our PID into the lock file for future --restart usage
-    (void)ftruncate(lock_fd, 0);
-    (void)dprintf(lock_fd, "%d\n", getpid());
+    [[maybe_unused]] auto trunc_rc = ftruncate(lock_fd, 0);
+    [[maybe_unused]] auto pid_rc = dprintf(lock_fd, "%d\n", getpid());
 
     signal(SIGSEGV, crash_handler);
     signal(SIGABRT, crash_handler);
@@ -954,8 +942,7 @@ int main(int argc, char** argv) {
     bool startup_media_empty = true;
     try {
         if (std::filesystem::exists(media_dir)) {
-            for (const auto& entry : std::filesystem::directory_iterator(media_dir)) {
-                (void)entry;
+            for ([[maybe_unused]] const auto& entry : std::filesystem::directory_iterator(media_dir)) {
                 startup_media_empty = false;
                 break;
             }
