@@ -9,7 +9,7 @@ A professional-grade, **containerized** digital picture & video frame applicatio
 [![OS](https://img.shields.io/badge/OS-Trixie%20Lite%20%28Debian%2013%29-lightgreen?style=flat-square)](https://www.debian.org/)
 [![Architecture](https://img.shields.io/badge/arch-aarch64-orange?style=flat-square)](https://en.wikipedia.org/wiki/AArch64)
 [![Graphics](https://img.shields.io/badge/graphics-SDL3-red?style=flat-square)](https://www.libsdl.org/)
-[![Version](https://img.shields.io/badge/version-11.9.3-blue?style=flat-square)]()
+[![Version](https://img.shields.io/badge/version-12.0.0-blue?style=flat-square)]()
 
 ## 🚀 Quick Start
 
@@ -99,7 +99,7 @@ Once the installation completes, the picture frame runs automatically in the bac
 - **Headless Design**: Operates via DRM/KMS (native framebuffer). No X11 or Wayland required.
 - **Dynamic Display & GPU Probing**: Programmatically queries active connected DRM/KMS connector outputs and indices (sysfs `card*-*/status`), auto-configuring stable KMSDRM environments before SDL3 starts up.
 - **Low Power**: Scheduled display sleep/wake times and automatic backlight dimming.
-- **Glassmorphic HTTP HUD & Settings Control Panel**: Built-in glassmorphic web dashboard featuring interactive player controls, dynamic slideshow diagnostics telemetry (temp, cache DB size, queue size), complete configuration settings editing, live system logs stream, active MQTT broker connection cards, screen switches, and simulated motion triggers.
+- **Glassmorphic HTTP HUD & Settings Control Panel**: Built-in glassmorphic web dashboard featuring interactive player controls, dynamic slideshow diagnostics telemetry (temp, cache DB size, queue size), complete configuration settings editing (with toggles for touchscreen mode, playlist shuffle, Ken Burns transitions, background blur, color-matched matte options, and video volume), live system logs stream (with scroll-preservation control), active MQTT broker connection cards, screen switches, and simulated motion triggers.
 - **TUI Hardware & Config Wizard**: A robust, 10-tab terminal-based configurator menu over SSH featuring dedicated `"Hardware Settings"` and `"MQTT Integration"` menus to dynamically configure all frame variables.
 - **Interactive Touchscreen Control**: When touchscreen mode is enabled, touching the screen displays floating navigation overlays (Previous, Settings, Next) to easily advance or go back. The configuration menu features +/- buttons, volume sliders, and a full numerical keyboard modal for on-screen adjustments.
 - **Config Clamping Safety**: Implements 10 strict boundary checks and clamp safety validation logic inside the TOML configuration loader to guarantee system resilience.
@@ -138,6 +138,8 @@ src/
 ├── main.cpp          — Entry point, event loop, DRM master flow, motion cooldown
 ├── mqtt.cpp/h        — Background MQTT subprocess subscriber & HA discovery [NEW]
 ├── google_photos.cpp/h — Google Photos cloud synchronization and album manager [NEW]
+├── error_db.cpp/h    — Diagnostic error catalog definitions & metadata [NEW]
+├── blur.cpp/h        — Separable box blur filter & matte color computation [NEW]
 ├── scanner.cpp/h     — Recursive media scanning (getdents64)
 ├── cache.cpp/h       — SQLite3 WAL-mode metadata persistence
 ├── config.cpp/h      — TOML config parser & boundary validation
