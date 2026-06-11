@@ -1124,7 +1124,7 @@ static std::string get_dashboard_html() {
                         <h3 style="font-size: 0.85rem; text-transform: uppercase; color: var(--accent); letter-spacing: 1px; margin-bottom: 0.6rem; border-bottom: 1px solid var(--border-color); padding-bottom: 0.2rem; font-weight: 800;">Slideshow</h3>
                         <div class="form-grid">
                             <div class="form-group"><label for="set-transition-delay">Interval (sec)</label><input type="number" id="set-transition-delay"></div>
-                            <div class="form-group"><label for="set-video-volume">Volume</label><input type="range" id="set-video-volume" min="0" max="150"></div>
+                            <div class="form-group"><label for="set-video-volume">Volume</label><div style="display:flex; align-items:center; gap:0.5rem;"><input type="range" id="set-video-volume" min="0" max="150" style="flex:1;" oninput="document.getElementById('lbl-video-volume-val').innerText = this.value + '%'"><span id="lbl-video-volume-val">--%</span></div></div>
                         </div>
                     </div>
                     <button type="submit" class="btn btn-save">Save Configuration</button>
@@ -1159,11 +1159,87 @@ static std::string get_dashboard_html() {
             localStorage.setItem('pitrove-palette', palette);
         }
 
+        let logInterval = null;
         function switchTab(tabId) {
             document.querySelectorAll('.tab-content').forEach(el => el.style.display = 'none');
             document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
             document.getElementById(`tab-${tabId}-content`).style.display = 'block';
             event.target.classList.add('active');
+
+            if (tabId === 'settings') {
+                loadSettings();
+                stopLogStreaming();
+            } else if (tabId === 'logs') {
+                startLogStreaming();
+            } else {
+                stopLogStreaming();
+            }
+        }
+
+        function showToast(message) {
+            const toast = document.getElementById('toast');
+            toast.innerText = message;
+            toast.classList.add('show');
+            setTimeout(() => {
+                toast.classList.remove('show');
+            }, 3000);
+        }
+
+        async function loadSettings() {
+            try {
+                const res = await fetch('/api/settings');
+                if (res.ok) {
+                    const settings = await res.json();
+                    document.getElementById('set-transition-delay').value = settings.transition_delay;
+                    document.getElementById('set-video-volume').value = settings.video_volume;
+                    document.getElementById('lbl-video-volume-val').innerText = settings.video_volume + '%';
+                }
+            } catch (err) {
+                console.error("Failed to load settings:", err);
+            }
+        }
+
+        async function saveSettings() {
+            const delay = document.getElementById('set-transition-delay').value;
+            const volume = document.getElementById('set-video-volume').value;
+            try {
+                const res = await fetch(`/api/settings/update?transition_delay=${delay}&video_volume=${volume}`);
+                if (res.ok) {
+                    showToast("Configuration Saved Successfully!");
+                } else {
+                    showToast("Failed to save configuration.");
+                }
+            } catch (err) {
+                showToast("Error saving configuration.");
+            }
+        }
+
+        async function fetchLogs() {
+            try {
+                const res = await fetch('/api/logs');
+                if (res.ok) {
+                    const data = await res.json();
+                    const consoleEl = document.getElementById('log-console');
+                    consoleEl.innerText = data.logs;
+                    consoleEl.scrollTop = consoleEl.scrollHeight;
+                }
+            } catch (err) {
+                console.error("Failed to fetch logs:", err);
+            }
+        }
+
+        function startLogStreaming() {
+            fetchLogs();
+            if (!logInterval) {
+                logInterval = setInterval(fetchLogs, 2000);
+            }
+        }
+
+        function stopLogStreaming() {
+            if (logInterval) {
+                clearInterval(logInterval);
+                logInterval = null;
+            }
         }
 
         async function fetchStatus() {
@@ -1182,6 +1258,41 @@ static std::string get_dashboard_html() {
                         document.getElementById('media-timer').innerText = `${Math.max(0, Math.round(status.transition_delay - (status.item_timer || 0)))}s`;
                     } else {
                         document.getElementById('media-timer').style.display = "none";
+                    }
+
+                    // Update control buttons active states & labels
+                    document.getElementById('lbl-shuffle').innerText = status.shuffle ? "ON" : "OFF";
+                    document.getElementById('lbl-screen').innerText = status.screen_blanked ? "OFF" : "ON";
+                    document.getElementById('icon-pause').innerText = status.paused ? "▶" : "⏸";
+                    document.getElementById('txt-pause').innerText = status.paused ? "Resume" : "Pause";
+
+                    if (status.shuffle) {
+                        document.getElementById('btn-shuffle').classList.add('active');
+                    } else {
+                        document.getElementById('btn-shuffle').classList.remove('active');
+                    }
+                    if (!status.screen_blanked) {
+                        document.getElementById('btn-screen').classList.add('active');
+                    } else {
+                        document.getElementById('btn-screen').classList.remove('active');
+                    }
+
+                    // Update stats telemetry
+                    document.getElementById('stat-temp').innerText = status.temp;
+                    document.getElementById('stat-db').innerText = status.db_size;
+                    document.getElementById('stat-queue').innerText = status.total;
+
+                    // Update MQTT details
+                    const mqttStatusEl = document.getElementById('stat-mqtt-status');
+                    const mqttBrokerEl = document.getElementById('stat-mqtt-broker');
+                    if (status.mqtt_enabled) {
+                        mqttStatusEl.innerText = "Connected";
+                        mqttStatusEl.style.color = "#22c55e"; // green
+                        mqttBrokerEl.innerText = `Broker: ${status.mqtt_broker}:${status.mqtt_port}`;
+                    } else {
+                        mqttStatusEl.innerText = "Disabled";
+                        mqttStatusEl.style.color = "var(--text-muted)";
+                        mqttBrokerEl.innerText = "Broker: --";
                     }
                 }
             } catch (err) {}
@@ -1470,6 +1581,13 @@ static void handle_client(int client_fd) {
     if (bytes_read > 0) {
         buffer[bytes_read] = '\0';
         std::string request(buffer);
+        
+        size_t first_line_end = request.find("\r\n");
+        if (first_line_end != std::string::npos) {
+            g_logger.info("HTTP: Request: %s", request.substr(0, first_line_end).c_str());
+        } else {
+            g_logger.info("HTTP: Request: %s", request.c_str());
+        }
 
         // Very simple router
         if (request.rfind("GET / ", 0) == 0 || request.rfind("GET /dashboard", 0) == 0) {
@@ -1568,126 +1686,190 @@ static void handle_client(int client_fd) {
         } 
         else if (request.rfind("GET /api/settings/update", 0) == 0) {
             bool changed = false;
+            bool validation_failed = false;
+            std::string err_msg = "";
+            
             {
                 std::lock_guard<std::mutex> lock(g_config_mtx);
                 
+                // 1. Validation Checks
                 if (request.find("transition_delay=") != std::string::npos) {
-                    double val = safe_stod(get_query_param(request, "transition_delay"), g_cfg.transition_delay);
-                    if (val >= 1.0) { g_cfg.transition_delay = val; changed = true; }
+                    double val = safe_stod(get_query_param(request, "transition_delay"), -999.0);
+                    if (val < 1.0) {
+                        validation_failed = true;
+                        err_msg = "transition_delay must be >= 1.0";
+                    }
                 }
-                if (request.find("transition_duration=") != std::string::npos) {
-                    double val = safe_stod(get_query_param(request, "transition_duration"), g_cfg.transition_duration);
-                    if (val >= 0.1 && val <= 10.0) { g_cfg.transition_duration = val; changed = true; }
+                if (!validation_failed && request.find("transition_duration=") != std::string::npos) {
+                    double val = safe_stod(get_query_param(request, "transition_duration"), -999.0);
+                    if (val < 0.1 || val > 10.0) {
+                        validation_failed = true;
+                        err_msg = "transition_duration must be between 0.1 and 10.0";
+                    }
                 }
-                if (request.find("transition_effect=") != std::string::npos) {
-                    std::string val = get_query_param(request, "transition_effect");
-                    if (!val.empty()) { g_cfg.transition_effect = val; changed = true; }
+                if (!validation_failed && request.find("ken_burns_speed=") != std::string::npos) {
+                    double val = safe_stod(get_query_param(request, "ken_burns_speed"), -999.0);
+                    if (val < 0.001 || val > 5.0) {
+                        validation_failed = true;
+                        err_msg = "ken_burns_speed must be between 0.001 and 5.0";
+                    }
                 }
-                if (request.find("ken_burns=") != std::string::npos) {
-                    std::string val = get_query_param(request, "ken_burns");
-                    g_cfg.ken_burns = (val == "true" || val == "1");
-                    changed = true;
+                if (!validation_failed && request.find("video_volume=") != std::string::npos) {
+                    int val = safe_stoi(get_query_param(request, "video_volume"), -999);
+                    if (val < 0 || val > 150) {
+                        validation_failed = true;
+                        err_msg = "video_volume must be between 0 and 150";
+                    }
                 }
-                if (request.find("ken_burns_speed=") != std::string::npos) {
-                    double val = safe_stod(get_query_param(request, "ken_burns_speed"), g_cfg.ken_burns_speed);
-                    if (val >= 0.001 && val <= 5.0) { g_cfg.ken_burns_speed = val; changed = true; }
+                if (!validation_failed && request.find("mqtt_port=") != std::string::npos) {
+                    int val = safe_stoi(get_query_param(request, "mqtt_port"), -999);
+                    if (val < 1 || val > 65535) {
+                        validation_failed = true;
+                        err_msg = "mqtt_port must be between 1 and 65535";
+                    }
                 }
-                if (request.find("shuffle=") != std::string::npos) {
-                    std::string val = get_query_param(request, "shuffle");
-                    g_cfg.shuffle = (val == "true" || val == "1");
-                    changed = true;
+                if (!validation_failed && request.find("google_photos_sync_interval=") != std::string::npos) {
+                    int val = safe_stoi(get_query_param(request, "google_photos_sync_interval"), -999);
+                    if (val < 1) {
+                        validation_failed = true;
+                        err_msg = "google_photos_sync_interval must be >= 1";
+                    }
                 }
-                if (request.find("play_just_photos=") != std::string::npos) {
-                    std::string val = get_query_param(request, "play_just_photos");
-                    g_cfg.play_just_photos = (val == "true" || val == "1");
-                    changed = true;
-                }
-                if (request.find("play_just_videos=") != std::string::npos) {
-                    std::string val = get_query_param(request, "play_just_videos");
-                    g_cfg.play_just_videos = (val == "true" || val == "1");
-                    changed = true;
-                }
-                if (request.find("twin_portrait_enabled=") != std::string::npos) {
-                    std::string val = get_query_param(request, "twin_portrait_enabled");
-                    g_cfg.twin_portrait_enabled = (val == "true" || val == "1");
-                    changed = true;
-                }
-                if (request.find("video_volume=") != std::string::npos) {
-                    int val = safe_stoi(get_query_param(request, "video_volume"), g_cfg.video_volume);
-                    if (val >= 0 && val <= 150) { g_cfg.video_volume = val; changed = true; }
-                }
-                if (request.find("timer_enabled=") != std::string::npos) {
-                    std::string val = get_query_param(request, "timer_enabled");
-                    g_cfg.timer_enabled = (val == "true" || val == "1");
-                    changed = true;
-                }
-                if (request.find("filename_enabled=") != std::string::npos) {
-                    std::string val = get_query_param(request, "filename_enabled");
-                    g_cfg.filename_enabled = (val == "true" || val == "1");
-                    changed = true;
-                }
-                if (request.find("count_enabled=") != std::string::npos) {
-                    std::string val = get_query_param(request, "count_enabled");
-                    g_cfg.count_enabled = (val == "true" || val == "1");
-                    changed = true;
-                }
-                if (request.find("date_overlay_enabled=") != std::string::npos) {
-                    std::string val = get_query_param(request, "date_overlay_enabled");
-                    g_cfg.date_overlay_enabled = (val == "true" || val == "1");
-                    changed = true;
-                }
-                if (request.find("clock_enabled=") != std::string::npos) {
-                    std::string val = get_query_param(request, "clock_enabled");
-                    g_cfg.clock_enabled = (val == "true" || val == "1");
-                    changed = true;
-                }
-                if (request.find("blurred_background=") != std::string::npos) {
-                    std::string val = get_query_param(request, "blurred_background");
-                    g_cfg.blurred_background = (val == "true" || val == "1");
-                    changed = true;
-                }
-                if (request.find("color_matched_matte=") != std::string::npos) {
-                    std::string val = get_query_param(request, "color_matched_matte");
-                    g_cfg.color_matched_matte = (val == "true" || val == "1");
-                    changed = true;
-                }
-                if (request.find("mqtt_enabled=") != std::string::npos) {
-                    std::string val = get_query_param(request, "mqtt_enabled");
-                    g_cfg.mqtt_enabled = (val == "true" || val == "1");
-                    changed = true;
-                }
-                if (request.find("mqtt_broker=") != std::string::npos) {
-                    std::string val = get_query_param(request, "mqtt_broker");
-                    if (!val.empty()) { g_cfg.mqtt_broker = val; changed = true; }
-                }
-                if (request.find("mqtt_port=") != std::string::npos) {
-                    int val = safe_stoi(get_query_param(request, "mqtt_port"), g_cfg.mqtt_port);
-                    if (val >= 1 && val <= 65535) { g_cfg.mqtt_port = val; changed = true; }
-                }
-                if (request.find("mqtt_topic_prefix=") != std::string::npos) {
-                    std::string val = get_query_param(request, "mqtt_topic_prefix");
-                    if (!val.empty()) { g_cfg.mqtt_topic_prefix = val; changed = true; }
-                }
-                if (request.find("google_photos_enabled=") != std::string::npos) {
-                    std::string val = get_query_param(request, "google_photos_enabled");
-                    g_cfg.google_photos_enabled = (val == "true" || val == "1");
-                    changed = true;
-                }
-                if (request.find("google_photos_album_id=") != std::string::npos) {
-                    std::string val = get_query_param(request, "google_photos_album_id");
-                    g_cfg.google_photos_album_id = val;
-                    changed = true;
-                }
-                if (request.find("google_photos_sync_interval=") != std::string::npos) {
-                    int val = safe_stoi(get_query_param(request, "google_photos_sync_interval"), g_cfg.google_photos_sync_interval);
-                    if (val >= 1) { g_cfg.google_photos_sync_interval = val; changed = true; }
+                
+                // 2. Apply updates if validation succeeded
+                if (!validation_failed) {
+                    if (request.find("transition_delay=") != std::string::npos) {
+                        double val = safe_stod(get_query_param(request, "transition_delay"), g_cfg.transition_delay);
+                        if (g_cfg.transition_delay != val) { g_cfg.transition_delay = val; changed = true; }
+                    }
+                    if (request.find("transition_duration=") != std::string::npos) {
+                        double val = safe_stod(get_query_param(request, "transition_duration"), g_cfg.transition_duration);
+                        if (g_cfg.transition_duration != val) { g_cfg.transition_duration = val; changed = true; }
+                    }
+                    if (request.find("transition_effect=") != std::string::npos) {
+                        std::string val = get_query_param(request, "transition_effect");
+                        if (!val.empty() && g_cfg.transition_effect != val) { g_cfg.transition_effect = val; changed = true; }
+                    }
+                    if (request.find("ken_burns=") != std::string::npos) {
+                        std::string val = get_query_param(request, "ken_burns");
+                        bool desired = (val == "true" || val == "1");
+                        if (g_cfg.ken_burns != desired) { g_cfg.ken_burns = desired; changed = true; }
+                    }
+                    if (request.find("ken_burns_speed=") != std::string::npos) {
+                        double val = safe_stod(get_query_param(request, "ken_burns_speed"), g_cfg.ken_burns_speed);
+                        if (g_cfg.ken_burns_speed != val) { g_cfg.ken_burns_speed = val; changed = true; }
+                    }
+                    if (request.find("shuffle=") != std::string::npos) {
+                        std::string val = get_query_param(request, "shuffle");
+                        bool desired = (val == "true" || val == "1");
+                        if (g_cfg.shuffle != desired) { g_cfg.shuffle = desired; changed = true; }
+                    }
+                    if (request.find("play_just_photos=") != std::string::npos) {
+                        std::string val = get_query_param(request, "play_just_photos");
+                        bool desired = (val == "true" || val == "1");
+                        if (g_cfg.play_just_photos != desired) { g_cfg.play_just_photos = desired; changed = true; }
+                    }
+                    if (request.find("play_just_videos=") != std::string::npos) {
+                        std::string val = get_query_param(request, "play_just_videos");
+                        bool desired = (val == "true" || val == "1");
+                        if (g_cfg.play_just_videos != desired) { g_cfg.play_just_videos = desired; changed = true; }
+                    }
+                    if (request.find("twin_portrait_enabled=") != std::string::npos) {
+                        std::string val = get_query_param(request, "twin_portrait_enabled");
+                        bool desired = (val == "true" || val == "1");
+                        if (g_cfg.twin_portrait_enabled != desired) { g_cfg.twin_portrait_enabled = desired; changed = true; }
+                    }
+                    if (request.find("video_volume=") != std::string::npos) {
+                        int val = safe_stoi(get_query_param(request, "video_volume"), g_cfg.video_volume);
+                        if (g_cfg.video_volume != val) { g_cfg.video_volume = val; changed = true; }
+                    }
+                    if (request.find("timer_enabled=") != std::string::npos) {
+                        std::string val = get_query_param(request, "timer_enabled");
+                        bool desired = (val == "true" || val == "1");
+                        if (g_cfg.timer_enabled != desired) { g_cfg.timer_enabled = desired; changed = true; }
+                    }
+                    if (request.find("filename_enabled=") != std::string::npos) {
+                        std::string val = get_query_param(request, "filename_enabled");
+                        bool desired = (val == "true" || val == "1");
+                        if (g_cfg.filename_enabled != desired) { g_cfg.filename_enabled = desired; changed = true; }
+                    }
+                    if (request.find("count_enabled=") != std::string::npos) {
+                        std::string val = get_query_param(request, "count_enabled");
+                        bool desired = (val == "true" || val == "1");
+                        if (g_cfg.count_enabled != desired) { g_cfg.count_enabled = desired; changed = true; }
+                    }
+                    if (request.find("date_overlay_enabled=") != std::string::npos) {
+                        std::string val = get_query_param(request, "date_overlay_enabled");
+                        bool desired = (val == "true" || val == "1");
+                        if (g_cfg.date_overlay_enabled != desired) { g_cfg.date_overlay_enabled = desired; changed = true; }
+                    }
+                    if (request.find("clock_enabled=") != std::string::npos) {
+                        std::string val = get_query_param(request, "clock_enabled");
+                        bool desired = (val == "true" || val == "1");
+                        if (g_cfg.clock_enabled != desired) { g_cfg.clock_enabled = desired; changed = true; }
+                    }
+                    if (request.find("blurred_background=") != std::string::npos) {
+                        std::string val = get_query_param(request, "blurred_background");
+                        bool desired = (val == "true" || val == "1");
+                        if (g_cfg.blurred_background != desired) { g_cfg.blurred_background = desired; changed = true; }
+                    }
+                    if (request.find("color_matched_matte=") != std::string::npos) {
+                        std::string val = get_query_param(request, "color_matched_matte");
+                        bool desired = (val == "true" || val == "1");
+                        if (g_cfg.color_matched_matte != desired) { g_cfg.color_matched_matte = desired; changed = true; }
+                    }
+                    if (request.find("mqtt_enabled=") != std::string::npos) {
+                        std::string val = get_query_param(request, "mqtt_enabled");
+                        bool desired = (val == "true" || val == "1");
+                        if (g_cfg.mqtt_enabled != desired) { g_cfg.mqtt_enabled = desired; changed = true; }
+                    }
+                    if (request.find("mqtt_broker=") != std::string::npos) {
+                        std::string val = get_query_param(request, "mqtt_broker");
+                        if (!val.empty() && g_cfg.mqtt_broker != val) { g_cfg.mqtt_broker = val; changed = true; }
+                    }
+                    if (request.find("mqtt_port=") != std::string::npos) {
+                        int val = safe_stoi(get_query_param(request, "mqtt_port"), g_cfg.mqtt_port);
+                        if (g_cfg.mqtt_port != val) { g_cfg.mqtt_port = val; changed = true; }
+                    }
+                    if (request.find("mqtt_topic_prefix=") != std::string::npos) {
+                        std::string val = get_query_param(request, "mqtt_topic_prefix");
+                        if (!val.empty() && g_cfg.mqtt_topic_prefix != val) { g_cfg.mqtt_topic_prefix = val; changed = true; }
+                    }
+                    if (request.find("google_photos_enabled=") != std::string::npos) {
+                        std::string val = get_query_param(request, "google_photos_enabled");
+                        bool desired = (val == "true" || val == "1");
+                        if (g_cfg.google_photos_enabled != desired) { g_cfg.google_photos_enabled = desired; changed = true; }
+                    }
+                    if (request.find("google_photos_album_id=") != std::string::npos) {
+                        std::string val = get_query_param(request, "google_photos_album_id");
+                        if (g_cfg.google_photos_album_id != val) { g_cfg.google_photos_album_id = val; changed = true; }
+                    }
+                    if (request.find("google_photos_sync_interval=") != std::string::npos) {
+                        int val = safe_stoi(get_query_param(request, "google_photos_sync_interval"), g_cfg.google_photos_sync_interval);
+                        if (g_cfg.google_photos_sync_interval != val) { g_cfg.google_photos_sync_interval = val; changed = true; }
+                    }
                 }
             }
-            if (changed) {
-                g_cfg.save("/app/config/config.toml");
-                g_config_changed.store(true);
+            
+            if (validation_failed) {
+                trigger_error(807); // E807: HTTP_SETTINGS_CLAMP_VIOLATION
+                g_logger.error("HTTP settings clamp violation: %s", err_msg.c_str());
+                std::ostringstream json_err;
+                json_err << "{\n"
+                         << "  \"status\": \"error\",\n"
+                         << "  \"message\": \"HTTP settings clamp violation: " << err_msg << "\"\n"
+                         << "}";
+                send_response(client_fd, "HTTP/1.1 400 Bad Request", "application/json", json_err.str());
+            } else {
+                if (g_active_error_code.load() == 807) {
+                    trigger_error(0);
+                }
+                if (changed) {
+                    g_cfg.save("/app/config/config.toml");
+                    g_config_changed.store(true);
+                }
+                send_response(client_fd, "HTTP/1.1 200 OK", "application/json", "{\"status\":\"ok\"}");
             }
-            send_response(client_fd, "HTTP/1.1 200 OK", "application/json", "{\"status\":\"ok\"}");
         }
         else if (request.rfind("GET /api/settings", 0) == 0) {
             send_response(client_fd, "HTTP/1.1 200 OK", "application/json", get_api_settings());
@@ -1695,6 +1877,8 @@ static void handle_client(int client_fd) {
         else if (request.rfind("GET /api/logs", 0) == 0) {
             std::string log_content = "";
             std::string path = g_logger.log_file_path;
+            bool read_success = false;
+            
             if (!path.empty() && std::filesystem::exists(path)) {
                 std::ifstream log_file(path);
                 if (log_file.is_open()) {
@@ -1710,11 +1894,19 @@ static void handle_client(int client_fd) {
                     while (std::getline(log_file, line)) {
                         log_content += line + "\n";
                     }
+                    read_success = true;
                 }
             }
-            if (log_content.empty()) {
+            
+            if (!read_success) {
+                trigger_error(126); // E126: HTTP_LOG_STREAM_IO_ERROR
                 log_content = "No logs available or log file not initialized yet.";
+            } else {
+                if (g_active_error_code.load() == 126) {
+                    trigger_error(0);
+                }
             }
+            
             std::ostringstream json_oss;
             json_oss << "{\n"
                      << "  \"logs\": \"" << escape_json(log_content) << "\"\n"
