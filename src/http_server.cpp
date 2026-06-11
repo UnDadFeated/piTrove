@@ -1160,6 +1160,7 @@ static std::string get_dashboard_html() {
         }
 
         let logInterval = null;
+        let lastFilename = "";
         function switchTab(tabId) {
             document.querySelectorAll('.tab-content').forEach(el => el.style.display = 'none');
             document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
@@ -1247,6 +1248,15 @@ static std::string get_dashboard_html() {
                 const res = await fetch('/api/status');
                 if (res.ok) {
                     const status = await res.json();
+                    
+                    if (status.filename !== lastFilename) {
+                        lastFilename = status.filename;
+                        const loadingEl = document.getElementById('loading');
+                        loadingEl.innerText = "Syncing...";
+                        loadingEl.style.opacity = '1';
+                        document.getElementById('preview').src = "/api/preview?t=" + new Date().getTime();
+                    }
+                    
                     document.getElementById('media-title').innerText = status.filename;
                     document.getElementById('media-progress').innerText = `${status.index + 1} / ${status.total}`;
                     const typeBadge = document.getElementById('media-type');
@@ -1296,6 +1306,15 @@ static std::string get_dashboard_html() {
                     }
                 }
             } catch (err) {}
+        }
+
+        function onPreviewLoaded() {
+            document.getElementById('loading').style.opacity = '0';
+        }
+        function onPreviewError() {
+            const loadingEl = document.getElementById('loading');
+            loadingEl.innerText = "Load failed";
+            loadingEl.style.opacity = '1';
         }
 
         async function sendCommand(url) { await fetch(url); await fetchStatus(); }
