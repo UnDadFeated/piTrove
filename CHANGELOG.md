@@ -1,3 +1,12 @@
+## v11.9.7 — API Validation & Log Diagnostics Hardening (June 10, 2026)
+
+### Added
+- **API Boundary & Clamp Checks** — Settings configuration updates via the web remote are now validated against safety limits (such as slide delay and video volume), triggering diagnostic error E807 if constraints are violated.
+- **Log Stream Access Diagnostics** — Diagnostic log read checks now actively monitor log stream availability, generating error E126 if logs cannot be read.
+
+### Fixed
+- **Standardized Input Log Prefixes** — Standardized all background touchscreen event logs to consistently use the `TOUCH_INPUT` prefix for better readability.
+
 ## v11.9.6 — Installer Reliability Fixes (June 10, 2026)
 
 ### Fixed
