@@ -23,11 +23,10 @@ bool Config::load(const std::string& path) {
             section = line.substr(1, line.size() - 2);
             continue;
         }
-        auto eq = line.find('=');
-        if (eq == std::string::npos) {
+        if (auto eq = line.find('='); eq == std::string::npos) {
             trigger_error(801); // E801: TOML_PARSE_FAILURE
             continue;
-        }
+        } else {
 
         std::string key = trim(line.substr(0, eq));
         std::string val = trim(line.substr(eq + 1));
@@ -214,6 +213,7 @@ bool Config::load(const std::string& path) {
             if (g_logger.is_initialized())
                 g_logger.warn("UNRECOGNIZED_KEY: [%s] '%s' in config.toml", section.c_str(), key.c_str());
         }
+        } // else (eq != npos)
     }
 
     return true;
