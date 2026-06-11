@@ -554,6 +554,55 @@ void OverlayManager::draw_all(int current_idx, int total_items, const MediaItem*
     if (keyboard_active) {
         draw_virtual_keyboard();
     }
+    if (nav_overlay_active) {
+        Uint64 now_ms = SDL_GetTicks();
+        if (now_ms - nav_overlay_show_time > 3000) {
+            nav_overlay_active = false;
+        } else {
+            draw_nav_overlay();
+        }
+    }
+}
+
+void OverlayManager::draw_nav_overlay() {
+    if (!font_loaded || !font_renderer || !overlay_font) return;
+
+    int sw = g_renderer.screen_w;
+    int sh = g_renderer.screen_h;
+
+    // Define positions
+    int btn_size = 70;
+    int left_x = 40;
+    int right_x = sw - 110;
+    int center_x = (sw - btn_size) / 2;
+    int btn_y = (sh - btn_size) / 2;
+
+    FontHandle& font = font_renderer->load_font(overlay_font->path, 28);
+
+    // Helper to draw a single navigation button
+    auto draw_nav_btn = [&](int bx, int by, const std::string& symbol) {
+        SDL_FRect rect = { (float)bx, (float)by, (float)btn_size, (float)btn_size };
+        
+        // Translucent dark background
+        SDL_SetRenderDrawBlendMode(renderer->sdl_renderer, SDL_BLENDMODE_BLEND);
+        SDL_SetRenderDrawColor(renderer->sdl_renderer, 15, 15, 17, 200); // semi-translucent dark
+        SDL_RenderFillRect(renderer->sdl_renderer, &rect);
+
+        // Highlight/outline
+        SDL_SetRenderDrawColor(renderer->sdl_renderer, 161, 161, 170, 150); // Zinc outline
+        SDL_RenderRect(renderer->sdl_renderer, &rect);
+
+        // Measure & draw symbol centered
+        int sw_text = 0, sh_text = 0;
+        font_renderer->measure(font, symbol, sw_text, sh_text);
+        int sx = bx + (btn_size - sw_text) / 2;
+        int sy = by + (btn_size - sh_text) / 2;
+        font_renderer->draw_text(sx, sy, font, symbol, 244, 244, 245, 255);
+    };
+
+    draw_nav_btn(left_x, btn_y, "◀");
+    draw_nav_btn(center_x, btn_y, "⚙");
+    draw_nav_btn(right_x, btn_y, "▶");
 }
 
 void OverlayManager::draw_popup_menu() {
@@ -896,10 +945,48 @@ void OverlayManager::draw_virtual_keyboard() {
 }
 
 bool OverlayManager::handle_touch_click(float x, float y) {
-    if (!menu_active) return false;
-
     int sw = g_renderer.screen_w;
     int sh = g_renderer.screen_h;
+
+    // Check Touch Navigation Overlay clicks first
+    if (nav_overlay_active && !menu_active) {
+        int btn_size = 70;
+        int left_x = 40;
+        int right_x = sw - 110;
+        int center_x = (sw - btn_size) / 2;
+        int btn_y = (sh - btn_size) / 2;
+
+        // Reset/refresh timer on any screen interaction during overlay display
+        nav_overlay_show_time = SDL_GetTicks();
+
+        // Check Left button (Previous)
+        if (x >= left_x && x <= left_x + btn_size && y >= btn_y && y <= btn_y + btn_size) {
+            g_remote_command.store(2); // previous
+            nav_overlay_active = false;
+            g_logger.info("TOUCH_INPUT: Previous button clicked on navigation overlay.");
+            return true;
+        }
+        // Check Right button (Next)
+        if (x >= right_x && x <= right_x + btn_size && y >= btn_y && y <= btn_y + btn_size) {
+            g_remote_command.store(1); // next
+            nav_overlay_active = false;
+            g_logger.info("TOUCH_INPUT: Next button clicked on navigation overlay.");
+            return true;
+        }
+        // Check Center button (Config Settings)
+        if (x >= center_x && x <= center_x + btn_size && y >= btn_y && y <= btn_y + btn_size) {
+            menu_active = true;
+            nav_overlay_active = false;
+            g_logger.info("TOUCH_INPUT: Settings gear clicked on navigation overlay, opening menu.");
+            return true;
+        }
+
+        // Clicked outside buttons: dismiss the navigation overlay
+        nav_overlay_active = false;
+        return true;
+    }
+
+    if (!menu_active) return false;
 
     // 1. Keyboard Clicks
     if (keyboard_active) {
@@ -992,7 +1079,7 @@ bool OverlayManager::handle_touch_click(float x, float y) {
     // Row 0: Play/Pause Toggle
     if (x >= menu_x + 240 && x <= menu_x + 480 && y >= start_y && y <= start_y + 26) {
         g_slideshow_paused = !g_slideshow_paused.load();
-        g_logger.info("TOUCH: Slideshow state changed via touch.");
+        g_logger.info("TOUCH_INPUT: Slideshow state (Play/Pause) toggled.");
         return true;
     }
 
@@ -1006,7 +1093,7 @@ bool OverlayManager::handle_touch_click(float x, float y) {
             curr = g_cfg.shuffle;
         }
         g_config_changed.store(true);
-        g_logger.info("TOUCH: Shuffle state set to %s.", curr ? "ON" : "OFF");
+        g_logger.info("TOUCH_INPUT: Shuffle state set to %s.", curr ? "ON" : "OFF");
         return true;
     }
 
@@ -1105,6 +1192,7 @@ bool OverlayManager::handle_touch_click(float x, float y) {
         std::string prefix;
         { std::lock_guard<std::mutex> lk(g_config_mtx); prefix = g_cfg.mqtt_topic_prefix; }
         mqtt_publish(prefix + "/status/screen", g_screen_blanked.load() ? "OFF" : "ON", true);
+        g_logger.info("TOUCH_INPUT: Physical screen power toggled to %s via menu.", desired ? "OFF" : "ON");
         return true;
     }
 
@@ -1113,10 +1201,12 @@ bool OverlayManager::handle_touch_click(float x, float y) {
     if (y >= r6_y && y <= r6_y + 26) {
         if (x >= menu_x + 240 && x <= menu_x + 355) {
             g_remote_command.store(2);
+            g_logger.info("TOUCH_INPUT: Previous button clicked in settings popup menu.");
             return true;
         }
         if (x >= menu_x + 365 && x <= menu_x + 480) {
             g_remote_command.store(1);
+            g_logger.info("TOUCH_INPUT: Next button clicked in settings popup menu.");
             return true;
         }
     }

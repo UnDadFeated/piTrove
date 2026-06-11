@@ -153,6 +153,12 @@ std::vector<ErrorSeed> get_all_error_seeds() {
             "The NAS is in a low-power sleep mode and did not respond within the spin-up timeout.",
             "Enable wake-on-LAN (WOL) or increase client-side connection timeout parameters."
         },
+        {
+            "E126",
+            "HTTP_LOG_STREAM_IO_ERROR",
+            "HTTP server failed to stream system logs because the log file could not be read or does not exist.",
+            "Verify that the log directory exists, is writeable, and g_logger has successfully initialized."
+        },
 
         // --- Media Loader & Rendering Layers (E200s) ---
         {
@@ -745,6 +751,12 @@ std::vector<ErrorSeed> get_all_error_seeds() {
             "Failed to map physical memory buffer for EGL frames.",
             "Check for physical VRAM exhaustion or system memory constraints."
         },
+        {
+            "E619",
+            "TOUCHSCREEN_DEVICE_NOT_FOUND",
+            "Touchscreen enabled in configuration, but no active input device with touch capabilities was detected.",
+            "Check if the touchscreen USB/DSI cable is connected, or ensure your user has permissions to access /dev/input/event*."
+        },
 
         // --- Smart Home & Integration Layers (E700s) ---
         {
@@ -892,6 +904,12 @@ std::vector<ErrorSeed> get_all_error_seeds() {
             "APP_SHUTDOWN_HANG",
             "The application did not shut down cleanly within the timeout window.",
             "A thread failed to respond to shutdown signals; force restart container."
+        },
+        {
+            "E807",
+            "HTTP_SETTINGS_CLAMP_VIOLATION",
+            "A settings update request from the HTTP dashboard was rejected because values violated safety boundaries.",
+            "Review the boundary values in config.cpp/wizard and ensure submitted values fall within allowed limits."
         }
     };
 }

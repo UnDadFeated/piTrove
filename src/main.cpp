@@ -1310,6 +1310,31 @@ int main(int argc, char** argv) {
     g_overlay = new OverlayManager(&g_renderer);
     g_overlay->init();
 
+    // Check if touchscreen mode is enabled and verify physical device presence
+    {
+        bool touch_enabled = false;
+        {
+            std::lock_guard<std::mutex> lk(g_config_mtx);
+            touch_enabled = g_cfg.touch_enabled;
+        }
+        if (touch_enabled) {
+            int touch_count = 0;
+            SDL_TouchID* devices = SDL_GetTouchDevices(&touch_count);
+            if (devices) {
+                SDL_free(devices);
+            }
+            if (touch_count == 0) {
+                g_logger.warn("TOUCH_INPUT: Enabled in config, but SDL_GetTouchDevices detected 0 touch devices.");
+                trigger_error(619); // E619: TOUCHSCREEN_DEVICE_NOT_FOUND
+            } else {
+                g_logger.info("TOUCH_INPUT: Found %d active touch input device(s).", touch_count);
+                if (g_active_error_code.load() == 619) {
+                    trigger_error(0);
+                }
+            }
+        }
+    }
+
     // Initialize background preload queue
     g_preload = new PreloadQueue(g_cfg.preload_capacity, g_cfg.preload_workers, g_renderer.sdl_renderer);
     g_preload->start();
@@ -1651,20 +1676,22 @@ int main(int argc, char** argv) {
                                 std::lock_guard<std::mutex> lk(g_config_mtx);
                                 touch_mode = g_cfg.touch_enabled;
                             }
-                            if (g_overlay->menu_active) {
+                            if (touch_mode) {
                                 float mx = event.button.x;
                                 float my = event.button.y;
-                                g_overlay->handle_touch_click(mx, my);
-                            } else {
-                                if (touch_mode) {
+                                if (g_overlay->menu_active || g_overlay->keyboard_active || g_overlay->nav_overlay_active) {
+                                    g_overlay->handle_touch_click(mx, my);
+                                } else {
                                     if (g_mpv_player.is_active()) {
-                                        g_logger.info("Touch during video: stopping mpv to open config menu.");
+                                        g_logger.info("TOUCH_INPUT: Touch during video: stopping mpv to open touch navigation overlay.");
                                         g_mpv_player.stop();
                                     }
-                                    g_overlay->menu_active = true;
-                                } else {
-                                    g_remote_command.store(1);
+                                    g_overlay->nav_overlay_active = true;
+                                    g_overlay->nav_overlay_show_time = SDL_GetTicks();
+                                    g_logger.info("TOUCH_INPUT: Activating navigation overlay via click.");
                                 }
+                            } else {
+                                g_remote_command.store(1);
                             }
                         }
                     }
@@ -1686,14 +1713,16 @@ int main(int argc, char** argv) {
                         if (touch_mode) {
                             float mx = event.tfinger.x * g_renderer.screen_w;
                             float my = event.tfinger.y * g_renderer.screen_h;
-                            if (g_overlay->menu_active) {
+                            if (g_overlay->menu_active || g_overlay->keyboard_active || g_overlay->nav_overlay_active) {
                                 g_overlay->handle_touch_click(mx, my);
                             } else {
                                 if (g_mpv_player.is_active()) {
-                                    g_logger.info("Finger touch during video: stopping mpv to open config menu.");
+                                    g_logger.info("TOUCH_INPUT: Finger touch during video: stopping mpv to open touch navigation overlay.");
                                     g_mpv_player.stop();
                                 }
-                                g_overlay->menu_active = true;
+                                g_overlay->nav_overlay_active = true;
+                                g_overlay->nav_overlay_show_time = SDL_GetTicks();
+                                g_logger.info("TOUCH_INPUT: Activating navigation overlay via finger touch.");
                             }
                         }
                     }
