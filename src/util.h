@@ -1,11 +1,12 @@
 #ifndef PITROVE_UTIL_H
 #define PITROVE_UTIL_H
 
-#define VERSION "12.3.0"
+#define VERSION "12.4.0"
 #define APP_NAME "piTrove"
 
 #include <atomic>
 #include <string>
+#include <string_view>
 #include <vector>
 #include <mutex>
 #include <condition_variable>
@@ -76,9 +77,9 @@ inline Logger g_logger;
 [[nodiscard]] float safe_stof(const std::string& s, float def);
 [[nodiscard]] double safe_stod(const std::string& s, double def);
 [[nodiscard]] long long safe_stoll(const std::string& s, long long def);
-[[nodiscard]] std::string trim(const std::string& s);
-[[nodiscard]] std::string escape_shell_arg(const std::string& input);
-[[nodiscard]] std::string sanitize_alphanumeric(const std::string& input);
+[[nodiscard]] std::string trim(std::string_view s);
+[[nodiscard]] std::string escape_shell_arg(std::string_view input);
+[[nodiscard]] std::string sanitize_alphanumeric(std::string_view input);
 
 // Signal / crash handling
 void crash_handler(int sig);

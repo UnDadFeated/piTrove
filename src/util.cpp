@@ -79,12 +79,12 @@ long long safe_stoll(const std::string& s, long long def) {
     }
 }
 
-std::string trim(const std::string& s) {
+std::string trim(std::string_view s) {
     auto start = s.find_first_not_of(" \t\r\n");
-    if (start == std::string::npos) return "";
+    if (start == std::string_view::npos) return "";
     auto end = s.find_last_not_of(" \t\r\n");
-    if (end == std::string::npos || end < start) return "";
-    return s.substr(start, end - start + 1);
+    if (end == std::string_view::npos || end < start) return "";
+    return std::string(s.substr(start, end - start + 1));
 }
 
 // Signal / crash handling — ONLY async-signal-safe functions
@@ -553,7 +553,7 @@ bool get_item_date(const MediaItem& item, int& y, int& m, int& d) {
     return true;
 }
 
-std::string escape_shell_arg(const std::string& input) {
+std::string escape_shell_arg(std::string_view input) {
     std::string escaped;
     for (char c : input) {
         if (c == '\'') {
@@ -565,7 +565,7 @@ std::string escape_shell_arg(const std::string& input) {
     return escaped;
 }
 
-std::string sanitize_alphanumeric(const std::string& input) {
+std::string sanitize_alphanumeric(std::string_view input) {
     std::string output;
     for (char c : input) {
         if (std::isalnum(static_cast<unsigned char>(c)) || c == '-' || c == '_') {

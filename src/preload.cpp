@@ -4,6 +4,7 @@
 #include "image_loader.h"
 #include "blur.h"
 #include "config.h"
+#include <shared_mutex>
 #include <stb_image.h>
 #include <algorithm>
 #include <cstring>
@@ -371,7 +372,7 @@ void PreloadQueue::worker_thread(int thread_id) {
 
         int blur_radius = 14;
         {
-            std::lock_guard<std::mutex> lock(g_config_mtx);
+            std::shared_lock<std::shared_mutex> lock(g_config_mtx);
             blur_radius = g_renderer.scale_px(g_cfg.blur_radius);
         }
         RawImage blur = box_blur(raw, blur_radius);

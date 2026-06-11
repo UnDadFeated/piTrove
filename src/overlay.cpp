@@ -28,7 +28,7 @@ void OverlayManager::init() {
     std::string exe_dir = get_exe_dir();
     std::string font_path = "";
     {
-        std::lock_guard<std::mutex> lock(g_config_mtx);
+        std::lock_guard lock(g_config_mtx);
         if (g_cfg.font_path != "auto" && !g_cfg.font_path.empty()) {
             font_path = g_cfg.font_path;
         }
@@ -218,7 +218,7 @@ void OverlayManager::draw_all(int current_idx, int total_items, const MediaItem*
     bool adaptive_text_enabled = false;
 
     {
-        std::lock_guard<std::mutex> lock(g_config_mtx);
+        std::lock_guard lock(g_config_mtx);
         date_enabled = g_cfg.date_overlay_enabled;
         date_text = g_cfg.date_text;
         date_x = g_cfg.date_x;
@@ -363,7 +363,7 @@ void OverlayManager::draw_all(int current_idx, int total_items, const MediaItem*
         {
             std::string db_dir = "/home/pi/piTrove/cache";
             {
-                std::lock_guard<std::mutex> lock(g_config_mtx);
+                std::lock_guard lock(g_config_mtx);
                 db_dir = g_cfg.cache_dir;
             }
             std::string path = db_dir + "/cache.db";
@@ -647,7 +647,7 @@ void OverlayManager::draw_popup_menu() {
     double delay = 120.0;
     int volume = 0;
     {
-        std::lock_guard<std::mutex> lk(g_config_mtx);
+        std::lock_guard lk(g_config_mtx);
         shuffle = g_cfg.shuffle;
         delay = g_cfg.transition_delay;
         volume = g_cfg.video_volume;
@@ -1026,7 +1026,7 @@ bool OverlayManager::handle_touch_click(float x, float y) {
                     if (keyboard_target == 0) {
                         if (val < 1) val = 1;
                         {
-                            std::lock_guard<std::mutex> lk(g_config_mtx);
+                            std::lock_guard lk(g_config_mtx);
                             g_cfg.transition_delay = (double)val;
                             g_cfg.save("/app/config/config.toml");
                         }
@@ -1036,7 +1036,7 @@ bool OverlayManager::handle_touch_click(float x, float y) {
                         if (val < 0) val = 0;
                         if (val > 100) val = 100;
                         {
-                            std::lock_guard<std::mutex> lk(g_config_mtx);
+                            std::lock_guard lk(g_config_mtx);
                             g_cfg.video_volume = val;
                             g_cfg.save("/app/config/config.toml");
                         }
@@ -1086,7 +1086,7 @@ bool OverlayManager::handle_touch_click(float x, float y) {
     if (x >= menu_x + 240 && x <= menu_x + 480 && y >= start_y + 1 * row_h && y <= start_y + 1 * row_h + 26) {
         bool curr;
         {
-            std::lock_guard<std::mutex> lk(g_config_mtx);
+            std::lock_guard lk(g_config_mtx);
             g_cfg.shuffle = !g_cfg.shuffle;
             g_cfg.save("/app/config/config.toml");
             curr = g_cfg.shuffle;
@@ -1100,12 +1100,12 @@ bool OverlayManager::handle_touch_click(float x, float y) {
     int r2_y = start_y + 2 * row_h;
     if (y >= r2_y && y <= r2_y + 26) {
         double current_val;
-        { std::lock_guard<std::mutex> lk(g_config_mtx); current_val = g_cfg.transition_delay; }
+        { std::lock_guard lk(g_config_mtx); current_val = g_cfg.transition_delay; }
         
         if (x >= menu_x + 240 && x <= menu_x + 280) {
             current_val = std::max(5.0, current_val - 5.0);
             {
-                std::lock_guard<std::mutex> lk(g_config_mtx);
+                std::lock_guard lk(g_config_mtx);
                 g_cfg.transition_delay = current_val;
                 g_cfg.save("/app/config/config.toml");
             }
@@ -1115,7 +1115,7 @@ bool OverlayManager::handle_touch_click(float x, float y) {
         if (x >= menu_x + 440 && x <= menu_x + 480) {
             current_val = std::min(3600.0, current_val + 5.0);
             {
-                std::lock_guard<std::mutex> lk(g_config_mtx);
+                std::lock_guard lk(g_config_mtx);
                 g_cfg.transition_delay = current_val;
                 g_cfg.save("/app/config/config.toml");
             }
@@ -1134,12 +1134,12 @@ bool OverlayManager::handle_touch_click(float x, float y) {
     int r3_y = start_y + 3 * row_h;
     if (y >= r3_y && y <= r3_y + 26) {
         int current_val;
-        { std::lock_guard<std::mutex> lk(g_config_mtx); current_val = g_cfg.video_volume; }
+        { std::lock_guard lk(g_config_mtx); current_val = g_cfg.video_volume; }
 
         if (x >= menu_x + 240 && x <= menu_x + 280) {
             current_val = std::max(0, current_val - 5);
             {
-                std::lock_guard<std::mutex> lk(g_config_mtx);
+                std::lock_guard lk(g_config_mtx);
                 g_cfg.video_volume = current_val;
                 g_cfg.save("/app/config/config.toml");
             }
@@ -1149,7 +1149,7 @@ bool OverlayManager::handle_touch_click(float x, float y) {
         if (x >= menu_x + 440 && x <= menu_x + 480) {
             current_val = std::min(100, current_val + 5);
             {
-                std::lock_guard<std::mutex> lk(g_config_mtx);
+                std::lock_guard lk(g_config_mtx);
                 g_cfg.video_volume = current_val;
                 g_cfg.save("/app/config/config.toml");
             }
@@ -1172,7 +1172,7 @@ bool OverlayManager::handle_touch_click(float x, float y) {
         if (pct > 1.0f) pct = 1.0f;
         int val = (int)(pct * 100);
         {
-            std::lock_guard<std::mutex> lk(g_config_mtx);
+            std::lock_guard lk(g_config_mtx);
             g_cfg.video_volume = val;
             g_cfg.save("/app/config/config.toml");
         }
@@ -1189,7 +1189,7 @@ bool OverlayManager::handle_touch_click(float x, float y) {
         }
         set_display_power(expected);
         std::string prefix;
-        { std::lock_guard<std::mutex> lk(g_config_mtx); prefix = g_cfg.mqtt_topic_prefix; }
+        { std::lock_guard lk(g_config_mtx); prefix = g_cfg.mqtt_topic_prefix; }
         mqtt_publish(prefix + "/status/screen", g_screen_blanked.load() ? "OFF" : "ON", true);
         g_logger.info("TOUCH_INPUT: Physical screen power toggled to %s via menu.", desired ? "OFF" : "ON");
         return true;

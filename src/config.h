@@ -5,6 +5,7 @@
 #include <string>
 #include <vector>
 #include <mutex>
+#include <shared_mutex>
 
 struct Config {
     std::string media_dir;
@@ -188,6 +189,6 @@ struct Config {
 };
 
 inline Config g_cfg;
-inline std::mutex g_config_mtx;
+inline std::shared_mutex g_config_mtx;
 
 #endif // PITROVE_CONFIG_H

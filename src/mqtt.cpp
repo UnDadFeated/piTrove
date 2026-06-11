@@ -3,6 +3,7 @@
 #include "util.h"
 #include <thread>
 #include <mutex>
+#include <shared_mutex>
 #include <cstdlib>
 #include <ctime>
 #include <algorithm>
@@ -63,7 +64,7 @@ void mqtt_publish(const std::string& topic, const std::string& payload, bool ret
     int port = 1883;
     std::string user, pass;
     {
-        std::lock_guard<std::mutex> lk(g_config_mtx);
+        std::shared_lock<std::shared_mutex> lk(g_config_mtx);
         enabled = g_cfg.mqtt_enabled;
         broker = g_cfg.mqtt_broker;
         port = g_cfg.mqtt_port;
@@ -99,7 +100,7 @@ void mqtt_publish(const std::string& topic, const std::string& payload, bool ret
 
 void publish_ha_discovery() {
     std::string prefix;
-    { std::lock_guard<std::mutex> lk(g_config_mtx); prefix = g_cfg.mqtt_topic_prefix; }
+    { std::shared_lock<std::shared_mutex> lk(g_config_mtx); prefix = g_cfg.mqtt_topic_prefix; }
     
     // Device configuration block
     std::string device_json = "\"device\":{"
@@ -154,7 +155,7 @@ void publish_ha_discovery() {
     // 5. Motion Binary Sensor (if configured)
     {
         std::string sensor_topic;
-        { std::lock_guard<std::mutex> lk(g_config_mtx); sensor_topic = g_cfg.mqtt_motionsensor_topic; }
+        { std::shared_lock<std::shared_mutex> lk(g_config_mtx); sensor_topic = g_cfg.mqtt_motionsensor_topic; }
         if (!sensor_topic.empty()) {
             std::string motion_sensor_json = "{"
                 "\"name\":\"Motion Sensor\","
@@ -173,7 +174,7 @@ void publish_ha_discovery() {
 void start_mqtt_client() {
     bool enabled = false;
     {
-        std::lock_guard<std::mutex> lk(g_config_mtx);
+        std::shared_lock<std::shared_mutex> lk(g_config_mtx);
         enabled = g_cfg.mqtt_enabled;
     }
     if (!enabled) return;
@@ -187,7 +188,7 @@ void start_mqtt_client() {
         std::string broker, prefix, sensor_topic;
         int port = 1883;
         {
-            std::lock_guard<std::mutex> lk(g_config_mtx);
+            std::shared_lock<std::shared_mutex> lk(g_config_mtx);
             broker = g_cfg.mqtt_broker;
             port = g_cfg.mqtt_port;
             prefix = g_cfg.mqtt_topic_prefix;
@@ -198,7 +199,7 @@ void start_mqtt_client() {
                           " -p " + std::to_string(port);
         std::string user, pass;
         {
-            std::lock_guard<std::mutex> lk(g_config_mtx);
+            std::shared_lock<std::shared_mutex> lk(g_config_mtx);
             user = g_cfg.mqtt_user;
             pass = g_cfg.mqtt_pass;
         }

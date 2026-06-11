@@ -89,7 +89,7 @@ bool MpvPlayer::play(const std::string& path, int volume) {
     std::string connector_arg = "--drm-connector=HDMI-A-1";
     std::string audio_arg = "";
     {
-        std::lock_guard<std::mutex> lock(g_config_mtx);
+        std::lock_guard lock(g_config_mtx);
         cc_enabled = g_cfg.closed_captions_enabled;
         subtitles_dir = g_cfg.video_subtitles_dir;
         if (!g_cfg.drm_connector.empty() && g_cfg.drm_connector != "auto") {
@@ -147,7 +147,7 @@ bool MpvPlayer::play(const std::string& path, int volume) {
     int matte_px = 96;
     int osd_off_x = 0, osd_off_y = 0;
     {
-        std::lock_guard<std::mutex> lock(g_config_mtx);
+        std::lock_guard lock(g_config_mtx);
         matte_px = g_cfg.matting_size;
         osd_off_x = g_cfg.osd_offset_x;
         osd_off_y = g_cfg.osd_offset_y;
