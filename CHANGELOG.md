@@ -1,3 +1,9 @@
+## v12.2.0 — Static Code Safety & Warning Hygiene (June 11, 2026)
+
+### Added
+- **Discarded Value Warning Checks** — Integrated strict return value checking compiler guidelines across all math, text parsing, and filesystem check operations to verify that logical values returned by system helpers are never silently ignored.
+- **Unused Parameter Refinement** — Modernized inactive configuration stub endpoints and graphics engine callbacks to clean up legacy type casting directives, ensuring a warning-free compilation.
+
 ## v12.1.0 — Code Modernization & Configuration Safety (June 11, 2026)
 
 ### Added

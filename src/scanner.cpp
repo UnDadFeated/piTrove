@@ -47,18 +47,16 @@ std::vector<std::string> read_dir(const std::string& path) {
     return entries;
 }
 
-std::vector<std::string> read_dir_timeout(const std::string& path, int timeout_ms) {
+std::vector<std::string> read_dir_timeout(const std::string& path, [[maybe_unused]] int timeout_ms) {
     // Timeout parameter is currently unused because directory listing
     // should not block indefinitely on a standard local/mounted FS.
-    (void)timeout_ms;
     return read_dir(path);
 }
 
- bool stat_timeout(const std::string& path, struct stat& st, int timeout_ms) {
+ bool stat_timeout(const std::string& path, struct stat& st, [[maybe_unused]] int timeout_ms) {
     // alarm() is process-global and races between threads.
     // Revert to plain stat() with a comment that CIFS should not block
     // indefinitely in practice.
-    (void)timeout_ms;
     return stat(path.c_str(), &st) == 0;
 }
 
