@@ -86,6 +86,6 @@ private:
 
 };
 
-extern Renderer g_renderer;
+inline Renderer g_renderer;
 
 #endif // PITROVE_RENDERER_H

@@ -16,7 +16,6 @@
 #include <thread>
 #include <chrono>
 
-MpvPlayer g_mpv_player;
 
 MpvPlayer::MpvPlayer() {}
 

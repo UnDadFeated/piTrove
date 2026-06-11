@@ -10,7 +10,6 @@
 #include <memory>
 #include <sstream>
 
-GooglePhotosManager g_google_photos;
 
 GooglePhotosManager::~GooglePhotosManager() { stop(); }
 

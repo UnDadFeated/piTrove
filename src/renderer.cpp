@@ -96,7 +96,6 @@ static double get_uptime() {
     return up;
 }
 
-Renderer g_renderer;
 
 static GpuColor get_pixel_color(SDL_Surface* surface, int x, int y) {
     if (!surface || x < 0 || x >= surface->w || y < 0 || y >= surface->h) {

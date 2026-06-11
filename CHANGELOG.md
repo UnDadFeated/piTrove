@@ -1,3 +1,8 @@
+## v12.3.0 — Global Linkage Modernization (June 11, 2026)
+
+### Added
+- **Global Variable Modernization** — Modernized the sharing system for application state, configurations, and core subsystems. This allows variable definitions to reside directly in header files, completely eliminating duplicate code definitions and streamlining compile-time link verification.
+
 ## v12.2.0 — Static Code Safety & Warning Hygiene (June 11, 2026)
 
 ### Added
