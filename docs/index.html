@@ -31,8 +31,8 @@
                 <span class="logo-text">piTrove</span>
             </a>
             <nav id="main-nav">
-                <a href="https://www.reddit.com/r/piTrove/" target="_blank" rel="noopener" class="nav-item"><i class="fa-brands fa-reddit"></i> Subreddit</a>
-                <a href="https://github.com/UnDadFeated/piTrove" target="_blank" rel="noopener" class="github-btn" id="github-link-btn"><i class="fa-brands fa-github"></i> GitHub</a>
+                <a href="https://www.reddit.com/r/piTrove/" target="_blank" rel="noopener" class="nav-item"><i class="fa-brands fa-reddit"></i><span class="nav-text"> Subreddit</span></a>
+                <a href="https://github.com/UnDadFeated/piTrove" target="_blank" rel="noopener" class="github-btn" id="github-link-btn"><i class="fa-brands fa-github"></i><span class="nav-text"> GitHub</span></a>
             </nav>
             <button id="theme-toggle" aria-label="Toggle Theme" class="theme-toggle-btn">
                 <i class="fa-solid fa-moon"></i>
@@ -106,9 +106,9 @@
                 <h2 class="section-title"><i class="fa-solid fa-photo-film"></i> Media Playback & Formats</h2>
                 <p class="organizer-intro" style="margin-bottom: 1rem;">piTrove is designed from the ground up for seamless, high-fidelity playback of both high-resolution photography and hardware-accelerated video clips.</p>
 
-                <div class="format-card" style="background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 12px; padding: 1.5rem; box-shadow: var(--shadow-premium); display: grid; grid-template-columns: 1fr 1fr; gap: 2rem;">
+                <div class="format-card-grid">
                     <!-- Photos Column -->
-                    <div style="display: flex; flex-direction: column; gap: 0.75rem;">
+                    <div class="format-column">
                         <h3 style="font-size: 1.15rem; display: flex; align-items: center; gap: 0.5rem; color: var(--text-primary);"><i class="fa-solid fa-image" style="color: var(--text-secondary);"></i> High-Res Photography</h3>
                         <p style="color: var(--text-secondary); font-size: 0.85rem; line-height: 1.5;">
                             Native, multi-threaded image decoding utilizing hardware-accelerated color conversions. Displays pictures with professional-grade transitions, CRT vignette shaders, and color-matched blur backgrounds.
@@ -124,7 +124,7 @@
                     </div>
 
                     <!-- Videos Column -->
-                    <div style="display: flex; flex-direction: column; gap: 0.75rem; border-left: 1px solid rgba(255,255,255,0.06); padding-left: 2rem;">
+                    <div class="format-column video-column">
                         <h3 style="font-size: 1.15rem; display: flex; align-items: center; gap: 0.5rem; color: var(--text-primary);"><i class="fa-solid fa-video" style="color: var(--text-secondary);"></i> Cinematic Video Engine</h3>
                         <p style="color: var(--text-secondary); font-size: 0.85rem; line-height: 1.5;">
                             Interleaves video clips within your photo playlist. Leverages an optimized native subprocess linking the direct-to-framebuffer DRM/KMS hardware decoder.
@@ -148,7 +148,7 @@
             <div class="container">
                 <h2 class="section-title"><i class="fa-solid fa-microchip"></i> System Capabilities</h2>
                 
-                <div class="capabilities-grid" style="grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));">
+                <div class="capabilities-grid">
                     <div class="compact-feature-item">
                         <div class="item-icon"><i class="fa-solid fa-bolt"></i></div>
                         <div>
