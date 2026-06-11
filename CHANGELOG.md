@@ -1,3 +1,9 @@
+## v12.1.0 — Code Modernization & Configuration Safety (June 11, 2026)
+
+### Added
+- **Configuration Boundary Hardening** — Standardized value constraint clamping across all application subsystems to guarantee that out-of-bounds options supplied via manual configuration edits are safely and uniformly clamped to their defined limits on load.
+- **Improved Media Cache Cleanup** — Refactored data structures inside the graphics engine to cleanly unpack metadata indices during folder scans and text-rendering cache clear-downs, improving stability and performance.
+
 ## v12.0.0 — Web Remote Refinements & Scroll Usability (June 10, 2026)
 
 ### Added
