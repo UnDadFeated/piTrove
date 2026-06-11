@@ -1,3 +1,14 @@
+## v12.5.0 — Deep C++17 Modernization (June 11, 2026)
+
+### Added
+- **Zero-Allocation Number Parsing** — Replaced all exception-based string-to-number conversion with a unified template parser built on `std::from_chars`. Configuration loading and web dashboard parameter processing no longer allocate temporary heap strings or throw exceptions during parsing, reducing startup and runtime overhead.
+- **Compile-Time Keyword Tables** — Media classification keyword arrays (documents, people, animals) and image extension lists are now evaluated at compile time. This eliminates per-launch heap construction and improves classifier throughput on the Pi's limited memory bus.
+- **Expressive Date Parsing API** — Date extraction from filenames and metadata now uses `std::optional` returns with structured bindings instead of out-parameters, making missing-date paths explicit and self-documenting at every call site.
+- **Deadlock-Safe Multi-Lock Acquisition** — Introduced `std::scoped_lock` for sites that acquire both playlist and configuration locks simultaneously, providing automatic deadlock-free ordering guarantees.
+- **Modern Attribute Annotations** — Replaced legacy C-style `(void)result` suppression casts with `[[maybe_unused]]` attributes across system calls, subprocess launches, and iterator variables.
+- **Expanded Zero-Copy String Parameters** — Extended `std::string_view` usage to seasonal window checkers, keyword matchers, and month-in-window filters, avoiding unnecessary string copies during scanning and playlist filtering.
+- **Tighter Variable Scoping** — Applied C++17 if-with-initializer statements to configuration parsing, JSON value extraction, and URL parameter decoding, scoping intermediate variables to their exact point of use.
+
 ## v12.4.0 — C++17 Modernization & Directory Iterators (June 11, 2026)
 
 ### Added

@@ -19,7 +19,7 @@
 #include <fcntl.h>
 #include <random>
 
-static const char* IMAGE_EXTS[] = {"jpg", "jpeg", "png", "bmp", "tga", "gif", "webp", "tiff", "tif", "heic", "heif"};
+static constexpr std::string_view IMAGE_EXTS[] = {"jpg", "jpeg", "png", "bmp", "tga", "gif", "webp", "tiff", "tif", "heic", "heif"};
 
 
 // Compares only the final extension component (e.g. "jpeg", case-insensitive).
@@ -81,13 +81,14 @@ bool is_image(std::string_view ext_or_path) {
 
 
 
-bool is_in_seasonal_window(const std::string& filename, int window_days) {
+bool is_in_seasonal_window(std::string_view filename, int window_days) {
     if (window_days <= 0) return true;
 
-    int file_y = 0, file_m = 0, file_d = 0;
-    if (!parse_filename_date(filename, file_y, file_m, file_d)) {
+    auto date = parse_filename_date(filename);
+    if (!date) {
         return true; // Non-date files always scanned
     }
+    auto [file_y, file_m, file_d] = *date;
 
     time_t t = std::time(nullptr);
     tm tm_buf;
@@ -119,7 +120,7 @@ bool is_in_seasonal_window(const std::string& filename, int window_days) {
 
 
 
-bool MediaScanner::is_month_in_window(const std::string& dirname, int window_days) {
+bool MediaScanner::is_month_in_window(std::string_view dirname, int window_days) {
     if (window_days <= 0) return true;
 
     int groups[2] = {0, 0};
