@@ -1,6 +1,6 @@
 # piTrove — C++ Digital Picture & Video Frame for Raspberry Pi
 
-ðŸŒ  **[View Live Premium Documentation & Landing Page](https://undadfeated.github.io/piTrove/)**
+🌐 **[View Live Premium Documentation & Landing Page](https://undadfeated.github.io/piTrove/)**
 
 A professional-grade, **containerized** digital picture & video frame application for the Raspberry Pi 4 & 5. Orchestrated via **Docker & Compose** for absolute dependency isolation and read-only media storage safety. Designed for extreme stability on network-attached storage (NAS), cinematic visual presentation, native H.264/H.265 video integration, smart home integrations (MQTT + Home Assistant Auto-Discovery), premium glassmorphic web controls, and seamless hardware acceleration.
 
