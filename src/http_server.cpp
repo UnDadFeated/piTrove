@@ -9,6 +9,7 @@
 #include <vector>
 #include <string>
 #include <mutex>
+#include <shared_mutex>
 #include <atomic>
 #include <thread>
 #include <functional>
@@ -113,7 +114,7 @@ static std::string get_host_header(const std::string& request) {
     size_t pos = request.find("Host: ");
     int port = 9000;
     {
-        std::lock_guard<std::mutex> lk(g_config_mtx);
+        std::shared_lock<std::shared_mutex> lk(g_config_mtx);
         port = g_cfg.http_port;
     }
     std::string default_host = "192.168.4.110:" + std::to_string(port);
@@ -1420,7 +1421,7 @@ static std::string get_api_status() {
     double transition_delay = 15.0;
 
     {
-        std::lock_guard<std::mutex> lk(g_config_mtx);
+        std::lock_guard lk(g_config_mtx);
         shuffle = g_cfg.shuffle;
         mqtt_enabled = g_cfg.mqtt_enabled;
         mqtt_broker = g_cfg.mqtt_broker;
@@ -1445,7 +1446,7 @@ static std::string get_api_status() {
     double db_mb = 0.0;
     try {
         std::string cache_dir;
-        { std::lock_guard<std::mutex> lk(g_config_mtx); cache_dir = g_cfg.cache_dir; }
+        { std::lock_guard lk(g_config_mtx); cache_dir = g_cfg.cache_dir; }
         std::string db_path = cache_dir + "/cache.db";
         if (std::filesystem::exists(db_path)) {
             db_mb = std::filesystem::file_size(db_path) / (1024.0 * 1024.0);
@@ -1487,7 +1488,7 @@ static std::string get_api_status() {
 }
 
 static std::string get_api_settings() {
-    std::lock_guard<std::mutex> lk(g_config_mtx);
+    std::lock_guard lk(g_config_mtx);
     std::ostringstream oss;
     oss << "{\n"
         << "  \"transition_delay\": " << g_cfg.transition_delay << ",\n"
@@ -1629,7 +1630,7 @@ static void handle_preview(int fd) {
 static void handle_client(int client_fd) {
     // Set client socket timeout to prevent slowloris hangs
     struct timeval client_tv;
-    { std::lock_guard<std::mutex> lk(g_config_mtx); client_tv.tv_sec = g_cfg.http_socket_timeout; }
+    { std::lock_guard lk(g_config_mtx); client_tv.tv_sec = g_cfg.http_socket_timeout; }
     client_tv.tv_usec = 0;
     setsockopt(client_fd, SOL_SOCKET, SO_RCVTIMEO, &client_tv, sizeof(client_tv));
     setsockopt(client_fd, SOL_SOCKET, SO_SNDTIMEO, &client_tv, sizeof(client_tv));
@@ -1659,7 +1660,7 @@ static void handle_client(int client_fd) {
                 std::string client_secret = get_query_param(request, "client_secret");
                 
                 {
-                    std::lock_guard<std::mutex> lk(g_config_mtx);
+                    std::lock_guard lk(g_config_mtx);
                     g_cfg.google_photos_client_id = client_id;
                     g_cfg.google_photos_client_secret = client_secret;
                 }
@@ -1699,7 +1700,7 @@ static void handle_client(int client_fd) {
                 // Exchange code for token
                 std::string client_id, client_secret;
                 {
-                    std::lock_guard<std::mutex> lk(g_config_mtx);
+                    std::lock_guard lk(g_config_mtx);
                     client_id = g_cfg.google_photos_client_id;
                     client_secret = g_cfg.google_photos_client_secret;
                 }
@@ -1727,7 +1728,7 @@ static void handle_client(int client_fd) {
                 } else {
                     // Save and reload sync thread
                     {
-                        std::lock_guard<std::mutex> lk(g_config_mtx);
+                        std::lock_guard lk(g_config_mtx);
                         g_cfg.google_photos_refresh_token = refresh_token;
                         g_cfg.google_photos_enabled = true;
                     }
@@ -1749,7 +1750,7 @@ static void handle_client(int client_fd) {
             std::string err_msg = "";
             
             {
-                std::lock_guard<std::mutex> lock(g_config_mtx);
+                std::lock_guard lock(g_config_mtx);
                 
                 // 1. Validation Checks
                 if (request.find("transition_delay=") != std::string::npos) {
@@ -1997,7 +1998,7 @@ static void handle_client(int client_fd) {
         } 
         else if (request.rfind("GET /api/toggle_shuffle", 0) == 0) {
             {
-                std::lock_guard<std::mutex> lock(g_config_mtx);
+                std::lock_guard lock(g_config_mtx);
                 g_cfg.shuffle = !g_cfg.shuffle;
             }
             g_config_changed.store(true);
@@ -2015,14 +2016,14 @@ static void handle_client(int client_fd) {
             }
             set_display_power(expected);
             std::string prefix, topic;
-            { std::lock_guard<std::mutex> lk(g_config_mtx); prefix = g_cfg.mqtt_topic_prefix; topic = g_cfg.mqtt_motionsensor_topic; }
+            { std::lock_guard lk(g_config_mtx); prefix = g_cfg.mqtt_topic_prefix; topic = g_cfg.mqtt_motionsensor_topic; }
             mqtt_publish(prefix + "/status/screen", g_screen_blanked.load() ? "OFF" : "ON", true);
             send_response(client_fd, "HTTP/1.1 200 OK", "application/json", "{\"status\":\"ok\"}");
         }
         else if (request.rfind("GET /api/trigger_motion", 0) == 0) {
             g_last_motion_time.store(static_cast<int64_t>(std::time(nullptr)));
             std::string prefix, sensor_topic;
-            { std::lock_guard<std::mutex> lk(g_config_mtx); prefix = g_cfg.mqtt_topic_prefix; sensor_topic = g_cfg.mqtt_motionsensor_topic; }
+            { std::lock_guard lk(g_config_mtx); prefix = g_cfg.mqtt_topic_prefix; sensor_topic = g_cfg.mqtt_motionsensor_topic; }
             if (g_screen_blanked.exchange(false)) {
                 set_display_power(true);
                 mqtt_publish(prefix + "/status/screen", "ON", true);
@@ -2050,7 +2051,7 @@ static void server_loop(int port) {
     struct sockaddr_in server_addr;
     int current_port = port;
     int max_attempts;
-    { std::lock_guard<std::mutex> lk(g_config_mtx); max_attempts = g_cfg.http_bind_attempts; }
+    { std::lock_guard lk(g_config_mtx); max_attempts = g_cfg.http_bind_attempts; }
     bool bound = false;
 
     for (int attempt = 0; attempt < max_attempts; attempt++) {
@@ -2088,7 +2089,7 @@ static void server_loop(int port) {
     if (current_port != port) {
         g_logger.warn("HTTP: Port %d was in use. Dynamic fallback bound to port %d", port, current_port);
         {
-            std::lock_guard<std::mutex> lock(g_config_mtx);
+            std::lock_guard lock(g_config_mtx);
             g_cfg.http_port = current_port;
         }
         g_config_changed.store(true);
@@ -2144,7 +2145,7 @@ static void server_loop(int port) {
         // Set a socket read/write timeout to prevent slow/hanging clients from starving the connection pool
         struct timeval timeout;
         {
-            std::lock_guard<std::mutex> lk(g_config_mtx);
+            std::lock_guard lk(g_config_mtx);
             timeout.tv_sec = g_cfg.http_socket_timeout;
         }
         timeout.tv_usec = 0;

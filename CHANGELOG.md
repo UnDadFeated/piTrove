@@ -1,3 +1,27 @@
+## v12.4.0 — C++17 Modernization & Directory Iterators (June 11, 2026)
+
+### Added
+- **Modernized Directory Scanner** — Transitioned directory scanning operations to standard C++17 directory iterators. This eliminates legacy platform-specific APIs and improves scanning stability across filesystem bounds.
+- **Optimized String Handling** — Updated key utility helpers to use a memory-efficient string view interface. This avoids dynamic memory allocations and copies for parameters and string slices, lowering overhead during startup indexing.
+- **Concurrent Configuration Sharing** — Upgraded the internal configuration synchronization system to permit multi-threaded concurrent reading. Telemetry dashboards, background preloading workers, and Home Assistant integrations can now access active settings concurrently without blocking one another.
+
+## v12.3.0 — Global Linkage Modernization (June 11, 2026)
+
+### Added
+- **Global Variable Modernization** — Modernized the sharing system for application state, configurations, and core subsystems. This allows variable definitions to reside directly in header files, completely eliminating duplicate code definitions and streamlining compile-time link verification.
+
+## v12.2.0 — Static Code Safety & Warning Hygiene (June 11, 2026)
+
+### Added
+- **Discarded Value Warning Checks** — Integrated strict return value checking compiler guidelines across all math, text parsing, and filesystem check operations to verify that logical values returned by system helpers are never silently ignored.
+- **Unused Parameter Refinement** — Modernized inactive configuration stub endpoints and graphics engine callbacks to clean up legacy type casting directives, ensuring a warning-free compilation.
+
+## v12.1.0 — Code Modernization & Configuration Safety (June 11, 2026)
+
+### Added
+- **Configuration Boundary Hardening** — Standardized value constraint clamping across all application subsystems to guarantee that out-of-bounds options supplied via manual configuration edits are safely and uniformly clamped to their defined limits on load.
+- **Improved Media Cache Cleanup** — Refactored data structures inside the graphics engine to cleanly unpack metadata indices during folder scans and text-rendering cache clear-downs, improving stability and performance.
+
 ## v12.0.0 — Web Remote Refinements & Scroll Usability (June 10, 2026)
 
 ### Added

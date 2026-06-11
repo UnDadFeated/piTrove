@@ -87,7 +87,7 @@ void config_wizard(const std::string& config_path) {
             term_cols = 100;
         }
     }
-    int tui_width = std::max(100, std::min(155, term_cols));
+    int tui_width = std::clamp(term_cols, 100, 155);
 
     set_termios_raw();
     printf("\033[?1049h\033[40m\033[37m\033[H\033[J");
@@ -375,19 +375,19 @@ void config_wizard(const std::string& config_path) {
 
     auto sv = [&](int c, int i, const std::string& v) {
         if(v.empty()) return;
-        std::lock_guard<std::mutex> lk(g_config_mtx);
+        std::lock_guard lk(g_config_mtx);
         try {
             if(c==0) switch(i){
                 case 0:{ try { int rot=std::stoi(v); if(rot==0||rot==90||rot==180||rot==270) g_cfg.rotation=rot; else g_cfg.rotation=0; } catch(...) {} break; }
-                case 1:{ try { float val=std::stof(v); g_cfg.ken_burns_zoom=std::max(0.01f, std::min(5.0f, val)); } catch(...) {} break; }
+                case 1:{ try { float val=std::stof(v); g_cfg.ken_burns_zoom=std::clamp(val, 0.01f, 5.0f); } catch(...) {} break; }
                 case 2:g_cfg.auto_display_rotation=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
                 case 3:g_cfg.brightness_auto=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
                 case 4:g_cfg.border_enabled=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
-                case 5:{ try { int val = std::stoi(v); g_cfg.border_width=std::max(0, std::min(250, val)); } catch(...) {} break; }
+                case 5:{ try { int val = std::stoi(v); g_cfg.border_width=std::clamp(val, 0, 250); } catch(...) {} break; }
                 case 6:g_cfg.bg_style=v;break;
-                case 7:{ try { int val = std::stoi(v); g_cfg.pattern_offset=std::max(0, std::min(150, val)); } catch(...) {} break; }
+                case 7:{ try { int val = std::stoi(v); g_cfg.pattern_offset=std::clamp(val, 0, 150); } catch(...) {} break; }
                 case 8:g_cfg.pattern_style=v;break;
-                case 9:{ try { int val = std::stoi(v); g_cfg.pattern_blend_count=std::max(1, std::min(3, val)); } catch(...) {} break; }
+                case 9:{ try { int val = std::stoi(v); g_cfg.pattern_blend_count=std::clamp(val, 1, 3); } catch(...) {} break; }
             }
             else if(c==1) switch(i){
                 case 0:g_cfg.media_dir=v;break; case 1:g_cfg.cache_dir=v;break; case 2:g_cfg.log_dir=v;break;
@@ -413,24 +413,24 @@ void config_wizard(const std::string& config_path) {
                 case 13:g_cfg.adaptive_text_enabled=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
             }
             else if(c==3) switch(i){
-                case 0:{ try { int val = std::stoi(v); g_cfg.video_volume=std::max(0, std::min(150, val)); } catch(...) {} break; }
-                case 1:{ try { int val = std::stoi(v); g_cfg.videos_per_photos=std::max(1, std::min(100, val)); } catch(...) {} break; }
-                case 2:{ try { int val = std::stoi(v); g_cfg.video_probe_timeout=std::max(1, std::min(30, val)); } catch(...) {} break; }
+                case 0:{ try { int val = std::stoi(v); g_cfg.video_volume=std::clamp(val, 0, 150); } catch(...) {} break; }
+                case 1:{ try { int val = std::stoi(v); g_cfg.videos_per_photos=std::clamp(val, 1, 100); } catch(...) {} break; }
+                case 2:{ try { int val = std::stoi(v); g_cfg.video_probe_timeout=std::clamp(val, 1, 30); } catch(...) {} break; }
                 case 3:g_cfg.play_just_photos=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
                 case 4:g_cfg.play_just_videos=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
                 case 5:g_cfg.closed_captions_enabled=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
                 case 6:g_cfg.video_subtitles_dir=v;break;
                 case 7:{ try { g_cfg.osd_offset_x=std::stoi(v); } catch(...) {} break; }
                 case 8:{ try { g_cfg.osd_offset_y=std::stoi(v); } catch(...) {} break; }
-                case 9:{ try { g_cfg.max_texture_dim=std::max(256, std::min(8192, std::stoi(v))); } catch(...) {} break; }
-                case 10:{ try { g_cfg.http_socket_timeout=std::max(1, std::min(60, std::stoi(v))); } catch(...) {} break; }
-                case 11:{ try { g_cfg.http_bind_attempts=std::max(1, std::min(100, std::stoi(v))); } catch(...) {} break; }
+                case 9:{ try { g_cfg.max_texture_dim=std::clamp(std::stoi(v), 256, 8192); } catch(...) {} break; }
+                case 10:{ try { g_cfg.http_socket_timeout=std::clamp(std::stoi(v), 1, 60); } catch(...) {} break; }
+                case 11:{ try { g_cfg.http_bind_attempts=std::clamp(std::stoi(v), 1, 100); } catch(...) {} break; }
             }
             else if(c==4) switch(i){
-                case 0:{ try { float val = std::stof(v); g_cfg.transition_delay=std::max(1.0f, val); } catch(...) {} break; } case 1:{ try { float val = std::stof(v); g_cfg.transition_duration=std::max(0.1f, std::min(10.0f, val)); } catch(...) {} break; }
+                case 0:{ try { float val = std::stof(v); g_cfg.transition_delay=std::max(1.0f, val); } catch(...) {} break; } case 1:{ try { float val = std::stof(v); g_cfg.transition_duration=std::clamp(val, 0.1f, 10.0f); } catch(...) {} break; }
                 case 2:g_cfg.transition_effect=v;break;
                 case 3:g_cfg.ken_burns=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
-                case 4:{ try { float val = std::stof(v); g_cfg.ken_burns_speed=std::max(0.001f, std::min(5.0f, val)); } catch(...) {} break; }
+                case 4:{ try { float val = std::stof(v); g_cfg.ken_burns_speed=std::clamp(val, 0.001f, 5.0f); } catch(...) {} break; }
                 case 5:g_cfg.bias_lighting=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
                 case 6:{ try { g_cfg.bias_anim_speed=std::stof(v); } catch(...) {} break; }
                 case 7:g_cfg.bias_anim_style=v;break; case 8:g_cfg.bias_color_mode=v;break;
@@ -439,15 +439,15 @@ void config_wizard(const std::string& config_path) {
                 case 11:{ try { g_cfg.cooldown_days=std::stoi(v); } catch(...) {} break; }
                 case 12:g_cfg.shuffle=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
                 case 13:g_cfg.twin_portrait_enabled=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
-                case 14:{ try { g_cfg.preload_capacity=std::max(1, std::min(32, std::stoi(v))); } catch(...) {} break; }
-                case 15:{ try { g_cfg.preload_workers=std::max(1, std::min(16, std::stoi(v))); } catch(...) {} break; }
+                case 14:{ try { g_cfg.preload_capacity=std::clamp(std::stoi(v), 1, 32); } catch(...) {} break; }
+                case 15:{ try { g_cfg.preload_workers=std::clamp(std::stoi(v), 1, 16); } catch(...) {} break; }
                 case 16:g_cfg.reset_cooldown_on_restart=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
                 case 17:g_cfg.edge_glow_shadow=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
             }
             else if(c==5) switch(i){
                 case 0:g_cfg.recursive=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
-                case 1:{ try { int val = std::stoi(v); g_cfg.scan_depth=std::max(1, std::min(100, val)); } catch(...) {} break; }
-                case 2:{ try { int val = std::stoi(v); g_cfg.scan_window_days=std::max(0, std::min(365, val)); } catch(...) {} break; }
+                case 1:{ try { int val = std::stoi(v); g_cfg.scan_depth=std::clamp(val, 1, 100); } catch(...) {} break; }
+                case 2:{ try { int val = std::stoi(v); g_cfg.scan_window_days=std::clamp(val, 0, 365); } catch(...) {} break; }
                 case 3:{
                     g_cfg.ignore_folders.clear();
                     std::string clean = v;
@@ -469,7 +469,7 @@ void config_wizard(const std::string& config_path) {
                     last.erase(last.find_last_not_of(" \t") + 1);
                     if (!last.empty()) g_cfg.ignore_folders.push_back(last);
                 }break;
-                case 4:{ try { int val = std::stoi(v); g_cfg.max_concurrent=std::max(1, std::min(64, val)); } catch(...) {} break; }
+                case 4:{ try { int val = std::stoi(v); g_cfg.max_concurrent=std::clamp(val, 1, 64); } catch(...) {} break; }
                 case 5:g_cfg.show_people_faces=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
                 case 6:g_cfg.keep_animals=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
                 case 7:g_cfg.on_this_day_enabled=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
@@ -487,10 +487,10 @@ void config_wizard(const std::string& config_path) {
             }
             else if(c==8) switch(i){
                 case 0:{ if(v=="debug") g_cfg.verbose=true; else g_cfg.verbose=false; }break;
-                case 1:{ try { int val = std::stoi(v); g_cfg.brightness_auto_min=std::max(0, std::min(100, val)); } catch(...) {} break; }
-                case 2:{ try { int val = std::stoi(v); g_cfg.brightness_auto_max=std::max(0, std::min(100, val)); } catch(...) {} break; }
-                case 3:{ try { g_cfg.cache_mmap_size = std::max(0LL, std::min(268435456LL, std::stoll(v))); } catch(...) {} break; }
-                case 4:{ try { g_cfg.log_keep_count=std::max(1, std::min(100, std::stoi(v))); } catch(...) {} break; }
+                case 1:{ try { int val = std::stoi(v); g_cfg.brightness_auto_min=std::clamp(val, 0, 100); } catch(...) {} break; }
+                case 2:{ try { int val = std::stoi(v); g_cfg.brightness_auto_max=std::clamp(val, 0, 100); } catch(...) {} break; }
+                case 3:{ try { g_cfg.cache_mmap_size = std::clamp(std::stoll(v), 0LL, 268435456LL); } catch(...) {} break; }
+                case 4:{ try { g_cfg.log_keep_count=std::clamp(std::stoi(v), 1, 100); } catch(...) {} break; }
             }
             else if(c==9) switch(i){
                 case 0:g_cfg.mqtt_enabled=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;

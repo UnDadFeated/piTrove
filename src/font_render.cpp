@@ -22,16 +22,16 @@ FontRenderer::FontRenderer(Renderer* renderer) : renderer(renderer) {
 
 FontRenderer::~FontRenderer() {
     g_logger.info("TRACE: FontRenderer::dtor fonts=%d", (int)fonts.size());
-    for (auto& pair : text_cache) {
-        if (pair.second.texture) {
-            SDL_DestroyTexture(pair.second.texture);
+    for (auto& [key, cached_text] : text_cache) {
+        if (cached_text.texture) {
+            SDL_DestroyTexture(cached_text.texture);
         }
     }
     text_cache.clear();
 
-    for (auto& pair : fonts) {
-        if (pair.second && pair.second->font) {
-            TTF_CloseFont(pair.second->font);
+    for (auto& [key, handle] : fonts) {
+        if (handle && handle->font) {
+            TTF_CloseFont(handle->font);
         }
     }
     fonts.clear();

@@ -5,7 +5,6 @@
 #include "util.h"
 #include "config.h"
 #include "cache.h"
-#include <dirent.h>
 #include <signal.h>
 #include <unistd.h>
 #include <iostream>
@@ -35,30 +34,30 @@ static bool ext_matches(std::string_view ext, std::string_view target) {
 
 std::vector<std::string> read_dir(const std::string& path) {
     std::vector<std::string> entries;
-    DIR* dir = opendir(path.c_str());
-    if (!dir) return entries;
-
-    struct dirent* de;
-    while ((de = readdir(dir)) != nullptr) {
-        if (de->d_name[0] == '.') continue;
-        entries.emplace_back(de->d_name);
+    try {
+        std::error_code ec;
+        for (const auto& entry : std::filesystem::directory_iterator(path, ec)) {
+            if (ec) break;
+            std::string name = entry.path().filename().string();
+            if (name.empty() || name[0] == '.') continue;
+            entries.push_back(std::move(name));
+        }
+    } catch (...) {
+        // Safe catch-all fallback
     }
-    closedir(dir);
     return entries;
 }
 
-std::vector<std::string> read_dir_timeout(const std::string& path, int timeout_ms) {
+std::vector<std::string> read_dir_timeout(const std::string& path, [[maybe_unused]] int timeout_ms) {
     // Timeout parameter is currently unused because directory listing
     // should not block indefinitely on a standard local/mounted FS.
-    (void)timeout_ms;
     return read_dir(path);
 }
 
- bool stat_timeout(const std::string& path, struct stat& st, int timeout_ms) {
+ bool stat_timeout(const std::string& path, struct stat& st, [[maybe_unused]] int timeout_ms) {
     // alarm() is process-global and races between threads.
     // Revert to plain stat() with a comment that CIFS should not block
     // indefinitely in practice.
-    (void)timeout_ms;
     return stat(path.c_str(), &st) == 0;
 }
 
@@ -269,8 +268,8 @@ std::vector<MediaItem> MediaScanner::scan(const std::string& directory,
         if (th.joinable()) th.join();
     }
 
-    for (const auto& pair : root_files) {
-        process_entry(pair.first, pair.second, exts, list_mutex, all_items);
+    for (const auto& [p, st] : root_files) {
+        process_entry(p, st, exts, list_mutex, all_items);
         if (progress) progress(live_found_count.load());
     }
 
@@ -316,7 +315,7 @@ void scan_directory(const std::string& dir, int depth,
     int scan_days;
     std::vector<std::string> ignore_f;
     {
-        std::lock_guard<std::mutex> lk(g_config_mtx);
+        std::lock_guard lk(g_config_mtx);
         scan_days = g_cfg.scan_window_days;
         ignore_f = g_cfg.ignore_folders;
     }

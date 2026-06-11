@@ -26,6 +26,6 @@ public:
     void sync_now();
 };
 
-extern GooglePhotosManager g_google_photos;
+inline GooglePhotosManager g_google_photos;
 
 #endif // PITROVE_GOOGLE_PHOTOS_H

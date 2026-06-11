@@ -10,14 +10,13 @@
 #include <memory>
 #include <sstream>
 
-GooglePhotosManager g_google_photos;
 
 GooglePhotosManager::~GooglePhotosManager() { stop(); }
 
 void GooglePhotosManager::start() {
   bool enabled = false;
   {
-    std::lock_guard<std::mutex> lock(g_config_mtx);
+    std::lock_guard lock(g_config_mtx);
     enabled = g_cfg.google_photos_enabled;
   }
   if (!enabled)
@@ -34,7 +33,7 @@ void GooglePhotosManager::start() {
       bool current_enabled = false;
       int interval_mins = 60;
       {
-        std::lock_guard<std::mutex> lock(g_config_mtx);
+        std::lock_guard lock(g_config_mtx);
         current_enabled = g_cfg.google_photos_enabled;
         interval_mins = g_cfg.google_photos_sync_interval;
       }
@@ -76,7 +75,7 @@ void GooglePhotosManager::sync_now() {
 
   std::string client_id, client_secret, refresh_token, cache_dir;
   {
-    std::lock_guard<std::mutex> lk(g_config_mtx);
+    std::lock_guard lk(g_config_mtx);
     client_id = g_cfg.google_photos_client_id;
     client_secret = g_cfg.google_photos_client_secret;
     refresh_token = g_cfg.google_photos_refresh_token;
@@ -106,7 +105,7 @@ void GooglePhotosManager::sync_now() {
 std::string GooglePhotosManager::get_access_token() {
   std::string client_id, client_secret, refresh_token;
   {
-    std::lock_guard<std::mutex> lk(g_config_mtx);
+    std::lock_guard lk(g_config_mtx);
     client_id = g_cfg.google_photos_client_id;
     client_secret = g_cfg.google_photos_client_secret;
     refresh_token = g_cfg.google_photos_refresh_token;
@@ -146,7 +145,7 @@ std::string GooglePhotosManager::get_access_token() {
 void GooglePhotosManager::download_media(const std::string &access_token) {
   std::string album_id, cache_dir;
   {
-    std::lock_guard<std::mutex> lk(g_config_mtx);
+    std::lock_guard lk(g_config_mtx);
     album_id = g_cfg.google_photos_album_id;
     cache_dir = g_cfg.google_photos_cache_dir;
   }
