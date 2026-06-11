@@ -96,7 +96,6 @@ static double get_uptime() {
     return up;
 }
 
-Renderer g_renderer;
 
 static GpuColor get_pixel_color(SDL_Surface* surface, int x, int y) {
     if (!surface || x < 0 || x >= surface->w || y < 0 || y >= surface->h) {
@@ -264,7 +263,7 @@ void Renderer::calculate_fit_rect(int img_w, int img_h, SDL_Rect& out_rect) {
     int mat_size = 0;
     int border_w = 0;
     {
-        std::lock_guard<std::mutex> lock(g_config_mtx);
+        std::lock_guard lock(g_config_mtx);
         has_matting = g_cfg.matting;
         has_border = g_cfg.border_enabled;
         mat_size = g_renderer.scale_px(g_cfg.matting_size);
@@ -341,7 +340,7 @@ void Renderer::draw_background(ImageData* data, const std::string& bg_style, Uin
         std::string snap_pattern_style;
         int snap_blend_count;
         {
-            std::lock_guard<std::mutex> lk(g_config_mtx);
+            std::lock_guard lk(g_config_mtx);
             snap_pattern_offset = g_cfg.pattern_offset;
             snap_pattern_style = g_cfg.pattern_style;
             snap_blend_count = g_cfg.pattern_blend_count;
@@ -1286,7 +1285,7 @@ void Renderer::load_splash(const std::string& path) {
     font_renderer = new FontRenderer(this);
     std::string font_path = "";
     {
-        std::lock_guard<std::mutex> lock(g_config_mtx);
+        std::lock_guard lock(g_config_mtx);
         if (g_cfg.font_path != "auto" && !g_cfg.font_path.empty()) {
             font_path = g_cfg.font_path;
         }
@@ -1405,8 +1404,7 @@ void Renderer::draw_splash_text(const std::string& text, int x, int y, int size,
 
 
 
-void Renderer::render_splash(int phase, int progress, int total, int done, const char* label, int dot_counter, const char* filename, bool animated) {
-    (void)label;
+void Renderer::render_splash(int phase, int progress, int total, int done, [[maybe_unused]] const char* label, int dot_counter, const char* filename, bool animated) {
     if (filename) { current_cache_file = filename; }
     int sw = screen_w;
     int sh = screen_h;
@@ -1644,7 +1642,7 @@ void Renderer::render_splash(int phase, int progress, int total, int done, const
 
         float mmap_mb = 0.0f;
         {
-            std::lock_guard<std::mutex> lock(g_config_mtx);
+            std::lock_guard lock(g_config_mtx);
             mmap_mb = (float)g_cfg.cache_mmap_size / (1024.0f * 1024.0f);
         }
         std::snprintf(cache_buf, sizeof(cache_buf), "MMAP_SIZE: %.0f MB", mmap_mb);

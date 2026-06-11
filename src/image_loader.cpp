@@ -241,7 +241,7 @@ void ImageLoader::load_texture(ImageData* data, SDL_Renderer* renderer) {
     if (!data || !data->surface || !renderer || data->texture || data->width <= 0 || data->height <= 0) return;
 
     int max_dim = 1920;
-    { std::lock_guard<std::mutex> lk(g_config_mtx); max_dim = g_cfg.max_texture_dim; }
+    { std::lock_guard lk(g_config_mtx); max_dim = g_cfg.max_texture_dim; }
     if (data->width > max_dim || data->height > max_dim) {
         float scale = (float)max_dim / (float)std::max(data->width, data->height);
         int nw = std::max(1, (int)(data->width * scale));

@@ -27,6 +27,7 @@
 #include <atomic>
 #include <thread>
 #include <mutex>
+#include <shared_mutex>
 #include <future>
 
 #include <filesystem>
@@ -143,7 +144,7 @@ static bool is_item_in_seasonal_window(const MediaItem& item, int window_days) {
 static bool should_be_twin_portrait(std::vector<MediaItem>& eligible, int idx) {
     bool twin_enabled = false;
     {
-        std::lock_guard<std::mutex> lock(g_config_mtx);
+        std::lock_guard lock(g_config_mtx);
         twin_enabled = g_cfg.twin_portrait_enabled;
     }
     int size = (int)eligible.size();
@@ -193,7 +194,7 @@ static void calculate_fit_rect_in_area(int img_w, int img_h, int area_x, int are
     int mat_size = 0;
     int border_w = 0;
     {
-        std::lock_guard<std::mutex> lock(g_config_mtx);
+        std::lock_guard lock(g_config_mtx);
         has_matting = g_cfg.matting;
         has_border = g_cfg.border_enabled;
         mat_size = g_renderer.scale_px(g_cfg.matting_size);
@@ -245,7 +246,7 @@ static SDL_Texture* render_state_to_texture(
 
     bool snap_matte_color = false;
     {
-        std::lock_guard<std::mutex> lock(g_config_mtx);
+        std::lock_guard lock(g_config_mtx);
         snap_matte_color = g_cfg.color_matched_matte;
     }
     if (snap_matte_color && primary) {
@@ -272,7 +273,7 @@ static SDL_Texture* render_state_to_texture(
         int snap_glow_depth;
         float matte_op, vignette_str;
         {
-            std::lock_guard<std::mutex> lock(g_config_mtx);
+            std::lock_guard lock(g_config_mtx);
             has_bias = g_cfg.bias_lighting;
             has_matting = g_cfg.matting;
             has_border = g_cfg.border_enabled;
@@ -289,7 +290,7 @@ static SDL_Texture* render_state_to_texture(
 
         // 1. Draw background based on style
         std::string snap_bg_style;
-        { std::lock_guard<std::mutex> lk(g_config_mtx); snap_bg_style = g_cfg.bg_style; }
+        { std::lock_guard lk(g_config_mtx); snap_bg_style = g_cfg.bg_style; }
         if (snap_blurred || snap_bg_style != "photo") {
             g_renderer.draw_background(primary.get(), snap_bg_style, (Uint8)(255.0f * vignette_str));
         }
@@ -346,7 +347,7 @@ static SDL_Texture* render_state_to_texture(
         int snap_glow_depth;
         float matte_op, vignette_str;
         {
-            std::lock_guard<std::mutex> lock(g_config_mtx);
+            std::lock_guard lock(g_config_mtx);
             has_bias = g_cfg.bias_lighting;
             has_matting = g_cfg.matting;
             has_border = g_cfg.border_enabled;
@@ -363,7 +364,7 @@ static SDL_Texture* render_state_to_texture(
 
         // 1. Draw background based on style
         std::string snap_bg_style;
-        { std::lock_guard<std::mutex> lk(g_config_mtx); snap_bg_style = g_cfg.bg_style; }
+        { std::lock_guard lk(g_config_mtx); snap_bg_style = g_cfg.bg_style; }
         if (snap_blurred || snap_bg_style != "photo") {
             g_renderer.draw_background(primary.get(), snap_bg_style, (Uint8)(255.0f * vignette_str));
         }
@@ -404,7 +405,7 @@ static SDL_Texture* render_state_to_texture(
 static std::vector<MediaItem> filter_playlist(const std::vector<MediaItem>& items, int cooldown_days, int window_days) {
     bool on_this_day = false;
     {
-        std::lock_guard<std::mutex> lock(g_config_mtx);
+        std::lock_guard lock(g_config_mtx);
         on_this_day = g_cfg.on_this_day_enabled;
     }
 
@@ -436,7 +437,7 @@ static std::vector<MediaItem> filter_playlist(const std::vector<MediaItem>& item
                     
                     bool filter_people, filter_animals;
                     {
-                        std::lock_guard<std::mutex> lk(g_config_mtx);
+                        std::lock_guard lk(g_config_mtx);
                         filter_people = g_cfg.show_people_faces;
                         filter_animals = g_cfg.keep_animals;
                     }
@@ -494,7 +495,7 @@ static std::vector<MediaItem> filter_playlist(const std::vector<MediaItem>& item
                 // Snapshot config values under lock to avoid data race
                 bool snap_show_people, snap_keep_animals;
                 {
-                    std::lock_guard<std::mutex> lk(g_config_mtx);
+                    std::lock_guard lk(g_config_mtx);
                     snap_show_people = g_cfg.show_people_faces;
                     snap_keep_animals = g_cfg.keep_animals;
                 }
@@ -659,7 +660,7 @@ static void advance_playlist(int step) {
             int videos_per_photos = 10;
             bool shuffle_enabled = true;
             {
-                std::lock_guard<std::mutex> lock(g_config_mtx);
+                std::lock_guard lock(g_config_mtx);
                 cooldown_days = g_cfg.cooldown_days;
                 window_days = g_cfg.scan_window_days;
                 play_just_photos = g_cfg.play_just_photos;
@@ -720,7 +721,7 @@ static void watchman_loop() {
             // Validate media directory readability and accessibility to handle network drops gracefully
             std::string media_dir;
             {
-                std::lock_guard<std::mutex> lock(g_config_mtx);
+                std::lock_guard lock(g_config_mtx);
                 media_dir = g_cfg.media_dir;
             }
             struct stat st;
@@ -738,7 +739,7 @@ static void watchman_loop() {
             int depth = 10;
             int screen_w = 1920, screen_h = 1080;
             {
-                std::lock_guard<std::mutex> lock(g_config_mtx);
+                std::lock_guard lock(g_config_mtx);
                 depth = g_cfg.scan_depth;
                 screen_w = g_cfg.screen_w;
                 screen_h = g_cfg.screen_h;
@@ -775,7 +776,7 @@ static void watchman_loop() {
                 int window_days = 0;
                 bool shuffle_enabled = true;
                 {
-                    std::lock_guard<std::mutex> lock(g_config_mtx);
+                    std::lock_guard lock(g_config_mtx);
                     cooldown_days = g_cfg.cooldown_days;
                     window_days = g_cfg.scan_window_days;
                     shuffle_enabled = g_cfg.shuffle;
@@ -789,7 +790,7 @@ static void watchman_loop() {
                     bool play_just_videos = false;
                     int videos_per_photos = 10;
                     {
-                        std::lock_guard<std::mutex> lock(g_config_mtx);
+                        std::lock_guard lock(g_config_mtx);
                         play_just_photos = g_cfg.play_just_photos;
                         play_just_videos = g_cfg.play_just_videos;
                         videos_per_photos = g_cfg.videos_per_photos;
@@ -938,7 +939,7 @@ int main(int argc, char** argv) {
     std::string log_dir;
     int keep_count = 5;
     {
-        std::lock_guard<std::mutex> lock(g_config_mtx);
+        std::shared_lock<std::shared_mutex> lock(g_config_mtx);
         media_dir = g_cfg.media_dir;
         cache_dir = g_cfg.cache_dir.empty() ? (get_exe_dir() + "/cache") : g_cfg.cache_dir;
         log_dir = g_cfg.log_dir.empty() ? (get_exe_dir() + "/logs") : g_cfg.log_dir;
@@ -970,7 +971,7 @@ int main(int argc, char** argv) {
 
     // --- Dynamic DRM Probing and Environment Setup ---
     {
-        std::lock_guard<std::mutex> lock(g_config_mtx);
+        std::lock_guard lock(g_config_mtx);
         std::string probed_card = "/dev/dri/card1";
         int probed_card_index = 1;
         std::string probed_connector = "HDMI-A-1";
@@ -1149,7 +1150,7 @@ int main(int argc, char** argv) {
         };
 
         int depth = 10;
-        { std::lock_guard<std::mutex> lk(g_config_mtx); depth = g_cfg.scan_depth; }
+        { std::lock_guard lk(g_config_mtx); depth = g_cfg.scan_depth; }
 
         std::thread scan_thread([&]() {
             scan_directory(media_dir, depth, g_scanned_items, safe_progress_callback);
@@ -1248,7 +1249,7 @@ int main(int argc, char** argv) {
     int cooldown_days = 330;
     int window_days = 5;
     {
-        std::lock_guard<std::mutex> lock(g_config_mtx);
+        std::lock_guard lock(g_config_mtx);
         cooldown_days = g_cfg.cooldown_days;
         window_days = g_cfg.scan_window_days;
     }
@@ -1273,7 +1274,7 @@ int main(int argc, char** argv) {
         int videos_per_photos = 10;
         bool shuffle_enabled = true;
         {
-            std::lock_guard<std::mutex> lock(g_config_mtx);
+            std::lock_guard lock(g_config_mtx);
             play_just_photos = g_cfg.play_just_photos;
             play_just_videos = g_cfg.play_just_videos;
             videos_per_photos = g_cfg.videos_per_photos;
@@ -1287,7 +1288,7 @@ int main(int argc, char** argv) {
         bool http_srv = false;
         int http_prt;
         {
-            std::lock_guard<std::mutex> lock(g_config_mtx);
+            std::lock_guard lock(g_config_mtx);
             http_srv = g_cfg.http_enabled && g_cfg.web_dashboard_enabled;
             http_prt = g_cfg.http_port;
         }
@@ -1314,7 +1315,7 @@ int main(int argc, char** argv) {
     {
         bool touch_enabled = false;
         {
-            std::lock_guard<std::mutex> lk(g_config_mtx);
+            std::lock_guard lk(g_config_mtx);
             touch_enabled = g_cfg.touch_enabled;
         }
         if (touch_enabled) {
@@ -1529,7 +1530,7 @@ int main(int argc, char** argv) {
 
     bool transitioning = false;
     std::string transition_effect;
-    { std::lock_guard<std::mutex> lk(g_config_mtx); transition_effect = g_cfg.transition_effect; }
+    { std::lock_guard lk(g_config_mtx); transition_effect = g_cfg.transition_effect; }
 
     // --- Start Background Watchman Thread ---
     g_watchman_running.store(true);
@@ -1544,7 +1545,7 @@ int main(int argc, char** argv) {
         if (g_config_changed.load()) {
             g_logger.info("MAIN_LOOP: Dynamic configuration reload triggered!");
             {
-                std::lock_guard<std::mutex> lk(g_config_mtx);
+                std::lock_guard lk(g_config_mtx);
                 int active_port = g_cfg.http_port;
                 g_cfg.load(config_path);
                 g_cfg.http_port = active_port;
@@ -1572,7 +1573,7 @@ int main(int argc, char** argv) {
                     break;
                 case 1:
                     {
-                        std::lock_guard<std::mutex> lk(g_config_mtx);
+                        std::lock_guard lk(g_config_mtx);
                         g_cfg.shuffle = !g_cfg.shuffle;
                         g_cfg.save(config_path);
                     }
@@ -1581,7 +1582,7 @@ int main(int argc, char** argv) {
                     break;
                 case 2:
                     {
-                        std::lock_guard<std::mutex> lk(g_config_mtx);
+                        std::lock_guard lk(g_config_mtx);
                         double curr = g_cfg.transition_delay;
                         if (curr < 15.0) g_cfg.transition_delay = 30.0;
                         else if (curr < 45.0) g_cfg.transition_delay = 60.0;
@@ -1602,7 +1603,7 @@ int main(int argc, char** argv) {
                         }
                         set_display_power(expected);
                         std::string prefix;
-                        { std::lock_guard<std::mutex> lk(g_config_mtx); prefix = g_cfg.mqtt_topic_prefix; }
+                        { std::lock_guard lk(g_config_mtx); prefix = g_cfg.mqtt_topic_prefix; }
                         mqtt_publish(prefix + "/status/screen", g_screen_blanked.load() ? "OFF" : "ON", true);
                         g_logger.info("SLIDESHOW: Screen power toggled via pop-up menu.");
                     }
@@ -1624,7 +1625,7 @@ int main(int argc, char** argv) {
                         set_display_power(true);
                         g_last_motion_time.store(static_cast<int64_t>(std::time(nullptr)));
                         std::string prefix;
-                        { std::lock_guard<std::mutex> lk(g_config_mtx); prefix = g_cfg.mqtt_topic_prefix; }
+                        { std::lock_guard lk(g_config_mtx); prefix = g_cfg.mqtt_topic_prefix; }
                         mqtt_publish(prefix + "/status/screen", "ON", true);
                     }
                     if (g_overlay && g_overlay->menu_active) {
@@ -1658,7 +1659,7 @@ int main(int argc, char** argv) {
                         set_display_power(true);
                         g_last_motion_time.store(static_cast<int64_t>(std::time(nullptr)));
                         std::string prefix;
-                        { std::lock_guard<std::mutex> lk(g_config_mtx); prefix = g_cfg.mqtt_topic_prefix; }
+                        { std::lock_guard lk(g_config_mtx); prefix = g_cfg.mqtt_topic_prefix; }
                         mqtt_publish(prefix + "/status/screen", "ON", true);
                     }
                     if (event.button.button == SDL_BUTTON_RIGHT) {
@@ -1673,7 +1674,7 @@ int main(int argc, char** argv) {
                         if (g_overlay) {
                             bool touch_mode = false;
                             {
-                                std::lock_guard<std::mutex> lk(g_config_mtx);
+                                std::lock_guard lk(g_config_mtx);
                                 touch_mode = g_cfg.touch_enabled;
                             }
                             if (touch_mode) {
@@ -1701,13 +1702,13 @@ int main(int argc, char** argv) {
                         set_display_power(true);
                         g_last_motion_time.store(static_cast<int64_t>(std::time(nullptr)));
                         std::string prefix;
-                        { std::lock_guard<std::mutex> lk(g_config_mtx); prefix = g_cfg.mqtt_topic_prefix; }
+                        { std::lock_guard lk(g_config_mtx); prefix = g_cfg.mqtt_topic_prefix; }
                         mqtt_publish(prefix + "/status/screen", "ON", true);
                     }
                     if (g_overlay) {
                         bool touch_mode = false;
                         {
-                            std::lock_guard<std::mutex> lk(g_config_mtx);
+                            std::lock_guard lk(g_config_mtx);
                             touch_mode = g_cfg.touch_enabled;
                         }
                         if (touch_mode) {
@@ -1734,7 +1735,7 @@ int main(int argc, char** argv) {
         {
             bool mqtt_on = false;
             int cooldown = 0;
-            { std::lock_guard<std::mutex> lk(g_config_mtx); mqtt_on = g_cfg.mqtt_enabled; cooldown = g_cfg.mqtt_motionsensor_cooldown; }
+            { std::lock_guard lk(g_config_mtx); mqtt_on = g_cfg.mqtt_enabled; cooldown = g_cfg.mqtt_motionsensor_cooldown; }
             if (mqtt_on && cooldown > 0) {
                 int64_t now_ts = static_cast<int64_t>(std::time(nullptr));
                 int64_t last_motion = g_last_motion_time.load();
@@ -1744,7 +1745,7 @@ int main(int argc, char** argv) {
                         g_screen_blanked.store(true);
                         set_display_power(false);
                         std::string prefix;
-                        { std::lock_guard<std::mutex> lk(g_config_mtx); prefix = g_cfg.mqtt_topic_prefix; }
+                        { std::lock_guard lk(g_config_mtx); prefix = g_cfg.mqtt_topic_prefix; }
                         mqtt_publish(prefix + "/status/screen", "OFF", true);
                     }
                 }
@@ -1825,7 +1826,7 @@ int main(int argc, char** argv) {
             else if (transition_effect == "crossfade") effect = TransitionEffect::Fade;
 
             float duration = 0.0f, kb_zoom = 0.1f;
-            { std::lock_guard<std::mutex> lk(g_config_mtx); duration = g_cfg.transition_duration; kb_zoom = g_cfg.ken_burns_zoom; }
+            { std::lock_guard lk(g_config_mtx); duration = g_cfg.transition_duration; kb_zoom = g_cfg.ken_burns_zoom; }
             g_transition->start(effect, duration, 0, kb_zoom);
         }
 
@@ -1855,7 +1856,7 @@ int main(int argc, char** argv) {
                 // Proceed to the image rendering path which handles active transition.
             } else {
                 int volume;
-                { std::lock_guard<std::mutex> lock(g_config_mtx); volume = g_cfg.video_volume; }
+                { std::lock_guard lock(g_config_mtx); volume = g_cfg.video_volume; }
                 
                 std::string video_path = g_eligible[current_idx].path;
                 g_logger.info("Playing video: %s", video_path.c_str());
@@ -2135,7 +2136,7 @@ int main(int argc, char** argv) {
                 } else {
                     double delay;
                     {
-                        std::lock_guard<std::mutex> lk(g_config_mtx);
+                        std::lock_guard lk(g_config_mtx);
                         delay = g_cfg.transition_delay;
                     }
                     item_timer = std::max(0.0, delay - 2.0);
@@ -2184,7 +2185,7 @@ int main(int argc, char** argv) {
                 int snap_glow_depth;
                 float matte_op, vignette_str;
                 {
-                    std::lock_guard<std::mutex> lock(g_config_mtx);
+                    std::lock_guard lock(g_config_mtx);
                     has_bias = g_cfg.bias_lighting;
                     has_matting = g_cfg.matting;
                     has_border = g_cfg.border_enabled;
@@ -2213,7 +2214,7 @@ int main(int argc, char** argv) {
 
                 // 1. Draw background based on style
                 std::string snap_bg_style;
-                { std::lock_guard<std::mutex> lk(g_config_mtx); snap_bg_style = g_cfg.bg_style; }
+                { std::lock_guard lk(g_config_mtx); snap_bg_style = g_cfg.bg_style; }
                 if (snap_blurred || snap_bg_style != "photo") {
                     g_renderer.draw_background(current_data.get(), snap_bg_style, (Uint8)(255.0f * vignette_str));
                 }
@@ -2266,7 +2267,7 @@ int main(int argc, char** argv) {
                 bool snap_blurred, snap_matte_color;
                 float matte_op, vignette_str;
                 {
-                    std::lock_guard<std::mutex> lk(g_config_mtx);
+                    std::lock_guard lk(g_config_mtx);
                     snap_bias = g_cfg.bias_lighting;
                     snap_matting = g_cfg.matting;
                     snap_border = g_cfg.border_enabled;
@@ -2289,7 +2290,7 @@ int main(int argc, char** argv) {
 
                 // 1. Draw background based on style
                 std::string snap_bg_style;
-                { std::lock_guard<std::mutex> lk(g_config_mtx); snap_bg_style = g_cfg.bg_style; }
+                { std::lock_guard lk(g_config_mtx); snap_bg_style = g_cfg.bg_style; }
                 if (snap_blurred || snap_bg_style != "photo") {
                     g_renderer.draw_background(current_data.get(), snap_bg_style, (Uint8)(255.0f * vignette_str));
                 }
@@ -2360,7 +2361,7 @@ int main(int argc, char** argv) {
                 if (g_offline_mode.load()) {
                     delay = 30.0; // Enforce a 30-second back-off delay during offline recovery
                 } else {
-                    std::lock_guard<std::mutex> lk(g_config_mtx);
+                    std::lock_guard lk(g_config_mtx);
                     delay = g_cfg.transition_delay;
                 }
                 if (item_timer >= delay) {

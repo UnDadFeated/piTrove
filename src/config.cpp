@@ -6,8 +6,6 @@
 #include <algorithm>
 #include <cstring>
 
-Config g_cfg;
-std::mutex g_config_mtx;
 
 bool Config::load(const std::string& path) {
     std::ifstream f(path);
@@ -58,7 +56,7 @@ bool Config::load(const std::string& path) {
         else if (key == "count_y")           this->count_y = safe_stof(val, this->count_y);
         else if (key == "videos_per_photos") {
             int parsed = safe_stoi(val, 3);
-            this->videos_per_photos = std::max(1, std::min(100, parsed));
+            this->videos_per_photos = std::clamp(parsed, 1, 100);
         }
         else if (key == "play_just_photos")  this->play_just_photos = (val == "1" || val == "true");
         else if (key == "play_just_videos")  this->play_just_videos = (val == "1" || val == "true");
@@ -77,9 +75,9 @@ bool Config::load(const std::string& path) {
         else if (key == "subtitles_dir")     this->video_subtitles_dir = val;
         else if (key == "osd_offset_x")      this->osd_offset_x = safe_stoi(val, this->osd_offset_x);
         else if (key == "osd_offset_y")      this->osd_offset_y = safe_stoi(val, this->osd_offset_y);
-        else if (key == "max_texture_dim")   this->max_texture_dim = std::max(256, std::min(8192, safe_stoi(val, this->max_texture_dim)));
-        else if (key == "http_socket_timeout") this->http_socket_timeout = std::max(1, std::min(60, safe_stoi(val, this->http_socket_timeout)));
-        else if (key == "http_bind_attempts")  this->http_bind_attempts = std::max(1, std::min(100, safe_stoi(val, this->http_bind_attempts)));
+        else if (key == "max_texture_dim")   this->max_texture_dim = std::clamp(safe_stoi(val, this->max_texture_dim), 256, 8192);
+        else if (key == "http_socket_timeout") this->http_socket_timeout = std::clamp(safe_stoi(val, this->http_socket_timeout), 1, 60);
+        else if (key == "http_bind_attempts")  this->http_bind_attempts = std::clamp(safe_stoi(val, this->http_bind_attempts), 1, 100);
         else if (key == "sleep_time")        this->sleep_time = val;
 
         else if (key == "wake_time")         this->wake_time = val;
@@ -91,8 +89,8 @@ bool Config::load(const std::string& path) {
             int p = safe_stoi(val, this->http_port);
             this->http_port = (p >= 1 && p <= 65535) ? p : 9000;
         }
-        else if (key == "volume")            this->video_volume = std::max(0, std::min(150, safe_stoi(val, this->video_volume)));
-        else if (key == "probe_timeout")     this->video_probe_timeout = std::max(1, std::min(30, safe_stoi(val, this->video_probe_timeout)));
+        else if (key == "volume")            this->video_volume = std::clamp(safe_stoi(val, this->video_volume), 0, 150);
+        else if (key == "probe_timeout")     this->video_probe_timeout = std::clamp(safe_stoi(val, this->video_probe_timeout), 1, 30);
         else if (key == "enabled" && section == "date_overlay") this->date_overlay_enabled = (val == "1" || val == "true");
         else if (key == "text" && section == "date_overlay")    this->date_text = val;
         else if (key == "x" && section == "date_overlay")       this->date_x = safe_stof(val, this->date_x);
@@ -106,52 +104,52 @@ bool Config::load(const std::string& path) {
         else if (key == "transition_delay")  this->transition_delay = std::max(1.0, safe_stod(val, this->transition_delay));
         else if (key == "transition_duration") {
             double d = safe_stod(val, 1.5);
-            this->transition_duration = std::max(0.1, std::min(d, 10.0));
+            this->transition_duration = std::clamp(d, 0.1, 10.0);
         }
         else if (key == "slideshow_fps")     this->slideshow_fps = safe_stoi(val, this->slideshow_fps);
         else if (key == "transition_effect") this->transition_effect = val;
-        else if (key == "ken_burns_speed")   this->ken_burns_speed = std::max(0.001, std::min(5.0, safe_stod(val, this->ken_burns_speed)));
+        else if (key == "ken_burns_speed")   this->ken_burns_speed = std::clamp(safe_stod(val, this->ken_burns_speed), 0.001, 5.0);
         else if (key == "ken_burns")         this->ken_burns = (val == "1" || val == "true");
         else if (key == "matting")           this->matting = (val == "1" || val == "true");
-        else if (key == "matting_size")      this->matting_size = std::max(0, std::min(500, safe_stoi(val, this->matting_size)));
+        else if (key == "matting_size")      this->matting_size = std::clamp(safe_stoi(val, this->matting_size), 0, 500);
         else if (key == "bias_lighting")     this->bias_lighting = (val == "1" || val == "true");
         else if (key == "bias_anim_speed")   this->bias_anim_speed = safe_stof(val, this->bias_anim_speed);
         else if (key == "bias_anim_style")   this->bias_anim_style = val;
         else if (key == "bias_color_mode")   this->bias_color_mode = val;
-        else if (key == "cooldown_days")     this->cooldown_days = std::max(0, std::min(3650, safe_stoi(val, this->cooldown_days)));
+        else if (key == "cooldown_days")     this->cooldown_days = std::clamp(safe_stoi(val, this->cooldown_days), 0, 3650);
         else if (key == "reset_cooldown_on_restart") this->reset_cooldown_on_restart = (val == "1" || val == "true");
         else if (key == "brightness_auto") this->brightness_auto = (val == "1" || val == "true");
-        else if (key == "brightness_auto_min") this->brightness_auto_min = std::max(0, std::min(100, safe_stoi(val, this->brightness_auto_min)));
-        else if (key == "brightness_auto_max") this->brightness_auto_max = std::max(0, std::min(100, safe_stoi(val, this->brightness_auto_max)));
+        else if (key == "brightness_auto_min") this->brightness_auto_min = std::clamp(safe_stoi(val, this->brightness_auto_min), 0, 100);
+        else if (key == "brightness_auto_max") this->brightness_auto_max = std::clamp(safe_stoi(val, this->brightness_auto_max), 0, 100);
         else if (key == "border_enabled")    this->border_enabled = (val == "1" || val == "true");
-        else if (key == "border_width")      this->border_width = std::max(0, std::min(250, safe_stoi(val, this->border_width)));
+        else if (key == "border_width")      this->border_width = std::clamp(safe_stoi(val, this->border_width), 0, 250);
         else if (key == "vignette_enabled")  this->vignette_enabled = (val == "1" || val == "true");
         else if (key == "blurred_background") this->blurred_background = !(val == "0" || val == "false");
         else if (key == "color_matched_matte") this->color_matched_matte = !(val == "0" || val == "false");
         else if (key == "bg_style")          this->bg_style = val;
-        else if (key == "pattern_brightness" || key == "pattern_offset") this->pattern_offset = std::max(0, std::min(150, safe_stoi(val, this->pattern_offset)));
+        else if (key == "pattern_brightness" || key == "pattern_offset") this->pattern_offset = std::clamp(safe_stoi(val, this->pattern_offset), 0, 150);
         else if (key == "pattern_style")     this->pattern_style = val;
-        else if (key == "pattern_blend_count") this->pattern_blend_count = std::max(1, std::min(3, safe_stoi(val, this->pattern_blend_count)));
+        else if (key == "pattern_blend_count") this->pattern_blend_count = std::clamp(safe_stoi(val, this->pattern_blend_count), 1, 3);
         else if (key == "blur_radius") {
-            int v = std::max(6, std::min(24, safe_stoi(val, this->blur_radius)));
+            int v = std::clamp(safe_stoi(val, this->blur_radius), 6, 24);
             this->blur_radius = v;
         }
         else if (key == "glow_depth") {
-            int v = std::max(16, std::min(120, safe_stoi(val, this->glow_depth)));
+            int v = std::clamp(safe_stoi(val, this->glow_depth), 16, 120);
             this->glow_depth = v;
         }
         else if (key == "edge_glow_shadow")  this->edge_glow_shadow = (val == "1" || val == "true");
         else if (key == "matte_opacity") {
             float v = safe_stof(val, this->matte_opacity);
-            this->matte_opacity = std::max(0.05f, std::min(0.50f, v));
+            this->matte_opacity = std::clamp(v, 0.05f, 0.50f);
         }
         else if (key == "vignette_strength") {
             float v = safe_stof(val, this->vignette_strength);
-            this->vignette_strength = std::max(0.10f, std::min(0.80f, v));
+            this->vignette_strength = std::clamp(v, 0.10f, 0.80f);
         }
         else if (key == "shuffle")           this->shuffle = !(val == "0" || val == "false");
         else if (key == "ken_burns_zoom")    this->ken_burns_zoom = safe_stof(val, this->ken_burns_zoom);
-        else if (key == "bias_strength")     this->bias_strength = std::max(0, std::min(255, safe_stoi(val, this->bias_strength)));
+        else if (key == "bias_strength")     this->bias_strength = std::clamp(safe_stoi(val, this->bias_strength), 0, 255);
         else if (key == "clock_enabled")     this->clock_enabled = (val == "1" || val == "true");
         else if (key == "clock_x")           this->clock_x = safe_stof(val, this->clock_x);
         else if (key == "clock_y")           this->clock_y = safe_stof(val, this->clock_y);
@@ -161,14 +159,14 @@ bool Config::load(const std::string& path) {
         else if (key == "filename_font_size") this->filename_font_size = safe_stoi(val, this->filename_font_size);
         else if (key == "count_font_size")    this->count_font_size = safe_stoi(val, this->count_font_size);
         else if (key == "recursive")         this->recursive = (val == "1" || val == "true");
-        else if (key == "depth")             this->scan_depth = std::max(1, std::min(100, safe_stoi(val, this->scan_depth)));
-        else if (key == "max_concurrent")    this->max_concurrent = std::max(1, std::min(64, safe_stoi(val, this->max_concurrent)));
-        else if (key == "window_days")       this->scan_window_days = std::max(0, std::min(365, safe_stoi(val, this->scan_window_days)));
-        else if (key == "mmap_size")         this->cache_mmap_size = std::max(0LL, std::min(268435456LL, safe_stoll(val, this->cache_mmap_size)));
+        else if (key == "depth")             this->scan_depth = std::clamp(safe_stoi(val, this->scan_depth), 1, 100);
+        else if (key == "max_concurrent")    this->max_concurrent = std::clamp(safe_stoi(val, this->max_concurrent), 1, 64);
+        else if (key == "window_days")       this->scan_window_days = std::clamp(safe_stoi(val, this->scan_window_days), 0, 365);
+        else if (key == "mmap_size")         this->cache_mmap_size = std::clamp(safe_stoll(val, this->cache_mmap_size), 0LL, 268435456LL);
         else if (key == "level")             this->verbose = (val == "debug");
-        else if (key == "log_keep_count")    this->log_keep_count = std::max(1, std::min(100, safe_stoi(val, this->log_keep_count)));
-        else if (key == "preload_capacity")  this->preload_capacity = std::max(1, std::min(32, safe_stoi(val, this->preload_capacity)));
-        else if (key == "preload_workers")   this->preload_workers = std::max(1, std::min(16, safe_stoi(val, this->preload_workers)));
+        else if (key == "log_keep_count")    this->log_keep_count = std::clamp(safe_stoi(val, this->log_keep_count), 1, 100);
+        else if (key == "preload_capacity")  this->preload_capacity = std::clamp(safe_stoi(val, this->preload_capacity), 1, 32);
+        else if (key == "preload_workers")   this->preload_workers = std::clamp(safe_stoi(val, this->preload_workers), 1, 16);
         else if (key == "ignore_folders") {
             // Parse TOML array: ["@eaDir", "@Recycle"]
             this->ignore_folders.clear();
