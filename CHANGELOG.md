@@ -1,3 +1,10 @@
+## v12.5.1 — Video Playback & Buffering Optimization (June 11, 2026)
+
+### Fixed
+- **Stutter-free video rendering** — Tuned internal video player options to increase network read-ahead buffering window (up to 120 seconds) and caching limits (up to 1024MB).
+- **Smooth playback with no skipped frames** — Forced the video renderer to play every single frame sequentially, completely preventing timeline jumps or skips during high-bitrate playback.
+- **Improved decoding performance** — Enabled fast decoding optimizations and skipped in-loop deblocking filters on complex frames, significantly reducing hardware CPU load when streaming high-resolution video clips over network mounts.
+
 ## v12.5.0 — Deep C++17 Modernization (June 11, 2026)
 
 ### Added
