@@ -1,7 +1,7 @@
 #ifndef PITROVE_UTIL_H
 #define PITROVE_UTIL_H
 
-#define VERSION "12.1.0"
+#define VERSION "12.2.0"
 #define APP_NAME "piTrove"
 
 #include <atomic>
@@ -72,13 +72,13 @@ struct Logger {
 extern Logger g_logger;
 
 // Math, string parsing, and files helpers
-int safe_stoi(const std::string& s, int def);
-float safe_stof(const std::string& s, float def);
-double safe_stod(const std::string& s, double def);
-long long safe_stoll(const std::string& s, long long def);
-std::string trim(const std::string& s);
-std::string escape_shell_arg(const std::string& input);
-std::string sanitize_alphanumeric(const std::string& input);
+[[nodiscard]] int safe_stoi(const std::string& s, int def);
+[[nodiscard]] float safe_stof(const std::string& s, float def);
+[[nodiscard]] double safe_stod(const std::string& s, double def);
+[[nodiscard]] long long safe_stoll(const std::string& s, long long def);
+[[nodiscard]] std::string trim(const std::string& s);
+[[nodiscard]] std::string escape_shell_arg(const std::string& input);
+[[nodiscard]] std::string sanitize_alphanumeric(const std::string& input);
 
 // Signal / crash handling
 void crash_handler(int sig);
@@ -86,10 +86,10 @@ void terminate_handler();
 void set_display_power(bool power);
 
 // System diagnostics and file path helpers
-std::string get_exe_dir();
-bool file_exists(const std::string& path);
-std::string get_timestamp();
-bool is_media_dir_healthy(const std::string& media_dir);
+[[nodiscard]] std::string get_exe_dir();
+[[nodiscard]] bool file_exists(const std::string& path);
+[[nodiscard]] std::string get_timestamp();
+[[nodiscard]] bool is_media_dir_healthy(const std::string& media_dir);
 
 
 

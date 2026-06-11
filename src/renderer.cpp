@@ -1405,8 +1405,7 @@ void Renderer::draw_splash_text(const std::string& text, int x, int y, int size,
 
 
 
-void Renderer::render_splash(int phase, int progress, int total, int done, const char* label, int dot_counter, const char* filename, bool animated) {
-    (void)label;
+void Renderer::render_splash(int phase, int progress, int total, int done, [[maybe_unused]] const char* label, int dot_counter, const char* filename, bool animated) {
     if (filename) { current_cache_file = filename; }
     int sw = screen_w;
     int sh = screen_h;
