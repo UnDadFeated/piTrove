@@ -269,8 +269,8 @@ std::vector<MediaItem> MediaScanner::scan(const std::string& directory,
         if (th.joinable()) th.join();
     }
 
-    for (const auto& pair : root_files) {
-        process_entry(pair.first, pair.second, exts, list_mutex, all_items);
+    for (const auto& [p, st] : root_files) {
+        process_entry(p, st, exts, list_mutex, all_items);
         if (progress) progress(live_found_count.load());
     }
 
