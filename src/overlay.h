@@ -25,6 +25,10 @@ public:
     std::string keyboard_input{""};
     int keyboard_target{0}; // 0 = delay, 1 = volume
 
+    // Touch navigation overlay
+    bool nav_overlay_active{false};
+    Uint64 nav_overlay_show_time{0};
+
     OverlayManager(Renderer* renderer);
     ~OverlayManager();
 
@@ -35,6 +39,7 @@ public:
     void draw_all(int current_idx, int total_items, const MediaItem* item, const MediaItem* twin_item, double item_timer, bool is_video, int active_fps, const ImageData* current_data, const ImageData* current_twin_data);
     void draw_popup_menu();
     void draw_virtual_keyboard();
+    void draw_nav_overlay();
 
     // Handle touch/click events on menu or keyboard. Returns true if handled.
     bool handle_touch_click(float x, float y);
