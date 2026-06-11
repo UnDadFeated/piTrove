@@ -6,8 +6,6 @@
 #include <algorithm>
 #include <cstring>
 
-Config g_cfg;
-std::mutex g_config_mtx;
 
 bool Config::load(const std::string& path) {
     std::ifstream f(path);

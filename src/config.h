@@ -187,7 +187,7 @@ struct Config {
     void parse_args(int argc, char** argv);
 };
 
-extern Config g_cfg;
-extern std::mutex g_config_mtx;
+inline Config g_cfg;
+inline std::mutex g_config_mtx;
 
 #endif // PITROVE_CONFIG_H

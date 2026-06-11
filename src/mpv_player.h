@@ -37,6 +37,6 @@ private:
     int find_drm_fd();
 };
 
-extern MpvPlayer g_mpv_player;
+inline MpvPlayer g_mpv_player;
 
 #endif // PITROVE_MPV_PLAYER_H

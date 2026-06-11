@@ -9,7 +9,6 @@
 #include <cstdio>
 #include <climits>
 
-CacheManager* g_cache = nullptr;
 
 bool CacheManager::open(const std::string& dir) {
     g_logger.info("[TRACE] CacheManager::open dir=%s", dir.c_str());
