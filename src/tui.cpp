@@ -375,7 +375,7 @@ void config_wizard(const std::string& config_path) {
 
     auto sv = [&](int c, int i, const std::string& v) {
         if(v.empty()) return;
-        std::lock_guard<std::mutex> lk(g_config_mtx);
+        std::lock_guard lk(g_config_mtx);
         try {
             if(c==0) switch(i){
                 case 0:{ try { int rot=std::stoi(v); if(rot==0||rot==90||rot==180||rot==270) g_cfg.rotation=rot; else g_cfg.rotation=0; } catch(...) {} break; }

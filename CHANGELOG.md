@@ -1,3 +1,10 @@
+## v12.4.0 — C++17 Modernization & Directory Iterators (June 11, 2026)
+
+### Added
+- **Modernized Directory Scanner** — Transitioned directory scanning operations to standard C++17 directory iterators. This eliminates legacy platform-specific APIs and improves scanning stability across filesystem bounds.
+- **Optimized String Handling** — Updated key utility helpers to use a memory-efficient string view interface. This avoids dynamic memory allocations and copies for parameters and string slices, lowering overhead during startup indexing.
+- **Concurrent Configuration Sharing** — Upgraded the internal configuration synchronization system to permit multi-threaded concurrent reading. Telemetry dashboards, background preloading workers, and Home Assistant integrations can now access active settings concurrently without blocking one another.
+
 ## v12.3.0 — Global Linkage Modernization (June 11, 2026)
 
 ### Added

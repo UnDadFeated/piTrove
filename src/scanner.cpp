@@ -5,7 +5,6 @@
 #include "util.h"
 #include "config.h"
 #include "cache.h"
-#include <dirent.h>
 #include <signal.h>
 #include <unistd.h>
 #include <iostream>
@@ -35,15 +34,17 @@ static bool ext_matches(std::string_view ext, std::string_view target) {
 
 std::vector<std::string> read_dir(const std::string& path) {
     std::vector<std::string> entries;
-    DIR* dir = opendir(path.c_str());
-    if (!dir) return entries;
-
-    struct dirent* de;
-    while ((de = readdir(dir)) != nullptr) {
-        if (de->d_name[0] == '.') continue;
-        entries.emplace_back(de->d_name);
+    try {
+        std::error_code ec;
+        for (const auto& entry : std::filesystem::directory_iterator(path, ec)) {
+            if (ec) break;
+            std::string name = entry.path().filename().string();
+            if (name.empty() || name[0] == '.') continue;
+            entries.push_back(std::move(name));
+        }
+    } catch (...) {
+        // Safe catch-all fallback
     }
-    closedir(dir);
     return entries;
 }
 
@@ -314,7 +315,7 @@ void scan_directory(const std::string& dir, int depth,
     int scan_days;
     std::vector<std::string> ignore_f;
     {
-        std::lock_guard<std::mutex> lk(g_config_mtx);
+        std::lock_guard lk(g_config_mtx);
         scan_days = g_cfg.scan_window_days;
         ignore_f = g_cfg.ignore_folders;
     }
