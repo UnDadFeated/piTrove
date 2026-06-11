@@ -1,3 +1,25 @@
+## v12.0.0 — Web Remote Refinements & Scroll Usability (June 10, 2026)
+
+### Added
+- **Configuration Help Hint** — Added a reminder below the dashboard settings form highlighting that more advanced configuration options are available via the `ssh pitrove config` command-line utility.
+
+### Fixed
+- **Diagnostics Log Scroll Lock** — Modified the log terminal window to only auto-scroll to the bottom when new events arrive if the user was already scrolled to the bottom. If the user scrolls up to read older log history, the console now maintains their scroll position, preventing the view from jumping down.
+
+## v11.9.9 — Settings Expansion & Log Console Formatting (June 10, 2026)
+
+### Added
+- **Expanded Web Settings Control** — Introduced direct dashboard toggle switches for Touchscreen Mode, Shuffle, Ken Burns, Blurred Background, and Color-Matched Matte configurations.
+
+### Fixed
+- **Settings Label Clarification** — Renamed the generic volume slider in the remote dashboard settings panel to "Video Volume" for clear user guidance.
+- **Log Console Font Sizing** — Reduced log viewer console text size to 0.65rem, optimizing information density and screen space utilization.
+
+## v11.9.8 — Auto-Refreshing Remote Web UI Preview (June 10, 2026)
+
+### Fixed
+- **Web UI Preview Synchronization** — Implemented an automatic preview refresh trigger within the web remote dashboard. The dashboard now monitors active slide change events and dynamically reloads the visual preview image using cache-busting timestamp parameters and custom loading indicators, eliminating static visual state desync.
+
 ## v11.9.7 — API Validation & Log Diagnostics Hardening (June 10, 2026)
 
 ### Added
