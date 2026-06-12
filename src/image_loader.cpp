@@ -91,8 +91,10 @@ std::shared_ptr<ImageData> ImageLoader::load(const std::string& path) {
         if (err != 0 && err != ENOENT) {
             result->transient_error = true;
             g_logger.warn("ImageLoader: Detected network/IO error (errno=%d: %s) for path: %s", err, strerror(err), path.c_str());
+            trigger_error(101); // E101: NAS_MOUNT_FAILED
+        } else {
+            trigger_error(201); // E201: IMAGE_LOAD_ERROR
         }
-        trigger_error(201); // E201: IMAGE_LOAD_ERROR
         return result;
     }
 
