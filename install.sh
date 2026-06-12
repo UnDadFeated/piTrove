@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# install.sh — piTrove v11.9.6 Premium Graphical Installer
+# install.sh — piTrove v12.5.2 Premium Graphical Installer
 # Target: Debian Trixie (13) 64-bit on Raspberry Pi 4/5
 
 set -eo pipefail
@@ -64,9 +64,20 @@ fail()  {
     exit 1
 }
 
+# ── Safe Read Function for Piped Execution ────────────────────────────────────
+safe_read() {
+    if [[ -t 0 ]]; then
+        read "$@"
+    elif { true < /dev/tty; } 2>/dev/null; then
+        read "$@" < /dev/tty
+    else
+        read "$@"
+    fi
+}
+
 yesno() {
     echo -e -n "\n   ${BOLD}${YELLOW}▸ $* [y/N]:${NC} "
-    read -r resp 
+    safe_read -r resp 
     [[ "$resp" == [yY]* ]]
 }
 
@@ -291,7 +302,7 @@ if [[ "$1" == "--organize" ]]; then
     echo -e "   ${BOLD}${GREEN}4)${NC} ${BOLD}Abort${NC}"
     echo
     
-    read -p "▸ Enter choice [1-4]: " STRATEGY
+    safe_read -p "▸ Enter choice [1-4]: " STRATEGY
     
     if [[ "$STRATEGY" == "3" ]]; then
         info "Disabling seasonal scanning window in config.toml..."
@@ -330,13 +341,13 @@ if [[ "$1" == "--organize" ]]; then
     echo -e "    4. Restore '$MOUNT_POINT' to Read-Only (ro) mount mode on completion."
     echo ""
     
-    read -p "▸ Are you sure you want to proceed? (y/N): " CONF1
+    safe_read -p "▸ Are you sure you want to proceed? (y/N): " CONF1
     if [[ ! "$CONF1" =~ ^[Yy]$ ]]; then
         info "Aborted by user."
         exit 0
     fi
     
-    read -p "▸ CONFIRM ONCE MORE: Are you absolutely sure? This will rewrite files on the storage. (y/N): " CONF2
+    safe_read -p "▸ CONFIRM ONCE MORE: Are you absolutely sure? This will rewrite files on the storage. (y/N): " CONF2
     if [[ ! "$CONF2" =~ ^[Yy]$ ]]; then
         info "Aborted by user."
         exit 0
@@ -598,7 +609,7 @@ echo -e "${CYAN}╚════════════════════�
 echo
 info "${BOLD}Default: main${NC} (press Enter to accept)"
 echo -n -e "   ${BOLD}${YELLOW}▸ Enter your choice [1-3]:${NC} "
-read -r branch_choice
+safe_read -r branch_choice
 branch_choice="${branch_choice:-1}"
 
 INSTALL_BRANCH="main"
@@ -1018,7 +1029,7 @@ if [[ -n "$STORAGE_CHOICE" ]]; then
     info "Using storage choice from environment: $storage_choice"
 else
     echo -n -e "   ${BOLD}${YELLOW}▸ Enter your choice [1-3]:${NC} "
-    read -r storage_choice
+    safe_read -r storage_choice
 fi
 
 USE_NAS=0
@@ -1035,7 +1046,7 @@ case "$storage_choice" in
             info "Using NAS IP from environment: $SHARE_IP"
         else
             echo -n -e "\n   ${BOLD}${CYAN}▸ NAS IP Address:${NC} "
-            read -r SHARE_IP
+            safe_read -r SHARE_IP
         fi
         if [[ -z "$SHARE_IP" ]] || ! echo "$SHARE_IP" | grep -qE '^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$'; then
             fail "Invalid IP format: '$SHARE_IP'. Must be dotted-quad (e.g. 192.168.4.111)"
@@ -1045,7 +1056,7 @@ case "$storage_choice" in
             info "Using NAS share path from environment: $SHARE_PATH"
         else
             echo -n -e "   ${BOLD}${CYAN}▸ Share path [default: /Home/Archive]:${NC} "
-            read -r SHARE_PATH
+            safe_read -r SHARE_PATH
         fi
         SHARE_PATH="${SHARE_PATH:-/Home/Archive}"
         SHARE_PROTOCOL="cifs"
@@ -1066,23 +1077,23 @@ case "$storage_choice" in
         echo -e "   ${CYAN}╚══════════════════════════════════════════════════════════════╝${NC}"
         echo
         echo -n -e "      ${BOLD}${YELLOW}▸ Select protocol [a-b]:${NC} "
-        read -r proto_choice 
+        safe_read -r proto_choice 
         case "$proto_choice" in
             a)
                 SHARE_PROTOCOL="cifs"
                 echo -n -e "\n      ${BOLD}${CYAN}▸ SMB Server IP Address:${NC} "
-                read -r SHARE_IP 
+                safe_read -r SHARE_IP 
                 echo -n -e "      ${BOLD}${CYAN}▸ SMB Share path [default: /Shared]:${NC} "
-                read -r SHARE_PATH 
+                safe_read -r SHARE_PATH 
                 SHARE_PATH="${SHARE_PATH:-/Shared}"
                 ;;
             b)
                 SHARE_PROTOCOL="nfs"
                 echo -n -e "\n      ${BOLD}${CYAN}▸ NFS Server IP Address [default: 192.168.4.111]:${NC} "
-                read -r SHARE_IP 
+                safe_read -r SHARE_IP 
                 SHARE_IP="${SHARE_IP:-192.168.4.111}"
                 echo -n -e "      ${BOLD}${CYAN}▸ NFS Export path [default: /mnt/nas]:${NC} "
-                read -r SHARE_PATH 
+                safe_read -r SHARE_PATH 
                 SHARE_PATH="${SHARE_PATH:-/mnt/nas}"
                 ;;
             *)
@@ -1118,9 +1129,9 @@ if [[ "$USE_NAS" -eq 1 ]] || [[ "$storage_choice" == "3" ]]; then
                 info "Using NAS credentials from environment"
             else
                 echo -n -e "\n   ${BOLD}${YELLOW}▸ Username:${NC} "
-                read -r nas_user 
+                safe_read -r nas_user 
                 echo -n -e "   ${BOLD}${YELLOW}▸ Password:${NC} "
-                read -rs nas_pass 
+                safe_read -rs nas_pass 
                 echo
             fi
             printf 'username=%s\npassword=%s\n' "$nas_user" "$nas_pass" > "$CRED_FILE"
@@ -1139,9 +1150,9 @@ if [[ "$USE_NAS" -eq 1 ]] || [[ "$storage_choice" == "3" ]]; then
             elif ! grep -q "^username=" "$CRED_FILE" 2>/dev/null || ! grep -q "^password=" "$CRED_FILE" 2>/dev/null; then
                 warn "Credential file is incomplete. Re-entering credentials..."
                 echo -n -e "   ${BOLD}${YELLOW}▸ Username:${NC} "
-                read -r nas_user 
+                safe_read -r nas_user 
                 echo -n -e "   ${BOLD}${YELLOW}▸ Password:${NC} "
-                read -rs nas_pass 
+                safe_read -rs nas_pass 
                 echo
                 printf 'username=%s\npassword=%s\n' "$nas_user" "$nas_pass" > "$CRED_FILE"
                 chmod 600 "$CRED_FILE"
@@ -1226,14 +1237,14 @@ $SHARE_IP:$SHARE_PATH $SHARE_MOUNT $SHARE_PROTOCOL defaults,_netdev,timeo=10,ret
                 echo -e "   ${CYAN}╚══════════════════════════════════════════════════════════════╝${NC}"
                 echo
                 echo -n -e "      ${BOLD}${YELLOW}▸ Choose option [1-4]:${NC} "
-                read -r mount_opt 
+                safe_read -r mount_opt 
                 case "$mount_opt" in
                     1) MOUNT_ATTEMPTS=0; continue ;;
                     2)
                         echo -n -e "      ${BOLD}${CYAN}▸ NAS IP [$SHARE_IP]:${NC} "
-                        read -r _tmp ; SHARE_IP="${_tmp:-$SHARE_IP}"
+                        safe_read -r _tmp ; SHARE_IP="${_tmp:-$SHARE_IP}"
                         echo -n -e "      ${BOLD}${CYAN}▸ Share Path [$SHARE_PATH]:${NC} "
-                        read -r _tmp ; SHARE_PATH="${_tmp:-$SHARE_PATH}"
+                        safe_read -r _tmp ; SHARE_PATH="${_tmp:-$SHARE_PATH}"
                         generate_fstab_line
                         sed -i '/# piTrove /d' /etc/fstab
                         echo "$FSTAB_LINE" >> /etc/fstab
@@ -1244,9 +1255,9 @@ $SHARE_IP:$SHARE_PATH $SHARE_MOUNT $SHARE_PROTOCOL defaults,_netdev,timeo=10,ret
                     3)
                         if [[ "$SHARE_PROTOCOL" == "cifs" ]]; then
                             echo -n -e "      ${BOLD}${YELLOW}▸ Username:${NC} "
-                            read -r nas_user 
+                            safe_read -r nas_user 
                             echo -n -e "      ${BOLD}${YELLOW}▸ Password:${NC} "
-                            read -rs nas_pass 
+                            safe_read -rs nas_pass 
                             echo
                             printf 'username=%s\npassword=%s\n' "$nas_user" "$nas_pass" > "$PRIMARY_HOME/nas.cred"
                             chmod 600 "$PRIMARY_HOME/nas.cred"
@@ -1294,7 +1305,7 @@ echo
 
 # Read choice
 echo -n -e "   ${BOLD}${YELLOW}▸ Select an option [1-3]:${NC} "
-read -r ORG_STRATEGY
+safe_read -r ORG_STRATEGY
 
 if [[ "$ORG_STRATEGY" == "1" || "$ORG_STRATEGY" == "2" ]]; then
     # We require double-confirm and warnings about rw remounting
@@ -1315,9 +1326,9 @@ if [[ "$ORG_STRATEGY" == "1" || "$ORG_STRATEGY" == "2" ]]; then
     echo -e "    4. Restore '$MOUNT_POINT' to Read-Only (ro) mount mode on completion."
     echo ""
     
-    read -p "▸ Are you sure you want to proceed? (y/N): " CONF1
+    safe_read -p "▸ Are you sure you want to proceed? (y/N): " CONF1
     if [[ "$CONF1" =~ ^[Yy]$ ]]; then
-        read -p "▸ CONFIRM ONCE MORE: Are you absolutely sure? This will rewrite files on the storage. (y/N): " CONF2
+        safe_read -p "▸ CONFIRM ONCE MORE: Are you absolutely sure? This will rewrite files on the storage. (y/N): " CONF2
         if [[ "$CONF2" =~ ^[Yy]$ ]]; then
             IS_RO=0
             if findmnt -n -o OPTIONS "$MOUNT_POINT" | grep -q "ro"; then
@@ -1416,7 +1427,7 @@ if [[ -n "$SCAN_WINDOW_DAYS" ]]; then
     info "Using scan window days from environment: $scan_input"
 else
     echo -n -e "   ${BOLD}${YELLOW}▸ Temporal window (current month +/- days, 0=disable) [default: 5]:${NC} "
-    read -r scan_input
+    safe_read -r scan_input
 fi
 
 if [[ -z "$scan_input" ]]; then
@@ -1443,7 +1454,7 @@ if yesno "Configure Google Photos cloud integration?"; then
     # Validate Client ID
     while true; do
         echo -n -e "   ${BOLD}${YELLOW}▸ Google Photos Client ID:${NC} "
-        read -r GP_CLIENT_ID
+        safe_read -r GP_CLIENT_ID
         if [[ -z "$GP_CLIENT_ID" ]]; then
             warn "Client ID cannot be empty. Please enter your Google Cloud OAuth Client ID."
         elif [[ ! "$GP_CLIENT_ID" =~ \.apps\.googleusercontent\.com$ ]]; then
@@ -1459,7 +1470,7 @@ if yesno "Configure Google Photos cloud integration?"; then
     # Validate Client Secret
     while true; do
         echo -n -e "   ${BOLD}${YELLOW}▸ Google Photos Client Secret:${NC} "
-        read -r GP_CLIENT_SECRET
+        safe_read -r GP_CLIENT_SECRET
         if [[ -z "$GP_CLIENT_SECRET" ]]; then
             warn "Client Secret cannot be empty. Please enter your Google Cloud OAuth Client Secret."
         else
@@ -1468,12 +1479,12 @@ if yesno "Configure Google Photos cloud integration?"; then
     done
 
     echo -n -e "   ${BOLD}${YELLOW}▸ Google Photos Album ID (optional, press Enter for all):${NC} "
-    read -r GP_ALBUM_ID
+    safe_read -r GP_ALBUM_ID
 
     # Validate Sync Interval
     while true; do
         echo -n -e "   ${BOLD}${YELLOW}▸ Sync Interval in minutes [default: 60]:${NC} "
-        read -r GP_SYNC_INT_INPUT
+        safe_read -r GP_SYNC_INT_INPUT
         GP_SYNC_INTERVAL="${GP_SYNC_INT_INPUT:-60}"
         if [[ "$GP_SYNC_INTERVAL" =~ ^[0-9]+$ ]] && [[ "$GP_SYNC_INTERVAL" -ge 1 ]] && [[ "$GP_SYNC_INTERVAL" -le 1440 ]]; then
             break
