@@ -92,6 +92,8 @@ std::vector<MediaItem> g_eligible;
 int current_idx = 0;
 static std::thread g_watchman_thread;
 static std::atomic<bool> g_watchman_running{false};
+static std::atomic<bool> g_watchman_finished{false};
+static std::atomic<int64_t> g_last_heartbeat_time{0};
 
 static bool is_item_in_seasonal_window(const MediaItem& item, int window_days) {
     if (window_days <= 0) return true;
@@ -693,6 +695,7 @@ static void advance_playlist(int step) {
 
 static void watchman_loop() {
     g_logger.info("Watchman: Background watchman thread started.");
+    g_watchman_finished.store(false);
     
     // Get current day of year
     time_t last_check_time = std::time(nullptr);
@@ -723,6 +726,10 @@ static void watchman_loop() {
             {
                 std::lock_guard lock(g_config_mtx);
                 media_dir = g_cfg.media_dir;
+            }
+            if (!is_nas_online()) {
+                g_logger.warn("Watchman: NAS/Media directory host is offline. Skipping shift.");
+                continue;
             }
             struct stat st;
             if (stat(media_dir.c_str(), &st) != 0 || !S_ISDIR(st.st_mode) || access(media_dir.c_str(), R_OK) != 0) {
@@ -811,7 +818,62 @@ static void watchman_loop() {
             }
         }
     }
+    g_watchman_finished.store(true);
     g_logger.info("Watchman: Background watchman thread exiting.");
+}
+
+static std::thread g_watchdog_thread;
+static std::atomic<bool> g_watchdog_running{false};
+
+static void watchdog_loop() {
+    g_logger.info("Watchdog: Software watchdog thread active.");
+    g_last_heartbeat_time.store(static_cast<int64_t>(std::time(nullptr)));
+    while (g_watchdog_running.load()) {
+        std::this_thread::sleep_for(std::chrono::seconds(5));
+        if (!g_watchdog_running.load()) break;
+
+        // Only enforce watchdog if slideshow is active (not paused, screen not blanked, and playlist not empty)
+        bool paused = g_slideshow_paused.load();
+        bool blanked = g_screen_blanked.load();
+        bool is_video = false;
+        bool empty = false;
+        {
+            std::lock_guard<std::mutex> lk(g_playlist_mtx);
+            empty = g_eligible.empty();
+            if (!empty && current_idx >= 0 && current_idx < (int)g_eligible.size()) {
+                is_video = (g_eligible[current_idx].type == "video");
+            }
+        }
+
+        // If playing video, mpv player controls playback, so we skip checking heartbeat
+        if (paused || blanked || empty || is_video) {
+            // Keep resetting heartbeat while paused/blanked/playing video
+            g_last_heartbeat_time.store(static_cast<int64_t>(std::time(nullptr)));
+            continue;
+        }
+
+        int64_t now = static_cast<int64_t>(std::time(nullptr));
+        int64_t last_heartbeat = g_last_heartbeat_time.load();
+        double delay = 15.0;
+        {
+            std::lock_guard<std::shared_mutex> lk(g_config_mtx);
+            delay = g_cfg.transition_delay;
+        }
+
+        // Allow up to 3x transition delay or a minimum of 45 seconds before forcing restart
+        int64_t max_silent_time = std::max((int64_t)45, (int64_t)(delay * 3));
+        if (now - last_heartbeat > max_silent_time) {
+            g_logger.error("[WATCHDOG] CRITICAL: Slideshow loop frozen! Last heartbeat was %d seconds ago. Forcing restart...", (int)(now - last_heartbeat));
+            // Restore physical display power before exiting
+            int fd = open("/sys/class/graphics/fb0/blank", O_WRONLY);
+            if (fd >= 0) {
+                (void)write(fd, "0", 1);
+                close(fd);
+            }
+            _exit(99); // Force exit immediately to let Docker compose restart us
+        }
+    }
+    g_logger.info("Watchdog: Software watchdog thread exiting.");
 }
 
 int main(int argc, char** argv) {
@@ -934,6 +996,7 @@ int main(int argc, char** argv) {
         keep_count = g_cfg.log_keep_count;
     }
     g_crash_cache_dir = cache_dir;
+    std::snprintf(g_crash_cache_dir_safe, sizeof(g_crash_cache_dir_safe), "%s", cache_dir.c_str());
 
     g_logger.init(log_dir, LogLevel::DEBUG, keep_count);
     g_logger.info("Media dir: %s, Cache dir: %s", media_dir.c_str(), cache_dir.c_str());
@@ -1291,6 +1354,10 @@ int main(int argc, char** argv) {
     // Start Google Photos background sync thread
     g_google_photos.start();
 
+    // Start software watchdog thread
+    g_watchdog_running.store(true);
+    g_watchdog_thread = std::thread(watchdog_loop);
+
     g_logger.info("Starting slideshow with %zu items", g_eligible.size());
 
     g_transition = new TransitionEngine();
@@ -1545,6 +1612,42 @@ int main(int argc, char** argv) {
         auto now = std::chrono::steady_clock::now();
         double dt = std::chrono::duration<double>(now - last_frame_time).count();
         last_frame_time = now;
+
+        g_last_heartbeat_time.store(static_cast<int64_t>(std::time(nullptr)));
+
+        // Periodic touch screen check (every 5 seconds)
+        static double touch_check_timer = 0.0;
+        touch_check_timer += dt;
+        if (touch_check_timer >= 5.0) {
+            touch_check_timer = 0.0;
+            bool touch_enabled = false;
+            {
+                std::lock_guard lk(g_config_mtx);
+                touch_enabled = g_cfg.touch_enabled;
+            }
+            if (touch_enabled) {
+                int touch_count = 0;
+                SDL_TouchID* devices = SDL_GetTouchDevices(&touch_count);
+                if (devices) {
+                    SDL_free(devices);
+                }
+                if (touch_count == 0) {
+                    if (g_active_error_code.load() != 619) {
+                        g_logger.warn("TOUCH_INPUT: Detected 0 touch devices.");
+                        trigger_error(619); // E619: TOUCHSCREEN_DEVICE_NOT_FOUND
+                    }
+                } else {
+                    if (g_active_error_code.load() == 619) {
+                        g_logger.info("TOUCH_INPUT: Touch screen device reconnected.");
+                        trigger_error(0);
+                    }
+                }
+            } else {
+                if (g_active_error_code.load() == 619) {
+                    trigger_error(0);
+                }
+            }
+        }
 
         frame_counter++;
         fps_timer += dt;
@@ -2380,11 +2483,28 @@ int main(int argc, char** argv) {
     // Stop background Google Photos sync thread safely
     g_google_photos.stop();
     
+    // Stop software watchdog thread safely
+    g_watchdog_running.store(false);
+    if (g_watchdog_thread.joinable()) {
+        g_watchdog_thread.join();
+        g_logger.info("Watchdog: Software watchdog thread stopped successfully.");
+    }
+    
     // Stop background watchman thread safely
     g_watchman_running.store(false);
     if (g_watchman_thread.joinable()) {
-        g_watchman_thread.join();
-        g_logger.info("Watchman: Background watchman thread stopped successfully.");
+        int timeout_ms = 500;
+        while (timeout_ms > 0 && !g_watchman_finished.load()) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(50));
+            timeout_ms -= 50;
+        }
+        if (g_watchman_finished.load()) {
+            g_watchman_thread.join();
+            g_logger.info("Watchman: Background watchman thread stopped successfully.");
+        } else {
+            g_watchman_thread.detach();
+            g_logger.warn("Watchman: Watchman thread did not exit cleanly within 500ms. Detached.");
+        }
     }
 
     if (g_mpv_player.is_active()) g_mpv_player.stop();

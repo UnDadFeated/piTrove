@@ -77,12 +77,12 @@ void crash_handler(int sig) {
     crash_display_restore();
 
     // Signal-safe purge: construct paths into stack buffer, use unlink()
-    if (!g_database_complete.load() && !g_crash_cache_dir.empty()) {
+    if (!g_database_complete.load() && g_crash_cache_dir_safe[0] != '\0') {
         const char* purge_msg = "[CRITICAL] Database incomplete — purging partial cache.\n";
         (void)write(STDERR_FILENO, purge_msg, strlen(purge_msg));
 
         char path[512];
-        int n = snprintf(path, sizeof(path), "%s/cache.db", g_crash_cache_dir.c_str());
+        int n = snprintf(path, sizeof(path), "%s/cache.db", g_crash_cache_dir_safe);
         if (n > 0 && (size_t)n < sizeof(path) - 5) {
             unlink(path);
             strcat(path, "-wal");
@@ -107,9 +107,9 @@ void terminate_handler() {
         close(fd);
     }
 
-    if (!g_database_complete.load() && !g_crash_cache_dir.empty()) {
+    if (!g_database_complete.load() && g_crash_cache_dir_safe[0] != '\0') {
         char path[512];
-        int n = snprintf(path, sizeof(path), "%s/cache.db", g_crash_cache_dir.c_str());
+        int n = snprintf(path, sizeof(path), "%s/cache.db", g_crash_cache_dir_safe);
         if (n > 0 && (size_t)n < sizeof(path) - 5) {
             unlink(path);
             strcat(path, "-wal");
@@ -556,4 +556,111 @@ bool is_media_dir_healthy(const std::string& media_dir) {
         return false;
     }
     return true;
+}
+
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#include <netdb.h>
+#include <poll.h>
+#include <fstream>
+#include <shared_mutex>
+#include "config.h"
+
+bool is_nas_online() {
+    std::string media_dir;
+    {
+        std::lock_guard<std::shared_mutex> lk(g_config_mtx);
+        media_dir = g_cfg.media_dir;
+    }
+    if (media_dir.empty()) return true;
+
+    // Standardize path (remove trailing slash)
+    if (media_dir.length() > 1 && media_dir.back() == '/') {
+        media_dir.pop_back();
+    }
+
+    // Read /proc/mounts to find the matching mount point
+    std::ifstream mounts("/proc/mounts");
+    if (!mounts.is_open()) {
+        return true; // Fallback to true if we cannot read mounts
+    }
+
+    std::string device, mount_point, fs_type, options;
+    std::string nas_host = "";
+
+    while (mounts >> device >> mount_point >> fs_type >> options) {
+        // Skip mounts that aren't network filesystems (cifs, nfs, etc.)
+        if (fs_type != "cifs" && fs_type != "nfs" && fs_type != "nfs4") {
+            continue;
+        }
+        // Check if mount_point is a prefix of media_dir
+        if (media_dir == mount_point || 
+            (media_dir.rfind(mount_point + "/", 0) == 0)) {
+            // Found the network mount! Extract host/IP
+            if (device.rfind("//", 0) == 0) {
+                // CIFS format: //host/share
+                size_t start = 2;
+                size_t end = device.find('/', start);
+                if (end != std::string::npos) {
+                    nas_host = device.substr(start, end - start);
+                }
+            } else if (auto colon = device.find(':'); colon != std::string::npos) {
+                // NFS format: host:/path
+                nas_host = device.substr(0, colon);
+            }
+            break;
+        }
+    }
+    mounts.close();
+
+    if (nas_host.empty()) {
+        // No network mount found, assume it is local/always online
+        return true;
+    }
+
+    // Perform non-blocking TCP socket connection check to nas_host on port 445 (SMB) or 2049 (NFS)
+    int port = (fs_type == "cifs") ? 445 : 2049;
+
+    struct addrinfo hints{}, *res = nullptr;
+    hints.ai_family = AF_UNSPEC;
+    hints.ai_socktype = SOCK_STREAM;
+    if (getaddrinfo(nas_host.c_str(), std::to_string(port).c_str(), &hints, &res) != 0) {
+        return false; // Hostname resolution failed
+    }
+
+    int fd = socket(res->ai_family, res->ai_socktype | SOCK_CLOEXEC, res->ai_protocol);
+    if (fd < 0) {
+        freeaddrinfo(res);
+        return false;
+    }
+
+    // Set non-blocking
+    int flags = fcntl(fd, F_GETFL, 0);
+    fcntl(fd, F_SETFL, flags | O_NONBLOCK);
+
+    int conn_rc = connect(fd, res->ai_addr, res->ai_addrlen);
+    bool online = false;
+
+    if (conn_rc == 0) {
+        online = true;
+    } else if (errno == EINPROGRESS) {
+        struct pollfd pfd{};
+        pfd.fd = fd;
+        pfd.events = POLLOUT;
+        int poll_rc = poll(&pfd, 1, 1500); // 1.5 second timeout
+        if (poll_rc > 0) {
+            int valopt = 0;
+            socklen_t lon = sizeof(valopt);
+            if (getsockopt(fd, SOL_SOCKET, SO_ERROR, &valopt, &lon) == 0) {
+                if (valopt == 0) {
+                    online = true;
+                }
+            }
+        }
+    }
+
+    close(fd);
+    freeaddrinfo(res);
+    return online;
 }

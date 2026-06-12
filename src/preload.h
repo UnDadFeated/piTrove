@@ -43,8 +43,8 @@ struct PreloadedItem {
 
 class PreloadQueue {
 private:
-    // Queue of preloaded items waiting for VRAM upload on main thread
-    std::queue<PreloadedItem> loaded_queue;
+    // List of preloaded items waiting for VRAM upload on main thread
+    std::vector<PreloadedItem> loaded_items;
     std::mutex queue_mutex;
     std::condition_variable queue_cv;
 

@@ -62,9 +62,10 @@ void PreloadQueue::shutdown() {
     work_cv.notify_all();
     queue_cv.notify_all();
 
+    // Detach worker threads on exit to prevent shutdown hangs if blocked in CIFS I/O
     for (auto& t : threads) {
         if (t.joinable()) {
-            t.join();
+            t.detach();
         }
     }
     threads.clear();
@@ -88,85 +89,80 @@ void PreloadQueue::enqueue(const std::string& path) {
 }
 
 std::shared_ptr<ImageData> PreloadQueue::try_dequeue(const std::string& target_path) {
-    g_logger.info("TRACE: PreloadQueue::try_dequeue queue_size=%d target=%s", (int)loaded_queue.size(), target_path.c_str());
+    g_logger.info("TRACE: PreloadQueue::try_dequeue queue_size=%d target=%s", (int)loaded_items.size(), target_path.c_str());
     std::shared_ptr<ImageData> data = nullptr;
     {
         std::scoped_lock lk(work_mutex, queue_mutex);
-        while (!loaded_queue.empty()) {
-            if (loaded_queue.front().path == target_path) {
-                PreloadedItem item = std::move(loaded_queue.front());
-                loaded_queue.pop();
-                active_preloads.erase(target_path);
+        auto it = std::find_if(loaded_items.begin(), loaded_items.end(),
+            [&](const PreloadedItem& item) { return item.path == target_path; });
 
-                // Build ImageData from raw pixels (main thread — SDL context is thread-local)
-                data = std::make_shared<ImageData>();
-                data->valid = false;
+        if (it != loaded_items.end()) {
+            PreloadedItem item = std::move(*it);
+            loaded_items.erase(it);
+            active_preloads.erase(target_path);
 
-                if (item.raw.valid) {
-                    // Retrieve pre-computed EXIF rotation from worker thread
-                    data->exif_rotation = item.exif_rotation;
-                    data->width = item.raw.width;
-                    data->height = item.raw.height;
-                    data->valid = true;
+            // Build ImageData from raw pixels (main thread — SDL context is thread-local)
+            data = std::make_shared<ImageData>();
+            data->valid = false;
 
-                    // Create SDL surface from raw pixels
-                    data->surface = SDL_CreateSurface(item.raw.width, item.raw.height, SDL_PIXELFORMAT_RGBA32);
+            if (item.raw.valid) {
+                // Retrieve pre-computed EXIF rotation from worker thread
+                data->exif_rotation = item.exif_rotation;
+                data->width = item.raw.width;
+                data->height = item.raw.height;
+                data->valid = true;
+
+                // Create SDL surface from raw pixels
+                data->surface = SDL_CreateSurface(item.raw.width, item.raw.height, SDL_PIXELFORMAT_RGBA32);
+                if (data->surface) {
+                    uint8_t* dst = (uint8_t*)data->surface->pixels;
+                    const uint8_t* src = item.raw.pixels;
+                    for (int y = 0; y < item.raw.height; y++) {
+                        memcpy(dst + y * data->surface->pitch, src + y * item.raw.width * 4, item.raw.width * 4);
+                    }
+                    free(item.raw.pixels);
+                    item.raw.pixels = nullptr;
+
+                    if (data->exif_rotation >= 2 && data->exif_rotation <= 8) {
+                        SDL_Surface* rotated = ImageLoader::apply_exif_rotation(data->surface, data->exif_rotation);
+                        if (rotated) {
+                            SDL_DestroySurface(data->surface);
+                            data->surface = rotated;
+                        }
+                    }
                     if (data->surface) {
-                        uint8_t* dst = (uint8_t*)data->surface->pixels;
-                        const uint8_t* src = item.raw.pixels;
-                        for (int y = 0; y < item.raw.height; y++) {
-                            memcpy(dst + y * data->surface->pitch, src + y * item.raw.width * 4, item.raw.width * 4);
-                        }
-                        free(item.raw.pixels);
-                        item.raw.pixels = nullptr;
-
-                        if (data->exif_rotation >= 2 && data->exif_rotation <= 8) {
-                            SDL_Surface* rotated = ImageLoader::apply_exif_rotation(data->surface, data->exif_rotation);
-                            if (rotated) {
-                                SDL_DestroySurface(data->surface);
-                                data->surface = rotated;
-                            }
-                        }
-                        if (data->surface) {
-                            data->width = data->surface->w;
-                            data->height = data->surface->h;
-                        }
-
-                        // Extract average color from preloaded background calculations
-                        data->avg_r = item.avg_r;
-                        data->avg_g = item.avg_g;
-                        data->avg_b = item.avg_b;
-
-                        // Copy precomputed matte color from worker thread
-                        data->matte_r = item.matte_r;
-                        data->matte_g = item.matte_g;
-                        data->matte_b = item.matte_b;
-
-                        // Copy precomputed edge colors from worker thread
-                        for (int e = 0; e < 4; e++) {
-                            data->edge_r[e] = item.edge_r[e];
-                            data->edge_g[e] = item.edge_g[e];
-                            data->edge_b[e] = item.edge_b[e];
-                        }
-
-                        // Copy precomputed per-pixel edge strips from worker thread
-                        data->edge_top_rgb = std::move(item.edge_top_rgb);
-                        data->edge_bot_rgb = std::move(item.edge_bot_rgb);
-                        data->edge_lft_rgb = std::move(item.edge_lft_rgb);
-                        data->edge_rgt_rgb = std::move(item.edge_rgt_rgb);
+                        data->width = data->surface->w;
+                        data->height = data->surface->h;
                     }
 
-                    // Move blur_raw to ImageData (no SDL needed — renderer creates texture on demand)
-                    if (item.blur_raw.valid && item.blur_raw.pixels) {
-                        data->blur_raw = std::move(item.blur_raw);
+                    // Extract average color from preloaded background calculations
+                    data->avg_r = item.avg_r;
+                    data->avg_g = item.avg_g;
+                    data->avg_b = item.avg_b;
+
+                    // Copy precomputed matte color from worker thread
+                    data->matte_r = item.matte_r;
+                    data->matte_g = item.matte_g;
+                    data->matte_b = item.matte_b;
+
+                    // Copy precomputed edge colors from worker thread
+                    for (int e = 0; e < 4; e++) {
+                        data->edge_r[e] = item.edge_r[e];
+                        data->edge_g[e] = item.edge_g[e];
+                        data->edge_b[e] = item.edge_b[e];
                     }
+
+                    // Copy precomputed per-pixel edge strips from worker thread
+                    data->edge_top_rgb = std::move(item.edge_top_rgb);
+                    data->edge_bot_rgb = std::move(item.edge_bot_rgb);
+                    data->edge_lft_rgb = std::move(item.edge_lft_rgb);
+                    data->edge_rgt_rgb = std::move(item.edge_rgt_rgb);
                 }
-                break;
-            } else {
-                g_logger.warn("Preload mismatch: front is '%s', target is '%s'. Discarding front stale item.",
-                    loaded_queue.front().path.c_str(), target_path.c_str());
-                active_preloads.erase(loaded_queue.front().path);
-                loaded_queue.pop();
+
+                // Move blur_raw to ImageData (no SDL needed — renderer creates texture on demand)
+                if (item.blur_raw.valid && item.blur_raw.pixels) {
+                    data->blur_raw = std::move(item.blur_raw);
+                }
             }
         }
     }
@@ -186,9 +182,7 @@ void PreloadQueue::cancel_all() {
         std::swap(work_queue, empty);
         active_preloads.clear();
         current_epoch++;
-        while (!loaded_queue.empty()) {
-            loaded_queue.pop();
-        }
+        loaded_items.clear();
     }
     work_cv.notify_all();
 }
@@ -310,7 +304,7 @@ void PreloadQueue::worker_thread(int thread_id) {
                 bool space_available = false;
                 {
                     std::scoped_lock qlk(queue_mutex);
-                    space_available = (int)loaded_queue.size() < max_size;
+                    space_available = (int)loaded_items.size() < max_size;
                 }
                 return (has_work && space_available) || !running.load();
             });
@@ -419,7 +413,12 @@ void PreloadQueue::worker_thread(int thread_id) {
             item.edge_bot_rgb = std::move(edge_bot_rgb);
             item.edge_lft_rgb = std::move(edge_lft_rgb);
             item.edge_rgt_rgb = std::move(edge_rgt_rgb);
-            loaded_queue.push(std::move(item));
+            loaded_items.push_back(std::move(item));
+            // Keep capacity under max_size by popping/discarding oldest items
+            while ((int)loaded_items.size() > max_size) {
+                active_preloads.erase(loaded_items.front().path);
+                loaded_items.erase(loaded_items.begin());
+            }
         }
         queue_cv.notify_one();
     }
