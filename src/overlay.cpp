@@ -480,8 +480,10 @@ void OverlayManager::draw_all(int current_idx, int total_items, const MediaItem*
     }
 
     // 8. Offline Mode / Error Overlay Console
-    if (g_offline_mode.load() || g_active_error_code.load() != 0) {
-        int code_num = g_active_error_code.load();
+    int code_num = g_active_error_code.load();
+    bool is_media_error = (code_num == 101 || code_num == 201 || code_num == 202);
+    bool show_error = g_offline_mode.load() || (code_num != 0 && !is_media_error);
+    if (show_error) {
         if (code_num == 0) {
             // Default to E101 if offline mode is triggered but no explicit error code set
             code_num = 101;

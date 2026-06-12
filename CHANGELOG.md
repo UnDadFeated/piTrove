@@ -1,3 +1,11 @@
+## v12.5.3 — Network Resilience & Installer Robustness (June 12, 2026)
+
+### Fixed
+- **Wi-Fi keepalive reliability** — Scheduled the keepalive connection checks under root privileges to ensure the system is authorized to reset the wireless interface during connectivity dropouts.
+- **Installer conflicts** — Restructured the installation sequence to clone the repository before writing configuration scripts, preventing directory conflicts. Added an automatic cleanup safeguard for incomplete/stale source directories.
+- **Transient error diagnostics** — Media loading errors caused by network disconnections are now properly reported as network mount issues rather than image decoding failures.
+- **Overlay message suppression** — Prevented network and file-decoding diagnostic boxes from flashing on screen during short, transient Wi-Fi drops unless the frame enters dedicated offline recovery mode.
+
 ## v12.5.2 — Interactive Installer Piped Execution Fix (June 11, 2026)
 
 ### Fixed

@@ -1425,7 +1425,8 @@ int main(int argc, char** argv) {
                 if (current_data && current_data->valid && current_twin_data && current_twin_data->valid) {
                     ImageLoader::load_texture(current_data.get(), g_renderer.sdl_renderer);
                     ImageLoader::load_texture(current_twin_data.get(), g_renderer.sdl_renderer);
-                    if (g_active_error_code.load() == 201) {
+                    int curr_err = g_active_error_code.load();
+                    if (curr_err == 201 || curr_err == 101) {
                         trigger_error(0);
                     }
                     current_tex = current_data->texture;
@@ -1475,7 +1476,8 @@ int main(int argc, char** argv) {
                 current_data = single_data;
                 if (current_data && current_data->valid) {
                     ImageLoader::load_texture(current_data.get(), g_renderer.sdl_renderer);
-                    if (g_active_error_code.load() == 201) {
+                    int curr_err = g_active_error_code.load();
+                    if (curr_err == 201 || curr_err == 101) {
                         trigger_error(0);
                     }
                     current_tex = current_data->texture;
@@ -1969,7 +1971,8 @@ int main(int argc, char** argv) {
             bool load_success = is_video_transition || (next_data && next_data->texture && (!next_is_twin || (next_twin_data && next_twin_data->texture)));
 
             if (load_success) {
-                if (g_active_error_code.load() == 201) {
+                int curr_err = g_active_error_code.load();
+                if (curr_err == 201 || curr_err == 101) {
                     trigger_error(0);
                 }
                 if (g_consecutive_failures.load() > 0) {
