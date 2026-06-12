@@ -1,3 +1,13 @@
+## v12.5.5 — Advanced Diagnostics & System Integrity Safeguards (June 12, 2026)
+
+### Added
+- **Proactive local network status detection** — Engineered dynamic interface checks to monitor network adapter connection status and identify local connectivity drops. In the event of Wi-Fi or Ethernet disconnection, the system generates a clear network status error.
+- **DHCP configuration & IP conflict warning** — Implemented address verification checks to detect when the system receives a self-assigned IP address. Warnings are raised with a specific configuration alert if DHCP leasing fails.
+- **DNS lookup failure diagnostics** — Added explicit server resolution health checks during synchronization. If external domains are unreachable, the system triggers a DNS resolution alert, distinguishing network routing issues from server credential invalidation.
+- **Critical storage threshold tracking** — Integrated storage capacity checks in the cache path and cloud sync loops, triggering a warning and pausing synchronizations if available disk space falls below a critical threshold (50MB).
+- **Cache filesystem writability auditing** — Added cache folder write verification checks on application startup, alerting the user immediately if directories are mounted with read-only permissions.
+- **Database transaction lock diagnostics** — Extended transaction error reporting to detect database locks or write blockages, triggering specific lock timeout or disk failure warnings.
+
 ## v12.5.4 — Reliability, Security, & Concurrency Safeguards (June 12, 2026)
 
 ### Added

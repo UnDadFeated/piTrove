@@ -9,7 +9,7 @@ A professional-grade, **containerized** digital picture & video frame applicatio
 [![OS](https://img.shields.io/badge/OS-Trixie%20Lite%20%28Debian%2013%29-lightgreen?style=flat-square)](https://www.debian.org/)
 [![Architecture](https://img.shields.io/badge/arch-aarch64-orange?style=flat-square)](https://en.wikipedia.org/wiki/AArch64)
 [![Graphics](https://img.shields.io/badge/graphics-SDL3-red?style=flat-square)](https://www.libsdl.org/)
-[![Version](https://img.shields.io/badge/version-12.5.4-blue?style=flat-square)]()
+[![Version](https://img.shields.io/badge/version-12.5.5-blue?style=flat-square)]()
 
 ## 🚀 Quick Start
 
@@ -113,6 +113,11 @@ Once the installation completes, the picture frame runs automatically in the bac
 - **Command Option Injection Shield**: Built-in shell argument escape sanitization and `--` command qualifiers prepended to all curl file download commands.
 - **Web Server Capacity & Slowloris Shield**: Concurrent web dashboard client capacity increased to 32 slots, with a minimum socket read/write timeout of 2 seconds to prevent resource exhaustion from hanging/stale clients.
 - **Non-Discarding Preload Cache**: Vector lookup preloading queue that allows out-of-order cached image retrieval, ensuring successfully preloaded slides are not discarded when skipped or sought out of order.
+- **Proactive Network & Interface Probing (`E102` / `E103`)**: Dynamic socket and interface status query checks via POSIX interface mappings, detecting local connection drops (`E102`) or DHCP configuration/IP conflicts (`E103`) immediately and aborting network-dependent mounts.
+- **Critical Storage Capacity Verification (`E403`)**: Continuous available space checking on the cache drive to pause background sync tasks and warn when storage is critically low (< 50MB).
+- **DNS Resolution Monitoring (`E105`)**: Domain resolution checks on sync failures to distinguish name server/DNS lookup faults from bad credentials.
+- **Cache Filesystem Read-Only Auditing (`E405`)**: Directory writability checks on startup to detect permission restrictions.
+- **SQLite Concurrency & Timeout Tracking (`E402` / `E408`)**: Database transaction checking to report write timeouts or structural storage failures.
 
 ## ⚙️  Technical Architecture
 

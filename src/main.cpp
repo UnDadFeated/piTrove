@@ -1001,6 +1001,34 @@ int main(int argc, char** argv) {
     g_logger.init(log_dir, LogLevel::DEBUG, keep_count);
     g_logger.info("Media dir: %s, Cache dir: %s", media_dir.c_str(), cache_dir.c_str());
 
+    // Verify cache directory available space (E403) and writability (E405)
+    {
+        std::error_code space_ec;
+        std::filesystem::create_directories(cache_dir, space_ec);
+        auto space_info = std::filesystem::space(cache_dir, space_ec);
+        if (!space_ec) {
+            if (space_info.available < 50 * 1024 * 1024) {
+                trigger_error(403); // E403: DISK_SPACE_CRITICAL
+            } else {
+                if (g_active_error_code.load() == 403) {
+                    trigger_error(0);
+                }
+            }
+        }
+
+        std::string test_file = cache_dir + "/.write_test";
+        FILE* tf = fopen(test_file.c_str(), "w");
+        if (!tf) {
+            trigger_error(405); // E405: SQLITE_READONLY_DATABASE
+        } else {
+            fclose(tf);
+            unlink(test_file.c_str());
+            if (g_active_error_code.load() == 405) {
+                trigger_error(0);
+            }
+        }
+    }
+
     // Verify if media directory exists and is populated
     bool startup_media_empty = true;
     try {
