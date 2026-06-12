@@ -1,3 +1,8 @@
+## v12.5.2 — Interactive Installer Piped Execution Fix (June 11, 2026)
+
+### Fixed
+- **Installer keyboard input lock** — Resolved an issue where running the installation command directly via piped execution (such as `wget | bash`) would cause the installer to skip interactive prompt selections, default automatically, and terminate abruptly. Keyboard inputs are now correctly queried directly from the terminal console.
+
 ## v12.5.1 — Video Playback & Buffering Optimization (June 11, 2026)
 
 ### Fixed
