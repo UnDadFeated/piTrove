@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# install.sh — piTrove v12.5.2 Premium Graphical Installer
+# install.sh — piTrove v12.5.3 Premium Graphical Installer
 # Target: Debian Trixie (13) 64-bit on Raspberry Pi 4/5
 
 set -eo pipefail
@@ -558,38 +558,6 @@ for dev in /sys/class/net/wlan*; do
 done
 ok "Configured persistent driver-level Wi-Fi power-saving overrides"
 
-# ── Wi-Fi Keepalive Daemon Setup ──────────────────────────────────────────────
-info "Configuring Wi-Fi keepalive script and cron job..."
-mkdir -p "$PRIMARY_HOME/piTrove/scripts"
-cat > "$PRIMARY_HOME/piTrove/scripts/wifi_keepalive.sh" <<'EOF'
-#!/bin/bash
-GATEWAY="192.168.4.1"
-
-# Check if we can ping the gateway
-ping -c 2 -W 3 "$GATEWAY" > /dev/null 2>&1
-
-if [ $? -ne 0 ]; then
-    echo "$(date): Gateway $GATEWAY is unreachable. Restarting wlan0..." >> /home/pi/piTrove/logs/wifi_keepalive.log
-    nmcli device disconnect wlan0
-    sleep 5
-    nmcli device connect wlan0
-else
-    # Connection is healthy
-    exit 0
-fi
-EOF
-# Fix hardcoded /home/pi path to match actual primary user home
-sed -i "s|/home/pi/piTrove|${PRIMARY_HOME}/piTrove|g" "$PRIMARY_HOME/piTrove/scripts/wifi_keepalive.sh"
-chmod +x "$PRIMARY_HOME/piTrove/scripts/wifi_keepalive.sh"
-chown $PRIMARY_USER:$PRIMARY_USER "$PRIMARY_HOME/piTrove/scripts/wifi_keepalive.sh"
-
-# Set up cron job for PRIMARY_USER
-if ! crontab -u "$PRIMARY_USER" -l 2>/dev/null | grep -q "wifi_keepalive.sh"; then
-    (crontab -u "$PRIMARY_USER" -l 2>/dev/null || true; echo "*/2 * * * * /bin/bash $PRIMARY_HOME/piTrove/scripts/wifi_keepalive.sh") | crontab -u "$PRIMARY_USER" -
-    ok "Configured Wi-Fi keepalive cron job for $PRIMARY_USER"
-else
-    ok "Wi-Fi keepalive cron job already configured for $PRIMARY_USER"
-fi
 
 
 # ── Branch Selection Dialog ────────────────────────────────────────────────────
@@ -653,6 +621,10 @@ fi
 # ── Clone / Update Git Repository ──────────────────────────────────────────────
 info "Setting up piTrove repository clone..."
 if [[ ! -d "$PRIMARY_HOME/piTrove/.git" ]]; then
+    if [[ -d "$PRIMARY_HOME/piTrove" ]]; then
+        warn "Directory $PRIMARY_HOME/piTrove exists but is not a valid Git repository. Cleaning it up for a fresh clone..."
+        rm -rf "$PRIMARY_HOME/piTrove"
+    fi
     run_with_spinner "Cloning piTrove repository (branch: $INSTALL_BRANCH)" git clone --branch "$INSTALL_BRANCH" --single-branch https://github.com/UnDadFeated/piTrove.git "$PRIMARY_HOME/piTrove"
 else
     info "Repository exists. Updating source..."
@@ -660,13 +632,52 @@ else
     CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
     if [[ "$CURRENT_BRANCH" != "$INSTALL_BRANCH" ]]; then
         info "Switching from branch '$CURRENT_BRANCH' to '$INSTALL_BRANCH'..."
-        git fetch origin
-        git checkout "$INSTALL_BRANCH"
+        git fetch origin || true
+        git checkout "$INSTALL_BRANCH" || true
     fi
     git pull origin "$INSTALL_BRANCH" || warn "Repository update failed. Using active local copy."
 fi
 chown -R $PRIMARY_USER:$PRIMARY_USER "$PRIMARY_HOME/piTrove"
 info "Repository ready at: ${CYAN}$PRIMARY_HOME/piTrove${NC} (branch: ${BOLD}${BRANCH_LABEL}${NC})"
+
+# ── Wi-Fi Keepalive Daemon Setup ──────────────────────────────────────────────
+info "Configuring Wi-Fi keepalive script and cron job..."
+mkdir -p "$PRIMARY_HOME/piTrove/scripts"
+cat > "$PRIMARY_HOME/piTrove/scripts/wifi_keepalive.sh" <<'EOF'
+#!/bin/bash
+GATEWAY="192.168.4.1"
+
+# Check if we can ping the gateway
+ping -c 2 -W 3 "$GATEWAY" > /dev/null 2>&1
+
+if [ $? -ne 0 ]; then
+    echo "$(date): Gateway $GATEWAY is unreachable. Restarting wlan0..." >> /home/pi/piTrove/logs/wifi_keepalive.log
+    nmcli device disconnect wlan0
+    sleep 5
+    nmcli device connect wlan0
+else
+    # Connection is healthy
+    exit 0
+fi
+EOF
+# Fix hardcoded /home/pi path to match actual primary user home
+sed -i "s|/home/pi/piTrove|${PRIMARY_HOME}/piTrove|g" "$PRIMARY_HOME/piTrove/scripts/wifi_keepalive.sh"
+chmod +x "$PRIMARY_HOME/piTrove/scripts/wifi_keepalive.sh"
+chown $PRIMARY_USER:$PRIMARY_USER "$PRIMARY_HOME/piTrove/scripts/wifi_keepalive.sh"
+
+# Set up cron job for root (so it has permissions to restart NetworkManager interfaces)
+# First, remove it from the primary user's crontab if it exists there from a previous version
+if crontab -u "$PRIMARY_USER" -l 2>/dev/null | grep -q "wifi_keepalive.sh"; then
+    crontab -u "$PRIMARY_USER" -l 2>/dev/null | grep -v "wifi_keepalive.sh" | crontab -u "$PRIMARY_USER" - || true
+    info "Removed legacy Wi-Fi keepalive cron job from $PRIMARY_USER"
+fi
+
+if ! crontab -l 2>/dev/null | grep -q "wifi_keepalive.sh"; then
+    (crontab -l 2>/dev/null || true; echo "*/2 * * * * /bin/bash $PRIMARY_HOME/piTrove/scripts/wifi_keepalive.sh") | crontab -
+    ok "Configured Wi-Fi keepalive cron job for root"
+else
+    ok "Wi-Fi keepalive cron job already configured for root"
+fi
 
 # ── Media Archive Organizer Script Setup ─────────────────────────────────────
 info "Configuring media archive organizer script..."
