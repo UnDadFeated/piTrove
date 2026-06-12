@@ -1,3 +1,18 @@
+## v12.5.4 — Reliability, Security, & Concurrency Safeguards (June 12, 2026)
+
+### Added
+- **Software watchdog recovery** — Integrated an active background watchdog system that monitors the health of the main slideshow loop. If the rendering engine stalls or freezes for more than 45 seconds, the watchdog triggers an immediate restart to restore operation automatically.
+- **Non-blocking network mount verification** — Implemented lightweight TCP socket reachability checks for remote network shares. Before performing filesystem operations or media scans, the app verifies NAS status to prevent blocking kernel calls from freezing the interface.
+- **Dynamic touchscreen hotplugging** — Upgraded touch input detection to periodically probe for active interfaces, permitting touchscreen controllers to be unplugged and reconnected at runtime without requiring an application restart.
+
+### Fixed
+- **Clean shutdown on network failure** — Refactored the media preloader and file monitoring threads to detach blocked filesystem workers upon application exit. The slideshow now terminates immediately and gracefully even if background threads are stalled on unresponsive network mounts.
+- **Persistent MQTT integration** — Configured an automatic reconnect loop for remote messaging client subscriptions. If the connection to the broker drops or the broker is restarted, the client automatically attempts reconnection after 10 seconds.
+- **Google Photos synchronization safety** — Added rigorous protocol and domain validations for dynamic download links, shielding the system from unauthorized web redirects. Prepend command qualifiers to all download requests to block command option injection.
+- **Web dashboard capacity & resilience** — Expanded the remote web controller capacity to support up to 32 concurrent dashboard connections. Enforced active socket timeouts to shield the interface from sluggish or half-closed client connections.
+- **Safe crash recovery handlers** — Eliminated dynamic heap allocations from system signals and terminate handlers. The app can now safely delete incomplete cache databases on crash without encountering secondary lockups or deadlocks.
+- **Robust preloading queue lookup** — Restructured the background image buffer to allow out-of-order lookups. Skipping or seeking slides no longer discards successfully cached items, reducing redundant network fetches and load times.
+
 ## v12.5.3 — Network Resilience & Installer Robustness (June 12, 2026)
 
 ### Fixed

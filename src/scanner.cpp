@@ -180,6 +180,10 @@ std::vector<MediaItem> MediaScanner::scan(const std::string& directory,
                                          int max_depth,
                                          const std::vector<std::string>& ignore_folders,
                                          std::function<void(int)> progress) {
+    if (!is_nas_online()) {
+        g_logger.warn("MediaScanner: NAS/Media directory host is offline. Skipping scan.");
+        return {};
+    }
     live_found_count.store(0);
     std::vector<MediaItem> all_items;
     std::mutex list_mutex;

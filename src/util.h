@@ -1,7 +1,7 @@
 #ifndef PITROVE_UTIL_H
 #define PITROVE_UTIL_H
 
-#define VERSION "12.5.3"
+#define VERSION "12.5.4"
 #define APP_NAME "piTrove"
 
 #include <atomic>
@@ -36,6 +36,7 @@ void trigger_error(int code_num);
 
 inline std::atomic<bool> g_database_complete{false};
 inline std::string g_crash_cache_dir = "";
+inline char g_crash_cache_dir_safe[512] = "";
 
 enum class LogLevel {
     DEBUG = 0,
@@ -109,6 +110,7 @@ void set_display_power(bool power);
 [[nodiscard]] bool file_exists(const std::string& path);
 [[nodiscard]] std::string get_timestamp();
 [[nodiscard]] bool is_media_dir_healthy(const std::string& media_dir);
+[[nodiscard]] bool is_nas_online();
 
 
 

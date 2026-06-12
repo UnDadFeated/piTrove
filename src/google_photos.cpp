@@ -235,13 +235,32 @@ void GooglePhotosManager::download_media(const std::string &access_token) {
     std::string local_path = cache_dir + "/" + filename;
 
     if (!std::filesystem::exists(local_path)) {
-      g_logger.info("GooglePhotos: Downloading new %s: %s",
-                    (is_video ? "video" : "photo"), original_filename.c_str());
       std::string download_url = baseUrl + (is_video ? "=dv" : "=d");
 
-      // Build the curl download command
+      // Validate URL to prevent SSRF/unauthorized requests
+      if (download_url.rfind("https://", 0) != 0) {
+        g_logger.error("GooglePhotos: Invalid URL protocol for download: %s", download_url.c_str());
+        continue;
+      }
+      size_t host_start = 8; // length of "https://"
+      size_t host_end = download_url.find('/', host_start);
+      std::string host = (host_end == std::string::npos) ? download_url.substr(host_start) : download_url.substr(host_start, host_end - host_start);
+      bool domain_valid = false;
+      if (host == "googleusercontent.com" || 
+          (host.length() > 22 && host.compare(host.length() - 22, 22, ".googleusercontent.com") == 0)) {
+        domain_valid = true;
+      }
+      if (!domain_valid) {
+        g_logger.error("GooglePhotos: Security warning: download URL host '%s' is not a Google Photos domain. Skipping download.", host.c_str());
+        continue;
+      }
+
+      g_logger.info("GooglePhotos: Downloading new %s: %s",
+                    (is_video ? "video" : "photo"), original_filename.c_str());
+
+      // Build the curl download command with -- to prevent option injection
       std::string dl_cmd =
-          "curl -s -o '" + escape_shell_arg(local_path) + "' '" + escape_shell_arg(download_url) + "'";
+          "curl -s -o '" + escape_shell_arg(local_path) + "' -- '" + escape_shell_arg(download_url) + "'";
       std::string dl_res = execute_curl(dl_cmd);
 
       // Double check that file is non-empty and valid

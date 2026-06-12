@@ -184,133 +184,147 @@ void start_mqtt_client() {
     }
     
     g_mqtt_thread = std::thread([]() {
-        std::string broker, prefix, sensor_topic;
-        int port = 1883;
-        {
-            std::shared_lock<std::shared_mutex> lk(g_config_mtx);
-            broker = g_cfg.mqtt_broker;
-            port = g_cfg.mqtt_port;
-            prefix = g_cfg.mqtt_topic_prefix;
-            sensor_topic = g_cfg.mqtt_motionsensor_topic;
-        }
-        
-        std::string cmd = "mosquitto_sub -h '" + escape_shell_arg(broker) + "'" +
-                          " -p " + std::to_string(port);
-        std::string user, pass;
-        {
-            std::shared_lock<std::shared_mutex> lk(g_config_mtx);
-            user = g_cfg.mqtt_user;
-            pass = g_cfg.mqtt_pass;
-        }
-        if (!user.empty()) {
-            cmd += " -u '" + escape_shell_arg(user) + "'";
-        }
-        if (!pass.empty()) {
-            cmd += " -P '" + escape_shell_arg(pass) + "'";
-        }
-        cmd += " -t '" + escape_shell_arg(sensor_topic) + "'";
-        cmd += " -t '" + escape_shell_arg(prefix) + "/command/#'";
-        cmd += " -F \"%t:%p\" 2>/dev/null";
+        while (g_running.load()) {
+            std::string broker, prefix, sensor_topic;
+            int port = 1883;
+            {
+                std::shared_lock<std::shared_mutex> lk(g_config_mtx);
+                broker = g_cfg.mqtt_broker;
+                port = g_cfg.mqtt_port;
+                prefix = g_cfg.mqtt_topic_prefix;
+                sensor_topic = g_cfg.mqtt_motionsensor_topic;
+            }
+            
+            std::string cmd = "mosquitto_sub -h '" + escape_shell_arg(broker) + "'" +
+                              " -p " + std::to_string(port);
+            std::string user, pass;
+            {
+                std::shared_lock<std::shared_mutex> lk(g_config_mtx);
+                user = g_cfg.mqtt_user;
+                pass = g_cfg.mqtt_pass;
+            }
+            if (!user.empty()) {
+                cmd += " -u '" + escape_shell_arg(user) + "'";
+            }
+            if (!pass.empty()) {
+                cmd += " -P '" + escape_shell_arg(pass) + "'";
+            }
+            cmd += " -t '" + escape_shell_arg(sensor_topic) + "'";
+            cmd += " -t '" + escape_shell_arg(prefix) + "/command/#'";
+            cmd += " -F \"%t:%p\" 2>/dev/null";
 
-        g_logger.info("Starting MQTT Subscriber: %s", cmd.c_str());
-        
-        FILE* fp = popen(cmd.c_str(), "r");
-        if (!fp) {
-            trigger_error(701); // E701: MQTT_BROKER_UNREACHABLE
-            return;
-        }
-        
-        {
-            std::lock_guard<std::mutex> lk(g_mqtt_mtx);
-            g_mqtt_fp = fp;
-        }
-
-        // Clear active MQTT connection error upon successful popen startup
-        if (g_active_error_code.load() == 701) {
-            trigger_error(0);
-        }
-
-        // Publish Home Assistant auto-discovery configs
-        publish_ha_discovery();
-        
-        // Publish current state
-        mqtt_publish(prefix + "/status/screen", g_screen_blanked.load() ? "OFF" : "ON", true);
-
-        // Keep track of active motion timestamp initially
-        g_last_motion_time.store(static_cast<int64_t>(std::time(nullptr)));
-
-        char buf[512];
-        while (g_running.load() && fgets(buf, sizeof(buf), fp)) {
-            std::string line(buf);
-            line = trim(line);
-            if (line.empty()) continue;
-
-            size_t colon = line.find(':');
-            if (colon == std::string::npos) continue;
-
-            std::string topic = line.substr(0, colon);
-            std::string payload = line.substr(colon + 1);
-
-            g_logger.info("MQTT Received on [%s]: %s", topic.c_str(), payload.c_str());
-
-            if (topic == sensor_topic) {
-                if (payload == "ON" || payload == "1" || payload == "true" || payload == "motion") {
-                    g_last_motion_time.store(static_cast<int64_t>(std::time(nullptr)));
-                    if (g_screen_blanked.load()) {
-                        g_logger.info("MQTT motion detected: waking up display");
-                        g_screen_blanked.store(false);
-                        set_display_power(true);
-                        mqtt_publish(prefix + "/status/screen", "ON", true);
-                    }
+            g_logger.info("Starting MQTT Subscriber: %s", cmd.c_str());
+            
+            FILE* fp = popen(cmd.c_str(), "r");
+            if (!fp) {
+                trigger_error(701); // E701: MQTT_BROKER_UNREACHABLE
+                g_logger.error("MQTT: popen failed to start subscriber. Retrying in 10 seconds...");
+                for (int i = 0; i < 100 && g_running.load(); ++i) {
+                    std::this_thread::sleep_for(std::chrono::milliseconds(100));
                 }
-            } else if (topic == prefix + "/command/next") {
-                if (payload == "PRESS" || payload == "1" || payload == "true" || payload == "ON" || payload == "next") {
-                    g_logger.info("MQTT remote command: Skip Next");
-                    g_remote_command.store(1);
-                }
-            } else if (topic == prefix + "/command/prev") {
-                if (payload == "PRESS" || payload == "1" || payload == "true" || payload == "prev") {
-                    g_logger.info("MQTT remote command: Prev Slide");
-                    g_remote_command.store(2);
-                }
-            } else if (topic == prefix + "/command/pause") {
-                if (payload == "PRESS" || payload == "1" || payload == "true" || payload == "pause") {
-                    g_logger.info("MQTT remote command: Play/Pause Toggle");
-                    g_remote_command.store(3);
-                }
-            } else if (topic == prefix + "/command/screen") {
-                if (payload == "OFF" || payload == "0" || payload == "false") {
-                    if (!g_screen_blanked.load()) {
-                        g_logger.info("MQTT remote command: Screen OFF");
-                        g_screen_blanked.store(true);
-                        set_display_power(false);
-                        mqtt_publish(prefix + "/status/screen", "OFF", true);
-                    }
-                } else if (payload == "ON" || payload == "1" || payload == "true") {
-                    if (g_screen_blanked.load()) {
-                        g_logger.info("MQTT remote command: Screen ON");
-                        g_screen_blanked.store(false);
-                        set_display_power(true);
+                continue;
+            }
+            
+            {
+                std::lock_guard<std::mutex> lk(g_mqtt_mtx);
+                g_mqtt_fp = fp;
+            }
+
+            // Clear active MQTT connection error upon successful popen startup
+            if (g_active_error_code.load() == 701) {
+                trigger_error(0);
+            }
+
+            // Publish Home Assistant auto-discovery configs
+            publish_ha_discovery();
+            
+            // Publish current state
+            mqtt_publish(prefix + "/status/screen", g_screen_blanked.load() ? "OFF" : "ON", true);
+
+            // Keep track of active motion timestamp initially
+            g_last_motion_time.store(static_cast<int64_t>(std::time(nullptr)));
+
+            char buf[512];
+            while (g_running.load() && fgets(buf, sizeof(buf), fp)) {
+                std::string line(buf);
+                line = trim(line);
+                if (line.empty()) continue;
+
+                size_t colon = line.find(':');
+                if (colon == std::string::npos) continue;
+
+                std::string topic = line.substr(0, colon);
+                std::string payload = line.substr(colon + 1);
+
+                g_logger.info("MQTT Received on [%s]: %s", topic.c_str(), payload.c_str());
+
+                if (topic == sensor_topic) {
+                    if (payload == "ON" || payload == "1" || payload == "true" || payload == "motion") {
                         g_last_motion_time.store(static_cast<int64_t>(std::time(nullptr)));
-                        mqtt_publish(prefix + "/status/screen", "ON", true);
+                        if (g_screen_blanked.load()) {
+                            g_logger.info("MQTT motion detected: waking up display");
+                            g_screen_blanked.store(false);
+                            set_display_power(true);
+                            mqtt_publish(prefix + "/status/screen", "ON", true);
+                        }
+                    }
+                } else if (topic == prefix + "/command/next") {
+                    if (payload == "PRESS" || payload == "1" || payload == "true" || payload == "ON" || payload == "next") {
+                        g_logger.info("MQTT remote command: Skip Next");
+                        g_remote_command.store(1);
+                    }
+                } else if (topic == prefix + "/command/prev") {
+                    if (payload == "PRESS" || payload == "1" || payload == "true" || payload == "prev") {
+                        g_logger.info("MQTT remote command: Prev Slide");
+                        g_remote_command.store(2);
+                    }
+                } else if (topic == prefix + "/command/pause") {
+                    if (payload == "PRESS" || payload == "1" || payload == "true" || payload == "pause") {
+                        g_logger.info("MQTT remote command: Play/Pause Toggle");
+                        g_remote_command.store(3);
+                    }
+                } else if (topic == prefix + "/command/screen") {
+                    if (payload == "OFF" || payload == "0" || payload == "false") {
+                        if (!g_screen_blanked.load()) {
+                            g_logger.info("MQTT remote command: Screen OFF");
+                            g_screen_blanked.store(true);
+                            set_display_power(false);
+                            mqtt_publish(prefix + "/status/screen", "OFF", true);
+                        }
+                    } else if (payload == "ON" || payload == "1" || payload == "true") {
+                        if (g_screen_blanked.load()) {
+                            g_logger.info("MQTT remote command: Screen ON");
+                            g_screen_blanked.store(false);
+                            set_display_power(true);
+                            g_last_motion_time.store(static_cast<int64_t>(std::time(nullptr)));
+                            mqtt_publish(prefix + "/status/screen", "ON", true);
+                        }
                     }
                 }
             }
-        }
-        FILE* fp_to_close = nullptr;
-        {
-            std::lock_guard<std::mutex> lk(g_mqtt_mtx);
-            if (g_mqtt_fp) {
-                fp_to_close = g_mqtt_fp;
-                g_mqtt_fp = nullptr;
+
+            FILE* fp_to_close = nullptr;
+            {
+                std::lock_guard<std::mutex> lk(g_mqtt_mtx);
+                if (g_mqtt_fp) {
+                    fp_to_close = g_mqtt_fp;
+                    g_mqtt_fp = nullptr;
+                }
+            }
+            if (fp_to_close) {
+                pclose(fp_to_close);
+            }
+            
+            if (g_running.load()) {
+                g_logger.warn("MQTT subscriber connection dropped. Retrying in 10 seconds...");
+                trigger_error(701); // E701: MQTT_BROKER_UNREACHABLE
+                for (int i = 0; i < 100 && g_running.load(); ++i) {
+                    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+                }
             }
         }
-        if (fp_to_close) {
-            pclose(fp_to_close);
-        }
-        
-        g_logger.warn("MQTT subscriber pipe closed");
-     });
+        g_logger.info("MQTT subscriber thread exiting.");
+    });
 }
 
 void stop_mqtt_client() {
