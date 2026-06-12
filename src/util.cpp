@@ -566,8 +566,16 @@ bool is_media_dir_healthy(const std::string& media_dir) {
 #include <fstream>
 #include <shared_mutex>
 #include "config.h"
+#include <ifaddrs.h>
+#include <net/if.h>
 
 bool is_nas_online() {
+    check_network_status();
+    int active_err = g_active_error_code.load();
+    if (active_err == 102 || active_err == 103) {
+        return false;
+    }
+
     std::string media_dir;
     {
         std::lock_guard<std::shared_mutex> lk(g_config_mtx);
@@ -663,4 +671,51 @@ bool is_nas_online() {
     close(fd);
     freeaddrinfo(res);
     return online;
+}
+
+void check_network_status() {
+    struct ifaddrs* ifaddr = nullptr;
+    if (getifaddrs(&ifaddr) == -1) {
+        return;
+    }
+    bool has_active_interface = false;
+    bool has_valid_ip = false;
+    bool has_apipa = false;
+
+    for (struct ifaddrs* ifa = ifaddr; ifa != nullptr; ifa = ifa->ifa_next) {
+        if (ifa->ifa_addr == nullptr) continue;
+        if (std::strcmp(ifa->ifa_name, "lo") == 0) continue;
+
+        if ((ifa->ifa_flags & IFF_UP) && (ifa->ifa_flags & IFF_RUNNING)) {
+            if (ifa->ifa_addr->sa_family == AF_INET) {
+                has_active_interface = true;
+                struct sockaddr_in* addr = (struct sockaddr_in*)ifa->ifa_addr;
+                uint32_t ip = ntohl(addr->sin_addr.s_addr);
+                if ((ip & 0xFFFF0000) == 0xA9FE0000) {
+                    has_apipa = true;
+                } else {
+                    has_valid_ip = true;
+                }
+            } else if (ifa->ifa_addr->sa_family == AF_INET6) {
+                has_active_interface = true;
+                struct sockaddr_in6* addr6 = (struct sockaddr_in6*)ifa->ifa_addr;
+                if (IN6_IS_ADDR_LINKLOCAL(&addr6->sin6_addr)) {
+                    has_apipa = true;
+                } else if (!IN6_IS_ADDR_LOOPBACK(&addr6->sin6_addr)) {
+                    has_valid_ip = true;
+                }
+            }
+        }
+    }
+    freeifaddrs(ifaddr);
+
+    if (!has_active_interface || (!has_valid_ip && !has_apipa)) {
+        trigger_error(102); // E102: WIFI_DISCONNECTED
+    } else if (has_apipa && !has_valid_ip) {
+        trigger_error(103); // E103: IP_CONFIGURATION_ERROR
+    } else {
+        if (g_active_error_code.load() == 102 || g_active_error_code.load() == 103) {
+            trigger_error(0);
+        }
+    }
 }

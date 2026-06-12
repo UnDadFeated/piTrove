@@ -197,7 +197,16 @@ void CacheManager::upsert(const MediaItem& mi, int bad) {
     sqlite3_bind_int(stmt_upsert, 10, mi.is_camera);
     int step_ret = sqlite3_step(stmt_upsert);
     if (step_ret != SQLITE_DONE) {
-        g_logger.error("Failed to execute upsert for: %s", mi.path.c_str());
+        if (step_ret == SQLITE_BUSY || step_ret == SQLITE_LOCKED) {
+            trigger_error(402); // E402: SQLITE_LOCK_TIMEOUT
+        } else {
+            trigger_error(408); // E408: DISK_WRITE_FAIL
+        }
+        g_logger.error("Failed to execute upsert for: %s (error code: %d)", mi.path.c_str(), step_ret);
+    } else {
+        if (g_active_error_code.load() == 402 || g_active_error_code.load() == 408) {
+            trigger_error(0);
+        }
     }
     sqlite3_reset(stmt_upsert);
 }
@@ -210,7 +219,16 @@ void CacheManager::mark_shown(const std::string& path) {
     sqlite3_bind_text(stmt_mark, 2, path.c_str(), -1, SQLITE_TRANSIENT);
     int step_ret = sqlite3_step(stmt_mark);
     if (step_ret != SQLITE_DONE) {
-        g_logger.error("Failed to execute mark_shown for: %s", path.c_str());
+        if (step_ret == SQLITE_BUSY || step_ret == SQLITE_LOCKED) {
+            trigger_error(402); // E402: SQLITE_LOCK_TIMEOUT
+        } else {
+            trigger_error(408); // E408: DISK_WRITE_FAIL
+        }
+        g_logger.error("Failed to execute mark_shown for: %s (error code: %d)", path.c_str(), step_ret);
+    } else {
+        if (g_active_error_code.load() == 402 || g_active_error_code.load() == 408) {
+            trigger_error(0);
+        }
     }
     sqlite3_reset(stmt_mark);
 }
