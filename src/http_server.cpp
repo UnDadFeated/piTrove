@@ -2144,7 +2144,7 @@ static void server_loop(int port) {
         struct timeval timeout;
         {
             std::lock_guard lk(g_config_mtx);
-            timeout.tv_sec = g_cfg.http_socket_timeout;
+            timeout.tv_sec = std::max(2, g_cfg.http_socket_timeout);
         }
         timeout.tv_usec = 0;
         if (setsockopt(client_fd, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout)) < 0) {
@@ -2155,7 +2155,7 @@ static void server_loop(int port) {
         }
 
         int prev = g_active_connections.fetch_add(1);
-        if (prev >= 10) {
+        if (prev >= 32) {
             g_active_connections.fetch_sub(1);
             send_response(client_fd, "HTTP/1.1 503 Service Unavailable", "text/plain", "Too Many Connections");
             close(client_fd);
