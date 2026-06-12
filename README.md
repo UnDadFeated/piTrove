@@ -9,7 +9,7 @@ A professional-grade, **containerized** digital picture & video frame applicatio
 [![OS](https://img.shields.io/badge/OS-Trixie%20Lite%20%28Debian%2013%29-lightgreen?style=flat-square)](https://www.debian.org/)
 [![Architecture](https://img.shields.io/badge/arch-aarch64-orange?style=flat-square)](https://en.wikipedia.org/wiki/AArch64)
 [![Graphics](https://img.shields.io/badge/graphics-SDL3-red?style=flat-square)](https://www.libsdl.org/)
-[![Version](https://img.shields.io/badge/version-12.5.1-blue?style=flat-square)]()
+[![Version](https://img.shields.io/badge/version-12.5.4-blue?style=flat-square)]()
 
 ## 🚀 Quick Start
 
@@ -104,9 +104,17 @@ Once the installation completes, the picture frame runs automatically in the bac
 - **Interactive Touchscreen Control**: When touchscreen mode is enabled, touching the screen displays floating navigation overlays (Previous, Settings, Next) to easily advance or go back. The configuration menu features +/- buttons, volume sliders, and a full numerical keyboard modal for on-screen adjustments.
 - **Config Clamping Safety**: Implements 10 strict boundary checks and clamp safety validation logic inside the TOML configuration loader to guarantee system resilience.
 
+### 🛡️ Concurrency, Reliability & Security Safeguards
+- **Active Software Watchdog**: Background watchdog monitoring thread that automatically triggers an immediate container restart if the main slideshow loop stalls or freezes for more than 45 seconds.
+- **Non-Blocking Network Mount Verification**: Proactive TCP socket reachability checks before executing any directory scans or file operations on remote network filesystems (SMB/NFS), completely eliminating application lockups on disconnected mounts.
+- **Async-Signal-Safe Crash Recovery**: Replaced heap allocations in signal handlers with a pre-allocated static cache buffer, preventing deadlocks or secondary crashes during abnormal process termination.
+- **Dynamic Touchscreen Hotplugging**: Periodic background device checks to automatically re-detect and bind touchscreen controllers reconnected at runtime without requiring an application restart.
+- **Google Photos SSRF Protection**: Rigorous scheme and domain parsing verification for dynamic download links to shield the system from unauthorized web redirects during cloud synchronization.
+- **Command Option Injection Shield**: Built-in shell argument escape sanitization and `--` command qualifiers prepended to all curl file download commands.
+- **Web Server Capacity & Slowloris Shield**: Concurrent web dashboard client capacity increased to 32 slots, with a minimum socket read/write timeout of 2 seconds to prevent resource exhaustion from hanging/stale clients.
+- **Non-Discarding Preload Cache**: Vector lookup preloading queue that allows out-of-order cached image retrieval, ensuring successfully preloaded slides are not discarded when skipped or sought out of order.
 
-
-## ⚙️ Technical Architecture
+## ⚙️  Technical Architecture
 
 ```mermaid
 graph TD
