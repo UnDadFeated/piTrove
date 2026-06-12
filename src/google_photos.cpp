@@ -1,6 +1,8 @@
 #include "google_photos.h"
 #include "config.h"
 #include "util.h"
+#include <sys/socket.h>
+#include <netdb.h>
 #include <algorithm>
 #include <chrono>
 #include <cstdio>
@@ -87,6 +89,19 @@ void GooglePhotosManager::sync_now() {
     return;
   }
 
+  // Check for critical disk space in cache directory (E403)
+  std::error_code space_ec;
+  auto space_info = std::filesystem::space(cache_dir, space_ec);
+  if (!space_ec && space_info.available < 50 * 1024 * 1024) {
+    trigger_error(403); // E403: DISK_SPACE_CRITICAL
+    g_logger.error("GooglePhotos: Storage space critically low (<50MB) on cache drive '%s'. Skipping sync.", cache_dir.c_str());
+    return;
+  } else {
+    if (g_active_error_code.load() == 403) {
+      trigger_error(0);
+    }
+  }
+
   g_logger.info("GooglePhotos: Initiating cloud media synchronization to cache "
                 "folder '%s'...",
                 cache_dir.c_str());
@@ -127,6 +142,18 @@ std::string GooglePhotosManager::get_access_token() {
   std::string json = execute_curl(cmd);
   std::string access_token = parse_json_value(json, "access_token");
   if (access_token.empty()) {
+    struct addrinfo hints{}, *res = nullptr;
+    hints.ai_family = AF_UNSPEC;
+    hints.ai_socktype = SOCK_STREAM;
+    if (getaddrinfo("oauth2.googleapis.com", nullptr, &hints, &res) != 0) {
+      trigger_error(105); // E105: DNS_RESOLUTION_FAILURE
+    } else {
+      freeaddrinfo(res);
+      if (g_active_error_code.load() == 105) {
+        trigger_error(0);
+      }
+    }
+
     std::string err = parse_json_value(json, "error");
     std::string err_desc = parse_json_value(json, "error_description");
     if (err == "invalid_client") {
@@ -136,7 +163,9 @@ std::string GooglePhotosManager::get_access_token() {
                err_desc.find("revoked") != std::string::npos) {
       trigger_error(304); // E304: GOOGLE_PHOTOS_REFRESH_TOKEN_EXPIRED
     } else {
-      trigger_error(301); // E301: GOOGLE_PHOTOS_SYNC_FAILED
+      if (g_active_error_code.load() != 105) {
+        trigger_error(301); // E301: GOOGLE_PHOTOS_SYNC_FAILED
+      }
     }
   }
   return access_token;

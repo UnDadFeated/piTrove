@@ -1,7 +1,7 @@
 #ifndef PITROVE_UTIL_H
 #define PITROVE_UTIL_H
 
-#define VERSION "12.5.4"
+#define VERSION "12.5.5"
 #define APP_NAME "piTrove"
 
 #include <atomic>
@@ -111,6 +111,7 @@ void set_display_power(bool power);
 [[nodiscard]] std::string get_timestamp();
 [[nodiscard]] bool is_media_dir_healthy(const std::string& media_dir);
 [[nodiscard]] bool is_nas_online();
+void check_network_status();
 
 
 
