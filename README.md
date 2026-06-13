@@ -106,6 +106,8 @@ Once the installation completes, the picture frame runs automatically in the bac
 
 ### 🛡️ Concurrency, Reliability & Security Safeguards
 - **Active Software Watchdog**: Background watchdog monitoring thread that automatically triggers an immediate container restart if the main slideshow loop stalls or freezes for more than 45 seconds.
+- **Native Connection Monitor**: Built-in background daemon thread that actively pings the local gateway and dynamically resets the network adapter using socket IOCTL calls on packet loss. No external script daemons or cron jobs required.
+- **Native Media Organizer**: Consolidated C++17 chronological and in-place organizer utility built directly into the core binary, easily run via the CLI `--organize` option.
 - **Non-Blocking Network Mount Verification**: Proactive TCP socket reachability checks before executing any directory scans or file operations on remote network filesystems (SMB/NFS), completely eliminating application lockups on disconnected mounts.
 - **Async-Signal-Safe Crash Recovery**: Replaced heap allocations in signal handlers with a pre-allocated static cache buffer, preventing deadlocks or secondary crashes during abnormal process termination.
 - **Dynamic Touchscreen Hotplugging**: Periodic background device checks to automatically re-detect and bind touchscreen controllers reconnected at runtime without requiring an application restart.
