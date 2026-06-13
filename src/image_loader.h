@@ -197,6 +197,9 @@ public:
 
     // Check if file has camera EXIF tags (not screenshot/screen grab)
     static bool has_camera_exif(const char* path);
+
+    // Extract capture / creation date from EXIF tags
+    static int64_t get_creation_time(std::string_view path);
 };
 
 #endif // PITROVE_IMAGE_LOADER_H
