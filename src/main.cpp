@@ -121,9 +121,11 @@ static bool is_item_in_seasonal_window(const MediaItem& item, int window_days) {
         if (gc == 1 && i < parent_name.size() && (parent_name[i] == '-' || parent_name[i] == '_')) i++;
     }
 
+    bool folder_has_prefix = false;
     if (gc >= 2) {
         int folder_m = groups[1];
         if (folder_m >= 1 && folder_m <= 12) {
+            folder_has_prefix = true;
             time_t t = std::time(nullptr);
             struct tm tm_buf;
             struct tm* now = localtime_r(&t, &tm_buf);
@@ -140,7 +142,46 @@ static bool is_item_in_seasonal_window(const MediaItem& item, int window_days) {
     }
 
     // 2. Check filename for seasonal window
-    return is_in_seasonal_window(item.filename, window_days);
+    auto fn_date = parse_filename_date(item.filename);
+    if (fn_date) {
+        return is_in_seasonal_window(item.filename, window_days);
+    }
+
+    // If folder had prefix and matched, and filename has no prefix, it is in season!
+    if (folder_has_prefix) {
+        return true;
+    }
+
+    // 3. Fallback to file creation / modified attributes
+    int64_t target_time = item.creation_time > 0 ? item.creation_time : item.modified_time;
+    if (target_time <= 0) return true;
+
+    time_t file_time = static_cast<time_t>(target_time);
+    struct tm file_tm;
+    if (!localtime_r(&file_time, &file_tm)) return true;
+    int file_m = file_tm.tm_mon + 1;
+    int file_d = file_tm.tm_mday;
+
+    time_t t = std::time(nullptr);
+    struct tm tm_buf;
+    struct tm* now = localtime_r(&t, &tm_buf);
+    if (!now) return true;
+    int curr_m = now->tm_mon + 1;
+    int curr_d = now->tm_mday;
+
+    auto get_day_of_year = [](int month, int day) {
+        static const int days_before_month[] = { 0, 0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334 };
+        if (month < 1 || month > 12) return 0;
+        return days_before_month[month] + day;
+    };
+
+    int file_doy = get_day_of_year(file_m, file_d);
+    int curr_doy = get_day_of_year(curr_m, curr_d);
+
+    int diff = std::abs(curr_doy - file_doy);
+    if (diff > 365 / 2) diff = 365 - diff;
+
+    return diff <= window_days;
 }
 
 static bool should_be_twin_portrait(std::vector<MediaItem>& eligible, int idx) {
@@ -763,6 +804,7 @@ static void watchman_loop() {
                         if (mi.type == "image") {
                             mi.exif_rotation = 1;
                             mi.width = 1920; mi.height = 1080;
+                            mi.creation_time = ImageLoader::get_creation_time(mi.path);
                         } else {
                             mi.width = screen_w;
                             mi.height = screen_h;
@@ -1295,6 +1337,7 @@ int main(int argc, char** argv) {
                 if (mi.type == "image") {
                     mi.exif_rotation = 1;
                     mi.width = 1920; mi.height = 1080;
+                    mi.creation_time = ImageLoader::get_creation_time(mi.path);
                 } else {
                     mi.width = g_cfg.screen_w;
                     mi.height = g_cfg.screen_h;
@@ -1318,6 +1361,49 @@ int main(int argc, char** argv) {
         if (current_err == 401 || current_err == 413) {
             trigger_error(0);
         }
+
+        // Check for date prefixes in g_scanned_items
+        bool has_prefix = false;
+        for (const auto& item : g_scanned_items) {
+            if (parse_filename_date(item.filename)) {
+                has_prefix = true;
+                break;
+            }
+            std::filesystem::path p(item.path);
+            std::string parent_name = p.parent_path().filename().string();
+            int groups[2] = {0, 0};
+            int gc = 0;
+            size_t idx = 0;
+            while (idx < parent_name.size() && gc < 2) {
+                while (idx < parent_name.size() && !isdigit(parent_name[idx])) idx++;
+                if (idx >= parent_name.size()) break;
+                int val = 0;
+                int digit_count = 0;
+                while (idx < parent_name.size() && isdigit(parent_name[idx])) {
+                    if (digit_count < 9) {
+                        val = val * 10 + (parent_name[idx] - '0');
+                    }
+                    digit_count++;
+                    idx++;
+                }
+                groups[gc++] = val;
+                if (gc == 1 && idx < parent_name.size() && (parent_name[idx] == '-' || parent_name[idx] == '_')) idx++;
+            }
+            if (gc >= 2 && groups[1] >= 1 && groups[1] <= 12) {
+                has_prefix = true;
+                break;
+            }
+        }
+
+        if (!has_prefix) {
+            trigger_error(808); // E808: SEASONAL_WINDOW_FALLBACK
+            g_logger.warn("Seasonal Window: No YYYY-MM-DD_ folder or filename prefixes found. Falling back to file creation/modification dates.");
+        } else {
+            if (g_active_error_code.load() == 808) {
+                trigger_error(0);
+            }
+        }
+
         g_renderer.render_splash(3, total_scanned, total_scanned, cached, "CACHING", dot_counter, nullptr, false);
         SDL_Delay(500);
         g_database_complete.store(true);

@@ -445,3 +445,55 @@ SDL_Surface* ImageLoader::apply_exif_rotation(SDL_Surface* surface, int exif) {
     }
     return rotated;
 }
+
+int64_t ImageLoader::get_creation_time(std::string_view path) {
+    ExifData* ed = exif_data_new_from_file(std::string(path).c_str());
+    if (!ed) return 0;
+
+    ExifEntry* datetime = exif_content_get_entry(ed->ifd[EXIF_IFD_EXIF], EXIF_TAG_DATE_TIME_ORIGINAL);
+    if (!datetime) {
+        datetime = exif_content_get_entry(ed->ifd[EXIF_IFD_0], EXIF_TAG_DATE_TIME);
+    }
+    if (!datetime) {
+        datetime = exif_content_get_entry(ed->ifd[EXIF_IFD_EXIF], EXIF_TAG_DATE_TIME_DIGITIZED);
+    }
+
+    int64_t result = 0;
+    if (datetime && datetime->data && datetime->size >= 19) {
+        std::string_view date_sv(reinterpret_cast<const char*>(datetime->data), 19);
+        if (date_sv.length() >= 19 && date_sv[4] == ':' && date_sv[7] == ':' && date_sv[10] == ' ' && date_sv[13] == ':' && date_sv[16] == ':') {
+            auto parse_int = [](std::string_view s) -> int {
+                int val = 0;
+                for (char c : s) {
+                    if (c < '0' || c > '9') return -1;
+                    val = val * 10 + (c - '0');
+                }
+                return val;
+            };
+
+            int year  = parse_int(date_sv.substr(0, 4));
+            int month = parse_int(date_sv.substr(5, 2));
+            int day   = parse_int(date_sv.substr(8, 2));
+            int hour  = parse_int(date_sv.substr(11, 2));
+            int min   = parse_int(date_sv.substr(14, 2));
+            int sec   = parse_int(date_sv.substr(17, 2));
+
+            if (year >= 1900 && year <= 2100 && month >= 1 && month <= 12 && day >= 1 && day <= 31) {
+                struct tm tm_dest = {};
+                tm_dest.tm_year = year - 1900;
+                tm_dest.tm_mon = month - 1;
+                tm_dest.tm_mday = day;
+                tm_dest.tm_hour = hour;
+                tm_dest.tm_min = min;
+                tm_dest.tm_sec = sec;
+                tm_dest.tm_isdst = -1;
+                time_t t = mktime(&tm_dest);
+                if (t != -1) {
+                    result = static_cast<int64_t>(t);
+                }
+            }
+        }
+    }
+    exif_data_unref(ed);
+    return result;
+}
