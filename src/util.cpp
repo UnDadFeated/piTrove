@@ -14,6 +14,8 @@
 #include <sys/stat.h>
 #include <signal.h>
 #include <cctype>
+#include <sys/ioctl.h>
+#include <net/if.h>
 
 
 
@@ -132,6 +134,39 @@ void set_display_power(bool power) {
     // Also try vcgencmd as fallback in case we are on standard Raspbian without sysfs permission
     std::string cmd = "vcgencmd display_power " + std::string(power ? "1" : "0") + " >/dev/null 2>&1";
     [[maybe_unused]] int res = ::system(cmd.c_str());
+}
+
+bool set_interface_status(const std::string& iface, bool up) {
+    int fd = socket(AF_INET, SOCK_DGRAM, 0);
+    if (fd < 0) {
+        g_logger.error("Keepalive: Failed to open socket for interface control: %s", std::strerror(errno));
+        return false;
+    }
+
+    struct ifreq ifr;
+    std::memset(&ifr, 0, sizeof(ifr));
+    std::strncpy(ifr.ifr_name, iface.c_str(), IFNAMSIZ - 1);
+
+    if (ioctl(fd, SIOCGIFFLAGS, &ifr) < 0) {
+        g_logger.error("Keepalive: Failed to read interface flags for %s: %s", iface.c_str(), std::strerror(errno));
+        close(fd);
+        return false;
+    }
+
+    if (up) {
+        ifr.ifr_flags |= IFF_UP;
+    } else {
+        ifr.ifr_flags &= ~IFF_UP;
+    }
+
+    if (ioctl(fd, SIOCSIFFLAGS, &ifr) < 0) {
+        g_logger.error("Keepalive: Failed to write interface flags for %s: %s", iface.c_str(), std::strerror(errno));
+        close(fd);
+        return false;
+    }
+
+    close(fd);
+    return true;
 }
 
 // System diagnostics and file path helpers
