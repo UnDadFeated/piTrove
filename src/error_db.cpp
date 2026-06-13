@@ -910,6 +910,12 @@ std::vector<ErrorSeed> get_all_error_seeds() {
             "HTTP_SETTINGS_CLAMP_VIOLATION",
             "A settings update request from the HTTP dashboard was rejected because values violated safety boundaries.",
             "Review the boundary values in config.cpp/wizard and ensure submitted values fall within allowed limits."
+        },
+        {
+            "E808",
+            "SEASONAL_WINDOW_FALLBACK",
+            "No date prefixes (YYYY-MM-DD_) detected on folders or filenames.",
+            "Fallback to file creation/modification dates is active."
         }
     };
 }

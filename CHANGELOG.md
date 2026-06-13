@@ -1,3 +1,13 @@
+## v12.6.0 — Automated Seasonal Fallback & Installer Streamlining (June 12, 2026)
+
+### Added
+- **Automated seasonal window fallback** — Implemented an automatic date fallback system. If a photo or video does not have chronological folder or filename date prefixes, the slideshow dynamically inspects embedded camera capture dates (EXIF metadata) and file creation/modification dates. This allows the seasonal window to automatically select and display photos from the correct time of year without requiring date organization.
+- **New system diagnostics warning** — Added a specific diagnostic alert (`E808`) to notify when no date prefixes are found in the media library, showing that the system is using embedded file attributes to align the seasonal window.
+
+### Fixed
+- **Streamlined installation wizard** — Removed the interactive media reorganization prompt from the default installation workflow to prevent configuration delays. The media organizer utility remains available as a manual command-line execution option.
+- **Installer auto-updates via cron** — Resolved an issue where daily scheduled update checks failed to execute from outside the repository directory by ensuring the updater switches to the repository directory before executing git commands.
+
 ## v12.5.5 — Advanced Diagnostics & System Integrity Safeguards (June 12, 2026)
 
 ### Added
