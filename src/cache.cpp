@@ -83,7 +83,7 @@ bool CacheManager::open(const std::string& dir) {
     if (sqlite3_exec(db,
         "CREATE TABLE IF NOT EXISTS cache ("
         "path TEXT PRIMARY KEY, type TEXT, w INT, h INT, duration REAL, "
-        "exif INT, bad INT DEFAULT 0, last_shown INTEGER DEFAULT 0, timestamp INTEGER DEFAULT 0, is_camera INT DEFAULT -1"
+        "exif INT, bad INT DEFAULT 0, last_shown INTEGER DEFAULT 0, timestamp INTEGER DEFAULT 0, is_camera INT DEFAULT -1, creation_time INTEGER DEFAULT 0"
         ")", nullptr, nullptr, &err) != SQLITE_OK) {
         trigger_error(407); // E407: SQLITE_MIGRATION_FAILED
         if (err) sqlite3_free(err);
@@ -104,18 +104,22 @@ bool CacheManager::open(const std::string& dir) {
                   nullptr, nullptr, &err) != SQLITE_OK) {
         if (err) sqlite3_free(err);
     }
+    if (sqlite3_exec(db, "ALTER TABLE cache ADD COLUMN creation_time INTEGER DEFAULT 0",
+                  nullptr, nullptr, &err) != SQLITE_OK) {
+        if (err) sqlite3_free(err);
+    }
 
     sqlite3_finalize(stmt_upsert); stmt_upsert = nullptr;
     sqlite3_finalize(stmt_load); stmt_load = nullptr;
     sqlite3_finalize(stmt_mark); stmt_mark = nullptr;
 
     if (sqlite3_prepare_v2(db,
-        "INSERT INTO cache (path, type, w, h, exif, duration, bad, last_shown, timestamp, is_camera) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+        "INSERT INTO cache (path, type, w, h, exif, duration, bad, last_shown, timestamp, is_camera, creation_time) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
         "ON CONFLICT(path) DO UPDATE SET "
         "w=excluded.w, h=excluded.h, exif=excluded.exif, "
         "duration=excluded.duration, bad=excluded.bad, "
-        "last_shown=excluded.last_shown, timestamp=excluded.timestamp, is_camera=excluded.is_camera",
+        "last_shown=excluded.last_shown, timestamp=excluded.timestamp, is_camera=excluded.is_camera, creation_time=excluded.creation_time",
         -1, &stmt_upsert, nullptr) != SQLITE_OK) {
         trigger_error(410); // E410: SQLITE_PREPARE_STMT_FAIL
         close();
@@ -123,7 +127,7 @@ bool CacheManager::open(const std::string& dir) {
     }
 
     if (sqlite3_prepare_v2(db,
-        "SELECT w, h, duration, exif, bad, last_shown, timestamp, is_camera FROM cache WHERE path = ?",
+        "SELECT w, h, duration, exif, bad, last_shown, timestamp, is_camera, creation_time FROM cache WHERE path = ?",
         -1, &stmt_load, nullptr) != SQLITE_OK) {
         g_logger.error("Failed to prepare load statement.");
         close();
@@ -171,6 +175,7 @@ bool CacheManager::load_cached(MediaItem& mi) {
         mi.last_shown = sqlite3_column_int64(stmt_load, 5);
         mi.modified_time = sqlite3_column_int64(stmt_load, 6);
         mi.is_camera  = sqlite3_column_int(stmt_load, 7);
+        mi.creation_time = sqlite3_column_int64(stmt_load, 8);
         if (bad == 0) found = true;
     }
     sqlite3_reset(stmt_load);
@@ -184,6 +189,10 @@ void CacheManager::upsert(const MediaItem& mi, int bad) {
         mi.is_camera = ImageLoader::has_camera_exif(mi.path.c_str()) ? 1 : 0;
     }
 
+    if (mi.creation_time == 0 && !in_transaction && mi.type == "image" && bad == 0) {
+        mi.creation_time = ImageLoader::get_creation_time(mi.path);
+    }
+
     std::lock_guard<std::mutex> lk(db_mutex);
     sqlite3_bind_text(stmt_upsert, 1, mi.path.c_str(), -1, SQLITE_STATIC);
     sqlite3_bind_text(stmt_upsert, 2, mi.type.c_str(), -1, SQLITE_STATIC);
@@ -195,6 +204,7 @@ void CacheManager::upsert(const MediaItem& mi, int bad) {
     sqlite3_bind_int64(stmt_upsert, 8, mi.last_shown);
     sqlite3_bind_int64(stmt_upsert, 9, mi.modified_time);
     sqlite3_bind_int(stmt_upsert, 10, mi.is_camera);
+    sqlite3_bind_int64(stmt_upsert, 11, mi.creation_time);
     int step_ret = sqlite3_step(stmt_upsert);
     if (step_ret != SQLITE_DONE) {
         if (step_ret == SQLITE_BUSY || step_ret == SQLITE_LOCKED) {
@@ -303,7 +313,7 @@ bool verify_database(const std::string& path) {
     }
     
     // Check if the table 'cache' exists and has all the required columns
-    const char* sql = "SELECT path, type, w, h, duration, exif, bad, last_shown, timestamp, is_camera FROM cache LIMIT 1;";
+    const char* sql = "SELECT path, type, w, h, duration, exif, bad, last_shown, timestamp, is_camera, creation_time FROM cache LIMIT 1;";
     if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) == SQLITE_OK) {
         ok = true;
         sqlite3_finalize(stmt);

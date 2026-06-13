@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# install.sh — piTrove v12.5.3 Premium Graphical Installer
+# install.sh — piTrove v12.6.0 Premium Graphical Installer
 # Target: Debian Trixie (13) 64-bit on Raspberry Pi 4/5
 
 set -eo pipefail
@@ -44,10 +44,10 @@ draw_line() {
 
 banner() {
     clear
-    echo -e "${CYAN}╔══════════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${CYAN}║${NC}  ${BOLD}${WHITE}                  piTrove Installation                       ${NC}  ${CYAN}║${NC}"
+    echo -e "${CYAN}╔════════════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${CYAN}║${NC}  ${BOLD}${WHITE}                    piTrove Installation                    ${NC}  ${CYAN}║${NC}"
     echo -e "${CYAN}║${NC}  ${MAGENTA}               The Ultra-Premium Picture Frame              ${NC}  ${CYAN}║${NC}"
-    echo -e "${CYAN}╚══════════════════════════════════════════════════════════════╝${NC}"
+    echo -e "${CYAN}╚════════════════════════════════════════════════════════════════╝${NC}"
     echo
 }
 
@@ -57,9 +57,9 @@ ok()    { echo -e "   ${GREEN}[ ✓ ]${NC}  $*"; }
 
 fail()  { 
     echo
-    echo -e "${RED}╔══════════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${RED}╔════════════════════════════════════════════════════════════════╗${NC}"
     echo -e "${RED}║${NC}  ${BOLD}${RED}[ ✘ ] ERROR: $*${NC}"
-    echo -e "${RED}╚══════════════════════════════════════════════════════════════╝${NC}"
+    echo -e "${RED}╚════════════════════════════════════════════════════════════════╝${NC}"
     echo
     exit 1
 }
@@ -264,7 +264,7 @@ get_config_val() {
     local val
     val=$(awk -v sec="[$sec]" -v key="$key" '
         $0 ~ "^\\[.*\\]" { in_sec = ($0 == sec) }
-        in_sec && $1 == key {
+        in_sec && $0 ~ "^[[:space:]]*"key"[[:space:]]*=" {
             sub(/^[^=]*=[[:space:]]*/, "");
             sub(/[[:space:]]*$/, "");
             gsub(/^"|"$/, "");
@@ -286,9 +286,9 @@ if [[ "$1" == "--organize" ]]; then
         fail "Folder does not exist: $2"
     fi
     
-    echo -e "${CYAN}╔══════════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${CYAN}╔════════════════════════════════════════════════════════════════╗${NC}"
     echo -e "${CYAN}║${NC}  ${BOLD}${WHITE}         piTrove Media Archive Reorganization Option        ${NC}  ${CYAN}║${NC}"
-    echo -e "${CYAN}╚══════════════════════════════════════════════════════════════╝${NC}"
+    echo -e "${CYAN}╚════════════════════════════════════════════════════════════════╝${NC}"
     echo -e "   Target directory: ${GREEN}$TARGET_DIR${NC}"
     echo
     echo -e "   Please select an organization strategy:"
@@ -384,6 +384,9 @@ fi
 
 # ── Handle Update Command Line Option ──────────────────────────────────────────
 if [[ "$1" == "--update" ]]; then
+    # Change directory to the repository to run git commands
+    cd "$PRIMARY_HOME/piTrove" || fail "Failed to enter repository directory: $PRIMARY_HOME/piTrove"
+
     IS_CRON=0
     if [[ "$2" == "--cron" ]]; then
         IS_CRON=1
@@ -443,9 +446,9 @@ if [[ "$1" == "--update" ]]; then
     fi
     
     echo
-    echo -e "${GREEN}╔══════════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${GREEN}║${NC}  ${BOLD}${GREEN}✔  piTrove UPDATED AND DEPLOYED SUCCESSFULLY!              ${NC}  ${GREEN}║${NC}"
-    echo -e "${GREEN}╚══════════════════════════════════════════════════════════════╝${NC}"
+    echo -e "${GREEN}╔════════════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${GREEN}║${NC}  ${BOLD}${GREEN}✔  piTrove UPDATED AND DEPLOYED SUCCESSFULLY!                ${NC}  ${GREEN}║${NC}"
+    echo -e "${GREEN}╚════════════════════════════════════════════════════════════════╝${NC}"
     echo
     exit 0
 fi
@@ -562,18 +565,18 @@ ok "Configured persistent driver-level Wi-Fi power-saving overrides"
 
 # ── Branch Selection Dialog ────────────────────────────────────────────────────
 echo
-echo -e "${CYAN}╔══════════════════════════════════════════════════════════════╗${NC}"
+echo -e "${CYAN}╔════════════════════════════════════════════════════════════════╗${NC}"
 echo -e "${CYAN}║${NC}  ${BOLD}${WHITE}               SELECT INSTALLATION BRANCH                   ${NC}  ${CYAN}║${NC}"
-echo -e "${CYAN}╠══════════════════════════════════════════════════════════════╣${NC}"
-echo -e "${CYAN}║${NC}  ${BOLD}${GREEN}1)${NC} ${WHITE}main${NC} (Recommended) — Stable production release          ${CYAN}║${NC}"
-echo -e "${CYAN}║${NC}     - Production-ready, tested and verified                  ${CYAN}║${NC}"
-echo -e "${CYAN}║${NC}                                                              ${CYAN}║${NC}"
+echo -e "${CYAN}╠════════════════════════════════════════════════════════════════╣${NC}"
+echo -e "${CYAN}║${NC}  ${BOLD}${GREEN}1)${NC} ${WHITE}main${NC} (Recommended) — Stable production release           ${CYAN}║${NC}"
+echo -e "${CYAN}║${NC}     - Production-ready, tested and verified                    ${CYAN}║${NC}"
+echo -e "${CYAN}║${NC}                                                                ${CYAN}║${NC}"
 echo -e "${CYAN}║${NC}  ${BOLD}${GREEN}2)${NC} ${WHITE}develop${NC} — Active development, features under test        ${CYAN}║${NC}"
 echo -e "${CYAN}║${NC}     - Cutting-edge updates, may contain experimental features  ${CYAN}║${NC}"
-echo -e "${CYAN}║${NC}                                                              ${CYAN}║${NC}"
+echo -e "${CYAN}║${NC}                                                                ${CYAN}║${NC}"
 echo -e "${CYAN}║${NC}  ${BOLD}${GREEN}3)${NC} ${WHITE}Use currently checked-out branch                         ${CYAN}║${NC}"
 echo -e "${CYAN}║${NC}     - Use whatever branch is already checked out locally       ${CYAN}║${NC}"
-echo -e "${CYAN}╚══════════════════════════════════════════════════════════════╝${NC}"
+echo -e "${CYAN}╚════════════════════════════════════════════════════════════════╝${NC}"
 echo
 info "${BOLD}Default: main${NC} (press Enter to accept)"
 echo -n -e "   ${BOLD}${YELLOW}▸ Enter your choice [1-3]:${NC} "
@@ -1022,18 +1025,18 @@ ok "Configured settings file merger script"
 
 # ── Storage Selection Dialog ───────────────────────────────────────────────────
 echo
-echo -e "${CYAN}╔══════════════════════════════════════════════════════════════╗${NC}"
+echo -e "${CYAN}╔════════════════════════════════════════════════════════════════╗${NC}"
 echo -e "${CYAN}║${NC}  ${BOLD}${WHITE}               SELECT STORAGE MODE                          ${NC}  ${CYAN}║${NC}"
-echo -e "${CYAN}╠══════════════════════════════════════════════════════════════╣${NC}"
-echo -e "${CYAN}║${NC}  ${BOLD}${GREEN}1)${NC} ${WHITE}NAS (SMB/CIFS Network Share)${NC}                          ${CYAN}║${NC}"
-echo -e "${CYAN}║${NC}     - Mounts your remote server's archive to /mnt/nas        ${CYAN}║${NC}"
-echo -e "${CYAN}║${NC}                                                              ${CYAN}║${NC}"
-echo -e "${CYAN}║${NC}  ${BOLD}${GREEN}2)${NC} ${WHITE}Local Drive (USB / MicroSD)${NC}                           ${CYAN}║${NC}"
-echo -e "${CYAN}║${NC}     - Keeps all assets stored locally on the Pi             ${CYAN}║${NC}"
-echo -e "${CYAN}║${NC}                                                              ${CYAN}║${NC}"
-echo -e "${CYAN}║${NC}  ${BOLD}${GREEN}3)${NC} ${WHITE}Other Network Drive (NFS/Custom)${NC}                         ${CYAN}║${NC}"
-echo -e "${CYAN}║${NC}     - Custom setup options for NFS or other mounts           ${CYAN}║${NC}"
-echo -e "${CYAN}╚══════════════════════════════════════════════════════════════╝${NC}"
+echo -e "${CYAN}╠════════════════════════════════════════════════════════════════╣${NC}"
+echo -e "${CYAN}║${NC}  ${BOLD}${GREEN}1)${NC} ${WHITE}NAS (SMB/CIFS Network Share)${NC}                             ${CYAN}║${NC}"
+echo -e "${CYAN}║${NC}     - Mounts your remote server's archive to /mnt/nas           ${CYAN}║${NC}"
+echo -e "${CYAN}║${NC}                                                                ${CYAN}║${NC}"
+echo -e "${CYAN}║${NC}  ${BOLD}${GREEN}2)${NC} ${WHITE}Local Drive (USB / MicroSD)${NC}                              ${CYAN}║${NC}"
+echo -e "${CYAN}║${NC}     - Keeps all assets stored locally on the Pi                 ${CYAN}║${NC}"
+echo -e "${CYAN}║${NC}                                                                ${CYAN}║${NC}"
+echo -e "${CYAN}║${NC}  ${BOLD}${GREEN}3)${NC} ${WHITE}Other Network Drive (NFS/Custom)${NC}                          ${CYAN}║${NC}"
+echo -e "${CYAN}║${NC}     - Custom setup options for NFS or other mounts              ${CYAN}║${NC}"
+echo -e "${CYAN}╚════════════════════════════════════════════════════════════════╝${NC}"
 echo
 if [[ -n "$STORAGE_CHOICE" ]]; then
     storage_choice="$STORAGE_CHOICE"
@@ -1080,12 +1083,12 @@ case "$storage_choice" in
         ;;
     3)
         echo
-        echo -e "   ${CYAN}╔══════════════════════════════════════════════════════════════╗${NC}"
+        echo -e "   ${CYAN}╔════════════════════════════════════════════════════════════════╗${NC}"
         echo -e "   ${CYAN}║${NC}  ${BOLD}${WHITE}               SELECT PROTOCOL                              ${NC}  ${CYAN}║${NC}"
-        echo -e "   ${CYAN}╠══════════════════════════════════════════════════════════════╣${NC}"
-        echo -e "   ${CYAN}║${NC}  ${BOLD}${GREEN}a)${NC} ${WHITE}SMB/CIFS Network Share${NC}                                ${CYAN}║${NC}"
-        echo -e "   ${CYAN}║${NC}  ${BOLD}${GREEN}b)${NC} ${WHITE}NFS Network Share${NC}                                     ${CYAN}║${NC}"
-        echo -e "   ${CYAN}╚══════════════════════════════════════════════════════════════╝${NC}"
+        echo -e "   ${CYAN}╠════════════════════════════════════════════════════════════════╣${NC}"
+        echo -e "   ${CYAN}║${NC}  ${BOLD}${GREEN}a)${NC} ${WHITE}SMB/CIFS Network Share${NC}                                   ${CYAN}║${NC}"
+        echo -e "   ${CYAN}║${NC}  ${BOLD}${GREEN}b)${NC} ${WHITE}NFS Network Share${NC}                                        ${CYAN}║${NC}"
+        echo -e "   ${CYAN}╚════════════════════════════════════════════════════════════════╝${NC}"
         echo
         echo -n -e "      ${BOLD}${YELLOW}▸ Select protocol [a-b]:${NC} "
         safe_read -r proto_choice 
@@ -1238,14 +1241,14 @@ $SHARE_IP:$SHARE_PATH $SHARE_MOUNT $SHARE_PROTOCOL defaults,_netdev,timeo=10,ret
             echo
             if [[ "$MOUNT_ATTEMPTS" -eq 3 ]]; then
                 warn "Cannot mount network share automatically."
-                echo -e "   ${CYAN}╔══════════════════════════════════════════════════════════════╗${NC}"
+                echo -e "   ${CYAN}╔════════════════════════════════════════════════════════════════╗${NC}"
                 echo -e "   ${CYAN}║${NC}  ${BOLD}${WHITE}               MOUNT FAIL OPTIONS                           ${NC}  ${CYAN}║${NC}"
-                echo -e "   ${CYAN}╠══════════════════════════════════════════════════════════════╣${NC}"
-                echo -e "   ${CYAN}║${NC}  ${BOLD}${GREEN}1)${NC} Retry connection                                          ${CYAN}║${NC}"
-                echo -e "   ${CYAN}║${NC}  ${BOLD}${GREEN}2)${NC} Re-enter path configuration                                ${CYAN}║${NC}"
-                echo -e "   ${CYAN}║${NC}  ${BOLD}${GREEN}3)${NC} Re-enter username & password                               ${CYAN}║${NC}"
-                echo -e "   ${CYAN}║${NC}  ${BOLD}${GREEN}4)${NC} Skip and mount manually later                              ${CYAN}║${NC}"
-                echo -e "   ${CYAN}╚══════════════════════════════════════════════════════════════╝${NC}"
+                echo -e "   ${CYAN}╠════════════════════════════════════════════════════════════════╣${NC}"
+                echo -e "   ${CYAN}║${NC}  ${BOLD}${GREEN}1)${NC} Retry connection                                       ${CYAN}║${NC}"
+                echo -e "   ${CYAN}║${NC}  ${BOLD}${GREEN}2)${NC} Re-enter path configuration                             ${CYAN}║${NC}"
+                echo -e "   ${CYAN}║${NC}  ${BOLD}${GREEN}3)${NC} Re-enter username & password                            ${CYAN}║${NC}"
+                echo -e "   ${CYAN}║${NC}  ${BOLD}${GREEN}4)${NC} Skip and mount manually later                           ${CYAN}║${NC}"
+                echo -e "   ${CYAN}╚════════════════════════════════════════════════════════════════╝${NC}"
                 echo
                 echo -n -e "      ${BOLD}${YELLOW}▸ Choose option [1-4]:${NC} "
                 safe_read -r mount_opt 
@@ -1291,101 +1294,24 @@ $SHARE_IP:$SHARE_PATH $SHARE_MOUNT $SHARE_PROTOCOL defaults,_netdev,timeo=10,ret
     fi
 fi
 
-# ── Media Archive Reorganization Prompt ─────────────────────────────────────────
+# ── Media Archive Prefix Detection ───────────────────────────────────────────
 echo
-echo -e "${CYAN}╔══════════════════════════════════════════════════════════════╗${NC}"
-echo -e "${CYAN}║${NC}  ${BOLD}${WHITE}         piTrove Media Archive Reorganization Option        ${NC}  ${CYAN}║${NC}"
-echo -e "${CYAN}╚══════════════════════════════════════════════════════════════╝${NC}"
+echo -e "${CYAN}╔════════════════════════════════════════════════════════════════╗${NC}"
+echo -e "${CYAN}║${NC}  ${BOLD}${WHITE}         piTrove Media Archive Prefix Detection             ${NC}  ${CYAN}║${NC}"
+echo -e "${CYAN}╚════════════════════════════════════════════════════════════════╝${NC}"
 echo -e "   Target archive directory: ${GREEN}$SHARE_MOUNT${NC}"
-if [[ -d "$SHARE_MOUNT" ]] && ls "$SHARE_MOUNT" >/dev/null 2>&1; then
-    ok "Archive connection verified. Files detected successfully."
-else
-    warn "Archive directory is empty or not yet active. Reorganization will be skipped."
-fi
-echo
-echo -e "   Please select an organization strategy for your archive:"
-echo -e "   (Note: Re-organization is required for the seasonal window feature to work.)"
-echo -e "   ${BOLD}${GREEN}1)${NC} ${BOLD}Chronological Folders${NC}"
-echo -e "      Move files into Photos/YYYY-MM/ and Videos/YYYY-MM/ directories."
-echo -e "   ${BOLD}${GREEN}2)${NC} ${BOLD}In-Place Prefix${NC}"
-echo -e "      Add the YYYY-MM-DD_ prefix to files inside their existing folder structures."
-echo -e "   ${BOLD}${GREEN}3)${NC} ${BOLD}Keep As Is (Disable Seasonal Scanning)${NC}"
-echo -e "      Keep all folders and files exactly as they are. Disables the seasonal"
-echo -e "      scanning window so all photos play without date-based filtering."
-echo
 
-# Read choice
-echo -n -e "   ${BOLD}${YELLOW}▸ Select an option [1-3]:${NC} "
-safe_read -r ORG_STRATEGY
-
-if [[ "$ORG_STRATEGY" == "1" || "$ORG_STRATEGY" == "2" ]]; then
-    # We require double-confirm and warnings about rw remounting
-    MOUNT_POINT=$(df --output=target "$SHARE_MOUNT" | tail -n 1)
-    
-    echo -e "${RED}[!] WARNING: The target archive is located on $MOUNT_POINT.${NC}"
-    echo -e "    This operation will:"
-    echo -e "    1. Temporarily remount '$MOUNT_POINT' from Read-Only (ro) to Read-Write (rw)."
-    if [[ "$ORG_STRATEGY" == "1" ]]; then
-        echo -e "    2. Scan, rename, and group all photos and videos under:"
-        echo -e "       - $SHARE_MOUNT/Photos/YYYY-MM/YYYY-MM-DD_filename.ext"
-        echo -e "       - $SHARE_MOUNT/Videos/YYYY-MM/YYYY-MM-DD_filename.ext"
-    else
-        echo -e "    2. Scan and rename all files in-place with the 'YYYY-MM-DD_' prefix"
-        echo -e "       within their current directories."
+HAS_PREFIX=0
+if [[ -d "$SHARE_MOUNT" ]]; then
+    if find "$SHARE_MOUNT" -maxdepth 3 -regextype posix-extended -regex '.*/[0-9]{4}[-_][0-9]{2}([-_][0-9]{2})?(_.*)?' -print -quit 2>/dev/null | grep -q .; then
+        HAS_PREFIX=1
     fi
-    echo -e "    3. Retain original file timestamps and resolve naming conflicts."
-    echo -e "    4. Restore '$MOUNT_POINT' to Read-Only (ro) mount mode on completion."
-    echo ""
-    
-    safe_read -p "▸ Are you sure you want to proceed? (y/N): " CONF1
-    if [[ "$CONF1" =~ ^[Yy]$ ]]; then
-        safe_read -p "▸ CONFIRM ONCE MORE: Are you absolutely sure? This will rewrite files on the storage. (y/N): " CONF2
-        if [[ "$CONF2" =~ ^[Yy]$ ]]; then
-            IS_RO=0
-            if findmnt -n -o OPTIONS "$MOUNT_POINT" | grep -q "ro"; then
-                IS_RO=1
-                info "Remounting $MOUNT_POINT as Read-Write (rw)..."
-                mount -o remount,rw "$MOUNT_POINT"
-                if [[ $? -ne 0 ]]; then
-                    warn "Failed to remount $MOUNT_POINT as read-write. Skipping reorganization."
-                    ORG_STRATEGY="3"
-                fi
-            fi
-            
-            if [[ "$ORG_STRATEGY" == "1" ]]; then
-                info "Organizing media archive (Chronological Folders) at $SHARE_MOUNT..."
-                python3 "$PRIMARY_HOME/piTrove/scripts/organize.py" "$SHARE_MOUNT"
-            elif [[ "$ORG_STRATEGY" == "2" ]]; then
-                info "Organizing media archive (In-Place Prefix) at $SHARE_MOUNT..."
-                python3 "$PRIMARY_HOME/piTrove/scripts/organize.py" "$SHARE_MOUNT" --in-place
-            fi
-            
-            if [[ "$IS_RO" -eq 1 ]]; then
-                info "Restoring $MOUNT_POINT mount mode to Read-Only (ro)..."
-                mount -o remount,ro "$MOUNT_POINT"
-                if [[ $? -ne 0 ]]; then
-                    warn "Failed to restore $MOUNT_POINT to read-only mount. Please restore manually!"
-                else
-                    ok "$MOUNT_POINT successfully restored to Read-Only mode."
-                fi
-            fi
-        else
-            info "Reorganization cancelled. Defaulting to Option 3 (Keep As Is)."
-            ORG_STRATEGY="3"
-        fi
-    else
-        info "Reorganization cancelled. Defaulting to Option 3 (Keep As Is)."
-        ORG_STRATEGY="3"
-    fi
-else
-    # Default/Option 3
-    info "Keeping folder structure unmodified. Disabling seasonal scanning window."
-    ORG_STRATEGY="3"
 fi
 
-if [[ "$ORG_STRATEGY" == "3" ]]; then
-    # Automatically set SCAN_WINDOW_DAYS to 0 to bypass seasonal scanning
-    SCAN_WINDOW_DAYS=0
+if [[ "$HAS_PREFIX" -eq 1 ]]; then
+    ok "Date-based folder or filename prefixes detected in media library."
+else
+    warn "Folder or filename YYYY-MM-DD_ prefix was not found, using file attributes for seasonal window."
 fi
 
 # ── Font Setup ────────────────────────────────────────────────────────────────
@@ -1760,14 +1686,14 @@ clear
 banner
 
 print_success_card() {
-    echo -e "${GREEN}╔══════════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${GREEN}║${NC}  ${BOLD}${GREEN}✔  INSTALLATION COMPLETED SUCCESSFULLY!                     ${NC}  ${GREEN}║${NC}"
-    echo -e "${GREEN}╠══════════════════════════════════════════════════════════════╣${NC}"
-    echo -e "${GREEN}║${NC}  ${BOLD}${WHITE}Path Locations:${NC}                                             ${GREEN}║${NC}"
-    echo -e "${GREEN}║${NC}   • Container Base:  ${CYAN}$PRIMARY_HOME/piTrove/${NC}                    ${GREEN}║${NC}"
-    echo -e "${GREEN}║${NC}   • Configuration:   ${CYAN}config/config.toml${NC}                      ${GREEN}║${NC}"
-    echo -e "${GREEN}║${NC}   • SQLite Cache:    ${CYAN}cache/cache.db${NC}                          ${GREEN}║${NC}"
-    echo -e "${GREEN}║${NC}   • Service Logs:    ${CYAN}logs/piTrove_*.log${NC}                      ${GREEN}║${NC}"
+    echo -e "${GREEN}╔════════════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${GREEN}║${NC}  ${BOLD}${GREEN}✔  INSTALLATION COMPLETED SUCCESSFULLY!                       ${NC}  ${GREEN}║${NC}"
+    echo -e "${GREEN}╠════════════════════════════════════════════════════════════════╣${NC}"
+    echo -e "${GREEN}║${NC}  ${BOLD}${WHITE}Path Locations:${NC}                                               ${GREEN}║${NC}"
+    echo -e "${GREEN}║${NC}   • Container Base:  ${CYAN}$PRIMARY_HOME/piTrove/${NC}                      ${GREEN}║${NC}"
+    echo -e "${GREEN}║${NC}   • Configuration:   ${CYAN}config/config.toml${NC}                        ${GREEN}║${NC}"
+    echo -e "${GREEN}║${NC}   • SQLite Cache:    ${CYAN}cache/cache.db${NC}                            ${GREEN}║${NC}"
+    echo -e "${GREEN}║${NC}   • Service Logs:    ${CYAN}logs/piTrove_*.log${NC}                        ${GREEN}║${NC}"
     
     # Probe active IP address
     local IP_ADDR
@@ -1777,45 +1703,63 @@ print_success_card() {
     fi
     local url="http://${IP_ADDR}:9000/"
     local text="   • URL: $url"
-    local pad=$(( 60 - ${#text} ))
+    local pad=$(( 64 - ${#text} ))
     local spaces=""
     if [[ $pad -gt 0 ]]; then
         spaces=$(printf '%*s' "$pad" "")
     fi
 
-    echo -e "${GREEN}║${NC}                                                              ${GREEN}║${NC}"
-    echo -e "${GREEN}║${NC}  ${BOLD}${WHITE}Web Remote Dashboard & MQTT HUD URL:${NC}                        ${GREEN}║${NC}"
+    echo -e "${GREEN}║${NC}                                                                ${GREEN}║${NC}"
+    echo -e "${GREEN}║${NC}  ${BOLD}${WHITE}Web Remote Dashboard & MQTT HUD URL:${NC}                          ${GREEN}║${NC}"
     echo -e "${GREEN}║${NC}${BOLD}${CYAN}${text}${NC}${spaces}${GREEN}║${NC}"
-    echo -e "${GREEN}║${NC}     Click to view MQTT telemetry, control the screen physically, ${GREEN}║${NC}"
-    echo -e "${GREEN}║${NC}     and trigger motion simulation sweeps remotely.        ${GREEN}║${NC}"
-    echo -e "${GREEN}║${NC}                                                              ${GREEN}║${NC}"
-    echo -e "${GREEN}║${NC}  ${BOLD}${WHITE}How to Manage & Control (New CLI Wrapper):${NC}                  ${GREEN}║${NC}"
-    echo -e "${GREEN}║${NC}   • ${BOLD}${YELLOW}pitrove config${NC}   Runs the interactive settings wizard.  ${GREEN}║${NC}"
-    echo -e "${GREEN}║${NC}   • ${BOLD}${YELLOW}pitrove restart${NC}  Restarts the background service.       ${GREEN}║${NC}"
-    echo -e "${GREEN}║${NC}   • ${BOLD}${YELLOW}pitrove logs${NC}     Tails rendering logs in real-time.     ${GREEN}║${NC}"
-    echo -e "${GREEN}║${NC}   • ${BOLD}${YELLOW}pitrove status${NC}   Checks background container status.    ${GREEN}║${NC}"
-    echo -e "${GREEN}║${NC}                                                              ${GREEN}║${NC}"
-    echo -e "${GREEN}║${NC}  ${BOLD}${WHITE}Service Status:${NC}                                             ${GREEN}║${NC}"
-    echo -e "${GREEN}║${NC}   • Systemd unit is installed and set to launch on boot.     ${GREEN}║${NC}"
+    echo -e "${GREEN}║${NC}     Click to view MQTT telemetry, control the screen physically,   ${GREEN}║${NC}"
+    echo -e "${GREEN}║${NC}     and trigger motion simulation sweeps remotely.                 ${GREEN}║${NC}"
+    echo -e "${GREEN}║${NC}                                                                ${GREEN}║${NC}"
+    echo -e "${GREEN}║${NC}  ${BOLD}${WHITE}How to Manage & Control (New CLI Wrapper):${NC}                    ${GREEN}║${NC}"
+    echo -e "${GREEN}║${NC}   • ${BOLD}${YELLOW}pitrove config${NC}   Runs the interactive settings wizard.    ${GREEN}║${NC}"
+    echo -e "${GREEN}║${NC}   • ${BOLD}${YELLOW}pitrove restart${NC}  Restarts the background service.         ${GREEN}║${NC}"
+    echo -e "${GREEN}║${NC}   • ${BOLD}${YELLOW}pitrove logs${NC}     Tails rendering logs in real-time.       ${GREEN}║${NC}"
+    echo -e "${GREEN}║${NC}   • ${BOLD}${YELLOW}pitrove status${NC}   Checks background container status.      ${GREEN}║${NC}"
+    echo -e "${GREEN}║${NC}                                                                ${GREEN}║${NC}"
+    echo -e "${GREEN}║${NC}  ${BOLD}${WHITE}Service Status:${NC}                                               ${GREEN}║${NC}"
+    echo -e "${GREEN}║${NC}   • Systemd unit is installed and set to launch on boot.       ${GREEN}║${NC}"
     
     if [[ "$storage_choice" -eq 2 ]]; then
-        echo -e "${GREEN}║${NC}   • Storage: ${CYAN}Local drive mode enabled.${NC}                      ${GREEN}║${NC}"
+        echo -e "${GREEN}║${NC}   • Storage: ${CYAN}Local drive mode enabled.${NC}                        ${GREEN}║${NC}"
     elif [[ "$USE_NAS" -eq 1 || "$storage_choice" == "3" ]]; then
         if [[ "$NAS_MOUNT_SUCCESS" -eq 1 ]]; then
-            echo -e "${GREEN}║${NC}   • Storage: ${CYAN}NAS Share successfully mounted at $SHARE_MOUNT.${NC}    ${GREEN}║${NC}"
+            local storage_text="   • Storage: NAS Share successfully mounted at $SHARE_MOUNT."
+            local storage_pad=$(( 64 - ${#storage_text} ))
+            local storage_spaces=""
+            if [[ $storage_pad -gt 0 ]]; then
+                storage_spaces=$(printf '%*s' "$storage_pad" "")
+            fi
+            echo -e "${GREEN}║${NC}${CYAN}${storage_text}${NC}${storage_spaces}${GREEN}║${NC}"
         else
-            echo -e "${GREEN}║${NC}   • ${RED}Storage Warning: NAS mount failed.${NC}                       ${GREEN}║${NC}"
-            echo -e "${GREEN}║${NC}     Manually add to /etc/fstab and run 'sudo mount -a'       ${GREEN}║${NC}"
+            local warn_text="   • Storage Warning: NAS mount failed."
+            local warn_pad=$(( 64 - ${#warn_text} ))
+            local warn_spaces=""
+            if [[ $warn_pad -gt 0 ]]; then
+                warn_spaces=$(printf '%*s' "$warn_pad" "")
+            fi
+            echo -e "${GREEN}║${NC}${RED}${warn_text}${NC}${warn_spaces}${GREEN}║${NC}"
+            echo -e "${GREEN}║${NC}     Manually add to /etc/fstab and run 'sudo mount -a'         ${GREEN}║${NC}"
         fi
     fi
 
     if [[ "$GOOGLE_PHOTOS_ENABLED" -eq 1 ]]; then
-        echo -e "${GREEN}║${NC}                                                              ${GREEN}║${NC}"
-        echo -e "${GREEN}║${NC}  ${BOLD}${YELLOW}Google Photos Authorization Required:${NC}                       ${GREEN}║${NC}"
-        echo -e "${GREEN}║${NC}   • Nav to: ${CYAN}http://${IP_ADDR}:9000/google_photos_setup${NC}       ${GREEN}║${NC}"
-        echo -e "${GREEN}║${NC}   • Log in & grant consent to complete authentication.       ${GREEN}║${NC}"
+        echo -e "${GREEN}║${NC}                                                                ${GREEN}║${NC}"
+        echo -e "${GREEN}║${NC}  ${BOLD}${YELLOW}Google Photos Authorization Required:${NC}                         ${GREEN}║${NC}"
+        local gp_text="   • Nav to: http://${IP_ADDR}:9000/google_photos_setup"
+        local gp_pad=$(( 64 - ${#gp_text} ))
+        local gp_spaces=""
+        if [[ $gp_pad -gt 0 ]]; then
+            gp_spaces=$(printf '%*s' "$gp_pad" "")
+        fi
+        echo -e "${GREEN}║${NC}${CYAN}${gp_text}${NC}${gp_spaces}${GREEN}║${NC}"
+        echo -e "${GREEN}║${NC}   • Log in & grant consent to complete authentication.         ${GREEN}║${NC}"
     fi
-    echo -e "${GREEN}╚══════════════════════════════════════════════════════════════╝${NC}"
+    echo -e "${GREEN}╚════════════════════════════════════════════════════════════════╝${NC}"
 }
 
 print_success_card
