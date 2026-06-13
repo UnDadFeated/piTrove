@@ -92,6 +92,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     mosquitto-clients \
     ca-certificates \
     curl \
+    iputils-ping \
     && rm -rf /var/lib/apt/lists/*
 
 # Establish runtime directory tree
