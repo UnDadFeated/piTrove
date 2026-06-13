@@ -13,6 +13,7 @@
 #include "http_server.h"
 #include "mqtt.h"
 #include "google_photos.h"
+#include "organizer.h"
 
 #include <SDL3/SDL.h>
 #include <SDL3_image/SDL_image.h>
@@ -918,11 +919,72 @@ static void watchdog_loop() {
     g_logger.info("Watchdog: Software watchdog thread exiting.");
 }
 
+static std::thread g_keepalive_thread;
+static std::atomic<bool> g_keepalive_running{false};
+
+static void keepalive_loop() {
+    g_logger.info("Keepalive: Background connection monitoring thread active.");
+    
+    std::string gateway;
+    std::string interface;
+    int interval_secs = 120;
+    
+    {
+        std::shared_lock<std::shared_mutex> lk(g_config_mtx);
+        gateway = g_cfg.keepalive_gateway;
+        interface = g_cfg.keepalive_interface;
+        interval_secs = g_cfg.keepalive_interval;
+    }
+    
+    if (gateway.empty() || interface.empty()) {
+        g_logger.error("Keepalive: Gateway or interface is empty. Monitoring disabled.");
+        return;
+    }
+    
+    g_logger.info("Keepalive: Monitoring connection to %s on %s every %d seconds.", 
+                  gateway.c_str(), interface.c_str(), interval_secs);
+                  
+    while (g_keepalive_running.load() && g_running.load()) {
+        for (int i = 0; i < interval_secs && g_keepalive_running.load() && g_running.load(); ++i) {
+            std::this_thread::sleep_for(std::chrono::seconds(1));
+        }
+        if (!g_keepalive_running.load() || !g_running.load()) break;
+        
+        std::string cmd = "ping -c 2 -W 3 " + escape_shell_arg(gateway) + " >/dev/null 2>&1";
+        int res = ::system(cmd.c_str());
+        if (res != 0) {
+            g_logger.warn("Keepalive: Gateway %s is unreachable (ping returned %d). Toggling interface %s...", 
+                          gateway.c_str(), res, interface.c_str());
+            
+            if (set_interface_status(interface, false)) {
+                g_logger.info("Keepalive: Interface %s set DOWN. Waiting 5 seconds...", interface.c_str());
+            }
+            
+            for (int i = 0; i < 5 && g_keepalive_running.load() && g_running.load(); ++i) {
+                std::this_thread::sleep_for(std::chrono::seconds(1));
+            }
+            
+            if (set_interface_status(interface, true)) {
+                g_logger.info("Keepalive: Interface %s set UP.", interface.c_str());
+            }
+            
+            for (int i = 0; i < 15 && g_keepalive_running.load() && g_running.load(); ++i) {
+                std::this_thread::sleep_for(std::chrono::seconds(1));
+            }
+        }
+    }
+    g_logger.info("Keepalive: Background connection monitoring thread exiting.");
+}
+
+
 int main(int argc, char** argv) {
     signal(SIGPIPE, SIG_IGN);
     bool run_config = false;
     bool run_restart = false;
+    bool run_organize = false;
     std::string config_path;
+    std::string organize_path;
+    bool in_place = false;
 
     for (int i = 1; i < argc; i++) {
         std::string arg = argv[i];
@@ -941,7 +1003,24 @@ int main(int argc, char** argv) {
             }
         } else if (arg == "--restart") {
             run_restart = true;
+        } else if (arg == "--organize") {
+            run_organize = true;
+            if (i + 1 < argc && argv[i + 1][0] != '-') {
+                organize_path = argv[i + 1];
+                i++;
+            }
+        } else if (arg == "--in-place") {
+            in_place = true;
         }
+    }
+
+    if (run_organize) {
+        if (organize_path.empty()) {
+            fprintf(stderr, "Error: Missing target folder. Usage: piTrove --organize <folder_path> [--in-place]\n");
+            return 1;
+        }
+        bool success = organize_media_archive(organize_path, in_place);
+        return success ? 0 : 1;
     }
 
     std::string exe_dir = get_exe_dir();
@@ -1471,6 +1550,17 @@ int main(int argc, char** argv) {
     // Start software watchdog thread
     g_watchdog_running.store(true);
     g_watchdog_thread = std::thread(watchdog_loop);
+
+    // Start background Wi-Fi keep-alive thread if enabled
+    bool keepalive_enabled = false;
+    {
+        std::shared_lock<std::shared_mutex> lk(g_config_mtx);
+        keepalive_enabled = g_cfg.keepalive_enabled;
+    }
+    if (keepalive_enabled) {
+        g_keepalive_running.store(true);
+        g_keepalive_thread = std::thread(keepalive_loop);
+    }
 
     g_logger.info("Starting slideshow with %zu items", g_eligible.size());
 
@@ -2602,6 +2692,13 @@ int main(int argc, char** argv) {
     if (g_watchdog_thread.joinable()) {
         g_watchdog_thread.join();
         g_logger.info("Watchdog: Software watchdog thread stopped successfully.");
+    }
+    
+    // Stop keep-alive thread safely
+    g_keepalive_running.store(false);
+    if (g_keepalive_thread.joinable()) {
+        g_keepalive_thread.join();
+        g_logger.info("Keepalive: Background connection monitoring thread stopped successfully.");
     }
     
     // Stop background watchman thread safely

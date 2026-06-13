@@ -9,7 +9,7 @@ A professional-grade, **containerized** digital picture & video frame applicatio
 [![OS](https://img.shields.io/badge/OS-Trixie%20Lite%20%28Debian%2013%29-lightgreen?style=flat-square)](https://www.debian.org/)
 [![Architecture](https://img.shields.io/badge/arch-aarch64-orange?style=flat-square)](https://en.wikipedia.org/wiki/AArch64)
 [![Graphics](https://img.shields.io/badge/graphics-SDL3-red?style=flat-square)](https://www.libsdl.org/)
-[![Version](https://img.shields.io/badge/version-12.6.0-blue?style=flat-square)]()
+[![Version](https://img.shields.io/badge/version-13.0.0-blue?style=flat-square)]()
 
 ## 🚀 Quick Start
 
@@ -106,6 +106,8 @@ Once the installation completes, the picture frame runs automatically in the bac
 
 ### 🛡️ Concurrency, Reliability & Security Safeguards
 - **Active Software Watchdog**: Background watchdog monitoring thread that automatically triggers an immediate container restart if the main slideshow loop stalls or freezes for more than 45 seconds.
+- **Native Connection Monitor**: Built-in background daemon thread that actively pings the local gateway and dynamically resets the network adapter using socket IOCTL calls on packet loss. No external script daemons or cron jobs required.
+- **Native Media Organizer**: Consolidated C++17 chronological and in-place organizer utility built directly into the core binary, easily run via the CLI `--organize` option.
 - **Non-Blocking Network Mount Verification**: Proactive TCP socket reachability checks before executing any directory scans or file operations on remote network filesystems (SMB/NFS), completely eliminating application lockups on disconnected mounts.
 - **Async-Signal-Safe Crash Recovery**: Replaced heap allocations in signal handlers with a pre-allocated static cache buffer, preventing deadlocks or secondary crashes during abnormal process termination.
 - **Dynamic Touchscreen Hotplugging**: Periodic background device checks to automatically re-detect and bind touchscreen controllers reconnected at runtime without requiring an application restart.

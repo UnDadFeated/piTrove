@@ -1,3 +1,12 @@
+## v13.0.0 — Native Daemon Transition & Code Consolidation (June 13, 2026)
+
+### Added
+- **Native background connection monitor** — Integrated an automatic network adapter link recovery agent directly into the background engine. If the local gateway becomes unreachable, the slideshow manager automatically resets the interface to restore connectivity. This completely removes the reliance on external script daemons and scheduled host tasks.
+- **Integrated media archive organizer** — Consolidated the media library organizer into a native compiled utility. Users can now reorganize archive folders chronologically or apply date prefixes in-place using the `--organize` command-line option directly on the system, eliminating external script execution overhead and dependency requirements.
+
+### Fixed
+- **Simplified system deployment** — Cleaned up installation requirements by eliminating external host scripts and scheduled system tasks.
+
 ## v12.6.0 — Automated Seasonal Fallback & Installer Streamlining (June 12, 2026)
 
 ### Added

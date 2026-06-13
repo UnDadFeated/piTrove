@@ -21,4 +21,4 @@ services:
       - ./config:/app/config
       - ./logs:/app/logs
       - ./subtitles:/app/subtitles
-      - ${MEDIA_DIR:-/mnt/nas}:/app/media:ro
+      - ${MEDIA_DIR:-/mnt/nas}:/app/media
