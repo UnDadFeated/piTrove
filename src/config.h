@@ -178,6 +178,12 @@ struct Config {
     bool        auto_update{false};
     std::string auto_update_branch{"main"};
 
+    // [keepalive]
+    bool        keepalive_enabled{true};
+    int         keepalive_interval{120};
+    std::string keepalive_gateway{"192.168.4.1"};
+    std::string keepalive_interface{"wlan0"};
+
     std::vector<std::string> ignore_folders;
 
     // CLI Overrides

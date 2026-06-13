@@ -1,7 +1,7 @@
 #ifndef PITROVE_UTIL_H
 #define PITROVE_UTIL_H
 
-#define VERSION "12.6.0"
+#define VERSION "13.0.0"
 #define APP_NAME "piTrove"
 
 #include <atomic>
@@ -104,6 +104,7 @@ template<typename T>
 void crash_handler(int sig);
 void terminate_handler();
 void set_display_power(bool power);
+bool set_interface_status(const std::string& iface, bool up);
 
 // System diagnostics and file path helpers
 [[nodiscard]] std::string get_exe_dir();

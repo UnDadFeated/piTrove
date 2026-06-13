@@ -202,6 +202,10 @@ bool Config::load(const std::string& path) {
         else if (key == "cache_dir" && section == "google_photos")            this->google_photos_cache_dir = val;
         else if (key == "auto_update" && section == "updates")                this->auto_update = (val == "1" || val == "true");
         else if (key == "auto_update_branch" && section == "updates")         this->auto_update_branch = val;
+        else if (key == "enabled" && section == "keepalive")                  this->keepalive_enabled = (val == "1" || val == "true");
+        else if (key == "interval_secs" && section == "keepalive")            this->keepalive_interval = safe_stoi(val, this->keepalive_interval);
+        else if (key == "gateway_ip" && section == "keepalive")               this->keepalive_gateway = val;
+        else if (key == "wifi_interface" && section == "keepalive")           this->keepalive_interface = val;
         else if (key == "resolution") {
             auto comma = val.find(',');
             if (comma != std::string::npos) {
@@ -405,7 +409,13 @@ bool Config::save(const std::string& path) {
 
     f << "[updates]\n";
     f << "auto_update = " << (this->auto_update ? "1" : "0") << "\n";
-    f << "auto_update_branch = \"" << this->auto_update_branch << "\"\n";
+    f << "auto_update_branch = \"" << this->auto_update_branch << "\"\n\n";
+
+    f << "[keepalive]\n";
+    f << "enabled = " << (this->keepalive_enabled ? "1" : "0") << "\n";
+    f << "interval_secs = " << this->keepalive_interval << "\n";
+    f << "gateway_ip = \"" << this->keepalive_gateway << "\"\n";
+    f << "wifi_interface = \"" << this->keepalive_interface << "\"\n";
 
     f.close();
     g_config_changed.store(true);
