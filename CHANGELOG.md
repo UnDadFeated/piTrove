@@ -1,3 +1,8 @@
+## v13.0.1 — Video Playback Smoothness (June 14, 2026)
+
+### Fixed
+- **Reduced video buffering stalls over Wi-Fi** — Tuned the video player cache recovery threshold to resume playback faster after brief network hiccups. Increased I/O read chunk sizes to reduce round-trips when streaming from network-attached storage.
+
 ## v13.0.0 — Native Daemon Transition & Code Consolidation (June 13, 2026)
 
 ### Added
