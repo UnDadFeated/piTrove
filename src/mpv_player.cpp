@@ -200,10 +200,12 @@ bool MpvPlayer::play(const std::string& path, int volume) {
             "--demuxer-max-bytes=1024M",
             "--demuxer-readahead-secs=120",
             "--demuxer-max-back-bytes=256M",
+            "--demuxer-lavf-buffersize=131072",
+            "--stream-buffer-size=4MiB",
             "--cache-secs=120",
             "--cache-pause=yes",
             "--cache-pause-initial=yes",
-            "--cache-pause-wait=10",
+            "--cache-pause-wait=2",
             "--vd-lavc-skiploopfilter=bidir",
             "--vd-lavc-fast=yes",
             "--framedrop=no"
