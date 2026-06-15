@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# install.sh — piTrove v13.0.0 Premium Graphical Installer
+# install.sh — piTrove v13.0.2 Premium Graphical Installer
 # Target: Debian Trixie (13) 64-bit on Raspberry Pi 4/5
 
 set -eo pipefail
@@ -370,12 +370,18 @@ if [[ "$1" == "--organize" ]]; then
         CONTAINER_DIR="/app/media${CONTAINER_DIR#$HOST_MEDIA_DIR}"
     fi
 
+    # Use -it only if a TTY is available (non-interactive contexts like cron would fail)
+    DOCKER_IT="-i"
+    if [[ -t 0 ]] || { true < /dev/tty; } 2>/dev/null; then
+        DOCKER_IT="-it"
+    fi
+
     if [[ "$STRATEGY" == "1" ]]; then
         info "Organizing media archive (Chronological Folders) inside docker at $CONTAINER_DIR..."
-        docker exec -it piTrove /app/piTrove --organize "$CONTAINER_DIR"
+        docker exec $DOCKER_IT piTrove /app/piTrove --organize "$CONTAINER_DIR"
     else
         info "Organizing media archive (In-Place Prefix) inside docker at $CONTAINER_DIR..."
-        docker exec -it piTrove /app/piTrove --organize "$CONTAINER_DIR" --in-place
+        docker exec $DOCKER_IT piTrove /app/piTrove --organize "$CONTAINER_DIR" --in-place
     fi
     
     if [[ "$IS_RO" -eq 1 ]]; then
@@ -460,7 +466,7 @@ if [[ "$1" == "--update" ]]; then
     exit 0
 fi
 
-# 5. Kill conflicting display servers
+# ── Kill Conflicting Display Servers ───────────────────────────────────────────
 for svc in labwc-tty1 seatd; do
     if systemctl is-active --quiet "$svc" 2>/dev/null; then
         run_with_spinner "Stopping conflicting display service ($svc)" systemctl stop "$svc"
@@ -468,7 +474,7 @@ for svc in labwc-tty1 seatd; do
     fi
 done
 
-# 5a. Kill existing processes and stop services
+# ── Stop Existing piTrove Processes & Services ────────────────────────────────
 if systemctl is-active --quiet piTrove.service 2>/dev/null; then
     run_with_spinner "Stopping active piTrove.service" systemctl stop piTrove.service
 fi
@@ -1047,6 +1053,17 @@ if [[ -d "$PRIMARY_HOME/piTrove/src/fonts" ]]; then
 fi
 ok "Fonts system configuration complete"
 
+# ── Create Directories ────────────────────────────────────────────────────────
+# Create bind-mount target directories before Docker build/run to ensure
+# they exist with correct ownership (otherwise Docker creates them as root)
+info "Creating internal directory tree..."
+mkdir -p "$PRIMARY_HOME/piTrove/cache" "$PRIMARY_HOME/piTrove/config"
+mkdir -p "$PRIMARY_HOME/piTrove/src/config"
+mkdir -p "$PRIMARY_HOME/piTrove/logs"
+mkdir -p "$PRIMARY_HOME/piTrove/subtitles"
+mkdir -p "$PRIMARY_HOME/piTrove/src/fonts"
+chown -R $PRIMARY_USER:$PRIMARY_USER "$PRIMARY_HOME/piTrove/cache" "$PRIMARY_HOME/piTrove/config" "$PRIMARY_HOME/piTrove/logs" "$PRIMARY_HOME/piTrove/subtitles"
+
 # ── Build piTrove Docker Container ─────────────────────────────────────────────
 info "Building piTrove Docker Container (compiling binary inside container)..."
 cd "$PRIMARY_HOME/piTrove"
@@ -1069,14 +1086,6 @@ chown $PRIMARY_USER:$PRIMARY_USER .env
 
 run_with_spinner "Building piTrove container image" docker compose build
 chown -R $PRIMARY_USER:$PRIMARY_USER "$PRIMARY_HOME/.docker" 2>/dev/null || true
-
-# ── Create Directories ────────────────────────────────────────────────────────
-info "Creating internal directory tree..."
-mkdir -p "$PRIMARY_HOME/piTrove/cache" "$PRIMARY_HOME/piTrove/config"
-mkdir -p "$PRIMARY_HOME/piTrove/src/config"
-mkdir -p "$PRIMARY_HOME/piTrove/logs"
-mkdir -p "$PRIMARY_HOME/piTrove/subtitles"
-mkdir -p "$PRIMARY_HOME/piTrove/src/fonts"
 
 # ── Scan Window Setup ──────────────────────────────────────────────────────────
 echo
@@ -1308,7 +1317,7 @@ fi
 chown -R $PRIMARY_USER:$PRIMARY_USER "$PRIMARY_HOME/piTrove/config"
 ok "Default production config.toml generated"
 
-# Double check ownerships
+# Final ownership pass to catch any root-created files during build
 chown -R $PRIMARY_USER:$PRIMARY_USER "$PRIMARY_HOME/piTrove"
 
 # ── systemd Service Deployment ─────────────────────────────────────────────────
