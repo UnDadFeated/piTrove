@@ -1,3 +1,10 @@
+## v13.0.2 — Installer Modernization & Sequencing Fixes (June 14, 2026)
+
+### Fixed
+- **Installer directory creation sequencing** — Bind-mount target directories (cache, config, logs, subtitles) are now created with correct ownership before the Docker build step, preventing Docker from silently creating them as root-owned.
+- **Organizer TTY detection** — The media archive organizer now detects whether a terminal is available before requesting interactive Docker access, preventing failures when invoked from non-interactive contexts.
+- **Cleaned up legacy step numbering** — Replaced stale numeric step comments with descriptive section headers throughout the installer for clarity.
+
 ## v13.0.1 — Video Playback Smoothness (June 14, 2026)
 
 ### Fixed
