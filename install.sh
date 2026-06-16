@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# install.sh — piTrove v13.0.3 Premium Graphical Installer
+# install.sh — piTrove v13.0.4 Premium Graphical Installer
 # Target: Debian Trixie (13) 64-bit on Raspberry Pi 4/5
 
 set -eo pipefail
@@ -750,276 +750,329 @@ chown $PRIMARY_USER:$PRIMARY_USER "$PRIMARY_HOME/piTrove/scripts/merge_config.py
 ok "Configured settings file merger script"
 
 
-# ── Storage Selection Dialog ───────────────────────────────────────────────────
-echo
-echo -e "${CYAN}╔════════════════════════════════════════════════════════════════╗${NC}"
-echo -e "${CYAN}║${NC}  ${BOLD}${WHITE}               SELECT STORAGE MODE                          ${NC}  ${CYAN}║${NC}"
-echo -e "${CYAN}╠════════════════════════════════════════════════════════════════╣${NC}"
-echo -e "${CYAN}║${NC}  ${BOLD}${GREEN}1)${NC} ${WHITE}NAS (SMB/CIFS Network Share)${NC}                             ${CYAN}║${NC}"
-echo -e "${CYAN}║${NC}     - Mounts your remote server's archive to /mnt/nas           ${CYAN}║${NC}"
-echo -e "${CYAN}║${NC}                                                                ${CYAN}║${NC}"
-echo -e "${CYAN}║${NC}  ${BOLD}${GREEN}2)${NC} ${WHITE}Local Drive (USB / MicroSD)${NC}                              ${CYAN}║${NC}"
-echo -e "${CYAN}║${NC}     - Keeps all assets stored locally on the Pi                 ${CYAN}║${NC}"
-echo -e "${CYAN}║${NC}                                                                ${CYAN}║${NC}"
-echo -e "${CYAN}║${NC}  ${BOLD}${GREEN}3)${NC} ${WHITE}Other Network Drive (NFS/Custom)${NC}                          ${CYAN}║${NC}"
-echo -e "${CYAN}║${NC}     - Custom setup options for NFS or other mounts              ${CYAN}║${NC}"
-echo -e "${CYAN}╚════════════════════════════════════════════════════════════════╝${NC}"
-echo
-if [[ -n "$STORAGE_CHOICE" ]]; then
-    storage_choice="$STORAGE_CHOICE"
-    info "Using storage choice from environment: $storage_choice"
-else
-    echo -n -e "   ${BOLD}${YELLOW}▸ Enter your choice [1-3]:${NC} "
-    safe_read -r storage_choice
-fi
+# ── Storage Selection & Verification Loop ──────────────────────────────────────
+while true; do
+    USE_NAS=0
+    SHARE_IP=""
+    SHARE_MOUNT="/mnt/nas"
+    SHARE_PATH=""
+    SHARE_PROTOCOL="cifs"
 
-USE_NAS=0
-SHARE_IP=""
-SHARE_MOUNT="/mnt/nas"
-SHARE_PATH=""
-SHARE_PROTOCOL="cifs"
-
-case "$storage_choice" in
-    1)
-        USE_NAS=1
-        if [[ -n "$NAS_IP" ]]; then
-            SHARE_IP="$NAS_IP"
-            info "Using NAS IP from environment: $SHARE_IP"
-        else
-            echo -n -e "\n   ${BOLD}${CYAN}▸ NAS IP Address:${NC} "
-            safe_read -r SHARE_IP
-        fi
-        if [[ -z "$SHARE_IP" ]] || ! echo "$SHARE_IP" | grep -qE '^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$'; then
-            fail "Invalid IP format: '$SHARE_IP'. Must be dotted-quad (e.g. 192.168.4.111)"
-        fi
-        if [[ -n "$NAS_SHARE" ]]; then
-            SHARE_PATH="$NAS_SHARE"
-            info "Using NAS share path from environment: $SHARE_PATH"
-        else
-            echo -n -e "   ${BOLD}${CYAN}▸ Share path [default: /Home/Archive]:${NC} "
-            safe_read -r SHARE_PATH
-        fi
-        SHARE_PATH="${SHARE_PATH:-/Home/Archive}"
-        SHARE_PROTOCOL="cifs"
-        ;;
-    2)
-        info "Local drive mode selected. Default local mount point: ${BOLD}/mnt/media${NC}"
-        SHARE_MOUNT="/mnt/media"
-        mkdir -p "$SHARE_MOUNT"
-        ok "Local media directory initialized at $SHARE_MOUNT"
-        ;;
-    3)
-        echo
-        echo -e "   ${CYAN}╔════════════════════════════════════════════════════════════════╗${NC}"
-        echo -e "   ${CYAN}║${NC}  ${BOLD}${WHITE}               SELECT PROTOCOL                              ${NC}  ${CYAN}║${NC}"
-        echo -e "   ${CYAN}╠════════════════════════════════════════════════════════════════╣${NC}"
-        echo -e "   ${CYAN}║${NC}  ${BOLD}${GREEN}a)${NC} ${WHITE}SMB/CIFS Network Share${NC}                                   ${CYAN}║${NC}"
-        echo -e "   ${CYAN}║${NC}  ${BOLD}${GREEN}b)${NC} ${WHITE}NFS Network Share${NC}                                        ${CYAN}║${NC}"
-        echo -e "   ${CYAN}╚════════════════════════════════════════════════════════════════╝${NC}"
-        echo
-        echo -n -e "      ${BOLD}${YELLOW}▸ Select protocol [a-b]:${NC} "
-        safe_read -r proto_choice 
-        case "$proto_choice" in
-            a)
-                SHARE_PROTOCOL="cifs"
-                echo -n -e "\n      ${BOLD}${CYAN}▸ SMB Server IP Address:${NC} "
-                safe_read -r SHARE_IP 
-                echo -n -e "      ${BOLD}${CYAN}▸ SMB Share path [default: /Shared]:${NC} "
-                safe_read -r SHARE_PATH 
-                SHARE_PATH="${SHARE_PATH:-/Shared}"
-                ;;
-            b)
-                SHARE_PROTOCOL="nfs"
-                echo -n -e "\n      ${BOLD}${CYAN}▸ NFS Server IP Address [default: 192.168.4.111]:${NC} "
-                safe_read -r SHARE_IP 
-                SHARE_IP="${SHARE_IP:-192.168.4.111}"
-                echo -n -e "      ${BOLD}${CYAN}▸ NFS Export path [default: /mnt/nas]:${NC} "
-                safe_read -r SHARE_PATH 
-                SHARE_PATH="${SHARE_PATH:-/mnt/nas}"
-                ;;
-            *)
-                fail "Invalid protocol choice"
-                ;;
-        esac
-        ;;
-    *)
-        fail "Invalid storage selection"
-        ;;
-esac
-
-# ── NAS/Network Mount Setup ────────────────────────────────────────────────────
-NAS_MOUNT_SUCCESS=0
-if [[ "$USE_NAS" -eq 1 ]] || [[ "$storage_choice" == "3" ]]; then
-    info "Configuring network service mount point..."
-
-    # Check network connection
-    if ! ping -c 1 -W 2 "$SHARE_IP" &>/dev/null; then
-        warn "Host $SHARE_IP is not reachable! Continuing anyway, but double-check your network."
+    echo
+    echo -e "${CYAN}╔════════════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${CYAN}║${NC}  ${BOLD}${WHITE}               SELECT STORAGE MODE                          ${NC}  ${CYAN}║${NC}"
+    echo -e "${CYAN}╠════════════════════════════════════════════════════════════════╣${NC}"
+    echo -e "${CYAN}║${NC}  ${BOLD}${GREEN}1)${NC} ${WHITE}NAS (SMB/CIFS Network Share)${NC}                             ${CYAN}║${NC}"
+    echo -e "${CYAN}║${NC}     - Mounts your remote server's archive to /mnt/nas           ${CYAN}║${NC}"
+    echo -e "${CYAN}║${NC}                                                                ${CYAN}║${NC}"
+    echo -e "${CYAN}║${NC}  ${BOLD}${GREEN}2)${NC} ${WHITE}Local Drive (USB / MicroSD)${NC}                              ${CYAN}║${NC}"
+    echo -e "${CYAN}║${NC}     - Keeps all assets stored locally on the Pi                 ${CYAN}║${NC}"
+    echo -e "${CYAN}║${NC}                                                                ${CYAN}║${NC}"
+    echo -e "${CYAN}║${NC}  ${BOLD}${GREEN}3)${NC} ${WHITE}Other Network Drive (NFS/Custom)${NC}                          ${CYAN}║${NC}"
+    echo -e "${CYAN}║${NC}     - Custom setup options for NFS or other mounts              ${CYAN}║${NC}"
+    echo -e "${CYAN}╚════════════════════════════════════════════════════════════════╝${NC}"
+    echo
+    if [[ -n "$STORAGE_CHOICE" ]]; then
+        storage_choice="$STORAGE_CHOICE"
+        info "Using storage choice from environment: $storage_choice"
+        STORAGE_CHOICE="" # Clear to prompt on retry
     else
-        ok "Host $SHARE_IP is online"
+        echo -n -e "   ${BOLD}${YELLOW}▸ Enter your choice [1-3]:${NC} "
+        safe_read -r storage_choice
     fi
 
-    # CIFS Credentials setup
-    if [[ "$SHARE_PROTOCOL" == "cifs" ]]; then
-        mkdir -p "$PRIMARY_HOME"
-        CRED_FILE="$PRIMARY_HOME/nas.cred"
-        if [[ ! -f "$CRED_FILE" ]]; then
-            if [[ -n "$NAS_USER" && -n "$NAS_PASS" ]]; then
-                nas_user="$NAS_USER"
-                nas_pass="$NAS_PASS"
-                info "Using NAS credentials from environment"
+    case "$storage_choice" in
+        1)
+            USE_NAS=1
+            if [[ -n "$NAS_IP" ]]; then
+                SHARE_IP="$NAS_IP"
+                info "Using NAS IP from environment: $SHARE_IP"
             else
-                echo -n -e "\n   ${BOLD}${YELLOW}▸ Username:${NC} "
-                safe_read -r nas_user 
-                echo -n -e "   ${BOLD}${YELLOW}▸ Password:${NC} "
-                safe_read -rs nas_pass 
-                echo
+                echo -n -e "\n   ${BOLD}${CYAN}▸ NAS IP Address:${NC} "
+                safe_read -r SHARE_IP
             fi
-            printf 'username=%s\npassword=%s\n' "$nas_user" "$nas_pass" > "$CRED_FILE"
-            chmod 600 "$CRED_FILE"
-            chown $PRIMARY_USER:$PRIMARY_USER "$CRED_FILE"
-            ok "Created credentials configuration file: $CRED_FILE"
+            if [[ -z "$SHARE_IP" ]] || ! echo "$SHARE_IP" | grep -qE '^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$'; then
+                warn "Invalid IP format: '$SHARE_IP'. Must be dotted-quad (e.g. 192.168.4.110)"
+                continue
+            fi
+            if [[ -n "$NAS_SHARE" ]]; then
+                SHARE_PATH="$NAS_SHARE"
+                info "Using NAS share path from environment: $SHARE_PATH"
+            else
+                echo -n -e "   ${BOLD}${CYAN}▸ Share path [default: /Home/Archive]:${NC} "
+                safe_read -r SHARE_PATH
+            fi
+            SHARE_PATH="${SHARE_PATH:-/Home/Archive}"
+            SHARE_PROTOCOL="cifs"
+            ;;
+        2)
+            if [[ -n "$LOCAL_MEDIA_PATH" ]]; then
+                SHARE_MOUNT="$LOCAL_MEDIA_PATH"
+                info "Using local media path from environment: $SHARE_MOUNT"
+            else
+                echo -n -e "   ${BOLD}${CYAN}▸ Local media directory [default: /mnt/media]:${NC} "
+                safe_read -r SHARE_MOUNT
+                SHARE_MOUNT="${SHARE_MOUNT:-/mnt/media}"
+            fi
+            mkdir -p "$SHARE_MOUNT"
+            ok "Local media directory initialized at $SHARE_MOUNT"
+            ;;
+        3)
+            echo
+            echo -e "   ${CYAN}╔════════════════════════════════════════════════════════════════╗${NC}"
+            echo -e "   ${CYAN}║${NC}  ${BOLD}${WHITE}               SELECT PROTOCOL                              ${NC}  ${CYAN}║${NC}"
+            echo -e "   ${CYAN}╠════════════════════════════════════════════════════════════════╣${NC}"
+            echo -e "   ${CYAN}║${NC}  ${BOLD}${GREEN}a)${NC} ${WHITE}SMB/CIFS Network Share${NC}                                   ${CYAN}║${NC}"
+            echo -e "   ${CYAN}║${NC}  ${BOLD}${GREEN}b)${NC} ${WHITE}NFS Network Share${NC}                                        ${CYAN}║${NC}"
+            echo -e "   ${CYAN}╚════════════════════════════════════════════════════════════════╝${NC}"
+            echo
+            echo -n -e "      ${BOLD}${YELLOW}▸ Select protocol [a-b]:${NC} "
+            safe_read -r proto_choice 
+            case "$proto_choice" in
+                a)
+                    SHARE_PROTOCOL="cifs"
+                    echo -n -e "\n      ${BOLD}${CYAN}▸ SMB Server IP Address:${NC} "
+                    safe_read -r SHARE_IP 
+                    echo -n -e "      ${BOLD}${CYAN}▸ SMB Share path [default: /Shared]:${NC} "
+                    safe_read -r SHARE_PATH 
+                    SHARE_PATH="${SHARE_PATH:-/Shared}"
+                    ;;
+                b)
+                    SHARE_PROTOCOL="nfs"
+                    echo -n -e "\n      ${BOLD}${CYAN}▸ NFS Server IP Address [default: 192.168.4.111]:${NC} "
+                    safe_read -r SHARE_IP 
+                    SHARE_IP="${SHARE_IP:-192.168.4.111}"
+                    echo -n -e "      ${BOLD}${CYAN}▸ NFS Export path [default: /mnt/nas]:${NC} "
+                    safe_read -r SHARE_PATH 
+                    SHARE_PATH="${SHARE_PATH:-/mnt/nas}"
+                    ;;
+                *)
+                    warn "Invalid protocol choice"
+                    continue
+                    ;;
+            esac
+            ;;
+        *)
+            warn "Invalid storage selection"
+            continue
+            ;;
+    esac
+
+    # ── NAS/Network Mount Setup ────────────────────────────────────────────────────
+    NAS_MOUNT_SUCCESS=0
+    if [[ "$USE_NAS" -eq 1 ]] || [[ "$storage_choice" == "3" ]]; then
+        info "Configuring network service mount point..."
+
+        # Check network connection
+        if ! ping -c 1 -W 2 "$SHARE_IP" &>/dev/null; then
+            warn "Host $SHARE_IP is not reachable! Continuing anyway, but double-check your network."
         else
-            info "NAS credential file already exists at $CRED_FILE"
-            if [[ -n "$NAS_USER" && -n "$NAS_PASS" ]]; then
-                nas_user="$NAS_USER"
-                nas_pass="$NAS_PASS"
-                info "Updating NAS credentials from environment"
-                printf 'username=%s\npassword=%s\n' "$nas_user" "$nas_pass" > "$CRED_FILE"
-                chmod 600 "$CRED_FILE"
-                chown $PRIMARY_USER:$PRIMARY_USER "$CRED_FILE"
-            elif ! grep -q "^username=" "$CRED_FILE" 2>/dev/null || ! grep -q "^password=" "$CRED_FILE" 2>/dev/null; then
-                warn "Credential file is incomplete. Re-entering credentials..."
-                echo -n -e "   ${BOLD}${YELLOW}▸ Username:${NC} "
-                safe_read -r nas_user 
-                echo -n -e "   ${BOLD}${YELLOW}▸ Password:${NC} "
-                safe_read -rs nas_pass 
-                echo
-                printf 'username=%s\npassword=%s\n' "$nas_user" "$nas_pass" > "$CRED_FILE"
-                chmod 600 "$CRED_FILE"
-                chown $PRIMARY_USER:$PRIMARY_USER "$CRED_FILE"
-            fi
+            ok "Host $SHARE_IP is online"
         fi
-    fi
 
-    # Format fstab configuration row
-    generate_fstab_line() {
+        # CIFS Credentials setup
         if [[ "$SHARE_PROTOCOL" == "cifs" ]]; then
-            FSTAB_LINE="# piTrove Network Share
-//$SHARE_IP/${SHARE_PATH#/} $SHARE_MOUNT cifs credentials=$PRIMARY_HOME/nas.cred,ro,uid=1000,gid=1000,vers=3.0,_netdev,nofail,x-systemd.automount,x-systemd.mount-timeout=10,soft,echo_interval=6 0 0"
-        elif [[ "$SHARE_PROTOCOL" == "nfs" ]]; then
-            FSTAB_LINE="# piTrove Network Share
-$SHARE_IP:$SHARE_PATH $SHARE_MOUNT $SHARE_PROTOCOL defaults,_netdev,timeo=10,retrans=3,nofail,x-systemd.automount,x-systemd.mount-timeout=10,soft 0 0"
-        fi
-    }
-    generate_fstab_line
-
-    # Clean old entries
-    sed -i '/# piTrove /d' /etc/fstab
-    sed -i '/# PiTrove /d' /etc/fstab
-    # Clean any existing mount entry to the same mount point to avoid duplicates
-    sed -i "\|[[:space:]]$SHARE_MOUNT[[:space:]]|d" /etc/fstab 2>/dev/null || true
-    if [[ "$SHARE_PROTOCOL" == "cifs" ]]; then
-        ESCAPED_PATH=$(echo "${SHARE_PATH#/}" | sed 's/[\/]/\\&/g')
-        sed -i "/^\/\/${SHARE_IP}\/${ESCAPED_PATH}/d" /etc/fstab 2>/dev/null || true
-    else
-        sed -i "/^${SHARE_IP}:${SHARE_PATH}/d" /etc/fstab 2>/dev/null || true
-    fi
-
-    mkdir -p "$SHARE_MOUNT"
-    echo "$FSTAB_LINE" >> /etc/fstab
-    systemctl daemon-reload 2>/dev/null || true
-    ok "Added fstab mounting entry for $SHARE_MOUNT"
-
-    # Mount retry handler
-    CLEAN_SHARE="${SHARE_PATH#/}"
-    MOUNT_OK=0
-
-    if mountpoint -q "$SHARE_MOUNT" 2>/dev/null; then
-        if ls "$SHARE_MOUNT" >/dev/null 2>&1; then
-            ok "$SHARE_MOUNT is already active and mounted"
-            MOUNT_OK=1
-            NAS_MOUNT_SUCCESS=1
-        fi
-    fi
-
-    if [[ "$MOUNT_OK" -eq 0 ]]; then
-        MOUNT_ATTEMPTS=0
-        while [[ "$MOUNT_ATTEMPTS" -lt 3 ]]; do
-            if mountpoint -q "$SHARE_MOUNT" 2>/dev/null; then
-                umount "$SHARE_MOUNT" 2>/dev/null || true
-            fi
-            
-            MOUNT_ATTEMPTS=$((MOUNT_ATTEMPTS + 1))
-            info "Mounting Share (Attempt $MOUNT_ATTEMPTS/3)..."
-            
-            if mount "$SHARE_MOUNT" 2>/dev/null; then
-                ok "Mount completed successfully!"
-                if [[ -d "$SHARE_MOUNT" ]] && ls "$SHARE_MOUNT" >/dev/null 2>&1; then
-                    info "First few files detected:"
-                    ls "$SHARE_MOUNT" 2>/dev/null | head -5 | sed 's/^/     • /'
+            mkdir -p "$PRIMARY_HOME"
+            CRED_FILE="$PRIMARY_HOME/nas.cred"
+            if [[ ! -f "$CRED_FILE" ]]; then
+                if [[ -n "$NAS_USER" && -n "$NAS_PASS" ]]; then
+                    nas_user="$NAS_USER"
+                    nas_pass="$NAS_PASS"
+                    info "Using NAS credentials from environment"
+                else
+                    echo -n -e "\n   ${BOLD}${YELLOW}▸ Username:${NC} "
+                    safe_read -r nas_user 
+                    echo -n -e "   ${BOLD}${YELLOW}▸ Password:${NC} "
+                    safe_read -rs nas_pass 
+                    echo
                 fi
+                printf 'username=%s\npassword=%s\n' "$nas_user" "$nas_pass" > "$CRED_FILE"
+                chmod 600 "$CRED_FILE"
+                chown $PRIMARY_USER:$PRIMARY_USER "$CRED_FILE"
+                ok "Created credentials configuration file: $CRED_FILE"
+            else
+                info "NAS credential file already exists at $CRED_FILE"
+                if [[ -n "$NAS_USER" && -n "$NAS_PASS" ]]; then
+                    nas_user="$NAS_USER"
+                    nas_pass="$NAS_PASS"
+                    info "Updating NAS credentials from environment"
+                    printf 'username=%s\npassword=%s\n' "$nas_user" "$nas_pass" > "$CRED_FILE"
+                    chmod 600 "$CRED_FILE"
+                    chown $PRIMARY_USER:$PRIMARY_USER "$CRED_FILE"
+                elif ! grep -q "^username=" "$CRED_FILE" 2>/dev/null || ! grep -q "^password=" "$CRED_FILE" 2>/dev/null; then
+                    warn "Credential file is incomplete. Re-entering credentials..."
+                    echo -n -e "   ${BOLD}${YELLOW}▸ Username:${NC} "
+                    safe_read -r nas_user 
+                    echo -n -e "   ${BOLD}${YELLOW}▸ Password:${NC} "
+                    safe_read -rs nas_pass 
+                    echo
+                    printf 'username=%s\npassword=%s\n' "$nas_user" "$nas_pass" > "$CRED_FILE"
+                    chmod 600 "$CRED_FILE"
+                    chown $PRIMARY_USER:$PRIMARY_USER "$CRED_FILE"
+                fi
+            fi
+        fi
+
+        # Format fstab configuration row
+        generate_fstab_line() {
+            if [[ "$SHARE_PROTOCOL" == "cifs" ]]; then
+                FSTAB_LINE="# piTrove Network Share
+//$SHARE_IP/${SHARE_PATH#/} $SHARE_MOUNT cifs credentials=$PRIMARY_HOME/nas.cred,ro,uid=1000,gid=1000,vers=3.0,_netdev,nofail,x-systemd.automount,x-systemd.mount-timeout=10,soft,echo_interval=6 0 0"
+            elif [[ "$SHARE_PROTOCOL" == "nfs" ]]; then
+                FSTAB_LINE="# piTrove Network Share
+$SHARE_IP:$SHARE_PATH $SHARE_MOUNT $SHARE_PROTOCOL defaults,_netdev,timeo=10,retrans=3,nofail,x-systemd.automount,x-systemd.mount-timeout=10,soft 0 0"
+            fi
+        }
+        generate_fstab_line
+
+        # Clean old entries
+        sed -i '/# piTrove /d' /etc/fstab
+        sed -i '/# PiTrove /d' /etc/fstab
+        # Clean any existing mount entry to the same mount point to avoid duplicates
+        sed -i "\|[[:space:]]$SHARE_MOUNT[[:space:]]|d" /etc/fstab 2>/dev/null || true
+        if [[ "$SHARE_PROTOCOL" == "cifs" ]]; then
+            ESCAPED_PATH=$(echo "${SHARE_PATH#/}" | sed 's/[\/]/\\&/g')
+            sed -i "/^\/\/${SHARE_IP}\/${ESCAPED_PATH}/d" /etc/fstab 2>/dev/null || true
+        else
+            sed -i "/^${SHARE_IP}:${SHARE_PATH}/d" /etc/fstab 2>/dev/null || true
+        fi
+
+        mkdir -p "$SHARE_MOUNT"
+        echo "$FSTAB_LINE" >> /etc/fstab
+        systemctl daemon-reload 2>/dev/null || true
+        ok "Added fstab mounting entry for $SHARE_MOUNT"
+
+        # Mount retry handler
+        CLEAN_SHARE="${SHARE_PATH#/}"
+        MOUNT_OK=0
+
+        if mountpoint -q "$SHARE_MOUNT" 2>/dev/null; then
+            if ls "$SHARE_MOUNT" >/dev/null 2>&1; then
+                ok "$SHARE_MOUNT is already active and mounted"
                 MOUNT_OK=1
                 NAS_MOUNT_SUCCESS=1
-                break
             fi
+        fi
 
-            warn "Mount failed (attempt $MOUNT_ATTEMPTS/3)"
-            echo
-            if [[ "$MOUNT_ATTEMPTS" -eq 3 ]]; then
-                warn "Cannot mount network share automatically."
-                echo -e "   ${CYAN}╔════════════════════════════════════════════════════════════════╗${NC}"
-                echo -e "   ${CYAN}║${NC}  ${BOLD}${WHITE}               MOUNT FAIL OPTIONS                           ${NC}  ${CYAN}║${NC}"
-                echo -e "   ${CYAN}╠════════════════════════════════════════════════════════════════╣${NC}"
-                echo -e "   ${CYAN}║${NC}  ${BOLD}${GREEN}1)${NC} Retry connection                                       ${CYAN}║${NC}"
-                echo -e "   ${CYAN}║${NC}  ${BOLD}${GREEN}2)${NC} Re-enter path configuration                             ${CYAN}║${NC}"
-                echo -e "   ${CYAN}║${NC}  ${BOLD}${GREEN}3)${NC} Re-enter username & password                            ${CYAN}║${NC}"
-                echo -e "   ${CYAN}║${NC}  ${BOLD}${GREEN}4)${NC} Skip and mount manually later                           ${CYAN}║${NC}"
-                echo -e "   ${CYAN}╚════════════════════════════════════════════════════════════════╝${NC}"
+        if [[ "$MOUNT_OK" -eq 0 ]]; then
+            MOUNT_ATTEMPTS=0
+            while [[ "$MOUNT_ATTEMPTS" -lt 3 ]]; do
+                if mountpoint -q "$SHARE_MOUNT" 2>/dev/null; then
+                    umount "$SHARE_MOUNT" 2>/dev/null || true
+                fi
+                
+                MOUNT_ATTEMPTS=$((MOUNT_ATTEMPTS + 1))
+                info "Mounting Share (Attempt $MOUNT_ATTEMPTS/3)..."
+                
+                if mount "$SHARE_MOUNT" 2>/dev/null; then
+                    ok "Mount completed successfully!"
+                    MOUNT_OK=1
+                    NAS_MOUNT_SUCCESS=1
+                    break
+                fi
+
+                warn "Mount failed (attempt $MOUNT_ATTEMPTS/3)"
                 echo
-                echo -n -e "      ${BOLD}${YELLOW}▸ Choose option [1-4]:${NC} "
-                safe_read -r mount_opt 
-                case "$mount_opt" in
-                    1) MOUNT_ATTEMPTS=0; continue ;;
-                    2)
-                        echo -n -e "      ${BOLD}${CYAN}▸ NAS IP [$SHARE_IP]:${NC} "
-                        safe_read -r _tmp ; SHARE_IP="${_tmp:-$SHARE_IP}"
-                        echo -n -e "      ${BOLD}${CYAN}▸ Share Path [$SHARE_PATH]:${NC} "
-                        safe_read -r _tmp ; SHARE_PATH="${_tmp:-$SHARE_PATH}"
-                        generate_fstab_line
-                        sed -i '/# piTrove /d' /etc/fstab
-                        echo "$FSTAB_LINE" >> /etc/fstab
-                        systemctl daemon-reload 2>/dev/null || true
-                        MOUNT_ATTEMPTS=0
-                        continue
-                        ;;
-                    3)
-                        if [[ "$SHARE_PROTOCOL" == "cifs" ]]; then
-                            echo -n -e "      ${BOLD}${YELLOW}▸ Username:${NC} "
-                            safe_read -r nas_user 
-                            echo -n -e "      ${BOLD}${YELLOW}▸ Password:${NC} "
-                            safe_read -rs nas_pass 
-                            echo
-                            printf 'username=%s\npassword=%s\n' "$nas_user" "$nas_pass" > "$PRIMARY_HOME/nas.cred"
-                            chmod 600 "$PRIMARY_HOME/nas.cred"
-                            chown $PRIMARY_USER:$PRIMARY_USER "$PRIMARY_HOME/nas.cred"
-                        fi
-                        MOUNT_ATTEMPTS=0
-                        continue
-                        ;;
-                    4)
-                        warn "Skipping active mount check. Remount later using 'sudo mount -a'"
-                        break
-                        ;;
-                    *)
-                        warn "Invalid option. Skipping..."
-                        break
-                        ;;
-                esac
-            fi
-        done
+                if [[ "$MOUNT_ATTEMPTS" -eq 3 ]]; then
+                    warn "Cannot mount network share automatically."
+                    echo -e "   ${CYAN}╔════════════════════════════════════════════════════════════════╗${NC}"
+                    echo -e "   ${CYAN}║${NC}  ${BOLD}${WHITE}               MOUNT FAIL OPTIONS                           ${NC}  ${CYAN}║${NC}"
+                    echo -e "   ${CYAN}╠════════════════════════════════════════════════════════════════╣${NC}"
+                    echo -e "   ${CYAN}║${NC}  ${BOLD}${GREEN}1)${NC} Retry connection                                       ${CYAN}║${NC}"
+                    echo -e "   ${CYAN}║${NC}  ${BOLD}${GREEN}2)${NC} Re-enter path configuration                             ${CYAN}║${NC}"
+                    echo -e "   ${CYAN}║${NC}  ${BOLD}${GREEN}3)${NC} Re-enter username & password                            ${CYAN}║${NC}"
+                    echo -e "   ${CYAN}║${NC}  ${BOLD}${GREEN}4)${NC} Skip and mount manually later                           ${CYAN}║${NC}"
+                    echo -e "   ${CYAN}╚════════════════════════════════════════════════════════════════╝${NC}"
+                    echo
+                    echo -n -e "      ${BOLD}${YELLOW}▸ Choose option [1-4]:${NC} "
+                    safe_read -r mount_opt 
+                    case "$mount_opt" in
+                        1) MOUNT_ATTEMPTS=0; continue ;;
+                        2)
+                            echo -n -e "      ${BOLD}${CYAN}▸ NAS IP [$SHARE_IP]:${NC} "
+                            safe_read -r _tmp ; SHARE_IP="${_tmp:-$SHARE_IP}"
+                            echo -n -e "      ${BOLD}${CYAN}▸ Share Path [$SHARE_PATH]:${NC} "
+                            safe_read -r _tmp ; SHARE_PATH="${_tmp:-$SHARE_PATH}"
+                            generate_fstab_line
+                            sed -i '/# piTrove /d' /etc/fstab
+                            echo "$FSTAB_LINE" >> /etc/fstab
+                            systemctl daemon-reload 2>/dev/null || true
+                            MOUNT_ATTEMPTS=0
+                            continue
+                            ;;
+                        3)
+                            if [[ "$SHARE_PROTOCOL" == "cifs" ]]; then
+                                echo -n -e "      ${BOLD}${YELLOW}▸ Username:${NC} "
+                                safe_read -r nas_user 
+                                echo -n -e "      ${BOLD}${YELLOW}▸ Password:${NC} "
+                                safe_read -rs nas_pass 
+                                echo
+                                printf 'username=%s\npassword=%s\n' "$nas_user" "$nas_pass" > "$PRIMARY_HOME/nas.cred"
+                                chmod 600 "$PRIMARY_HOME/nas.cred"
+                                chown $PRIMARY_USER:$PRIMARY_USER "$PRIMARY_HOME/nas.cred"
+                            fi
+                            MOUNT_ATTEMPTS=0
+                            continue
+                            ;;
+                        4)
+                            warn "Skipping active mount check. Remount later using 'sudo mount -a'"
+                            MOUNT_OK=1
+                            break
+                            ;;
+                        *)
+                            warn "Invalid option. Skipping..."
+                            MOUNT_OK=1
+                            break
+                            ;;
+                    esac
+                fi
+            done
+        fi
     fi
-fi
+
+    # ── Folder Verification and Preview ────────────────────────────────────────────
+    if [[ -d "$SHARE_MOUNT" ]]; then
+        echo
+        info "Verifying content access in target folder: ${BOLD}$SHARE_MOUNT${NC}"
+        
+        local file_list
+        file_list=$(ls -A "$SHARE_MOUNT" 2>/dev/null | head -n 10)
+        
+        if [[ -n "$file_list" ]]; then
+            info "First few items detected (up to 10):"
+            echo "$file_list" | sed 's/^/     • /'
+            echo
+            if yesno "Is this the correct directory to scan recursively?"; then
+                break
+            else
+                info "Re-entering configuration..."
+                if [[ "$USE_NAS" -eq 1 || "$storage_choice" == "3" ]]; then
+                    if mountpoint -q "$SHARE_MOUNT" 2>/dev/null; then
+                        umount "$SHARE_MOUNT" 2>/dev/null || true
+                    fi
+                fi
+            fi
+        else
+            warn "Target directory is EMPTY or inaccessible."
+            if yesno "Use this empty directory anyway and configure manually later?"; then
+                break
+            else
+                info "Re-entering configuration..."
+                if [[ "$USE_NAS" -eq 1 || "$storage_choice" == "3" ]]; then
+                    if mountpoint -q "$SHARE_MOUNT" 2>/dev/null; then
+                        umount "$SHARE_MOUNT" 2>/dev/null || true
+                    fi
+                fi
+            fi
+        fi
+    else
+        warn "Target directory does not exist or is not a folder: $SHARE_MOUNT"
+        if yesno "Create and use this directory anyway?"; then
+            mkdir -p "$SHARE_MOUNT"
+            break
+        fi
+    fi
+done
 
 # ── Media Archive Prefix Detection ───────────────────────────────────────────
 echo
