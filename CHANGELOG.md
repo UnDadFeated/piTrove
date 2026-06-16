@@ -1,3 +1,10 @@
+## v13.0.5 — OSD Offset Defaults & TUI Terminal Robustness (June 16, 2026)
+
+### Added
+- **Default video OSD offset** — Adjusted default OSD offset values to position overlays optimally above the 1" matte for fresh installations.
+- **TUI terminal raw mode safety** — Added End-Of-File (EOF) detection and signal protection to terminate the console menu loop gracefully on disconnects, preventing infinite CPU spinning.
+- **Robust key sequence packet assembly** — Rewrote escape parsing to support longer CSI terminal escape sequences and buffer split packets in SSH sessions.
+
 ## v13.0.4 — Installer Verification & Guidelines Hardening (June 16, 2026)
 
 ### Added
