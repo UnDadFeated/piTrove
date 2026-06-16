@@ -1,3 +1,8 @@
+## v13.0.8 — Background Cache Metadata Preprocessing (June 16, 2026)
+
+### Added
+- **Continuous background cache metadata preprocessing** — Added a background worker thread that extracts dimensions, orientation, duration, capture dates, and camera presence tags for uncached media items, bypassing decoding for images. Keeps layout scaling and slideshow operations fast and responsive.
+
 ## v13.0.7 — Display Resolution Setting Reordering (June 16, 2026)
 
 ### Changed
