@@ -93,6 +93,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     curl \
     iputils-ping \
+    network-manager \
+    systemd \
     && rm -rf /var/lib/apt/lists/*
 
 # Establish runtime directory tree
