@@ -14,6 +14,7 @@
 #include "mqtt.h"
 #include "google_photos.h"
 #include "organizer.h"
+#include "preprocess.h"
 
 #include <SDL3/SDL.h>
 #include <SDL3_image/SDL_image.h>
@@ -811,7 +812,7 @@ static void watchman_loop() {
                             mi.height = screen_h;
                             mi.duration = 0.0;
                         }
-                        g_cache->upsert(mi, 0);
+                        g_cache->upsert(mi, 0, 0);
                     }
                 }
                 g_cache->commit_transaction();
@@ -1472,7 +1473,7 @@ int main(int argc, char** argv) {
                     mi.height = g_cfg.screen_h;
                     mi.duration = 0.0;
                 }
-                g_cache->upsert(mi, 0);
+                g_cache->upsert(mi, 0, 0);
                 cached++;
             }
 
@@ -1764,8 +1765,8 @@ int main(int argc, char** argv) {
                     g_eligible[next_idx].exif_rotation = current_twin_data->exif_rotation;
 
                     if (g_cache) {
-                        g_cache->upsert(g_eligible[current_idx], 0);
-                        g_cache->upsert(g_eligible[next_idx], 0);
+                        g_cache->upsert(g_eligible[current_idx], 0, 1);
+                        g_cache->upsert(g_eligible[next_idx], 0, 1);
                     }
 
                     g_logger.info("First item is twin-portrait, loaded successfully: %s and %s", path_l.c_str(), path_r.c_str());
@@ -1817,7 +1818,7 @@ int main(int argc, char** argv) {
                             break;
                         }
                     }
-                    if (g_cache) g_cache->upsert(g_eligible[current_idx], 0);
+                    if (g_cache) g_cache->upsert(g_eligible[current_idx], 0, 1);
 
                     g_renderer.calculate_fit_rect(g_eligible[current_idx].width, g_eligible[current_idx].height, fit_rect);
                     g_logger.info("First item is an image, loaded successfully: %s (%dx%d)", g_eligible[current_idx].path.c_str(), g_eligible[current_idx].width, g_eligible[current_idx].height);
@@ -1846,6 +1847,9 @@ int main(int argc, char** argv) {
     g_watchman_running.store(true);
     g_watchman_thread = std::thread(watchman_loop);
     g_logger.info("Watchman: Background watchman thread spawned successfully.");
+
+    // --- Start Background Preprocess Thread ---
+    start_preprocess_worker();
 
     double fps_timer = 0.0;
     int frame_counter = 0;
@@ -2293,7 +2297,7 @@ int main(int argc, char** argv) {
                         g_eligible[found].width = data->width;
                         g_eligible[found].height = data->height;
                         g_eligible[found].exif_rotation = data->exif_rotation;
-                        if (g_cache) g_cache->upsert(g_eligible[found], 0);
+                        if (g_cache) g_cache->upsert(g_eligible[found], 0, 1);
                     }
                 };
                 if (g_eligible[next_idx].type != "video") {
@@ -2399,7 +2403,7 @@ int main(int argc, char** argv) {
                                     break;
                                 }
                             }
-                            if (g_cache) g_cache->upsert(g_eligible[current_idx], 0);
+                            if (g_cache) g_cache->upsert(g_eligible[current_idx], 0, 1);
                             g_renderer.calculate_fit_rect(current_data->width, current_data->height, fit_rect);
                         }
                     }
@@ -2435,7 +2439,7 @@ int main(int argc, char** argv) {
                                     break;
                                 }
                             }
-                            if (g_cache) g_cache->upsert(g_eligible[current_idx], 0);
+                            if (g_cache) g_cache->upsert(g_eligible[current_idx], 0, 1);
                         }
 
                         g_renderer.calculate_fit_rect(current_data->width, current_data->height, fit_rect);
@@ -2511,7 +2515,7 @@ int main(int argc, char** argv) {
                                     break;
                                 }
                             }
-                            if (g_cache) g_cache->upsert(g_eligible[current_idx], 0);
+                            if (g_cache) g_cache->upsert(g_eligible[current_idx], 0, 1);
                         }
 
                         g_renderer.calculate_fit_rect(current_data->width, current_data->height, fit_rect);
@@ -2737,6 +2741,9 @@ int main(int argc, char** argv) {
     // Stop background Google Photos sync thread safely
     g_google_photos.stop();
     
+    // Stop background preprocessing worker thread safely
+    stop_preprocess_worker();
+
     // Stop software watchdog thread safely
     g_watchdog_running.store(false);
     if (g_watchdog_thread.joinable()) {
