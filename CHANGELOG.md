@@ -1,3 +1,9 @@
+## v13.0.3 — Network Recovery Safeguard (June 15, 2026)
+
+### Added
+- **Fail-safe network connection watchdog** — Hardened the connection monitor to automatically restart the wireless radio interface if the network gateway becomes unreachable, actively attempting to restore the link.
+- **Automated system recovery reboot** — Configured an automatic system recovery reset if connection is lost continuously for more than 5 minutes, ensuring the device remains responsive and recovers cleanly from persistent access point drops.
+
 ## v13.0.2 — Installer Modernization & Sequencing Fixes (June 14, 2026)
 
 ### Fixed

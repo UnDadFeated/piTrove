@@ -17,6 +17,7 @@ services:
       - MESA_SHADER_CACHE_DIR=/app/cache/mesa_shader_cache
     volumes:
       - /dev:/dev
+      - /var/run/dbus/system_bus_socket:/var/run/dbus/system_bus_socket
       - ./cache:/app/cache
       - ./config:/app/config
       - ./logs:/app/logs
