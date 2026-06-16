@@ -1,3 +1,8 @@
+## v13.0.6 — Display Resolution Selection (June 16, 2026)
+
+### Added
+- **Interactive display resolution presets** — Added a resolution selector in the configuration console allowing the user to select between 1080p, 1440p, and 2160p resolutions, dynamically scaling display dimensions and photo textures.
+
 ## v13.0.5 — OSD Offset Defaults & TUI Terminal Robustness (June 16, 2026)
 
 ### Added
