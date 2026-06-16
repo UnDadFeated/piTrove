@@ -1035,7 +1035,6 @@ $SHARE_IP:$SHARE_PATH $SHARE_MOUNT $SHARE_PROTOCOL defaults,_netdev,timeo=10,ret
         echo
         info "Verifying content access in target folder: ${BOLD}$SHARE_MOUNT${NC}"
         
-        local file_list
         file_list=$(ls -A "$SHARE_MOUNT" 2>/dev/null | head -n 10)
         
         if [[ -n "$file_list" ]]; then
