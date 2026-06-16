@@ -1,3 +1,10 @@
+## v13.0.4 — Installer Verification & Guidelines Hardening (June 16, 2026)
+
+### Added
+- **Interactive directory confirmation** — Configured the installer to output a list of up to 10 files from the target directory during storage setup, validating paths for all local and network storage configurations.
+- **Fail-safe fallback loops** — Integrated path validation loops that allow the user to easily adjust directories, credentials, or connection details if a path is invalid or empty.
+- **Plan-first agent guidelines** — Hardened the agent guidelines to mandate structured implementation plans and user review before executing modifications.
+
 ## v13.0.3 — Network Recovery Safeguard (June 15, 2026)
 
 ### Added
