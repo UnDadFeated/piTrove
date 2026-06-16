@@ -94,6 +94,8 @@ closed_captions_enabled = 1
 drm_connector = "auto"
 drm_card = "auto"
 video_audio_device = "auto"
+osd_offset_x = -50
+osd_offset_y = -80
 
 [dashboard]
 weather_enabled = 0

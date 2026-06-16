@@ -586,8 +586,15 @@ void config_wizard(const std::string& config_path) {
             int pret = poll(&pfd, 1, 100);
             if (pret > 0 && (pfd.revents & POLLIN)) {
                 char c;
-                if (read(STDIN_FILENO, &c, 1) == 1) {
+                int n = read(STDIN_FILENO, &c, 1);
+                if (n == 1) {
                     if (c == 'q' || c == 'Q') run = false;
+                } else if (n == 0) {
+                    run = false;
+                } else {
+                    if (errno != EAGAIN && errno != EWOULDBLOCK) {
+                        run = false;
+                    }
                 }
             }
             continue;
@@ -714,12 +721,6 @@ void config_wizard(const std::string& config_path) {
         }
 
         // ── Input handling ──
-        // Drain remaining input buffer
-        if (input_buf_len > 0) {
-            // Process input_buf
-            // ... (see below)
-        }
-
         struct pollfd pfd;
         pfd.fd = STDIN_FILENO;
         pfd.events = POLLIN;
@@ -733,39 +734,88 @@ void config_wizard(const std::string& config_path) {
         if (n > 0) {
             input_buf_len += n;
             input_buf[input_buf_len] = '\0';
+        } else if (n == 0) {
+            run = false;
+        } else {
+            if (errno != EAGAIN && errno != EWOULDBLOCK) {
+                run = false;
+            }
         }
 
         // Process input buffer
         int pos = 0;
         while (pos < input_buf_len) {
-            int consumed = 0;
-
             // Check for escape sequences
-            if (input_buf[pos] == '\033' && (pos + 2) < input_buf_len) {
-                char buf3[4] = {'\033', input_buf[pos+1], input_buf[pos+2], '\0'};
-                if (buf3[1] == '[') {
-                    char third = buf3[2];
-                    if (third == 'A' || third == 'B' || third == 'D' || third == 'C') {
-                        consumed = 3;
-                        int action = 0;
-                        if (third == 'A') action = 1;  // UP
-                        else if (third == 'B') action = 2;  // DOWN
-                        else if (third == 'D') action = 3;  // LEFT
-                        else if (third == 'C') action = 4;  // RIGHT
+            if (input_buf[pos] == '\033') {
+                bool complete = false;
+                int seq_len = 0;
 
-                        if(!edit_mode) {
+                if (pos + 1 < input_buf_len) {
+                    char second = input_buf[pos + 1];
+                    if (second == '[') {
+                        // CSI sequence: ESC [ followed by parameters and ending with a letter a-zA-Z
+                        int end_pos = pos + 2;
+                        while (end_pos < input_buf_len) {
+                            char c = input_buf[end_pos];
+                            if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')) {
+                                complete = true;
+                                seq_len = (end_pos - pos) + 1;
+                                break;
+                            }
+                            end_pos++;
+                        }
+                    } else if (second == 'O') {
+                        // SS3 sequence: ESC O <char>
+                        if (pos + 2 < input_buf_len) {
+                            complete = true;
+                            seq_len = 3;
+                        }
+                    } else {
+                        // Simple 2-byte escape sequence (ESC <char>)
+                        complete = true;
+                        seq_len = 2;
+                    }
+                } else {
+                    // ESC at the end of the buffer: wait up to 20ms for more bytes (split packet check)
+                    struct pollfd pfd_esc;
+                    pfd_esc.fd = STDIN_FILENO;
+                    pfd_esc.events = POLLIN;
+                    if (poll(&pfd_esc, 1, 20) > 0 && (pfd_esc.revents & POLLIN)) {
+                        complete = false; // more data incoming, leave in buffer
+                    } else {
+                        // standalone ESC key
+                        complete = true;
+                        seq_len = 1;
+                    }
+                }
+
+                if (!complete) {
+                    // Escape sequence is incomplete, wait for next read()
+                    break;
+                }
+
+                // Parse standard arrow keys if complete CSI sequence matches
+                if (seq_len >= 3 && input_buf[pos + 1] == '[') {
+                    char last_char = input_buf[pos + seq_len - 1];
+                    if (last_char == 'A' || last_char == 'B' || last_char == 'D' || last_char == 'C') {
+                        int action = 0;
+                        if (last_char == 'A') action = 1;  // UP
+                        else if (last_char == 'B') action = 2;  // DOWN
+                        else if (last_char == 'D') action = 3;  // LEFT
+                        else if (last_char == 'C') action = 4;  // RIGHT
+
+                        if (!edit_mode) {
                             if (action == 1) { if(sel_sub>0) sel_sub--; else if(sel>0){ sel--; sel_sub=CATS[sel].c-1; } }
                             else if (action == 2) { if(sel_sub<CATS[sel].c-1) sel_sub++; else if(sel<(int)(sizeof(CATS)/sizeof(CATS[0]))-1){ sel++; sel_sub=0; } }
                             else if (action == 3) { if(sel>0) { sel--; sel_sub=0; } }
                             else if (action == 4) { if(sel<(int)(sizeof(CATS)/sizeof(CATS[0]))-1) { sel++; sel_sub=0; } }
-                            // Mark dirty for selection change
                             dirty_full = true;
                             last_sel = sel; last_sel_sub = sel_sub; last_edit = edit_mode ? 1 : 0;
                         } else {
                             const auto& item = CATS[sel].i[sel_sub];
-                            if(item.t == ENM) {
+                            if (item.t == ENM) {
                                 auto opts = enums(sel, sel_sub);
-                                if(!opts.empty()) {
+                                if (!opts.empty()) {
                                     auto it = std::find(opts.begin(), opts.end(), ed_buf);
                                     int idx = (it != opts.end()) ? std::distance(opts.begin(), it) : 0;
                                     if (action == 2) idx = (idx + 1) % opts.size(); // DOWN
@@ -776,23 +826,28 @@ void config_wizard(const std::string& config_path) {
                             dirty_from = ROW_ROW0; dirty_to = ROW_ROW0 + CATS[sel].c;
                             last_sel = sel; last_sel_sub = sel_sub; last_edit = 1;
                         }
-                        pos += consumed;
-                        continue;
+                    }
+                } else if (seq_len == 1) {
+                    // ESC key
+                    if (edit_mode) {
+                        edit_mode = false;
+                        dirty_full = true;
+                        last_sel = sel; last_sel_sub = sel_sub; last_edit = 0;
                     }
                 }
-                // Unknown escape: consume one byte
-                pos++;
+
+                pos += seq_len;
                 continue;
             }
 
             // Regular character
             char c = input_buf[pos];
-            consumed = 1;
+            int consumed = 1;
 
-            if(!edit_mode) {
-                if(c == 'q' || c == 'Q') { run = false; break; }
-                else if(c == 's' || c == 'S') {
-                    if(!save_cfg()) {
+            if (!edit_mode) {
+                if (c == 'q' || c == 'Q') { run = false; break; }
+                else if (c == 's' || c == 'S') {
+                    if (!save_cfg()) {
                         flash_msg("[ERROR] Failed to save config file.", 1, 2000);
                     } else {
                         flash_msg("[OK] Configuration saved.", 1, 2000);
@@ -800,7 +855,7 @@ void config_wizard(const std::string& config_path) {
                     run = false;
                     dirty_full = true;
                 }
-                else if(c == '\n' || c == '\r' || c == ' ') {
+                else if (c == '\n' || c == '\r' || c == ' ') {
                     if (CATS[sel].i[sel_sub].t == TGL) {
                         std::string v = gv(sel, sel_sub);
                         sv(sel, sel_sub, (v=="1"||v=="[ON]"||v=="[  ON  ]") ? "0" : "1");
@@ -825,26 +880,27 @@ void config_wizard(const std::string& config_path) {
                     last_sel = sel; last_sel_sub = sel_sub; last_edit = 1;
                 }
             } else {
-                if(c == '\n' || c == '\r') {
+                if (c == '\n' || c == '\r') {
                     sv(sel, sel_sub, ed_buf);
                     edit_mode = false;
                     dirty_full = true;
                     last_sel = sel; last_sel_sub = sel_sub; last_edit = 0;
                 }
-                else if(c == '\033') {
-                    edit_mode = false;
-                    dirty_full = true;
-                    last_sel = sel; last_sel_sub = sel_sub; last_edit = 0;
-                }
-                else if(c == 127 || c == 8) {
-                    if(!ed_buf.empty()) ed_buf.pop_back();
+                else if (c == 127 || c == 8) {
+                    if (!ed_buf.empty()) ed_buf.pop_back();
                     dirty_from = ROW_ROW0; dirty_to = ROW_ROW0 + CATS[sel].c;
                     last_sel = sel; last_sel_sub = sel_sub; last_edit = 1;
                 }
-                else if(c >= 32 && c <= 126) {
+                else if (c >= 32 && c <= 126) {
                     const auto& item = CATS[sel].i[sel_sub];
-                    if (item.t == FLT && !isdigit(c) && c != '.' && c != '-') continue;
-                    if (item.t == INT && !isdigit(c) && c != '-') continue;
+                    if (item.t == FLT && !isdigit(c) && c != '.' && c != '-') {
+                        pos += consumed;
+                        continue;
+                    }
+                    if (item.t == INT && !isdigit(c) && c != '-') {
+                        pos += consumed;
+                        continue;
+                    }
                     ed_buf += c;
                     dirty_from = ROW_ROW0; dirty_to = ROW_ROW0 + CATS[sel].c;
                     last_sel = sel; last_sel_sub = sel_sub; last_edit = 1;
