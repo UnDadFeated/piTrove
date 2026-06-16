@@ -9,7 +9,7 @@ A professional-grade, **containerized** digital picture & video frame applicatio
 [![OS](https://img.shields.io/badge/OS-Trixie%20Lite%20%28Debian%2013%29-lightgreen?style=flat-square)](https://www.debian.org/)
 [![Architecture](https://img.shields.io/badge/arch-aarch64-orange?style=flat-square)](https://en.wikipedia.org/wiki/AArch64)
 [![Graphics](https://img.shields.io/badge/graphics-SDL3-red?style=flat-square)](https://www.libsdl.org/)
-[![Version](https://img.shields.io/badge/version-13.0.0-blue?style=flat-square)]()
+[![Version](https://img.shields.io/badge/version-13.0.3-blue?style=flat-square)]()
 
 ## 🚀 Quick Start
 

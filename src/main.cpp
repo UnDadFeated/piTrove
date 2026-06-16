@@ -944,6 +944,9 @@ static void keepalive_loop() {
     g_logger.info("Keepalive: Monitoring connection to %s on %s every %d seconds.", 
                   gateway.c_str(), interface.c_str(), interval_secs);
                   
+    int64_t network_lost_time = 0;
+    int64_t last_wifi_reset_time = 0;
+                  
     while (g_keepalive_running.load() && g_running.load()) {
         for (int i = 0; i < interval_secs && g_keepalive_running.load() && g_running.load(); ++i) {
             std::this_thread::sleep_for(std::chrono::seconds(1));
@@ -952,24 +955,71 @@ static void keepalive_loop() {
         
         std::string cmd = "ping -c 2 -W 3 " + escape_shell_arg(gateway) + " >/dev/null 2>&1";
         int res = ::system(cmd.c_str());
-        if (res != 0) {
-            g_logger.warn("Keepalive: Gateway %s is unreachable (ping returned %d). Toggling interface %s...", 
-                          gateway.c_str(), res, interface.c_str());
-            
-            if (set_interface_status(interface, false)) {
-                g_logger.info("Keepalive: Interface %s set DOWN. Waiting 5 seconds...", interface.c_str());
+        if (res == 0) {
+            if (network_lost_time != 0) {
+                g_logger.info("Keepalive: Gateway %s is reachable again. Connection restored.", gateway.c_str());
+                network_lost_time = 0;
+                last_wifi_reset_time = 0;
+            }
+        } else {
+            int64_t now = static_cast<int64_t>(std::time(nullptr));
+            if (network_lost_time == 0) {
+                network_lost_time = now;
+                last_wifi_reset_time = now;
+                g_logger.warn("Keepalive: Gateway %s is unreachable (ping returned %d). Start tracking downtime.", 
+                              gateway.c_str(), res);
             }
             
-            for (int i = 0; i < 5 && g_keepalive_running.load() && g_running.load(); ++i) {
-                std::this_thread::sleep_for(std::chrono::seconds(1));
+            int64_t offline_duration = now - network_lost_time;
+            g_logger.warn("Keepalive: Network is offline. Duration: %d seconds. Interface: %s", 
+                          (int)offline_duration, interface.c_str());
+            
+            // Check for 5-minute (300 seconds) timeout to force host reboot
+            if (offline_duration >= 300) {
+                g_logger.error("Keepalive: CRITICAL: Gateway unreachable for %d seconds (>= 5 minutes). Forcing system reboot...", 
+                               (int)offline_duration);
+                // Flush logs
+                std::this_thread::sleep_for(std::chrono::seconds(2));
+                
+                // Attempt system reboot via D-Bus / systemctl
+                [[maybe_unused]] int reb_res = ::system("systemctl reboot >/dev/null 2>&1 || reboot >/dev/null 2>&1");
+                
+                // Fallback to SysRq if D-Bus is unresponsive or systemd is not working
+                std::this_thread::sleep_for(std::chrono::seconds(5));
+                g_logger.error("Keepalive: D-Bus/reboot failed. Initiating hard SysRq kernel reboot...");
+                
+                int fd_rq = open("/proc/sys/kernel/sysrq", O_WRONLY);
+                if (fd_rq >= 0) {
+                    (void)write(fd_rq, "1", 1);
+                    close(fd_rq);
+                }
+                int fd_trig = open("/proc/sysrq-trigger", O_WRONLY);
+                if (fd_trig >= 0) {
+                    (void)write(fd_trig, "b", 1);
+                    close(fd_trig);
+                }
+                
+                // Block forever if SysRq is loading
+                while (true) { std::this_thread::sleep_for(std::chrono::seconds(1)); }
             }
             
-            if (set_interface_status(interface, true)) {
-                g_logger.info("Keepalive: Interface %s set UP.", interface.c_str());
-            }
-            
-            for (int i = 0; i < 15 && g_keepalive_running.load() && g_running.load(); ++i) {
-                std::this_thread::sleep_for(std::chrono::seconds(1));
+            // Attempt Wi-Fi Radio Reset every 60 seconds
+            if (now - last_wifi_reset_time >= 60) {
+                last_wifi_reset_time = now;
+                g_logger.warn("Keepalive: Attempting NetworkManager Wi-Fi radio reset to restore connection...");
+                
+                // We run nmcli radio wifi off && sleep 2 && nmcli radio wifi on
+                // This communicates with host's NetworkManager over the shared D-Bus socket
+                [[maybe_unused]] int radio_res = ::system("nmcli radio wifi off && sleep 2 && nmcli radio wifi on >/dev/null 2>&1");
+                
+                // Fallback toggle via raw socket flag down/up
+                if (set_interface_status(interface, false)) {
+                    g_logger.info("Keepalive: Fallback: Interface %s set DOWN.", interface.c_str());
+                    std::this_thread::sleep_for(std::chrono::seconds(2));
+                    if (set_interface_status(interface, true)) {
+                        g_logger.info("Keepalive: Fallback: Interface %s set UP.", interface.c_str());
+                    }
+                }
             }
         }
     }
