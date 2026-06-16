@@ -806,7 +806,7 @@ static void watchman_loop() {
                         if (mi.type == "image") {
                             mi.exif_rotation = 1;
                             mi.width = 1920; mi.height = 1080;
-                            mi.creation_time = ImageLoader::get_creation_time(mi.path);
+                            mi.creation_time = 0;
                         } else {
                             mi.width = screen_w;
                             mi.height = screen_h;
@@ -1467,7 +1467,7 @@ int main(int argc, char** argv) {
                 if (mi.type == "image") {
                     mi.exif_rotation = 1;
                     mi.width = 1920; mi.height = 1080;
-                    mi.creation_time = ImageLoader::get_creation_time(mi.path);
+                    mi.creation_time = 0;
                 } else {
                     mi.width = g_cfg.screen_w;
                     mi.height = g_cfg.screen_h;
