@@ -1,3 +1,8 @@
+## v13.0.9 — Startup Performance Optimization (June 16, 2026)
+
+### Fixed
+- **Startup and Watchman scan freezes** — Offloaded creation time metadata extraction from the synchronous startup and Watchman scanning threads to the background preprocessing worker thread. The application now transitions instantly to the slideshow.
+
 ## v13.0.8 — Background Cache Metadata Preprocessing (June 16, 2026)
 
 ### Added
