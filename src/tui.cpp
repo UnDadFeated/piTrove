@@ -111,6 +111,7 @@ void config_wizard(const std::string& config_path) {
     struct CI { const char* n; IT t; const char* desc; };
 
     static const CI CA[] = {
+        {"Resolution", ENM, "Display resolution preset (1080p, 1440p, 2160p)"},
         {"Rotation", INT, "Screen rotation in degrees (0, 90, 180, 270)"},
         {"Ken Burns Zoom", FLT, "Zoom intensity for Ken Burns effect (0.0 to 1.0)"},
         {"Auto Display Rotation", TGL, "Rotate images based on EXIF orientation"},
@@ -120,8 +121,7 @@ void config_wizard(const std::string& config_path) {
         {"Background Style", ENM, "Background style option (photo, plain, pattern)"},
         {"Pattern Brightness", INT, "Contrast offset for animated pattern style (0 to 150)"},
         {"Pattern Style", ENM, "Design pattern type (combined, grid, waves, dots)"},
-        {"Pattern Blend Count", INT, "Number of design patterns to blend (1 to 3)"},
-        {"Resolution", ENM, "Display resolution preset (1080p, 1440p, 2160p)"}
+        {"Pattern Blend Count", INT, "Number of design patterns to blend (1 to 3)"}
     };
     static const CI CB[] = {
         {"Media Directory", STR, "Root folder containing photos and videos"},
@@ -253,21 +253,21 @@ void config_wizard(const std::string& config_path) {
     // ── DATA ACCESSORS ──
     auto gv = [&](int c, int i) -> std::string {
         if (c == 0) switch(i) {
-            case 0: return std::to_string(g_cfg.rotation);
-            case 1: return std::to_string(g_cfg.ken_burns_zoom);
-            case 2: return g_cfg.auto_display_rotation?"[ON]":"[OFF]";
-            case 3: return g_cfg.brightness_auto?"[ON]":"[OFF]";
-            case 4: return g_cfg.border_enabled?"[ON]":"[OFF]";
-            case 5: return std::to_string(g_cfg.border_width);
-            case 6: return g_cfg.bg_style;
-            case 7: return std::to_string(g_cfg.pattern_offset);
-            case 8: return g_cfg.pattern_style;
-            case 9: return std::to_string(g_cfg.pattern_blend_count);
-            case 10: {
+            case 0: {
                 if (g_cfg.screen_w == 3840 && g_cfg.screen_h == 2160) return "2160p";
                 if (g_cfg.screen_w == 2560 && g_cfg.screen_h == 1440) return "1440p";
                 return "1080p";
             }
+            case 1: return std::to_string(g_cfg.rotation);
+            case 2: return std::to_string(g_cfg.ken_burns_zoom);
+            case 3: return g_cfg.auto_display_rotation?"[ON]":"[OFF]";
+            case 4: return g_cfg.brightness_auto?"[ON]":"[OFF]";
+            case 5: return g_cfg.border_enabled?"[ON]":"[OFF]";
+            case 6: return std::to_string(g_cfg.border_width);
+            case 7: return g_cfg.bg_style;
+            case 8: return std::to_string(g_cfg.pattern_offset);
+            case 9: return g_cfg.pattern_style;
+            case 10: return std::to_string(g_cfg.pattern_blend_count);
         }
         if (c == 1) switch(i) {
             case 0: return g_cfg.media_dir; case 1: return g_cfg.cache_dir; case 2: return g_cfg.log_dir;
@@ -384,17 +384,7 @@ void config_wizard(const std::string& config_path) {
         std::lock_guard lk(g_config_mtx);
         try {
             if(c==0) switch(i){
-                case 0:{ try { int rot=std::stoi(v); if(rot==0||rot==90||rot==180||rot==270) g_cfg.rotation=rot; else g_cfg.rotation=0; } catch(...) {} break; }
-                case 1:{ try { float val=std::stof(v); g_cfg.ken_burns_zoom=std::clamp(val, 0.01f, 5.0f); } catch(...) {} break; }
-                case 2:g_cfg.auto_display_rotation=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
-                case 3:g_cfg.brightness_auto=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
-                case 4:g_cfg.border_enabled=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
-                case 5:{ try { int val = std::stoi(v); g_cfg.border_width=std::clamp(val, 0, 250); } catch(...) {} break; }
-                case 6:g_cfg.bg_style=v;break;
-                case 7:{ try { int val = std::stoi(v); g_cfg.pattern_offset=std::clamp(val, 0, 150); } catch(...) {} break; }
-                case 8:g_cfg.pattern_style=v;break;
-                case 9:{ try { int val = std::stoi(v); g_cfg.pattern_blend_count=std::clamp(val, 1, 3); } catch(...) {} break; }
-                case 10: {
+                case 0: {
                     if (v == "2160p") {
                         g_cfg.screen_w = 3840; g_cfg.screen_h = 2160; g_cfg.max_texture_dim = 3840;
                     } else if (v == "1440p") {
@@ -404,6 +394,16 @@ void config_wizard(const std::string& config_path) {
                     }
                     break;
                 }
+                case 1:{ try { int rot=std::stoi(v); if(rot==0||rot==90||rot==180||rot==270) g_cfg.rotation=rot; else g_cfg.rotation=0; } catch(...) {} break; }
+                case 2:{ try { float val=std::stof(v); g_cfg.ken_burns_zoom=std::clamp(val, 0.01f, 5.0f); } catch(...) {} break; }
+                case 3:g_cfg.auto_display_rotation=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
+                case 4:g_cfg.brightness_auto=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
+                case 5:g_cfg.border_enabled=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
+                case 6:{ try { int val = std::stoi(v); g_cfg.border_width=std::clamp(val, 0, 250); } catch(...) {} break; }
+                case 7:g_cfg.bg_style=v;break;
+                case 8:{ try { int val = std::stoi(v); g_cfg.pattern_offset=std::clamp(val, 0, 150); } catch(...) {} break; }
+                case 9:g_cfg.pattern_style=v;break;
+                case 10:{ try { int val = std::stoi(v); g_cfg.pattern_blend_count=std::clamp(val, 1, 3); } catch(...) {} break; }
             }
             else if(c==1) switch(i){
                 case 0:g_cfg.media_dir=v;break; case 1:g_cfg.cache_dir=v;break; case 2:g_cfg.log_dir=v;break;
@@ -531,9 +531,9 @@ void config_wizard(const std::string& config_path) {
     };
 
     auto enums = [&](int c, int i) -> std::vector<std::string> {
-        if(c==0&&i==6) return {"photo","plain","pattern"};
-        if(c==0&&i==8) return {"random_animated", "random_static", "animated_combined", "animated_grid", "animated_waves", "animated_dots", "animated_circles", "animated_crosses", "animated_triangles", "animated_squares", "animated_hexagons", "animated_fractals", "animated_polygons", "animated_rectangles", "animated_mix", "static_grid", "static_waves", "static_dots", "static_circles", "static_crosses", "static_triangles", "static_squares", "static_hexagons", "static_fractals", "static_polygons", "static_rectangles", "static_mix"};
-        if(c==0&&i==10) return {"1080p", "1440p", "2160p"};
+        if(c==0&&i==0) return {"1080p", "1440p", "2160p"};
+        if(c==0&&i==7) return {"photo","plain","pattern"};
+        if(c==0&&i==9) return {"random_animated", "random_static", "animated_combined", "animated_grid", "animated_waves", "animated_dots", "animated_circles", "animated_crosses", "animated_triangles", "animated_squares", "animated_hexagons", "animated_fractals", "animated_polygons", "animated_rectangles", "animated_mix", "static_grid", "static_waves", "static_dots", "static_circles", "static_crosses", "static_triangles", "static_squares", "static_hexagons", "static_fractals", "static_polygons", "static_rectangles", "static_mix"};
         if(c==1&&i==9) return {"main","develop"};
         if(c==4&&i==2) return {"crossfade","wipe","pixelate","dissolve","ken_burns"};
         if(c==4&&i==7) return {"pulsing","radiating","absorbing","edge_glow","aura"};

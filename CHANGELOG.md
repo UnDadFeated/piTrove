@@ -1,3 +1,8 @@
+## v13.0.7 — Display Resolution Setting Reordering (June 16, 2026)
+
+### Changed
+- **Resolution setting priority** — Repositioned the resolution selection preset to the top of the display settings category in the terminal configuration console.
+
 ## v13.0.6 — Display Resolution Selection (June 16, 2026)
 
 ### Added
