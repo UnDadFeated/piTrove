@@ -120,7 +120,8 @@ void config_wizard(const std::string& config_path) {
         {"Background Style", ENM, "Background style option (photo, plain, pattern)"},
         {"Pattern Brightness", INT, "Contrast offset for animated pattern style (0 to 150)"},
         {"Pattern Style", ENM, "Design pattern type (combined, grid, waves, dots)"},
-        {"Pattern Blend Count", INT, "Number of design patterns to blend (1 to 3)"}
+        {"Pattern Blend Count", INT, "Number of design patterns to blend (1 to 3)"},
+        {"Resolution", ENM, "Display resolution preset (1080p, 1440p, 2160p)"}
     };
     static const CI CB[] = {
         {"Media Directory", STR, "Root folder containing photos and videos"},
@@ -262,6 +263,11 @@ void config_wizard(const std::string& config_path) {
             case 7: return std::to_string(g_cfg.pattern_offset);
             case 8: return g_cfg.pattern_style;
             case 9: return std::to_string(g_cfg.pattern_blend_count);
+            case 10: {
+                if (g_cfg.screen_w == 3840 && g_cfg.screen_h == 2160) return "2160p";
+                if (g_cfg.screen_w == 2560 && g_cfg.screen_h == 1440) return "1440p";
+                return "1080p";
+            }
         }
         if (c == 1) switch(i) {
             case 0: return g_cfg.media_dir; case 1: return g_cfg.cache_dir; case 2: return g_cfg.log_dir;
@@ -388,6 +394,16 @@ void config_wizard(const std::string& config_path) {
                 case 7:{ try { int val = std::stoi(v); g_cfg.pattern_offset=std::clamp(val, 0, 150); } catch(...) {} break; }
                 case 8:g_cfg.pattern_style=v;break;
                 case 9:{ try { int val = std::stoi(v); g_cfg.pattern_blend_count=std::clamp(val, 1, 3); } catch(...) {} break; }
+                case 10: {
+                    if (v == "2160p") {
+                        g_cfg.screen_w = 3840; g_cfg.screen_h = 2160; g_cfg.max_texture_dim = 3840;
+                    } else if (v == "1440p") {
+                        g_cfg.screen_w = 2560; g_cfg.screen_h = 1440; g_cfg.max_texture_dim = 2560;
+                    } else {
+                        g_cfg.screen_w = 1920; g_cfg.screen_h = 1080; g_cfg.max_texture_dim = 1920;
+                    }
+                    break;
+                }
             }
             else if(c==1) switch(i){
                 case 0:g_cfg.media_dir=v;break; case 1:g_cfg.cache_dir=v;break; case 2:g_cfg.log_dir=v;break;
@@ -517,6 +533,7 @@ void config_wizard(const std::string& config_path) {
     auto enums = [&](int c, int i) -> std::vector<std::string> {
         if(c==0&&i==6) return {"photo","plain","pattern"};
         if(c==0&&i==8) return {"random_animated", "random_static", "animated_combined", "animated_grid", "animated_waves", "animated_dots", "animated_circles", "animated_crosses", "animated_triangles", "animated_squares", "animated_hexagons", "animated_fractals", "animated_polygons", "animated_rectangles", "animated_mix", "static_grid", "static_waves", "static_dots", "static_circles", "static_crosses", "static_triangles", "static_squares", "static_hexagons", "static_fractals", "static_polygons", "static_rectangles", "static_mix"};
+        if(c==0&&i==10) return {"1080p", "1440p", "2160p"};
         if(c==1&&i==9) return {"main","develop"};
         if(c==4&&i==2) return {"crossfade","wipe","pixelate","dissolve","ken_burns"};
         if(c==4&&i==7) return {"pulsing","radiating","absorbing","edge_glow","aura"};
