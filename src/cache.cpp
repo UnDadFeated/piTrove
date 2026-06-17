@@ -189,6 +189,10 @@ bool CacheManager::load_cached(MediaItem& mi) {
 void CacheManager::upsert(const MediaItem& mi, int bad, int preprocessed) {
     if (!stmt_upsert) return;
 
+    // NOTE: Resolving mutable fields (is_camera, creation_time) involves slow disk/CIFS I/O.
+    // We intentionally perform this resolution BEFORE locking db_mutex so that network or filesystem latency
+    // does not block database access for other threads. This is safe because MediaItem instances are
+    // thread-confined (thread-local or locked at higher scope) during metadata resolution.
     if (mi.is_camera == -1 && !in_transaction && mi.type == "image" && bad == 0) {
         mi.is_camera = ImageLoader::has_camera_exif(mi.path.c_str()) ? 1 : 0;
     }
