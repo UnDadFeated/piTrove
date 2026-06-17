@@ -182,7 +182,6 @@ bool Renderer::init(int w, int h, bool fullscreen) {
 
 void Renderer::cleanup() {
     g_logger.info("[TRACE] Renderer::cleanup");
-    static bool already_cleaned = false;
     if (already_cleaned) return;
     already_cleaned = true;
     cleanup_splash();

@@ -690,6 +690,7 @@ static void mark_item_shown(const std::string& path, bool lock_playlist) {
     }
 }
 
+// Callers MUST hold g_playlist_mtx lock prior to invoking advance_playlist
 static void advance_playlist(int step) {
     if (g_eligible.empty()) return;
     
@@ -762,7 +763,6 @@ static void watchman_loop() {
                 g_logger.warn("Watchman: System is in Offline Recovery Mode. Skipping midnight temporal window shift.");
                 continue;
             }
-            g_logger.info("Watchman: Midnight detected! Shifting temporal window. Old day=%d, New day=%d", last_yday, curr_tm.tm_yday);
             
             // Validate media directory readability and accessibility to handle network drops gracefully
             std::string media_dir;
@@ -780,9 +780,10 @@ static void watchman_loop() {
                 continue;
             }
 
+            int old_yday = last_yday;
             last_yday = curr_tm.tm_yday;
             
-            g_logger.info("Watchman: Midnight detected! Shifting temporal window. Old day=%d, New day=%d", last_yday, curr_tm.tm_yday);
+            g_logger.info("Watchman: Midnight detected! Shifting temporal window. Old day=%d, New day=%d", old_yday, last_yday);
             g_logger.info("Watchman: Starting background media scan for shifted seasonal window...");
             
             std::vector<MediaItem> scanned;
