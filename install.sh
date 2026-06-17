@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# install.sh — piTrove v13.0.9 Premium Graphical Installer
+# install.sh — piTrove v13.0.10 Premium Graphical Installer
 # Target: Debian Trixie (13) 64-bit on Raspberry Pi 4/5
 
 set -eo pipefail
@@ -43,7 +43,7 @@ draw_line() {
 }
 
 banner() {
-    clear
+    clear 2>/dev/null || true
     echo -e "${CYAN}╔════════════════════════════════════════════════════════════════╗${NC}"
     echo -e "${CYAN}║${NC}  ${BOLD}${WHITE}                    piTrove Installation                    ${NC}  ${CYAN}║${NC}"
     echo -e "${CYAN}║${NC}  ${MAGENTA}               The Ultra-Premium Picture Frame              ${NC}  ${CYAN}║${NC}"
@@ -107,24 +107,42 @@ run_with_spinner() {
     shift
     local log_file="/tmp/pitrove_cmd_$((100 + RANDOM % 900)).log"
     
-    "$@" > "$log_file" 2>&1 &
-    local pid=$!
-    
-    show_spinner "$pid" "$label"
-    
-    wait "$pid"
-    local status=$?
-    if [[ "$status" -ne 0 ]]; then
-        echo -e "   ${RED}[ ✘ ]  ${label} failed!${NC}"
-        echo -e "   ${YELLOW}─────── LAST 15 LINES OF LOG: ───────${NC}"
-        tail -n 15 "$log_file" | sed 's/^/   /'
-        echo -e "   ${YELLOW}─────────────────────────────────────${NC}"
-        fail "${label} failed with exit code ${status}. Check ${log_file} for details."
+    if [[ "${IS_CRON:-0}" -eq 1 ]] || [[ ! -t 1 ]]; then
+        # Running under cron or non-interactive context, run directly without spinner
+        "$@" > "$log_file" 2>&1
+        local status=$?
+        if [[ "$status" -ne 0 ]]; then
+            echo -e "   ${RED}[ ✘ ]  ${label} failed!${NC}"
+            echo -e "   ${YELLOW}─────── LAST 15 LINES OF LOG: ───────${NC}"
+            tail -n 15 "$log_file" | sed 's/^/   /'
+            echo -e "   ${YELLOW}─────────────────────────────────────${NC}"
+            fail "${label} failed with exit code ${status}. Check ${log_file} for details."
+        else
+            ok "${label} completed successfully"
+            rm -f "$log_file"
+        fi
     else
-        ok "${label} completed successfully"
-        rm -f "$log_file"
+        # Interactive mode, show spinner
+        "$@" > "$log_file" 2>&1 &
+        local pid=$!
+        
+        show_spinner "$pid" "$label"
+        
+        wait "$pid"
+        local status=$?
+        if [[ "$status" -ne 0 ]]; then
+            echo -e "   ${RED}[ ✘ ]  ${label} failed!${NC}"
+            echo -e "   ${YELLOW}─────── LAST 15 LINES OF LOG: ───────${NC}"
+            tail -n 15 "$log_file" | sed 's/^/   /'
+            echo -e "   ${YELLOW}─────────────────────────────────────${NC}"
+            fail "${label} failed with exit code ${status}. Check ${log_file} for details."
+        else
+            ok "${label} completed successfully"
+            rm -f "$log_file"
+        fi
     fi
 }
+
 
 # ── Compilation Progress Bar Monitor ───────────────────────────────────────────
 run_compilation_with_progress() {
@@ -200,8 +218,14 @@ run_compilation_with_progress() {
 # ── Render Initial Screen ─────────────────────────────────────────────────────
 banner
 
-# 1. Detect primary user (fallback if UID 1000 is modified)
-PRIMARY_USER=$(getent passwd 1000 | cut -d: -f1 || true)
+# 1. Detect primary user (fallback if UID 1000 is modified or in non-interactive/cron contexts)
+SCRIPT_OWNER=$(stat -c '%U' "$0" 2>/dev/null || true)
+if [[ -n "$SCRIPT_OWNER" && "$SCRIPT_OWNER" != "root" ]]; then
+    PRIMARY_USER="$SCRIPT_OWNER"
+else
+    PRIMARY_USER=$(getent passwd 1000 | cut -d: -f1 || true)
+fi
+
 if [[ -z "$PRIMARY_USER" ]]; then
     PRIMARY_USER=$(logname 2>/dev/null || echo $USER)
 fi
@@ -211,6 +235,7 @@ if [[ "$PRIMARY_USER" == "root" ]]; then
 fi
 PRIMARY_HOME="/home/$PRIMARY_USER"
 info "Primary user: ${BOLD}${WHITE}$PRIMARY_USER${NC} (${CYAN}$PRIMARY_HOME${NC})"
+
 
 # Root check
 if [[ "$(id -u)" -ne 0 ]]; then
@@ -1470,7 +1495,7 @@ if [[ -f "$BOOTSTRAP" ]]; then
 fi
 
 # ── Successful Completion Dashboard ───────────────────────────────────────────
-clear
+clear 2>/dev/null || true
 banner
 
 print_success_card() {
