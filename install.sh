@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# install.sh — piTrove v13.0.10 Premium Graphical Installer
+# install.sh — piTrove v13.1.0 Premium Graphical Installer
 # Target: Debian Trixie (13) 64-bit on Raspberry Pi 4/5
 
 set -eo pipefail

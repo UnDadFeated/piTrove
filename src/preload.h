@@ -41,14 +41,11 @@ struct PreloadedItem {
     PreloadedItem& operator=(const PreloadedItem&) = delete;
 };
 
-class PreloadQueue {
-private:
-    // List of preloaded items waiting for VRAM upload on main thread
+struct PreloadState {
     std::vector<PreloadedItem> loaded_items;
     std::mutex queue_mutex;
     std::condition_variable queue_cv;
 
-    // Queue of paths that need to be preloaded
     std::queue<std::string> work_queue;
     std::unordered_set<std::string> active_preloads;
     std::mutex work_mutex;
@@ -56,10 +53,17 @@ private:
 
     int max_size;
     std::atomic<bool> running{false};
+    uint64_t current_epoch = 0;
+
+    PreloadState(int max_size) : max_size(max_size) {}
+};
+
+class PreloadQueue {
+private:
+    std::shared_ptr<PreloadState> state;
     int num_threads;
     std::vector<std::thread> threads;
     SDL_Renderer* sdl_renderer;
-    uint64_t current_epoch = 0;
 
 public:
     PreloadQueue(int max_size, int num_threads, SDL_Renderer* sdl_renderer);
@@ -78,7 +82,7 @@ public:
     void cancel_all();
 
 private:
-    void worker_thread(int thread_id);
+    static void worker_thread(std::shared_ptr<PreloadState> state, int thread_id);
 };
 
 #endif // PITROVE_PRELOAD_H

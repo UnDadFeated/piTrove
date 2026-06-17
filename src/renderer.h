@@ -83,6 +83,7 @@ public:
 
 private:
     float read_sys_f(const char* path, float divisor);
+    bool already_cleaned{false};
 
 };
 

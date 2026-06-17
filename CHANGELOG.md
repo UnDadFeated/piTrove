@@ -1,3 +1,11 @@
+## v13.1.0 — Code Stability & Safety Upgrades (June 16, 2026)
+
+### Fixed
+- **Thread lifetime and safety** — Redesigned background queue thread synchronization to manage execution state within a shared context block, preventing potential lifetime issues and shutdown crashes when background tasks are active.
+- **Cleanup routines** — Corrected the cleanup tracking guard to be instance-specific rather than process-global, preventing issues when closing and restarting subsystems.
+- **Midnight temporal scans** — Optimized the midnight transition scanning logging to prevent premature output and ensure accurate day change logs.
+- **Database access resilience** — Documented and clarified cache manager metadata resolution strategies to maintain non-blocking database queries.
+
 ## v13.0.10 — Auto-Update & Scheduled Task Stability (June 16, 2026)
 
 ### Fixed
