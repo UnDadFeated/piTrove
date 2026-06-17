@@ -1,3 +1,9 @@
+## v13.0.10 — Auto-Update & Scheduled Task Stability (June 16, 2026)
+
+### Fixed
+- **Scheduled background updates** — Resolved a script permission and terminal initialization issue that caused daily auto-update cron jobs to fail with permission errors or abort due to missing terminal contexts.
+- **System user detection** — Hardened the primary user resolution path to support systems running under background schedulers with non-standard configurations.
+
 ## v13.0.9 — Startup Performance Optimization (June 16, 2026)
 
 ### Fixed
