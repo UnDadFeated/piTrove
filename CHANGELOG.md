@@ -1,3 +1,8 @@
+## v13.2.3 — Automatic Network Recovery Reboot Reliability (June 18, 2026)
+
+### Fixed
+- **System no longer left disconnected after automatic network recovery reboot** — When the network recovery system triggered an automatic reboot due to extended disconnection, the hard kernel reboot bypassed the init system, preventing the container from starting on its own afterward. The system now uses the proper init system reboot mechanism, ensuring the container starts automatically and the Pi regains full network connectivity after reboot.
+
 ## v13.2.2 — Network Recovery Stability (June 17, 2026)
 
 ### Fixed
