@@ -106,6 +106,16 @@ void terminate_handler();
 void set_display_power(bool power);
 bool set_interface_status(const std::string& iface, bool up);
 
+// WiFi diagnostics
+struct WifiStats {
+    int quality = -1;       // 0-255 scale (link quality)
+    int signal_dbm = -129;  // Signal level in dBm
+    int noise_dbm = -129;   // Noise level in dBm
+    unsigned long missed_beacons = 0;
+    bool has_data = false;
+};
+[[nodiscard]] WifiStats read_wifi_stats(const std::string& iface = "wlan0");
+
 // System diagnostics and file path helpers
 [[nodiscard]] std::string get_exe_dir();
 [[nodiscard]] bool file_exists(const std::string& path);
