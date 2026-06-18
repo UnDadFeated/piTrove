@@ -181,7 +181,7 @@ WifiStats read_wifi_stats(const std::string& iface) {
             // Format: <iface>: <status> <link> <level> <noise> ...
             int link = -1, level = -129, noise = -129;
             unsigned long missed = 0;
-            if (sscanf(line, "%*s %*x %d %d %d %*u %*u %*u %*u %*u %lu",
+            if (sscanf(line, "%*s %*x %d %d %d %*u %*u %*u %*u %*u %*u %lu",
                        &link, &level, &noise, &missed) >= 3) {
                 stats.quality = link;
                 stats.signal_dbm = level;
