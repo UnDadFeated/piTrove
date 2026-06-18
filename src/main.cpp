@@ -963,7 +963,13 @@ static void keepalive_loop() {
         int res = ::system(cmd.c_str());
         if (res == 0) {
             if (network_lost_time != 0) {
-                g_logger.info("Keepalive: Gateway %s is reachable again. Connection restored.", gateway.c_str());
+                WifiStats ws = read_wifi_stats(interface);
+                if (ws.has_data) {
+                    g_logger.info("Keepalive: Gateway %s is reachable again. WiFi: quality=%d/%d, signal=%ddBm, noise=%ddBm.",
+                                  gateway.c_str(), ws.quality, 255, ws.signal_dbm, ws.noise_dbm);
+                } else {
+                    g_logger.info("Keepalive: Gateway %s is reachable again. Connection restored.", gateway.c_str());
+                }
                 network_lost_time = 0;
                 last_wifi_reset_time = 0;
             }
@@ -972,8 +978,14 @@ static void keepalive_loop() {
             if (network_lost_time == 0) {
                 network_lost_time = now;
                 last_wifi_reset_time = now;
-                g_logger.warn("Keepalive: Gateway %s is unreachable (ping returned %d). Start tracking downtime.", 
-                              gateway.c_str(), res);
+                WifiStats ws = read_wifi_stats(interface);
+                if (ws.has_data) {
+                    g_logger.warn("Keepalive: Gateway %s is unreachable (ping returned %d). WiFi: quality=%d/%d, signal=%ddBm, noise=%ddBm, missed_beacons=%lu.",
+                                  gateway.c_str(), res, ws.quality, 255, ws.signal_dbm, ws.noise_dbm, ws.missed_beacons);
+                } else {
+                    g_logger.warn("Keepalive: Gateway %s is unreachable (ping returned %d). Start tracking downtime.",
+                                  gateway.c_str(), res);
+                }
             }
             
             int64_t offline_duration = now - network_lost_time;
@@ -1048,6 +1060,12 @@ static void keepalive_loop() {
                     }
                 } else {
                     g_logger.info("Keepalive: Re-associated to access point via %s.", interface.c_str());
+                }
+                // Log WiFi signal state after recovery attempt
+                WifiStats ws2 = read_wifi_stats(interface);
+                if (ws2.has_data) {
+                    g_logger.info("Keepalive: Post-recovery WiFi: quality=%d/%d, signal=%ddBm, noise=%ddBm, missed_beacons=%lu.",
+                                  ws2.quality, 255, ws2.signal_dbm, ws2.noise_dbm, ws2.missed_beacons);
                 }
             }
         }
