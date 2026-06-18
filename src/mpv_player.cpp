@@ -167,6 +167,7 @@ bool MpvPlayer::play(const std::string& path, int volume) {
     g_logger.info("VIDEO_PLAY: Launching mpv with dynamic core limit: %s, connector: %s, audio_device: %s",
                   threads_arg, connector_arg.c_str(), audio_arg.empty() ? "default" : audio_arg.c_str());
 
+    prefetch_video(path);
     pid_t pid = fork();
     if (pid == 0) {
         // Child Process: close inherited parent descriptors and execute mpv
@@ -259,6 +260,7 @@ bool MpvPlayer::play(const std::string& path, int volume) {
 
     // Fork failed: reclaim DRM master right away
     g_logger.error("VIDEO_PLAY: Forking child process failed: %s", std::strerror(errno));
+    trigger_error(226); // E226: VIDEO_FORK_FAILED
     if (drm_fd >= 0) {
         drmSetMaster(drm_fd);
     }

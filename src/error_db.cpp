@@ -311,6 +311,12 @@ std::vector<ErrorSeed> get_all_error_seeds() {
             "The configured font size is extremely large or small and was clamped.",
             "Adjust the font size parameters in config.toml to match standard values (12-72pt)."
         },
+        {
+            "E226",
+            "VIDEO_FORK_FAILED",
+            "The system failed to spawn the video player subprocess due to a process creation error.",
+            "Check system process limits (ulimit -u) and available memory. Restart the container if the issue persists."
+        },
 
         // --- Cloud Integration Layers (E300s) ---
         {
@@ -641,6 +647,12 @@ std::vector<ErrorSeed> get_all_error_seeds() {
             "The Raspberry Pi firmware is outdated and could cause EGL/DRM bugs.",
             "Run sudo rpi-update on the host to update system firmware."
         },
+        {
+            "E519",
+            "NETWORK_RECOVERY_REBOOT",
+            "The system has been disconnected from the network for over 5 minutes and is initiating an automatic recovery reboot.",
+            "Check your router, Wi-Fi adapter, and network cables. Ensure the device is within range of the access point."
+        },
 
         // --- Graphic Pipeline & Framebuffer Layers (E600s) ---
         {
@@ -916,6 +928,12 @@ std::vector<ErrorSeed> get_all_error_seeds() {
             "SEASONAL_WINDOW_FALLBACK",
             "No date prefixes (YYYY-MM-DD_) detected on folders or filenames.",
             "Fallback to file creation/modification dates is active."
+        },
+        {
+            "E809",
+            "WATCHDOG_FORCED_RESTART",
+            "The rendering loop froze and the internal watchdog forced an emergency restart.",
+            "Check for GPU/EGL driver issues or extremely large image files that stall decoding."
         }
     };
 }
