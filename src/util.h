@@ -1,7 +1,7 @@
 #ifndef PITROVE_UTIL_H
 #define PITROVE_UTIL_H
 
-#define VERSION "13.2.0"
+#define VERSION "13.2.1"
 #define APP_NAME "piTrove"
 
 #include <atomic>
@@ -113,6 +113,7 @@ bool set_interface_status(const std::string& iface, bool up);
 [[nodiscard]] bool is_media_dir_healthy(const std::string& media_dir);
 [[nodiscard]] bool is_nas_online();
 void check_network_status();
+void prefetch_video(const std::string& path);
 
 
 

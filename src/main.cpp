@@ -2230,8 +2230,10 @@ int main(int argc, char** argv) {
                 SDL_Delay(50); continue;
             }
             if (transitioning) {
-                // Wait for the transition to finish rendering before launching mpv.
-                // Proceed to the image rendering path which handles active transition.
+                transitioning = false;
+                if (g_transition) g_transition->reset();
+                if (transition_prev_target) { SDL_DestroyTexture(transition_prev_target); transition_prev_target = nullptr; }
+                if (transition_next_target) { SDL_DestroyTexture(transition_next_target); transition_next_target = nullptr; }
             } else {
                 int volume;
                 { std::lock_guard lock(g_config_mtx); volume = g_cfg.video_volume; }
@@ -2732,6 +2734,17 @@ int main(int argc, char** argv) {
                             if (g_eligible[lookahead_idx2].type == "image") {
                                 g_preload->enqueue(g_eligible[lookahead_idx2].path);
                             }
+                        }
+                    }
+                }
+
+                // Prefetch upcoming video files into OS page cache
+                if (!g_eligible.empty()) {
+                    int scan_start = current_idx + (current_twin_data ? 2 : 1);
+                    for (int i = 0; i < 5 && i < (int)g_eligible.size(); i++) {
+                        int vi = (scan_start + i) % (int)g_eligible.size();
+                        if (g_eligible[vi].type == "video") {
+                            prefetch_video(g_eligible[vi].path);
                         }
                     }
                 }
