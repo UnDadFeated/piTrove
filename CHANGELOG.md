@@ -1,3 +1,12 @@
+## v13.2.2 — Network Recovery Stability (June 17, 2026)
+
+### Fixed
+- **WiFi radio no longer power-cycled during network recovery** — The automatic network recovery system was physically turning off the WiFi radio hardware when it detected a transient connection glitch. This severed active CIFS mounts mid-flight, leaving them in a permanently stale state and turning a brief dropout into a full outage. Recovery now uses gentle AP re-association and interface cycling instead, keeping the radio hardware powered on and CIFS connections intact.
+
+### Changed
+- **Faster automatic reboot after extended disconnection** — The system now reboots after 3 minutes of continuous network loss instead of 5, reducing downtime when gentle recovery fails.
+- **Faster network monitoring when offline** — The connection monitor checks the gateway every 15 seconds while the network is down (instead of every 2 minutes), allowing the system to detect recovery and resume slideshows more quickly.
+
 ## v13.2.1 — Seamless Video Transitions & Prefetch Caching (June 18, 2026)
 
 ### Fixed
