@@ -650,7 +650,7 @@ std::vector<ErrorSeed> get_all_error_seeds() {
         {
             "E519",
             "NETWORK_RECOVERY_REBOOT",
-            "The system has been disconnected from the network for over 5 minutes and is initiating an automatic recovery reboot.",
+            "The system has been disconnected from the network for over 3 minutes and is initiating an automatic recovery reboot.",
             "Check your router, Wi-Fi adapter, and network cables. Ensure the device is within range of the access point."
         },
 

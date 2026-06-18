@@ -952,7 +952,9 @@ static void keepalive_loop() {
     int64_t last_wifi_reset_time = 0;
                   
     while (g_keepalive_running.load() && g_running.load()) {
-        for (int i = 0; i < interval_secs && g_keepalive_running.load() && g_running.load(); ++i) {
+        // Poll faster (every 15 seconds) when network is down to catch recovery sooner
+        int poll_secs = (network_lost_time == 0) ? interval_secs : 15;
+        for (int i = 0; i < poll_secs && g_keepalive_running.load() && g_running.load(); ++i) {
             std::this_thread::sleep_for(std::chrono::seconds(1));
         }
         if (!g_keepalive_running.load() || !g_running.load()) break;
@@ -978,9 +980,9 @@ static void keepalive_loop() {
             g_logger.warn("Keepalive: Network is offline. Duration: %d seconds. Interface: %s", 
                           (int)offline_duration, interface.c_str());
             
-            // Check for 5-minute (300 seconds) timeout to force host reboot
-            if (offline_duration >= 300) {
-                g_logger.error("Keepalive: CRITICAL: Gateway unreachable for %d seconds (>= 5 minutes). Forcing system reboot...", 
+            // Check for 3-minute (180 seconds) timeout to force host reboot
+            if (offline_duration >= 180) {
+                g_logger.error("Keepalive: CRITICAL: Gateway unreachable for %d seconds (>= 3 minutes). Forcing system reboot...", 
                                (int)offline_duration);
                 trigger_error(519);
 
@@ -1025,22 +1027,27 @@ static void keepalive_loop() {
                 break;
             }
             
-            // Attempt Wi-Fi Radio Reset every 60 seconds
+            // Attempt network recovery every 60 seconds
             if (now - last_wifi_reset_time >= 60) {
                 last_wifi_reset_time = now;
-                g_logger.warn("Keepalive: Attempting NetworkManager Wi-Fi radio reset to restore connection...");
+                g_logger.warn("Keepalive: Attempting network recovery to restore connection...");
                 
-                // We run nmcli radio wifi off && sleep 2 && nmcli radio wifi on
-                // This communicates with host's NetworkManager over the shared D-Bus socket
-                [[maybe_unused]] int radio_res = ::system("nmcli radio wifi off && sleep 2 && nmcli radio wifi on >/dev/null 2>&1");
-                
-                // Fallback toggle via raw socket flag down/up
-                if (set_interface_status(interface, false)) {
-                    g_logger.info("Keepalive: Fallback: Interface %s set DOWN.", interface.c_str());
-                    std::this_thread::sleep_for(std::chrono::seconds(2));
-                    if (set_interface_status(interface, true)) {
-                        g_logger.info("Keepalive: Fallback: Interface %s set UP.", interface.c_str());
+                // Step 1: Re-associate with access point via NetworkManager (gentle — no radio hardware kill)
+                // This is safe because nmcli device connect triggers re-association without power-cycling the radio,
+                // which would sever CIFS mounts mid-flight and leave them in a permanently stale state.
+                [[maybe_unused]] int nm_res = ::system(("nmcli device connect " + interface + " >/dev/null 2>&1").c_str());
+                if (nm_res != 0) {
+                    // Step 2: Interface cycle via raw socket ioctl (still does NOT touch radio hardware)
+                    g_logger.warn("Keepalive: nmcli reconnect failed, cycling interface %s.", interface.c_str());
+                    if (set_interface_status(interface, false)) {
+                        g_logger.info("Keepalive: Interface %s set DOWN.", interface.c_str());
+                        std::this_thread::sleep_for(std::chrono::seconds(2));
+                        if (set_interface_status(interface, true)) {
+                            g_logger.info("Keepalive: Interface %s set UP.", interface.c_str());
+                        }
                     }
+                } else {
+                    g_logger.info("Keepalive: Re-associated to access point via %s.", interface.c_str());
                 }
             }
         }
