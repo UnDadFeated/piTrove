@@ -909,12 +909,14 @@ static void watchdog_loop() {
         int64_t max_silent_time = std::max((int64_t)45, (int64_t)(delay * 3));
         if (now - last_heartbeat > max_silent_time) {
             g_logger.error("[WATCHDOG] CRITICAL: Slideshow loop frozen! Last heartbeat was %d seconds ago. Forcing restart...", (int)(now - last_heartbeat));
+            trigger_error(809); // E809: WATCHDOG_FORCED_RESTART
             // Restore physical display power before exiting
             int fd = open("/sys/class/graphics/fb0/blank", O_WRONLY);
             if (fd >= 0) {
                 (void)write(fd, "0", 1);
                 close(fd);
             }
+            sync();
             _exit(99); // Force exit immediately to let Docker compose restart us
         }
     }
@@ -980,16 +982,33 @@ static void keepalive_loop() {
             if (offline_duration >= 300) {
                 g_logger.error("Keepalive: CRITICAL: Gateway unreachable for %d seconds (>= 5 minutes). Forcing system reboot...", 
                                (int)offline_duration);
-                // Flush logs
+                trigger_error(519);
+
+                sync();
                 std::this_thread::sleep_for(std::chrono::seconds(2));
-                
-                // Attempt system reboot via D-Bus / systemctl
-                [[maybe_unused]] int reb_res = ::system("systemctl reboot >/dev/null 2>&1 || reboot >/dev/null 2>&1");
-                
-                // Fallback to SysRq if D-Bus is unresponsive or systemd is not working
-                std::this_thread::sleep_for(std::chrono::seconds(5));
-                g_logger.error("Keepalive: D-Bus/reboot failed. Initiating hard SysRq kernel reboot...");
-                
+
+                // Double-fork daemonized reboot so it survives app SIGTERM
+                pid_t reboot_pid = fork();
+                if (reboot_pid == 0) {
+                    setsid();
+                    reboot_pid = fork();
+                    if (reboot_pid == 0) {
+                        for (int i = 3; i < 256; ++i) close(i);
+                        execlp("systemctl", "systemctl", "reboot", (char*)nullptr);
+                        execlp("reboot", "reboot", (char*)nullptr);
+                        _exit(127);
+                    }
+                    _exit(0);
+                }
+                if (reboot_pid > 0) {
+                    int st;
+                    waitpid(reboot_pid, &st, 0);
+                }
+
+                std::this_thread::sleep_for(std::chrono::seconds(10));
+
+                g_logger.error("Keepalive: Graceful reboot did not execute. Initiating hard SysRq kernel reboot...");
+                sync();
                 int fd_rq = open("/proc/sys/kernel/sysrq", O_WRONLY);
                 if (fd_rq >= 0) {
                     (void)write(fd_rq, "1", 1);
@@ -1000,9 +1019,10 @@ static void keepalive_loop() {
                     (void)write(fd_trig, "b", 1);
                     close(fd_trig);
                 }
-                
-                // Block forever if SysRq is loading
-                while (true) { std::this_thread::sleep_for(std::chrono::seconds(1)); }
+
+                // Allow thread to exit — no infinite loop, let main thread join us
+                g_keepalive_running.store(false);
+                break;
             }
             
             // Attempt Wi-Fi Radio Reset every 60 seconds
@@ -2182,9 +2202,16 @@ int main(int argc, char** argv) {
         }
 
         // --- Video Player Handling ---
+        if (g_eligible.empty()) {
+            playlist_lock.unlock();
+            SDL_Delay(200);
+            continue;
+        }
+        if (current_idx < 0 || current_idx >= (int)g_eligible.size()) {
+            current_idx = 0;
+        }
         if (g_eligible[current_idx].type == "video") {
             if (g_mpv_player.is_active()) {
-                // Peek if the next item is a video
                 int next_idx = (current_idx + 1) % (int)g_eligible.size();
                 bool next_is_video = (g_eligible[next_idx].type == "video");
 
@@ -2203,8 +2230,10 @@ int main(int argc, char** argv) {
                 SDL_Delay(50); continue;
             }
             if (transitioning) {
-                // Wait for the transition to finish rendering before launching mpv.
-                // Proceed to the image rendering path which handles active transition.
+                transitioning = false;
+                if (g_transition) g_transition->reset();
+                if (transition_prev_target) { SDL_DestroyTexture(transition_prev_target); transition_prev_target = nullptr; }
+                if (transition_next_target) { SDL_DestroyTexture(transition_next_target); transition_next_target = nullptr; }
             } else {
                 int volume;
                 { std::lock_guard lock(g_config_mtx); volume = g_cfg.video_volume; }
@@ -2363,10 +2392,11 @@ int main(int argc, char** argv) {
                     g_transition->update(dt_scaled);
                     g_transition->render(transition_prev_target, transition_next_target, g_renderer.screen_w, g_renderer.screen_h);
                     if (g_overlay) {
+                        bool cur_is_video = (!g_eligible.empty() && current_idx >= 0 && current_idx < (int)g_eligible.size() && g_eligible[current_idx].type == "video");
                         g_overlay->draw_all(current_idx, (int)g_eligible.size(),
                             &g_eligible[current_idx],
                             next_twin_data ? &g_eligible[(current_idx + 1) % (int)g_eligible.size()] : nullptr,
-                            0.0, false, active_fps, next_data ? next_data.get() : nullptr, next_twin_data ? next_twin_data.get() : nullptr);
+                            0.0, cur_is_video, active_fps, next_data ? next_data.get() : nullptr, next_twin_data ? next_twin_data.get() : nullptr);
                     }
                     g_renderer.present();
 
@@ -2680,10 +2710,11 @@ int main(int argc, char** argv) {
 
             if (rendered) {
                 if (g_overlay) {
+                    bool cur_is_video = (!g_eligible.empty() && current_idx >= 0 && current_idx < (int)g_eligible.size() && g_eligible[current_idx].type == "video");
                     g_overlay->draw_all(current_idx, (int)g_eligible.size(),
                         &g_eligible[current_idx],
                         current_twin_data ? &g_eligible[(current_idx + 1) % (int)g_eligible.size()] : nullptr,
-                        item_timer, false, active_fps, current_data.get(), current_twin_data.get());
+                        item_timer, cur_is_video, active_fps, current_data.get(), current_twin_data.get());
                 }
                 g_renderer.present();
             }
@@ -2703,6 +2734,17 @@ int main(int argc, char** argv) {
                             if (g_eligible[lookahead_idx2].type == "image") {
                                 g_preload->enqueue(g_eligible[lookahead_idx2].path);
                             }
+                        }
+                    }
+                }
+
+                // Prefetch upcoming video files into OS page cache
+                if (!g_eligible.empty()) {
+                    int scan_start = current_idx + (current_twin_data ? 2 : 1);
+                    for (int i = 0; i < 5 && i < (int)g_eligible.size(); i++) {
+                        int vi = (scan_start + i) % (int)g_eligible.size();
+                        if (g_eligible[vi].type == "video") {
+                            prefetch_video(g_eligible[vi].path);
                         }
                     }
                 }

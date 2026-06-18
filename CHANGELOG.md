@@ -1,3 +1,28 @@
+## v13.2.1 — Seamless Video Transitions & Prefetch Caching (June 18, 2026)
+
+### Fixed
+- **Black screen flash before video playback** — Eliminated the black screen gap that appeared between the last photo and the start of a video. The previous photo now stays on screen during the display handoff, and the video player takes over directly without any blank frame.
+- **Black screen flash after video playback** — Removed the hard black clear that flashed between the end of a video and the next photo's transition.
+
+### Added
+- **Background video prefetch caching** — The system now proactively warms the operating system's file cache for upcoming video files in the playlist, scanning ahead several items and pre-fetching the first portion of each video into memory. This significantly reduces the time the video player waits for the first frame to arrive from network-attached storage, enabling near-instant video start on the first displayed frame.
+
+## v13.2.0 — Crash Fix & Automatic Network Recovery (June 18, 2026)
+
+### Fixed
+- **App crash during video playback over network drops** — Resolved a critical issue where the app would silently exit to the terminal while playing a video during a Wi-Fi dropout. The automatic network recovery reboot was failing to reach the host system from inside the container, leaving the device disconnected and requiring a manual reboot. The recovery system now properly communicates with the host to trigger a clean automatic reboot.
+- **Video countdown timer overlay** — Fixed an issue where the photo slide countdown timer (e.g., "120s remaining") would incorrectly appear overlaid on top of video playback. Videos now correctly suppress the slide timer as intended.
+- **Reboot deadlock on shutdown** — Eliminated a scenario where the network recovery reboot could block the app from shutting down cleanly, causing the process to hang indefinitely instead of restarting.
+- **Filesystem safety during recovery reboot** — All filesystem buffers are now flushed before any recovery reboot to prevent SD card corruption or cache database damage.
+- **Crash on empty playlist during video** — Added safeguards to prevent a crash if the media playlist becomes empty while a video item is being processed.
+
+### Added
+- **New diagnostic error codes** — Added E226 (video player launch failure), E519 (automatic network recovery reboot), and E809 (watchdog emergency restart) to the diagnostic overlay system for clearer troubleshooting.
+
+### Changed
+- **Container PID namespace** — The container now shares the host's process namespace, allowing the network recovery system to properly trigger host-level reboots when Wi-Fi connectivity cannot be restored automatically.
+- **Installer port documentation** — Corrected the container's exposed port from 8080 to 9000 to match the actual web dashboard port.
+
 ## v13.1.0 — Code Stability & Safety Upgrades (June 16, 2026)
 
 ### Fixed

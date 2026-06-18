@@ -110,7 +110,7 @@ COPY src/splash.png /app/src/splash.png
 COPY src/config.toml /app/src/config/config.toml
 
 # Expose HTTP control interface dashboard
-EXPOSE 8080
+EXPOSE 9000
 
 # Configure Direct-to-Framebuffer KMSDRM environment variables
 ENV HOME=/app
