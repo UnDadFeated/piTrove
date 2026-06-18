@@ -986,6 +986,18 @@ static void keepalive_loop() {
                     g_logger.warn("Keepalive: Gateway %s is unreachable (ping returned %d). Start tracking downtime.",
                                   gateway.c_str(), res);
                 }
+                
+                // Capture kernel WiFi driver logs at the moment of network loss
+                FILE* dmesg_fp = popen("dmesg --time-format iso | grep -iE 'wlan|wifi|80211|mac80211|brcm|deauth|disconn|assoc|beacon|carrier' | tail -20", "r");
+                if (dmesg_fp) {
+                    char line[512];
+                    g_logger.warn("Keepalive: === Kernel WiFi logs at network loss ===");
+                    while (fgets(line, sizeof(line), dmesg_fp)) {
+                        g_logger.warn("  %s", line);
+                    }
+                    g_logger.warn("Keepalive: === End kernel WiFi logs ===");
+                    pclose(dmesg_fp);
+                }
             }
             
             int64_t offline_duration = now - network_lost_time;
@@ -1000,6 +1012,18 @@ static void keepalive_loop() {
 
                 sync();
                 std::this_thread::sleep_for(std::chrono::seconds(2));
+
+                // Capture kernel WiFi driver logs right before reboot
+                FILE* dmesg_fp2 = popen("dmesg --time-format iso | grep -iE 'wlan|wifi|80211|mac80211|brcm|deauth|disconn|assoc|beacon|carrier' | tail -30", "r");
+                if (dmesg_fp2) {
+                    char line[512];
+                    g_logger.error("Keepalive: === Kernel WiFi logs pre-reboot ===");
+                    while (fgets(line, sizeof(line), dmesg_fp2)) {
+                        g_logger.error("  %s", line);
+                    }
+                    g_logger.error("Keepalive: === End kernel WiFi logs ===");
+                    pclose(dmesg_fp2);
+                }
 
                 // Trigger reboot via systemctl (shares host PID namespace)
                 int res = system("systemctl reboot");
