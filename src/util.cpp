@@ -754,3 +754,16 @@ void check_network_status() {
         }
     }
 }
+
+void prefetch_video(const std::string& path) {
+    if (path.empty()) return;
+    int fd = open(path.c_str(), O_RDONLY | O_NONBLOCK);
+    if (fd < 0) return;
+    off_t file_size = lseek(fd, 0, SEEK_END);
+    if (file_size <= 0) { close(fd); return; }
+    lseek(fd, 0, SEEK_SET);
+    size_t prefetch_bytes = std::min((size_t)file_size, (size_t)(8 * 1024 * 1024));
+    posix_fadvise(fd, 0, (off_t)prefetch_bytes, POSIX_FADV_WILLNEED);
+    readahead(fd, 0, prefetch_bytes);
+    close(fd);
+}

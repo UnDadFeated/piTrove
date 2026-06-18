@@ -1,3 +1,12 @@
+## v13.2.1 — Seamless Video Transitions & Prefetch Caching (June 18, 2026)
+
+### Fixed
+- **Black screen flash before video playback** — Eliminated the black screen gap that appeared between the last photo and the start of a video. The previous photo now stays on screen during the display handoff, and the video player takes over directly without any blank frame.
+- **Black screen flash after video playback** — Removed the hard black clear that flashed between the end of a video and the next photo's transition.
+
+### Added
+- **Background video prefetch caching** — The system now proactively warms the operating system's file cache for upcoming video files in the playlist, scanning ahead several items and pre-fetching the first portion of each video into memory. This significantly reduces the time the video player waits for the first frame to arrive from network-attached storage, enabling near-instant video start on the first displayed frame.
+
 ## v13.2.0 — Crash Fix & Automatic Network Recovery (June 18, 2026)
 
 ### Fixed
