@@ -169,6 +169,33 @@ bool set_interface_status(const std::string& iface, bool up) {
     return true;
 }
 
+WifiStats read_wifi_stats(const std::string& iface) {
+    WifiStats stats;
+    std::string path = "/proc/net/wireless";
+    FILE* fp = fopen(path.c_str(), "r");
+    if (!fp) return stats;
+
+    char line[256];
+    while (fgets(line, sizeof(line), fp)) {
+        if (std::strstr(line, iface.c_str())) {
+            // Format: <iface>: <status> <link> <level> <noise> ...
+            int link = -1, level = -129, noise = -129;
+            unsigned long missed = 0;
+            if (sscanf(line, "%*s %*x %d %d %d %*u %*u %*u %*u %*u %*u %lu",
+                       &link, &level, &noise, &missed) >= 3) {
+                stats.quality = link;
+                stats.signal_dbm = level;
+                stats.noise_dbm = noise;
+                stats.missed_beacons = missed;
+                stats.has_data = true;
+            }
+            break;
+        }
+    }
+    fclose(fp);
+    return stats;
+}
+
 // System diagnostics and file path helpers
 std::string get_exe_dir() {
     char exe_buf[4096];
