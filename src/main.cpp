@@ -1001,27 +1001,13 @@ static void keepalive_loop() {
                 sync();
                 std::this_thread::sleep_for(std::chrono::seconds(2));
 
-                // Double-fork daemonized reboot so it survives app SIGTERM
-                pid_t reboot_pid = fork();
-                if (reboot_pid == 0) {
-                    setsid();
-                    reboot_pid = fork();
-                    if (reboot_pid == 0) {
-                        for (int i = 3; i < 256; ++i) close(i);
-                        execlp("systemctl", "systemctl", "reboot", (char*)nullptr);
-                        execlp("reboot", "reboot", (char*)nullptr);
-                        _exit(127);
-                    }
-                    _exit(0);
-                }
-                if (reboot_pid > 0) {
-                    int st;
-                    waitpid(reboot_pid, &st, 0);
-                }
+                // Trigger reboot via systemctl (shares host PID namespace)
+                int res = system("systemctl reboot");
 
-                std::this_thread::sleep_for(std::chrono::seconds(10));
+                std::this_thread::sleep_for(std::chrono::seconds(60));
 
-                g_logger.error("Keepalive: Graceful reboot did not execute. Initiating hard SysRq kernel reboot...");
+                g_logger.error("Keepalive: systemctl reboot did not execute (rc=%d). "
+                               "Falling back to double-fork exec reboot...", res);
                 sync();
                 int fd_rq = open("/proc/sys/kernel/sysrq", O_WRONLY);
                 if (fd_rq >= 0) {
