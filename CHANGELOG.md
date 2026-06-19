@@ -1,3 +1,8 @@
+## v13.2.4 — WiFi Crash Root Cause Diagnostics (June 18, 2026)
+
+### Added
+- **Kernel WiFi driver log capture on network loss** — When the keepalive system detects a network drop, it now captures the last 20 lines of kernel WiFi driver logs (`dmesg`) to the app log file. This records any firmware crashes, deauth events, association failures, or driver resets that may have caused the interface to go dead.
+
 ## v13.2.3 — Automatic Network Recovery Reboot Reliability (June 18, 2026)
 
 ### Fixed

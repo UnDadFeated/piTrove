@@ -988,7 +988,7 @@ static void keepalive_loop() {
                 }
                 
                 // Capture kernel WiFi driver logs at the moment of network loss
-                FILE* dmesg_fp = popen("dmesg --time-format iso | grep -iE 'wlan|wifi|80211|mac80211|brcm|deauth|disconn|assoc|beacon|carrier' | tail -20", "r");
+                FILE* dmesg_fp = popen("journalctl -k -n 200 --no-pager | grep -iE 'wlan|wifi|80211|mac80211|brcm|deauth|disconn|assoc|beacon|carrier|firmware|tx|rx|link|power|reset|scan|reconnect|pm|rate|ht|vht|chandef' | tail -20", "r");
                 if (dmesg_fp) {
                     char line[512];
                     g_logger.warn("Keepalive: === Kernel WiFi logs at network loss ===");
@@ -1013,8 +1013,8 @@ static void keepalive_loop() {
                 sync();
                 std::this_thread::sleep_for(std::chrono::seconds(2));
 
-                // Capture kernel WiFi driver logs right before reboot
-                FILE* dmesg_fp2 = popen("dmesg --time-format iso | grep -iE 'wlan|wifi|80211|mac80211|brcm|deauth|disconn|assoc|beacon|carrier' | tail -30", "r");
+                // Capture kernel WiFi driver logs right before hard reboot
+                FILE* dmesg_fp2 = popen("journalctl -k -n 200 --no-pager | grep -iE 'wlan|wifi|80211|mac80211|brcm|deauth|disconn|assoc|beacon|carrier|firmware|tx|rx|link|power|reset|scan|reconnect|pm|rate|ht|vht|chandef' | tail -30", "r");
                 if (dmesg_fp2) {
                     char line[512];
                     g_logger.error("Keepalive: === Kernel WiFi logs pre-reboot ===");
@@ -1025,13 +1025,8 @@ static void keepalive_loop() {
                     pclose(dmesg_fp2);
                 }
 
-                // Trigger reboot via systemctl (shares host PID namespace)
-                int res = system("systemctl reboot");
-
-                std::this_thread::sleep_for(std::chrono::seconds(60));
-
-                g_logger.error("Keepalive: systemctl reboot did not execute (rc=%d). "
-                               "Falling back to double-fork exec reboot...", res);
+                // Hard reboot via SysRq — bypasses systemd to fully reset WiFi firmware
+                g_logger.error("Keepalive: Initiating hard kernel reboot via SysRq 'b'...");
                 sync();
                 int fd_rq = open("/proc/sys/kernel/sysrq", O_WRONLY);
                 if (fd_rq >= 0) {
