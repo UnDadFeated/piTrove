@@ -1,3 +1,8 @@
+## v13.2.7 — Installer Permissions Update (June 19, 2026)
+
+### Fixed
+- **Installer script executable permissions** — Corrected file permissions for the installer script in the repository to ensure it is marked as executable by default when cloned or updated.
+
 ## v13.2.6 — Configuration Wizard Stability (June 19, 2026)
 
 ### Fixed
