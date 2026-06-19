@@ -1,3 +1,16 @@
+## v13.2.6 — Configuration Wizard Stability (June 19, 2026)
+
+### Fixed
+- **Configuration wizard startup crash** — Fixed a critical issue where the interactive terminal settings wizard (`pitrove config`) would terminate immediately upon startup on certain terminals before allowing any user input. The terminal input channel is now configured to wait properly for user key presses, preventing startup handshakes or window resizes from triggering premature exits.
+
+## v13.2.5 — Hard Reboot & Expanded WiFi Diagnostics (June 18, 2026)
+
+### Fixed
+- **System now performs hard reboot after extended network loss** — The previous soft reboot via `systemctl` was not sufficient to fully reset the WiFi firmware, leaving the radio dead after reboot. The system now uses the SysRq kernel reboot mechanism which properly resets all hardware including the WiFi adapter, ensuring the Pi regains full network connectivity after automatic recovery reboot.
+
+### Changed
+- **Expanded kernel WiFi log capture** — The diagnostic log capture at network loss and pre-reboot now uses `journalctl -k` with a wider filter to capture firmware crashes, driver resets, power management events, and link state changes in addition to basic interface events.
+
 ## v13.2.4 — WiFi Crash Root Cause Diagnostics (June 18, 2026)
 
 ### Added

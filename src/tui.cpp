@@ -51,7 +51,7 @@ static void set_termios_raw() {
     save_termios();
     struct termios raw = g_orig_termios;
     raw.c_lflag &= ~(ICANON | ECHO);
-    raw.c_cc[VMIN] = 0;
+    raw.c_cc[VMIN] = 1;
     raw.c_cc[VTIME] = 0;
     tcsetattr(STDIN_FILENO, TCSANOW, &raw);
 }
