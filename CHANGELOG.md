@@ -1,3 +1,12 @@
+## v13.2.8 — Terminal Configuration Stability & Compatibility (June 20, 2026)
+
+### Fixed
+- **Configuration wizard terminal resize exit** — Resolved an issue where launching the configuration wizard would cause some terminal emulators to immediately close the interface due to signal interruptions during window setup.
+- **Improved terminal keyboard compatibility** — Added support for alternate arrow key sequence configurations, enabling navigation controls to function correctly when using Windows Command Prompt or PowerShell terminal clients.
+
+### Changed
+- **Adaptive layout for standard terminals** — Lowered the minimum required window dimensions from 100 columns to 80 columns, and introduced a responsive category tab bar to prevent display wrapping on standard terminals.
+
 ## v13.2.7 — Installer Permissions Update (June 19, 2026)
 
 ### Fixed

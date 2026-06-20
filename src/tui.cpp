@@ -72,11 +72,11 @@ void config_wizard(const std::string& config_path) {
     // ── TERMINAL SIZING ──
     struct winsize w;
     std::memset(&w, 0, sizeof(w));
-    int term_cols = 100;
+    int term_cols = 80;
     if (ioctl(STDIN_FILENO, TIOCGWINSZ, &w) >= 0 && w.ws_col > 0) {
         term_cols = w.ws_col;
     }
-    if (term_cols < 100) {
+    if (term_cols < 80) {
         printf("\033[8;40;155t");
         fflush(stdout);
         std::this_thread::sleep_for(std::chrono::microseconds(100000));
@@ -84,10 +84,10 @@ void config_wizard(const std::string& config_path) {
         if (ioctl(STDIN_FILENO, TIOCGWINSZ, &w) >= 0 && w.ws_col > 0) {
             term_cols = w.ws_col;
         } else {
-            term_cols = 100;
+            term_cols = 80;
         }
     }
-    int tui_width = std::clamp(term_cols, 100, 155);
+    int tui_width = std::clamp(term_cols, 80, 155);
 
     set_termios_raw();
     printf("\033[?1049h\033[40m\033[37m\033[H\033[J");
@@ -248,6 +248,9 @@ void config_wizard(const std::string& config_path) {
         {"Advanced", CI2, sizeof(CI2)/sizeof(CI2[0])},
         {"MQTT", CMQ, sizeof(CMQ)/sizeof(CMQ[0])},
         {"GPhotos", CGP, sizeof(CGP)/sizeof(CGP[0])}
+    };
+    static const char* CAT_COMPACT[] = {
+        "Disp", "Syst", "Over", "Vids", "Slide", "Scan", "Weath", "HW", "Adv", "MQTT", "Cloud"
     };
 
     // ── DATA ACCESSORS ──
@@ -575,12 +578,12 @@ void config_wizard(const std::string& config_path) {
             cur_rows = w_curr.ws_row;
         }
 
-        tui_width = std::max(100, std::min(155, cur_cols));
+        tui_width = std::max(80, std::min(155, cur_cols));
         int name_w = 22;
         int val_w = 26;
         int desc_w = tui_width - name_w - val_w - 6;
 
-        if (cur_cols < 100 || cur_rows < 24) {
+        if (cur_cols < 80 || cur_rows < 24) {
             int draw_cols = std::max(80, cur_cols);
             printf("\033[40m\033[37m\033[H\033[J");
             printf("\033[1;31m+"); for(int i=0; i<draw_cols-2; i++) printf("-"); printf("+\033[0m\n");
@@ -592,7 +595,7 @@ void config_wizard(const std::string& config_path) {
             char sz_buf[128];
             snprintf(sz_buf, sizeof(sz_buf), " Current Terminal size:  %dx%d", cur_cols, cur_rows);
             printf("\033[1;31m|\033[0m  %-*s\033[1;31m|\033[0m\n", draw_cols-6, sz_buf);
-            printf("\033[1;31m|\033[0m  %-*s\033[1;31m|\033[0m\n", draw_cols-6, " Minimum Required size:  100x24");
+            printf("\033[1;31m|\033[0m  %-*s\033[1;31m|\033[0m\n", draw_cols-6, " Minimum Required size:  80x24");
             printf("\033[1;31m|\033[0m  %-*s\033[1;31m|\033[0m\n", draw_cols-6, "");
             printf("\033[1;31m+"); for(int i=0; i<draw_cols-2; i++) printf("-"); printf("+\033[0m\n");
             fflush(stdout);
@@ -609,7 +612,8 @@ void config_wizard(const std::string& config_path) {
                 } else if (n == 0) {
                     run = false;
                 } else {
-                    if (errno != EAGAIN && errno != EWOULDBLOCK) {
+                    if (errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR) {
+                        fprintf(stderr, "[TUI ERROR] Exiting configuration wizard due to read error in size check: %d (%s)\n", errno, strerror(errno));
                         run = false;
                     }
                 }
@@ -644,8 +648,9 @@ void config_wizard(const std::string& config_path) {
                 // Category bar
                 printf("  ");
                 for(int i=0; i<(int)(sizeof(CATS)/sizeof(CATS[0])); i++) {
-                    if(i==sel) printf("\033[30;43m %s \033[0m  ", CATS[i].n);
-                    else printf("\033[1;37m%s\033[0m  ", CATS[i].n);
+                    const char* name = (tui_width < 115) ? CAT_COMPACT[i] : CATS[i].n;
+                    if(i==sel) printf("\033[30;43m %s \033[0m  ", name);
+                    else printf("\033[1;37m%s\033[0m  ", name);
                 }
                 printf("\n\n");
 
@@ -667,8 +672,9 @@ void config_wizard(const std::string& config_path) {
                     printf("  \033[90m"); for(int i=0; i<tui_width-4; i++) printf("="); printf("\033[0m\n\n");
                     printf("  ");
                     for(int i=0; i<(int)(sizeof(CATS)/sizeof(CATS[0])); i++) {
-                        if(i==sel) printf("\033[30;43m %s \033[0m  ", CATS[i].n);
-                        else printf("\033[1;37m%s\033[0m  ", CATS[i].n);
+                        const char* name = (tui_width < 115) ? CAT_COMPACT[i] : CATS[i].n;
+                        if(i==sel) printf("\033[30;43m %s \033[0m  ", name);
+                        else printf("\033[1;37m%s\033[0m  ", name);
                     }
                     printf("\n\n");
                     y += 2;
@@ -754,7 +760,8 @@ void config_wizard(const std::string& config_path) {
         } else if (n == 0) {
             run = false;
         } else {
-            if (errno != EAGAIN && errno != EWOULDBLOCK) {
+            if (errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR) {
+                fprintf(stderr, "[TUI ERROR] Exiting configuration wizard due to read error: %d (%s)\n", errno, strerror(errno));
                 run = false;
             }
         }
@@ -811,8 +818,8 @@ void config_wizard(const std::string& config_path) {
                     break;
                 }
 
-                // Parse standard arrow keys if complete CSI sequence matches
-                if (seq_len >= 3 && input_buf[pos + 1] == '[') {
+                // Parse standard arrow keys if complete CSI or SS3 sequence matches
+                if (seq_len >= 3 && (input_buf[pos + 1] == '[' || input_buf[pos + 1] == 'O')) {
                     char last_char = input_buf[pos + seq_len - 1];
                     if (last_char == 'A' || last_char == 'B' || last_char == 'D' || last_char == 'C') {
                         int action = 0;
