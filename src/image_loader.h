@@ -10,6 +10,12 @@
 
 enum class ImageFormat { Unknown, RGBA32, RGB24, BGRA32, BGR24 };
 
+struct ImageMetadata {
+    int rotation = 1;
+    bool is_camera = false;
+    int64_t creation_time = 0;
+};
+
 // Raw decoded image data (no SDL dependency) — safe to use in worker threads
 struct RawImage {
     uint8_t* pixels = nullptr;
@@ -81,6 +87,8 @@ struct ImageData {
     RawImage blur_raw;
     // Color-matched matte color (center-average, computed in worker thread)
     uint8_t matte_r = 0, matte_g = 0, matte_b = 0;
+    bool is_camera = false;
+    int64_t creation_time = 0;
  
     ImageData() = default;
  
@@ -116,7 +124,9 @@ struct ImageData {
           blur_texture(other.blur_texture),
           avg_r(other.avg_r),
           avg_g(other.avg_g),
-          avg_b(other.avg_b) {
+          avg_b(other.avg_b),
+          is_camera(other.is_camera),
+          creation_time(other.creation_time) {
         memcpy(edge_r, other.edge_r, sizeof(edge_r));
         memcpy(edge_g, other.edge_g, sizeof(edge_g));
         memcpy(edge_b, other.edge_b, sizeof(edge_b));
@@ -132,6 +142,8 @@ struct ImageData {
         other.texture = nullptr;
         other.blur_texture = nullptr;
         other.valid = false;
+        other.is_camera = false;
+        other.creation_time = 0;
     }
  
     ImageData& operator=(ImageData&& other) noexcept {
@@ -161,10 +173,14 @@ struct ImageData {
             matte_r = other.matte_r;
             matte_g = other.matte_g;
             matte_b = other.matte_b;
+            is_camera = other.is_camera;
+            creation_time = other.creation_time;
             other.surface = nullptr;
             other.texture = nullptr;
             other.blur_texture = nullptr;
             other.valid = false;
+            other.is_camera = false;
+            other.creation_time = 0;
         }
         return *this;
     }
@@ -191,6 +207,9 @@ public:
 
     // Read EXIF orientation from a memory buffer
     static int read_exif_rotation_from_memory(const uint8_t* buffer, unsigned int size);
+
+    // Read all EXIF metadata in a single pass from memory
+    static ImageMetadata read_metadata_from_memory(const uint8_t* buffer, unsigned int size);
 
     // Helper to read a file fully into a memory buffer with checks
     static std::vector<uint8_t> read_file_to_buffer(const std::string& path);

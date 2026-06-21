@@ -168,6 +168,7 @@ void TransitionEngine::render_ken_burns(SDL_Texture* prev_tex, SDL_Texture* next
 }
 
 void TransitionEngine::render_pixelate(SDL_Texture* prev_tex, SDL_Texture* next_tex, int screen_w, int screen_h) {
+    if (screen_w <= 0 || screen_h <= 0) return;
     if (!renderer) return;
 
     SDL_Renderer* sdl = renderer->sdl_renderer;
@@ -206,6 +207,7 @@ void TransitionEngine::render_pixelate(SDL_Texture* prev_tex, SDL_Texture* next_
 }
 
 void TransitionEngine::render_dissolve(SDL_Texture* prev_tex, SDL_Texture* next_tex, int screen_w, int screen_h) {
+    if (screen_w <= 0 || screen_h <= 0) return;
     if (!renderer) return;
 
     SDL_Renderer* sdl = renderer->sdl_renderer;

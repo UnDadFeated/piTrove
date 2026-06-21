@@ -8,10 +8,10 @@ cache_dir = /home/pi/piTrove/cache
 log_dir = /home/pi/piTrove/logs
 
 [display]
-rotation = 0
+rotation = 0 # Deprecated/Ignored in Modesetting DRM pipeline
 splash_file = src/splash.png
 splash_overlay_y = 0.5
-auto_display_rotation = 1
+auto_display_rotation = 1 # Deprecated/Ignored in Modesetting DRM pipeline
 
 [slideshow]
 shuffle = 1

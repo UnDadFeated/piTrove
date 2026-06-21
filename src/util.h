@@ -8,6 +8,7 @@
 #include <string>
 #include <string_view>
 #include <vector>
+#include <chrono>
 #include <mutex>
 #include <condition_variable>
 #include <thread>
@@ -33,6 +34,8 @@ inline std::atomic<int> g_consecutive_failures{0};
 inline std::atomic<bool> g_offline_mode{false};
 inline std::atomic<int> g_active_error_code{0};
 void trigger_error(int code_num);
+void clear_error(int code_num);
+bool is_error_active(int code_num);
 
 inline std::atomic<bool> g_database_complete{false};
 inline std::string g_crash_cache_dir = "";
@@ -45,6 +48,12 @@ enum class LogLevel {
     ERROR = 3
 };
 
+struct LogMessage {
+    std::chrono::system_clock::time_point time;
+    LogLevel level;
+    std::string body;
+};
+
 struct Logger {
     LogLevel level{LogLevel::INFO};
     std::string log_dir;
@@ -53,8 +62,8 @@ struct Logger {
     // Async queue
     std::mutex queue_mtx;
     std::condition_variable cv;
-    std::vector<std::string> front_queue;
-    std::vector<std::string> back_queue;
+    std::vector<LogMessage> front_queue;
+    std::vector<LogMessage> back_queue;
     std::thread flush_thread;
     std::atomic<bool> flush_running{true};
     bool initialized{false};

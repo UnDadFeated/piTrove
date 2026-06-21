@@ -15,7 +15,7 @@ struct Config {
     int     screen_w{1920};
     int     screen_h{1080};
     bool    fullscreen{false};
-    int     rotation{0};
+    int     rotation{0}; // Deprecated/Ignored in Modesetting DRM pipeline
     double  transition_delay{120.0};
     double  transition_duration{1.5};
     std::string transition_effect{"crossfade"};
@@ -114,7 +114,7 @@ struct Config {
     int     collage_rows{2};
 
     // [display] advanced
-    bool    auto_display_rotation{false};
+    bool    auto_display_rotation{false}; // Deprecated/Ignored in Modesetting DRM pipeline
 
     // [display] border
     bool    border_enabled{true};

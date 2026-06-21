@@ -38,13 +38,16 @@ void OverlayManager::init() {
         if (!font_path.empty()) {
             g_logger.warn("Configured font_path '%s' not found, falling back to defaults", font_path.c_str());
         }
-        font_path = "/usr/share/fonts/truetype/dejavu/DejaVuSansMono-Bold.ttf";
+        font_path = "/app/src/fonts/DejaVuSansMono-Bold.ttf";
         if (!file_exists(font_path)) {
             font_path = exe_dir + "/src/fonts/DejaVuSansMono-Bold.ttf";
             if (!file_exists(font_path)) {
                 font_path = exe_dir + "/fonts/DejaVuSansMono-Bold.ttf";
                 if (!file_exists(font_path)) {
-                    font_path = "/usr/share/fonts/truetype/liberation/LiberationMono-Bold.ttf";
+                    font_path = "/usr/share/fonts/truetype/dejavu/DejaVuSansMono-Bold.ttf";
+                    if (!file_exists(font_path)) {
+                        font_path = "/usr/share/fonts/truetype/liberation/LiberationMono-Bold.ttf";
+                    }
                 }
             }
         }

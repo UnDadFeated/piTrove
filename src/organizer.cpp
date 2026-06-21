@@ -141,12 +141,17 @@ bool organize_media_archive(const std::string& root_dir, bool in_place) {
                 continue;
             }
 
-            // Resolve conflicts
             int counter = 1;
-            while (fs::exists(dest_path)) {
+            std::error_code exists_ec;
+            while (fs::exists(dest_path, exists_ec) && !exists_ec) {
                 new_filename = date_str + "_" + clean_base + "_" + std::to_string(counter) + ext;
                 dest_path = dest_dir / new_filename;
                 counter++;
+            }
+            if (exists_ec) {
+                std::cerr << "ERROR: Filesystem error checking destination existence for " << dest_path << ": " << exists_ec.message() << "\n";
+                error_count++;
+                continue;
             }
 
             moves_to_perform.push_back({src_path, dest_dir, dest_path});
@@ -161,18 +166,37 @@ bool organize_media_archive(const std::string& root_dir, bool in_place) {
 
     for (const auto& op : moves_to_perform) {
         try {
-            if (!fs::exists(op.dest_dir)) {
-                fs::create_directories(op.dest_dir);
+            std::error_code dest_dir_ec;
+            if (!fs::exists(op.dest_dir, dest_dir_ec) && !dest_dir_ec) {
+                fs::create_directories(op.dest_dir, dest_dir_ec);
+            }
+            if (dest_dir_ec) {
+                std::cerr << "ERROR: Failed to verify/create destination directory " << op.dest_dir << ": " << dest_dir_ec.message() << "\n";
+                error_count++;
+                continue;
             }
 
             // Preserve original timestamps
-            auto orig_mtime = fs::last_write_time(op.src);
+            std::error_code mtime_ec;
+            auto orig_mtime = fs::last_write_time(op.src, mtime_ec);
+            if (mtime_ec) {
+                std::cerr << "ERROR: Failed to read modification time of " << op.src << ": " << mtime_ec.message() << "\n";
+                error_count++;
+                continue;
+            }
 
             // Move the file
-            fs::rename(op.src, op.dest);
+            std::error_code rename_ec;
+            fs::rename(op.src, op.dest, rename_ec);
+            if (rename_ec) {
+                std::cerr << "ERROR: Failed to rename " << op.src << " to " << op.dest << ": " << rename_ec.message() << "\n";
+                error_count++;
+                continue;
+            }
 
             // Restore timestamps on destination
-            fs::last_write_time(op.dest, orig_mtime);
+            std::error_code set_mtime_ec;
+            fs::last_write_time(op.dest, orig_mtime, set_mtime_ec);
             organized_count++;
         } catch (const std::exception& e) {
             std::cerr << "ERROR: Failed to move " << op.src << " to " << op.dest << ": " << e.what() << "\n";

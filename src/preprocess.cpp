@@ -3,12 +3,8 @@
 #include "util.h"
 #include "config.h"
 #include "media_item.h"
+#include "image_loader.h"
 #include <stb_image.h>
-#include <libexif/exif-data.h>
-#include <libexif/exif-entry.h>
-#include <libexif/exif-content.h>
-#include <libexif/exif-tag.h>
-#include <libexif/exif-utils.h>
 #include <unistd.h>
 #include <sys/stat.h>
 #include <filesystem>
@@ -25,78 +21,20 @@ static std::atomic<bool> g_preprocess_running{false};
 static std::atomic<bool> g_preprocess_finished{true};
 
 static bool get_image_metadata_fast(const std::string& path, int& out_w, int& out_h, int& out_exif, int& out_is_camera, int64_t& out_creation_time) {
+    std::vector<uint8_t> buffer = ImageLoader::read_file_to_buffer(path);
+    if (buffer.empty()) return false;
+
     int w = 0, h = 0, comp = 0;
-    if (!stbi_info(path.c_str(), &w, &h, &comp) || w <= 0 || h <= 0) {
+    if (!stbi_info_from_memory(buffer.data(), (int)buffer.size(), &w, &h, &comp) || w <= 0 || h <= 0) {
         return false;
     }
     out_w = w;
     out_h = h;
-    out_exif = 1;
-    out_is_camera = 0;
-    out_creation_time = 0;
 
-    ExifData* ed = exif_data_new_from_file(path.c_str());
-    if (ed) {
-        ExifEntry* entry = exif_content_get_entry(ed->ifd[EXIF_IFD_0], EXIF_TAG_ORIENTATION);
-        if (!entry || !entry->data || entry->size < 2 || entry->format != EXIF_FORMAT_SHORT) {
-            entry = exif_content_get_entry(ed->ifd[EXIF_IFD_EXIF], EXIF_TAG_ORIENTATION);
-        }
-        if (entry && entry->data && entry->size >= 2 && entry->format == EXIF_FORMAT_SHORT) {
-            unsigned short val = exif_get_short(entry->data, exif_data_get_byte_order(ed));
-            if (val >= 1 && val <= 8) out_exif = val;
-        }
-
-        ExifEntry* exposure = exif_content_get_entry(ed->ifd[EXIF_IFD_EXIF], EXIF_TAG_EXPOSURE_TIME);
-        ExifEntry* fnumber = exif_content_get_entry(ed->ifd[EXIF_IFD_EXIF], EXIF_TAG_FNUMBER);
-        ExifEntry* iso = exif_content_get_entry(ed->ifd[EXIF_IFD_EXIF], EXIF_TAG_ISO_SPEED_RATINGS);
-        ExifEntry* focal = exif_content_get_entry(ed->ifd[EXIF_IFD_EXIF], EXIF_TAG_FOCAL_LENGTH);
-        ExifEntry* datetime = exif_content_get_entry(ed->ifd[EXIF_IFD_EXIF], EXIF_TAG_DATE_TIME_ORIGINAL);
-        int count = (exposure ? 1 : 0) + (fnumber ? 1 : 0) + (iso ? 1 : 0) + (focal ? 1 : 0) + (datetime ? 1 : 0);
-        out_is_camera = (count >= 2) ? 1 : 0;
-
-        if (!datetime) {
-            datetime = exif_content_get_entry(ed->ifd[EXIF_IFD_0], EXIF_TAG_DATE_TIME);
-        }
-        if (!datetime) {
-            datetime = exif_content_get_entry(ed->ifd[EXIF_IFD_EXIF], EXIF_TAG_DATE_TIME_DIGITIZED);
-        }
-        if (datetime && datetime->data && datetime->size >= 19) {
-            std::string_view date_sv(reinterpret_cast<const char*>(datetime->data), 19);
-            if (date_sv.length() >= 19 && date_sv[4] == ':' && date_sv[7] == ':' && date_sv[10] == ' ' && date_sv[13] == ':' && date_sv[16] == ':') {
-                auto parse_int = [](std::string_view s) -> int {
-                    int val = 0;
-                    for (char c : s) {
-                        if (c < '0' || c > '9') return -1;
-                        val = val * 10 + (c - '0');
-                    }
-                    return val;
-                };
-
-                int year  = parse_int(date_sv.substr(0, 4));
-                int month = parse_int(date_sv.substr(5, 2));
-                int day   = parse_int(date_sv.substr(8, 2));
-                int hour  = parse_int(date_sv.substr(11, 2));
-                int min   = parse_int(date_sv.substr(14, 2));
-                int sec   = parse_int(date_sv.substr(17, 2));
-
-                if (year >= 1900 && year <= 2100 && month >= 1 && month <= 12 && day >= 1 && day <= 31) {
-                    struct tm tm_dest = {};
-                    tm_dest.tm_year = year - 1900;
-                    tm_dest.tm_mon = month - 1;
-                    tm_dest.tm_mday = day;
-                    tm_dest.tm_hour = hour;
-                    tm_dest.tm_min = min;
-                    tm_dest.tm_sec = sec;
-                    tm_dest.tm_isdst = -1;
-                    time_t t = mktime(&tm_dest);
-                    if (t != -1) {
-                        out_creation_time = static_cast<int64_t>(t);
-                    }
-                }
-            }
-        }
-        exif_data_unref(ed);
-    }
+    ImageMetadata meta = ImageLoader::read_metadata_from_memory(buffer.data(), (unsigned int)buffer.size());
+    out_exif = meta.rotation;
+    out_is_camera = meta.is_camera ? 1 : 0;
+    out_creation_time = meta.creation_time;
     return true;
 }
 

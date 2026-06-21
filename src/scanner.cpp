@@ -166,6 +166,7 @@ bool MediaScanner::is_month_in_window(std::string_view dirname, int window_days)
     time_t t = std::time(nullptr);
     tm tm_buf;
     tm* now = localtime_r(&t, &tm_buf);
+    if (!now) return true;
     int curr_m = now->tm_mon + 1;
     int month_diff = std::abs(curr_m - folder_m);
     if (month_diff > 6) month_diff = 12 - month_diff;
