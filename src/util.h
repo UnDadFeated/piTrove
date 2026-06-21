@@ -1,7 +1,7 @@
 #ifndef PITROVE_UTIL_H
 #define PITROVE_UTIL_H
 
-#define VERSION "13.2.8"
+#define VERSION "13.3.0"
 #define APP_NAME "piTrove"
 
 #include <atomic>
@@ -133,6 +133,8 @@ struct WifiStats {
 [[nodiscard]] bool is_nas_online();
 void check_network_status();
 void prefetch_video(const std::string& path);
+void cleanup_nas_thread();
+void cleanup_prefetch_thread();
 
 
 

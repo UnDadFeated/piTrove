@@ -5,6 +5,7 @@
 #include "blur.h"
 #include "config.h"
 #include <shared_mutex>
+#include <future>
 #include <stb_image.h>
 #include <algorithm>
 #include <cstring>
@@ -65,10 +66,14 @@ void PreloadQueue::shutdown() {
     state->work_cv.notify_all();
     state->queue_cv.notify_all();
 
-    // Detach worker threads on exit to prevent shutdown hangs if blocked in CIFS I/O
+    // Try clean join with timeout to avoid hanging on CIFS I/O
     for (auto& t : threads) {
         if (t.joinable()) {
-            t.detach();
+            auto future = std::async(std::launch::async, [&t]() { t.join(); });
+            if (future.wait_for(std::chrono::seconds(2)) == std::future_status::timeout) {
+                g_logger.warn("PreloadQueue: worker thread did not exit in 2s, detaching");
+                t.detach();
+            }
         }
     }
     threads.clear();
@@ -102,6 +107,7 @@ std::shared_ptr<ImageData> PreloadQueue::try_dequeue(const std::string& target_p
         if (it != state->loaded_items.end()) {
             PreloadedItem item = std::move(*it);
             state->loaded_items.erase(it);
+            state->loaded_count.store((int)state->loaded_items.size());
             state->active_preloads.erase(target_path);
 
             // Build ImageData from raw pixels (main thread — SDL context is thread-local)
@@ -186,6 +192,7 @@ void PreloadQueue::cancel_all() {
         state->active_preloads.clear();
         state->current_epoch++;
         state->loaded_items.clear();
+        state->loaded_count.store(0);
     }
     state->work_cv.notify_all();
 }
@@ -306,11 +313,7 @@ void PreloadQueue::worker_thread(std::shared_ptr<PreloadState> state, int thread
             std::unique_lock<std::mutex> lock(state->work_mutex);
             state->work_cv.wait(lock, [state] {
                 bool has_work = !state->work_queue.empty();
-                bool space_available = false;
-                {
-                    std::scoped_lock qlk(state->queue_mutex);
-                    space_available = (int)state->loaded_items.size() < state->max_size;
-                }
+                bool space_available = state->loaded_count.load() < state->max_size;
                 return (has_work && space_available) || !state->running.load();
             });
 
@@ -424,6 +427,7 @@ void PreloadQueue::worker_thread(std::shared_ptr<PreloadState> state, int thread
                 state->active_preloads.erase(state->loaded_items.front().path);
                 state->loaded_items.erase(state->loaded_items.begin());
             }
+            state->loaded_count.store((int)state->loaded_items.size());
         }
         state->queue_cv.notify_one();
     }

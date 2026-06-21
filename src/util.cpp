@@ -779,6 +779,9 @@ static bool perform_nas_online_check() {
     return online;
 }
 
+static std::thread g_nas_check_thread;
+static std::mutex g_nas_thread_mtx;
+
 bool is_nas_online() {
     check_network_status();
     int active_err = g_active_error_code.load();
@@ -789,15 +792,27 @@ bool is_nas_online() {
     time_t now = std::time(nullptr);
     if (now - g_last_nas_check_time.load() > 10) {
         if (!g_nas_check_in_progress.exchange(true)) {
-            std::thread([]() {
+            std::lock_guard lk(g_nas_thread_mtx);
+            if (g_nas_check_thread.joinable()) {
+                g_nas_check_thread.join();
+            }
+            g_nas_check_thread = std::thread([]() {
                 bool online = perform_nas_online_check();
                 g_nas_online.store(online);
                 g_last_nas_check_time.store(std::time(nullptr));
                 g_nas_check_in_progress.store(false);
-            }).detach();
+            });
         }
     }
     return g_nas_online.load();
+}
+
+void cleanup_nas_thread() {
+    std::lock_guard lk(g_nas_thread_mtx);
+    g_nas_check_in_progress.store(false);
+    if (g_nas_check_thread.joinable()) {
+        g_nas_check_thread.join();
+    }
 }
 
 void check_network_status() {
@@ -847,9 +862,19 @@ void check_network_status() {
     }
 }
 
+static std::thread g_prefetch_thread;
+static std::mutex g_prefetch_mtx;
+
 void prefetch_video(const std::string& path) {
     if (path.empty()) return;
-    std::thread([path]() {
+    {
+        std::lock_guard lk(g_prefetch_mtx);
+        if (g_prefetch_thread.joinable()) {
+            g_prefetch_thread.join();
+        }
+    }
+    std::lock_guard lk(g_prefetch_mtx);
+    g_prefetch_thread = std::thread([path]() {
         int fd = open(path.c_str(), O_RDONLY | O_NONBLOCK);
         if (fd < 0) return;
         off_t file_size = lseek(fd, 0, SEEK_END);
@@ -859,5 +884,12 @@ void prefetch_video(const std::string& path) {
         posix_fadvise(fd, 0, (off_t)prefetch_bytes, POSIX_FADV_WILLNEED);
         readahead(fd, 0, prefetch_bytes);
         close(fd);
-    }).detach();
+    });
+}
+
+void cleanup_prefetch_thread() {
+    std::lock_guard lk(g_prefetch_mtx);
+    if (g_prefetch_thread.joinable()) {
+        g_prefetch_thread.join();
+    }
 }

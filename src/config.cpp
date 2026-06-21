@@ -5,6 +5,7 @@
 #include <iostream>
 #include <algorithm>
 #include <cstring>
+#include <cstdio>
 
 
 bool Config::load(const std::string& path) {
@@ -243,7 +244,8 @@ void Config::parse_args(int argc, char** argv) {
 }
 
 bool Config::save(const std::string& path) {
-    std::ofstream f(path);
+    std::string tmp_path = path + ".tmp";
+    std::ofstream f(tmp_path);
     if (!f.is_open()) return false;
 
     f << "# ==========================================\n";
@@ -425,6 +427,15 @@ bool Config::save(const std::string& path) {
     f << "wifi_interface = \"" << this->keepalive_interface << "\"\n";
 
     f.close();
+    if (f.fail()) {
+        std::remove(tmp_path.c_str());
+        return false;
+    }
+    if (std::rename(tmp_path.c_str(), path.c_str()) != 0) {
+        g_logger.error("Config::save: rename failed: %s", std::strerror(errno));
+        std::remove(tmp_path.c_str());
+        return false;
+    }
     g_config_changed.store(true);
     return true;
 }

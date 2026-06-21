@@ -14,6 +14,7 @@
 #include <cstring>
 #include <atomic>
 #include <mutex>
+#include <shared_mutex>
 #include <poll.h>
 #include <fcntl.h>
 
@@ -255,6 +256,7 @@ void config_wizard(const std::string& config_path) {
 
     // ── DATA ACCESSORS ──
     auto gv = [&](int c, int i) -> std::string {
+        std::shared_lock lk(g_config_mtx);
         if (c == 0) switch(i) {
             case 0: {
                 if (g_cfg.screen_w == 3840 && g_cfg.screen_h == 2160) return "2160p";

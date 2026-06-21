@@ -45,6 +45,7 @@ struct PreloadState {
     std::vector<PreloadedItem> loaded_items;
     std::mutex queue_mutex;
     std::condition_variable queue_cv;
+    std::atomic<int> loaded_count{0};
 
     std::queue<std::string> work_queue;
     std::unordered_set<std::string> active_preloads;
