@@ -294,7 +294,9 @@ void Logger::flush_loop() {
             std::swap(front_queue, back_queue);
         }
         if (!back_queue.empty()) {
-            FILE* f = fopen(log_file_path.c_str(), "a");
+            std::string current_log_path;
+            { std::lock_guard<std::mutex> lk(log_path_mtx); current_log_path = log_file_path; }
+            FILE* f = fopen(current_log_path.c_str(), "a");
             if (!f) {
                 static std::once_flag warn_once;
                 std::call_once(warn_once, []() {

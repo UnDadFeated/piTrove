@@ -299,7 +299,7 @@ void GooglePhotosManager::download_media(const std::string &access_token) {
 
       // Double check that file is non-empty and valid
       if (std::filesystem::exists(local_path) &&
-          std::filesystem::file_size(local_path) > 0) {
+          std::filesystem::file_size(local_path) >= 1024) {
         items_downloaded++;
       } else {
         g_logger.error("GooglePhotos: Failed to download item: %s",

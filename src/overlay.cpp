@@ -1033,7 +1033,7 @@ bool OverlayManager::handle_touch_click(float x, float y) {
                         {
                             std::lock_guard lk(g_config_mtx);
                             g_cfg.transition_delay = (double)val;
-                            g_cfg.save("/app/config/config.toml");
+                            g_cfg.save(g_cfg.loaded_path.c_str());
                         }
                         g_config_changed.store(true);
                         g_logger.info("TOUCH_INPUT: Set transition delay to %d seconds.", val);
@@ -1043,7 +1043,7 @@ bool OverlayManager::handle_touch_click(float x, float y) {
                         {
                             std::lock_guard lk(g_config_mtx);
                             g_cfg.video_volume = val;
-                            g_cfg.save("/app/config/config.toml");
+                            g_cfg.save(g_cfg.loaded_path.c_str());
                         }
                         g_config_changed.store(true);
                         g_logger.info("TOUCH_INPUT: Set video volume to %d%%.", val);
@@ -1093,7 +1093,7 @@ bool OverlayManager::handle_touch_click(float x, float y) {
         {
             std::lock_guard lk(g_config_mtx);
             g_cfg.shuffle = !g_cfg.shuffle;
-            g_cfg.save("/app/config/config.toml");
+            g_cfg.save(g_cfg.loaded_path.c_str());
             curr = g_cfg.shuffle;
         }
         g_config_changed.store(true);
@@ -1112,7 +1112,7 @@ bool OverlayManager::handle_touch_click(float x, float y) {
             {
                 std::lock_guard lk(g_config_mtx);
                 g_cfg.transition_delay = current_val;
-                g_cfg.save("/app/config/config.toml");
+                g_cfg.save(g_cfg.loaded_path.c_str());
             }
             g_config_changed.store(true);
             return true;
@@ -1122,7 +1122,7 @@ bool OverlayManager::handle_touch_click(float x, float y) {
             {
                 std::lock_guard lk(g_config_mtx);
                 g_cfg.transition_delay = current_val;
-                g_cfg.save("/app/config/config.toml");
+                g_cfg.save(g_cfg.loaded_path.c_str());
             }
             g_config_changed.store(true);
             return true;
@@ -1146,7 +1146,7 @@ bool OverlayManager::handle_touch_click(float x, float y) {
             {
                 std::lock_guard lk(g_config_mtx);
                 g_cfg.video_volume = current_val;
-                g_cfg.save("/app/config/config.toml");
+                g_cfg.save(g_cfg.loaded_path.c_str());
             }
             g_config_changed.store(true);
             return true;
@@ -1156,7 +1156,7 @@ bool OverlayManager::handle_touch_click(float x, float y) {
             {
                 std::lock_guard lk(g_config_mtx);
                 g_cfg.video_volume = current_val;
-                g_cfg.save("/app/config/config.toml");
+                g_cfg.save(g_cfg.loaded_path.c_str());
             }
             g_config_changed.store(true);
             return true;
@@ -1179,7 +1179,7 @@ bool OverlayManager::handle_touch_click(float x, float y) {
         {
             std::lock_guard lk(g_config_mtx);
             g_cfg.video_volume = val;
-            g_cfg.save("/app/config/config.toml");
+            g_cfg.save(g_cfg.loaded_path.c_str());
         }
         g_config_changed.store(true);
         return true;

@@ -1,7 +1,7 @@
 #ifndef PITROVE_UTIL_H
 #define PITROVE_UTIL_H
 
-#define VERSION "13.3.0"
+#define VERSION "13.3.2"
 #define APP_NAME "piTrove"
 
 #include <atomic>
@@ -61,6 +61,7 @@ struct Logger {
 
     // Async queue
     std::mutex queue_mtx;
+    std::mutex log_path_mtx;
     std::condition_variable cv;
     std::vector<LogMessage> front_queue;
     std::vector<LogMessage> back_queue;

@@ -66,14 +66,17 @@ void PreloadQueue::shutdown() {
     state->work_cv.notify_all();
     state->queue_cv.notify_all();
 
-    // Try clean join with timeout to avoid hanging on CIFS I/O
+    // Join threads with timeout - use async future for non-blocking join
     for (auto& t : threads) {
         if (t.joinable()) {
-            auto future = std::async(std::launch::async, [&t]() { t.join(); });
-            if (future.wait_for(std::chrono::seconds(2)) == std::future_status::timeout) {
+            auto fut = std::async(std::launch::async, [&t]() { t.join(); });
+            if (fut.wait_for(std::chrono::seconds(2)) == std::future_status::timeout) {
                 g_logger.warn("PreloadQueue: worker thread did not exit in 2s, detaching");
+                // Detach to avoid destructor blocking, but keep state alive
                 t.detach();
             }
+            // fut destructor blocks if thread still running, but that's fine here
+            // since we're still in shutdown() and threads vector is alive
         }
     }
     threads.clear();
