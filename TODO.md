@@ -4,135 +4,74 @@ This file tracks identified bugs, security vulnerabilities, memory leaks, and co
 
 ---
 
-## Active Backlog (17 Items)
+## Active Backlog (10 Items)
 
-### 1. Undefined Behavior: `pclose(nullptr)` on `popen` Failure
-*   **Severity**: Critical
-*   **Affected Files**:
-    *   [google_photos.cpp](file:///P:/piTrove/src/google_photos.cpp#L332-L334)
-    *   [http_server.cpp](file:///P:/piTrove/src/http_server.cpp#L86-L87)
-    *   [preprocess.cpp](file:///P:/piTrove/src/preprocess.cpp#L43-L44)
-*   **Description**: In multiple utility execution wrappers, `std::shared_ptr<FILE> pipe(popen(...), pclose)` is constructed before checking the return value. If `popen` fails and returns `nullptr`, the shared pointer's destructor will invoke `pclose(nullptr)`, which causes undefined behavior / segmentation faults.
-*   **Proposed Fix**: Assign the result of `popen` to a raw pointer, verify it is not `nullptr`, and only construct the `std::shared_ptr` if validation passes.
-
-### 2. Async-Signal-Unsafe Heap Allocation in MQTT Fork
+### 1. Undefined Behavior: Unaligned Pointer Dereferencing on ARM Architectures
 *   **Severity**: High
 *   **Affected Files**:
-    *   [mqtt.cpp](file:///P:/piTrove/src/mqtt.cpp#L250-L283)
-*   **Description**: Between `fork()` and `execvp()`, the child process constructs a `std::vector<char*> argv` and performs string conversions. Because another thread may hold the memory allocator (malloc/free) lock during `fork()`, performing heap allocations in the child process can cause deadlocks.
-*   **Proposed Fix**: Construct the `args` array and the `char*` vector in the parent process scope before calling `fork()`, ensuring the child process only invokes async-signal-safe system calls.
+    *   [renderer.cpp](file:///P:/piTrove/src/renderer.cpp#L110-L121)
+*   **Description**: In `get_pixel_color()`, a raw pointer `uint8_t* p` is cast directly to `uint16_t*` and `uint32_t*` and dereferenced. Because raw surface pitches and channel strides are not guaranteed to align on 2-byte or 4-byte boundaries, direct dereferencing causes unaligned memory access. On the target ARM architecture (Raspberry Pi), this results in undefined behavior, silent performance degradation, or hardware alignment faults (bus errors).
+*   **Proposed Fix**: Use `memcpy` to copy the pixel bytes into a properly aligned local variable before dereferencing, ensuring safe access across all CPU architectures.
 
-### 3. Async-Signal-Unsafe Heap Allocation in MPV Player Fork
+### 2. Unhandled Exception: File Path Relative Logic in Archive Organizer
+*   **Severity**: Medium
+*   **Affected Files**:
+    *   [organizer.cpp](file:///P:/piTrove/src/organizer.cpp#L92)
+*   **Description**: In `organize_media_archive()`, `std::filesystem::relative(src_path, root_dir)` is called inside a loop to determine relative directory paths. If the mount point contains dead symlinks or invalid permissions, `relative()` throws a `filesystem_error`. Because there is only a single top-level try-catch block for the entire directory scan, any exception throws aborts the entire organization process instead of skipping the bad item.
+*   **Proposed Fix**: Add a localized try-catch block or pass a `std::error_code` parameter to `std::filesystem::relative` to skip the failed item and proceed with the remaining media archive files.
+
+### 3. Hardcoded Config Path in Display Overlays settings save
+*   **Severity**: Medium
+*   **Affected Files**:
+    *   [overlay.cpp](file:///P:/piTrove/src/overlay.cpp#L1036-L1182)
+*   **Description**: When toggling settings through the direct physical on-screen display menu (e.g. enabling border or matting overlays), the configuration is saved via `g_cfg.save("/app/config/config.toml")`. If a custom configuration file path was provided on startup, these settings changes are written to the wrong file.
+*   **Proposed Fix**: Update all on-screen configuration save operations in `overlay.cpp` to use the dynamic `g_cfg.loaded_path` value instead of the hardcoded path.
+
+### 4. Data Race: Logging File Path Mutation across Threads
+*   **Severity**: Medium
+*   **Affected Files**:
+    *   [util.cpp](file:///P:/piTrove/src/util.cpp#L297)
+*   **Description**: The Logger constructor initializes the logging paths, but if the log folder is dynamically updated, the asynchronous background thread `Logger::flush_loop` reads `log_file_path` concurrently with potential writes from `Logger::init`. Accessing `std::string` objects concurrently from multiple threads without synchronization creates data races and memory corruption risks.
+*   **Proposed Fix**: Protect all writes and reads to the log folder configuration strings inside the Logger structure using a dedicated `std::mutex`.
+
+### 5. Infinite Hang on File Stat Queries During Network Dropouts
 *   **Severity**: High
 *   **Affected Files**:
-    *   [mpv_player.cpp](file:///P:/piTrove/src/mpv_player.cpp#L171-L250)
-*   **Description**: Similar to the MQTT subscriber process, the child process spawned to launch `mpv` performs extensive heap allocations (`std::vector<std::string>`, `std::to_string`, and `std::vector<char*>`) after `fork()`.
-*   **Proposed Fix**: Build the full arguments and `char*` array in the parent thread scope prior to calling `fork()`.
+    *   [scanner.cpp](file:///P:/piTrove/src/scanner.cpp#L61)
+*   **Description**: In `stat_timeout()`, standard synchronous `stat()` is called on paths located on CIFS mounts. When network drops occur, standard `stat()` can block indefinitely in the kernel's network filesystem layer, hanging the main slideshow loop.
+*   **Proposed Fix**: Implement `stat_timeout` using a non-blocking subprocess check or a thread-pool wrapper with a real timeout mechanism to abort stuck CIFS filesystem requests.
 
-### 4. Double-Destroy of Window Handle on Renderer Initialization Failure
-*   **Severity**: Medium
-*   **Affected Files**:
-    *   [renderer.cpp](file:///P:/piTrove/src/renderer.cpp#L169-L175)
-*   **Description**: In `Renderer::init()`, if `SDL_CreateRenderer()` fails, `SDL_DestroyWindow(window)` is called, but the member variable `window` is not reset to `nullptr`. When `cleanup()` is later executed by the destructor, it checks `if (window)` and calls `SDL_DestroyWindow` a second time.
-*   **Proposed Fix**: Set `window = nullptr;` immediately after destroying it in the initialization failure path.
-
-### 5. Over-broad Error Clearing Masking Unrelated Failures
-*   **Severity**: Medium
-*   **Affected Files**:
-    *   [util.cpp](file:///P:/piTrove/src/util.cpp#L858-L861)
-*   **Description**: In `check_network_status()`, if a previously detected network error (E102/E103) is cleared, the system calls `trigger_error(0)`. This purges *all* currently active errors in `g_active_errors`, masking unrelated issues such as SQLite disk errors or Google Photos sync states.
-*   **Proposed Fix**: Replace `trigger_error(0)` with explicit calls to `clear_error(102)` and `clear_error(103)`.
-
-### 6. Main Thread Stalls on Synchronous Prefetch Thread Join
+### 6. Data Race: Preloading Worker Queue State Inquiries
 *   **Severity**: High
 *   **Affected Files**:
-    *   [util.cpp](file:///P:/piTrove/src/util.cpp#L868-L875)
-*   **Description**: The `prefetch_video` function checks `if (g_prefetch_thread.joinable())` and calls `g_prefetch_thread.join()` synchronously on the main thread. If the background thread is blocked on a slow or unresponsive network share, the slideshow will freeze.
-*   **Proposed Fix**: Detach the previous `g_prefetch_thread` if it is still running (`g_prefetch_thread.detach()`) before overwriting it with the new thread.
+    *   [preload.cpp](file:///P:/piTrove/src/preload.cpp#L316)
+*   **Description**: In `PreloadQueue::worker_thread`, worker threads query queue capacity by calling `state->loaded_count.load() < state->max_size` without locking `state->work_mutex`. While `loaded_count` is atomic, the state transitions and queue structures are read/written concurrently, leading to potential race conditions on preloaded items.
+*   **Proposed Fix**: Protect the queue capacity and work availability checks completely under the `work_mutex` lock in the worker thread loop.
 
-### 7. TOML Parser Preserves Trailing Comments in Values
+### 7. SQL Resource Leak on WAL Initialization Error Paths
 *   **Severity**: Medium
 *   **Affected Files**:
-    *   [config.cpp](file:///P:/piTrove/src/config.cpp#L20-L29)
-*   **Description**: The TOML configuration parser only ignores lines starting with `#` or `;`. If a config line contains a trailing comment (e.g., `drm_connector = "auto" # comment`), the parser splits on `=` and treats the comment as part of the string or boolean value.
-*   **Proposed Fix**: Implement a helper function `strip_comments()` that scans the line and removes characters after `#` or `;` unless they reside inside a quoted string literal.
+    *   [cache.cpp](file:///P:/piTrove/src/cache.cpp#L63-L113)
+*   **Description**: If any setup query (such as setting WAL mode or adding missing table columns) fails during database startup, the error path prints warnings and releases the error messages but leaves statements and database connections unclosed.
+*   **Proposed Fix**: Implement standard cleanup guards (`sqlite3_finalize` and `sqlite3_close`) on every transaction setup error return path.
 
-### 8. Hardcoded Save Paths in Settings Modules
-*   **Severity**: Low
-*   **Affected Files**:
-    *   [http_server.cpp](file:///P:/piTrove/src/http_server.cpp#L1915)
-    *   [overlay.cpp](file:///P:/piTrove/src/overlay.cpp#L1036)
-*   **Description**: When updating configuration options via the web remote or direct display overlay menu, `g_cfg.save` is hardcoded to `/app/config/config.toml`. If the app was started with a custom config path (e.g. from the command-line), updates are saved to the wrong file.
-*   **Proposed Fix**: Capture and store the loaded configuration file path inside the `Config` struct (e.g., `loaded_path`), and use it as the target for all settings save operations.
-
-### 9. Unchecked `localtime_r` Return Values
+### 8. Division-by-Zero in Terminal UI Resizing Calculations
 *   **Severity**: Medium
 *   **Affected Files**:
-    *   [main.cpp](file:///P:/piTrove/src/main.cpp#L133-L134)
-    *   [main.cpp](file:///P:/piTrove/src/main.cpp#L759-L761)
-    *   [util.cpp](file:///P:/piTrove/src/util.cpp#L253)
-    *   [util.cpp](file:///P:/piTrove/src/util.cpp#L315)
-    *   [util.cpp](file:///P:/piTrove/src/util.cpp#L326)
-*   **Description**: In multiple locations, `localtime_r` is called and its result is immediately dereferenced or passed to `strftime` without checking for a `nullptr` return. This risks application crashes if the system clock becomes invalid or system calls fail.
-*   **Proposed Fix**: Verify `localtime_r` return values are not `nullptr` before dereferencing, falling back to a default `tm` structure or logging a warning.
+    *   [tui.cpp](file:///P:/piTrove/src/tui.cpp)
+*   **Description**: In the terminal config wizard, sizing math divides elements dynamically according to terminal columns. If the terminal is resized to extreme widths/heights, column math can produce a zero denominator, causing SIGFPE crashes.
+*   **Proposed Fix**: Guard all element spacing and column offset divisions with bounds checks ensuring denominator values are at least 1.
 
-### 10. Exception Risk: Unchecked `create_directories` in Google Photos Manager
+### 9. Lack of Payload Size Validation on Google Photos Fetch
 *   **Severity**: Medium
 *   **Affected Files**:
-    *   [google_photos.cpp](file:///P:/piTrove/src/google_photos.cpp#L110)
-*   **Description**: The call to `std::filesystem::create_directories(cache_dir)` on line 110 lacks an `error_code` parameter. If the cache directory resides on a read-only filesystem or encounters permission errors, the function throws an unhandled exception, causing the program to crash.
-*   **Proposed Fix**: Remove the redundant call (as a secure `create_directories` with `error_code` is already executed on line 94) or add the error_code parameter.
+    *   [google_photos.cpp](file:///P:/piTrove/src/google_photos.cpp#L301-L308)
+*   **Description**: The sync manager downloads media items using curl but relies on basic filesystem existence. If curl returns an empty file (due to server errors or timeouts), the app proceeds to treat it as valid metadata or attempts to preprocess it, causing preprocessor decoders to crash on empty files.
+*   **Proposed Fix**: Explicitly verify that the downloaded file contains a valid media header or minimum file size before incrementing successfully downloaded counts.
 
-### 11. Exception Risk: Unchecked `create_directories` in Cache Manager & Logger
-*   **Severity**: Medium
-*   **Affected Files**:
-    *   [cache.cpp](file:///P:/piTrove/src/cache.cpp#L15)
-    *   [util.cpp](file:///P:/piTrove/src/util.cpp#L309)
-*   **Description**: The Logger and Cache Manager initialize directory structures using `std::filesystem::create_directories` without an `error_code` parameter. If the parent directories are read-only or unmounted, the application crashes immediately upon startup.
-*   **Proposed Fix**: Supply a `std::error_code` object to both calls and check for errors.
-
-### 12. Overly Restrictive Google Photos Domain Validation
-*   **Severity**: Low
-*   **Affected Files**:
-    *   [google_photos.cpp](file:///P:/piTrove/src/google_photos.cpp#L283-L290)
-*   **Description**: The sync loop enforces that media downloads only originate from the `googleusercontent.com` domain. However, Google Photos API also returns hostnames matching `*.ggpht.com`, causing valid media synchronization requests to be blocked as potential security risks.
-*   **Proposed Fix**: Extend the whitelist to permit both `googleusercontent.com` and `ggpht.com` (along with their subdomains).
-
-### 13. Data Race: Unprotected Playlist Initialization
+### 10. Preloading Thread Lifecycle Race Conditions
 *   **Severity**: High
 *   **Affected Files**:
-    *   [main.cpp](file:///P:/piTrove/src/main.cpp#L1739-L1845)
-*   **Description**: During slideshow startup, the main thread reads and mutates `g_eligible` and `g_scanned_items` (erasing bad files, dynamically pairing twin portraits, and updating widths/heights) without locking `g_playlist_mtx`. Since the HTTP server and MQTT background threads are already active, this causes a potential data race.
-*   **Proposed Fix**: Protect the playlist checks and modifications in the startup loop using `g_playlist_mtx`, unlocking it during heavy file I/O operations to avoid blocking other subsystems.
-
-### 14. Missing Screen Size Bounds in Transition Renderers
-*   **Severity**: Medium
-*   **Affected Files**:
-    *   [transition.cpp](file:///P:/piTrove/src/transition.cpp#L77)
-    *   [transition.cpp](file:///P:/piTrove/src/transition.cpp#L99)
-    *   [transition.cpp](file:///P:/piTrove/src/transition.cpp#L137)
-*   **Description**: The `render_fade`, `render_wipe`, and `render_ken_burns` functions do not check if `screen_w` or `screen_h` are `<= 0` before performing layout math, potentially causing negative width/height clippings or target destinations in SDL.
-*   **Proposed Fix**: Add a check `if (screen_w <= 0 || screen_h <= 0) return;` at the beginning of each transition rendering method.
-
-### 15. Dubious ownership Git errors in `install.sh`
-*   **Severity**: Medium
-*   **Affected Files**:
-    *   [install.sh](file:///P:/piTrove/install.sh#L673-L679)
-*   **Description**: Because `install.sh` runs as root, checking out or pulling the Git repository (which is owned by the primary user) causes Git v2.35.2+ to abort with a "detected dubious ownership in repository" error, breaking updates.
-*   **Proposed Fix**: Execute all git commands inside the repository directory using `sudo -u "$PRIMARY_USER" git`.
-
-### 16. Async-Signal-Unsafe Formatted Output in Intercept Handlers
-*   **Severity**: Medium
-*   **Affected Files**:
-    *   [util.cpp](file:///P:/piTrove/src/util.cpp#L119)
-    *   [util.cpp](file:///P:/piTrove/src/util.cpp#L146)
-*   **Description**: The crash and termination signal handlers (`crash_handler` and `terminate_handler`) call `snprintf` to format database cache filenames. `snprintf` is not async-signal-safe and can deadlock the application if the crash occurred while holding internal standard library formatting locks.
-*   **Proposed Fix**: Replace the `snprintf` call with a simple, safe character copy loop to build the string.
-
-### 17. Unresponsive Program Shutdown via Detached Media Scanner
-*   **Severity**: High
-*   **Affected Files**:
-    *   [scanner.cpp](file:///P:/piTrove/src/scanner.cpp#L200)
-    *   [scanner.cpp](file:///P:/piTrove/src/scanner.cpp#L231)
-*   **Description**: When shutting down the digital picture frame, the watchman thread is detached if the scanner is currently executing a directory sweep. The scanning loops continue running in the background, risking crashes if they attempt to access global structures that are being destroyed by the main thread.
-*   **Proposed Fix**: Check `g_running` inside the directory scanner loops and recursive calls to abort directory scans immediately upon application exit.
+    *   [preload.cpp](file:///P:/piTrove/src/preload.cpp#L69-L78)
+*   **Description**: During preloader queue shutdown, workers are joined or detached with a 2-second timeout using `std::async`. If a worker thread is currently blocked on slow NAS I/O and gets detached, it can continue executing after the preloader queue object and its shared state are fully deallocated, leading to use-after-free crashes.
+*   **Proposed Fix**: Keep worker threads joinable and rely on explicit thread tracking counters in shared state structures to prevent state deallocation while threads are still active.
