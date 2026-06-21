@@ -41,9 +41,41 @@ void Logger::log_error_code(int code_num) {
           code_str.c_str(), title.c_str(), desc.c_str(), rec.c_str());
 }
 
+#include <set>
+
+static std::set<int> g_active_errors;
+static std::mutex g_errors_mtx;
+
 void trigger_error(int code_num) {
-    g_active_error_code.store(code_num);
+    if (code_num == 0) {
+        std::lock_guard<std::mutex> lk(g_errors_mtx);
+        g_active_errors.clear();
+        g_active_error_code.store(0);
+    } else {
+        {
+            std::lock_guard<std::mutex> lk(g_errors_mtx);
+            g_active_errors.insert(code_num);
+        }
+        g_active_error_code.store(code_num);
+    }
     g_logger.log_error_code(code_num);
+}
+
+void clear_error(int code_num) {
+    std::lock_guard<std::mutex> lk(g_errors_mtx);
+    g_active_errors.erase(code_num);
+    if (g_active_error_code.load() == code_num) {
+        if (g_active_errors.empty()) {
+            g_active_error_code.store(0);
+        } else {
+            g_active_error_code.store(*g_active_errors.rbegin());
+        }
+    }
+}
+
+bool is_error_active(int code_num) {
+    std::lock_guard<std::mutex> lk(g_errors_mtx);
+    return g_active_errors.find(code_num) != g_active_errors.end();
 }
 
 
@@ -240,8 +272,27 @@ void Logger::flush_loop() {
                 });
             }
             for (const auto& msg : back_queue) {
-                (void)write(STDOUT_FILENO, msg.c_str(), msg.size());
-                if (f) fprintf(f, "%s", msg.c_str());
+                auto t = std::chrono::system_clock::to_time_t(msg.time);
+                auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(msg.time.time_since_epoch()) % 1000;
+                const char* tag = (msg.level == LogLevel::WARN)  ? "WARN"
+                                  : (msg.level == LogLevel::ERROR) ? "ERROR"
+                                  : (msg.level == LogLevel::DEBUG) ? "DEBUG"
+                                  : "INFO";
+                char header[64];
+                struct tm tm_buf;
+                struct tm* time_ptr = localtime_r(&t, &tm_buf);
+                if (time_ptr) {
+                    std::strftime(header, sizeof(header), "%Y-%m-%d %H:%M:%S", time_ptr);
+                } else {
+                    std::strcpy(header, "0000-00-00 00:00:00");
+                }
+                char line[8192];
+                int len = std::snprintf(line, sizeof(line), "v%s %s.%03ld [%s] %s\n",
+                                        VERSION, header, (long)ms.count(), tag, msg.body.c_str());
+                if (len > 0) {
+                    (void)write(STDOUT_FILENO, line, len);
+                    if (f) fprintf(f, "%s", line);
+                }
             }
             if (f) {
                 fclose(f);
@@ -311,34 +362,18 @@ void Logger::rotate_logs(const std::string& dir, int keep) {
 void Logger::log_v(LogLevel lvl, const char* fmt, va_list ap) {
     if (lvl < level) return;
 
-    auto now = std::chrono::system_clock::now();
-    auto t = std::chrono::system_clock::to_time_t(now);
-    auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()) % 1000;
-
-    const char* tag = (lvl == LogLevel::WARN)  ? "WARN"
-                      : (lvl == LogLevel::ERROR) ? "ERROR"
-                      : (lvl == LogLevel::DEBUG) ? "DEBUG"
-                                                 : "INFO";
-
-    char header[64];
-    struct tm tm_buf2;
-    std::strftime(header, sizeof(header), "%Y-%m-%d %H:%M:%S", localtime_r(&t, &tm_buf2));
-
-    char line[4096];
-    int n = std::snprintf(line, sizeof(line), "v%s %s.%03ld [%s] ", VERSION, header, (long)ms.count(), tag);
+    char body_buf[4096];
+    int n = std::vsnprintf(body_buf, sizeof(body_buf), fmt, ap);
     if (n < 0) return;
-    if (n >= (int)sizeof(line)) n = (int)sizeof(line) - 1;
 
-    std::vsnprintf(line + n, sizeof(line) - (size_t)n, fmt, ap);
-
-    std::string final_line;
-    final_line.reserve(n + 512);
-    final_line += line;
-    final_line += '\n';
+    LogMessage msg;
+    msg.time = std::chrono::system_clock::now();
+    msg.level = lvl;
+    msg.body = std::string(body_buf, n);
 
     {
         std::lock_guard<std::mutex> lock(queue_mtx);
-        front_queue.push_back(std::move(final_line));
+        front_queue.push_back(std::move(msg));
     }
     cv.notify_one();
 }
@@ -631,13 +666,22 @@ bool is_media_dir_healthy(const std::string& media_dir) {
 #include <ifaddrs.h>
 #include <net/if.h>
 
-bool is_nas_online() {
-    check_network_status();
-    int active_err = g_active_error_code.load();
-    if (active_err == 102 || active_err == 103) {
-        return false;
-    }
+namespace {
+    struct AddrInfoGuard {
+        struct addrinfo* res;
+        ~AddrInfoGuard() { if (res) freeaddrinfo(res); }
+    };
+    struct SocketGuard {
+        int fd;
+        ~SocketGuard() { if (fd >= 0) close(fd); }
+    };
+}
 
+static std::atomic<bool> g_nas_online{true};
+static std::atomic<bool> g_nas_check_in_progress{false};
+static std::atomic<time_t> g_last_nas_check_time{0};
+
+static bool perform_nas_online_check() {
     std::string media_dir;
     {
         std::lock_guard<std::shared_mutex> lk(g_config_mtx);
@@ -698,12 +742,13 @@ bool is_nas_online() {
     if (getaddrinfo(nas_host.c_str(), std::to_string(port).c_str(), &hints, &res) != 0) {
         return false; // Hostname resolution failed
     }
+    AddrInfoGuard addr_guard{res};
 
     int fd = socket(res->ai_family, res->ai_socktype | SOCK_CLOEXEC, res->ai_protocol);
     if (fd < 0) {
-        freeaddrinfo(res);
         return false;
     }
+    SocketGuard sock_guard{fd};
 
     // Set non-blocking
     int flags = fcntl(fd, F_GETFL, 0);
@@ -730,9 +775,28 @@ bool is_nas_online() {
         }
     }
 
-    close(fd);
-    freeaddrinfo(res);
     return online;
+}
+
+bool is_nas_online() {
+    check_network_status();
+    int active_err = g_active_error_code.load();
+    if (active_err == 102 || active_err == 103) {
+        return false;
+    }
+
+    time_t now = std::time(nullptr);
+    if (now - g_last_nas_check_time.load() > 10) {
+        if (!g_nas_check_in_progress.exchange(true)) {
+            std::thread([]() {
+                bool online = perform_nas_online_check();
+                g_nas_online.store(online);
+                g_last_nas_check_time.store(std::time(nullptr));
+                g_nas_check_in_progress.store(false);
+            }).detach();
+        }
+    }
+    return g_nas_online.load();
 }
 
 void check_network_status() {

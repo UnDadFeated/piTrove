@@ -41,6 +41,7 @@ bool Config::load(const std::string& path) {
         else if (key == "splash_file")       this->splash_file = val;
         else if (key == "fullscreen")        this->fullscreen = (val == "1" || val == "true");
         else if (key == "rotation") {
+            // Deprecated/Ignored in Modesetting DRM pipeline
             int r = safe_stoi(val, this->rotation);
             if (r != 0 && r != 90 && r != 180 && r != 270) {
                 r = 0;

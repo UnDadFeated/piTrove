@@ -18,15 +18,18 @@ static void compute_average_color(const RawImage& src, uint8_t& r, uint8_t& g, u
     const int MAX_STEPS = 64;
     int step_x = std::max(1, src.width / MAX_STEPS);
     int step_y = std::max(1, src.height / MAX_STEPS);
-    long sum_r = 0, sum_g = 0, sum_b = 0, samples = 0;
+    long long sum_r = 0, sum_g = 0, sum_b = 0, samples = 0;
     for (int y = 0; y < src.height; y += step_y) {
         for (int x = 0; x < src.width; x += step_x) {
-            const uint8_t* px = src.pixels + y * 4 * src.width + x * 4;
-            sum_r += px[0]; sum_g += px[1]; sum_b += px[2];
-            ++samples;
+            long long offset = (long long)y * 4 * src.width + (long long)x * 4;
+            if (offset >= 0) {
+                const uint8_t* px = src.pixels + offset;
+                sum_r += px[0]; sum_g += px[1]; sum_b += px[2];
+                ++samples;
+            }
         }
     }
-    if (samples == 0) {
+    if (samples <= 0) {
         r = 220; g = 210; b = 195;
     } else {
         r = (uint8_t)(sum_r / samples);
@@ -204,13 +207,16 @@ static void compute_edge_data(const RawImage& raw,
     auto sample_edge = [&](int x0, int y0, int x1, int y1) -> GpuColor {
         int sx = std::max(1, (x1 - x0) / STEPS);
         int sy = std::max(1, (y1 - y0) / STEPS);
-        long r = 0, g = 0, b = 0, n = 0;
+        long long r = 0, g = 0, b = 0, n = 0;
         for (int y = y0; y < y1; y += sy)
             for (int x = x0; x < x1; x += sx) {
-                const uint8_t* p = px + y * stride + x * 4;
-                r += p[0]; g += p[1]; b += p[2]; n++;
+                long long offset = (long long)y * stride + (long long)x * 4;
+                if (offset >= 0) {
+                    const uint8_t* p = px + offset;
+                    r += p[0]; g += p[1]; b += p[2]; n++;
+                }
             }
-        if (n == 0) return GpuColor{0,0,0,255};
+        if (n <= 0) return GpuColor{0,0,0,255};
         return GpuColor{(uint8_t)(r/n), (uint8_t)(g/n), (uint8_t)(b/n), 255};
     };
     int depth = 8;
@@ -232,9 +238,9 @@ static void compute_edge_data(const RawImage& raw,
             const uint8_t* p = px + x * 4 + d * stride;
             ar += p[0]; ag += p[1]; ab += p[2];
         }
-        edge_top_rgb[x * 3 + 0] = (uint8_t)(ar / ns);
-        edge_top_rgb[x * 3 + 1] = (uint8_t)(ag / ns);
-        edge_top_rgb[x * 3 + 2] = (uint8_t)(ab / ns);
+        edge_top_rgb[x * 3 + 0] = (uint8_t)(ns > 0 ? (ar / ns) : 0);
+        edge_top_rgb[x * 3 + 1] = (uint8_t)(ns > 0 ? (ag / ns) : 0);
+        edge_top_rgb[x * 3 + 2] = (uint8_t)(ns > 0 ? (ab / ns) : 0);
     }
 
     edge_bot_rgb.resize(w * 3);
@@ -268,9 +274,9 @@ static void compute_edge_data(const RawImage& raw,
             const uint8_t* p = px + y * stride + ww * 4;
             ar += p[0]; ag += p[1]; ab += p[2];
         }
-        edge_lft_rgb[y * 3 + 0] = (uint8_t)(ar / ns);
-        edge_lft_rgb[y * 3 + 1] = (uint8_t)(ag / ns);
-        edge_lft_rgb[y * 3 + 2] = (uint8_t)(ab / ns);
+        edge_lft_rgb[y * 3 + 0] = (uint8_t)(ns > 0 ? (ar / ns) : 0);
+        edge_lft_rgb[y * 3 + 1] = (uint8_t)(ns > 0 ? (ag / ns) : 0);
+        edge_lft_rgb[y * 3 + 2] = (uint8_t)(ns > 0 ? (ab / ns) : 0);
     }
 
     edge_rgt_rgb.resize(h * 3);
@@ -285,10 +291,9 @@ static void compute_edge_data(const RawImage& raw,
                 sample_count++;
             }
         }
-        if (sample_count == 0) sample_count = 1;
-        edge_rgt_rgb[y * 3 + 0] = (uint8_t)(ar / sample_count);
-        edge_rgt_rgb[y * 3 + 1] = (uint8_t)(ag / sample_count);
-        edge_rgt_rgb[y * 3 + 2] = (uint8_t)(ab / sample_count);
+        edge_rgt_rgb[y * 3 + 0] = (uint8_t)(sample_count > 0 ? (ar / sample_count) : 0);
+        edge_rgt_rgb[y * 3 + 1] = (uint8_t)(sample_count > 0 ? (ag / sample_count) : 0);
+        edge_rgt_rgb[y * 3 + 2] = (uint8_t)(sample_count > 0 ? (ab / sample_count) : 0);
     }
 }
 

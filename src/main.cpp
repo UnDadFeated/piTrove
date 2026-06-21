@@ -1024,15 +1024,27 @@ static void keepalive_loop() {
                 // Hard reboot via SysRq — bypasses systemd to fully reset WiFi firmware
                 g_logger.error("Keepalive: Initiating hard kernel reboot via SysRq 'b'...");
                 sync();
+                bool sysrq_success = false;
                 int fd_rq = open("/proc/sys/kernel/sysrq", O_WRONLY);
                 if (fd_rq >= 0) {
-                    (void)write(fd_rq, "1", 1);
+                    if (write(fd_rq, "1", 1) == 1) {
+                        int fd_trig = open("/proc/sysrq-trigger", O_WRONLY);
+                        if (fd_trig >= 0) {
+                            if (write(fd_trig, "b", 1) == 1) {
+                                sysrq_success = true;
+                            }
+                            close(fd_trig);
+                        }
+                    }
                     close(fd_rq);
                 }
-                int fd_trig = open("/proc/sysrq-trigger", O_WRONLY);
-                if (fd_trig >= 0) {
-                    (void)write(fd_trig, "b", 1);
-                    close(fd_trig);
+
+                if (!sysrq_success) {
+                    g_logger.error("Keepalive: SysRq triggers failed or not accessible (e.g. in container). Falling back to shell reboot...");
+                    [[maybe_unused]] int rc = ::system("reboot");
+                    if (rc != 0) {
+                        rc = ::system("sudo reboot");
+                    }
                 }
 
                 // Allow thread to exit — no infinite loop, let main thread join us
@@ -1122,10 +1134,19 @@ int main(int argc, char** argv) {
     }
 
     std::string exe_dir = get_exe_dir();
-    std::string lock_path = exe_dir + "/piTrove.lock";
+    std::string lock_path;
+    const char* env_lock = std::getenv("PITROVE_LOCK_PATH");
+    if (env_lock && env_lock[0] != '\0') {
+        lock_path = env_lock;
+    } else {
+        lock_path = exe_dir + "/piTrove.lock";
+    }
 
     if (run_restart) {
         FILE* lf = fopen(lock_path.c_str(), "r");
+        if (!lf && lock_path != "/tmp/piTrove.lock") {
+            lf = fopen("/tmp/piTrove.lock", "r");
+        }
         if (lf) {
             pid_t old_pid = 0;
             if (fscanf(lf, "%d", &old_pid) == 1 && old_pid > 0 && old_pid != getpid()) {
@@ -1142,8 +1163,8 @@ int main(int argc, char** argv) {
 
     if (run_config) {
         if (config_path.empty()) {
-            const char* candidates[] = {"src/config/config.toml", "/home/pi/piTrove/src/config/config.toml",
-                "config/config.toml", "./src/config/config.toml"};
+            const char* candidates[] = {"/app/config/config.toml", "config/config.toml", "src/config/config.toml",
+                "/home/pi/piTrove/src/config/config.toml", "./src/config/config.toml"};
             for (const auto& c : candidates) {
                 if (file_exists(c)) { config_path = c; break; }
             }
@@ -1164,7 +1185,11 @@ int main(int argc, char** argv) {
 
     // --- Single-instance lock ---
     int lock_fd = open(lock_path.c_str(), O_CREAT | O_RDWR, 0644);
-    if (lock_fd < 0) { fprintf(stderr, "Failed to open lock file\n"); return 1; }
+    if (lock_fd < 0) {
+        lock_path = "/tmp/piTrove.lock";
+        lock_fd = open(lock_path.c_str(), O_CREAT | O_RDWR, 0644);
+    }
+    if (lock_fd < 0) { fprintf(stderr, "Failed to open lock file %s\n", lock_path.c_str()); return 1; }
     if (flock(lock_fd, LOCK_EX | LOCK_NB) != 0) {
         fprintf(stderr, "Another instance is already running\n");
         close(lock_fd); return 1;
@@ -1190,8 +1215,8 @@ int main(int argc, char** argv) {
     // --- Config ---
     g_cfg.parse_args(argc, argv);
     if (config_path.empty()) {
-        const char* candidates[] = {"src/config/config.toml", "/home/pi/piTrove/src/config/config.toml",
-            "config/config.toml", "./src/config/config.toml"};
+        const char* candidates[] = {"/app/config/config.toml", "config/config.toml", "src/config/config.toml",
+            "/home/pi/piTrove/src/config/config.toml", "./src/config/config.toml"};
         for (const auto& c : candidates) {
             if (file_exists(c)) { config_path = c; break; }
         }

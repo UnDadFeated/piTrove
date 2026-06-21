@@ -12,10 +12,16 @@
 
 #include <queue>
 #include <condition_variable>
+#include <unistd.h>
+#include <sys/types.h>
+#include <sys/wait.h>
+#include <signal.h>
+#include <fcntl.h>
 
 static std::thread g_mqtt_thread;
 static std::mutex g_mqtt_mtx;
-static FILE* g_mqtt_fp = nullptr;
+static pid_t g_mqtt_pid = -1;
+static int g_mqtt_pipe_fd = -1;
 
 struct MqttPubRequest {
     std::string cmd;
@@ -205,8 +211,7 @@ void start_mqtt_client() {
                 sensor_topic = g_cfg.mqtt_motionsensor_topic;
             }
             
-            std::string cmd = "mosquitto_sub -h '" + escape_shell_arg(broker) + "'" +
-                              " -p " + std::to_string(port);
+            std::vector<std::string> args = {"mosquitto_sub", "-h", broker, "-p", std::to_string(port)};
             std::string user, pass;
             {
                 std::shared_lock<std::shared_mutex> lk(g_config_mtx);
@@ -214,35 +219,100 @@ void start_mqtt_client() {
                 pass = g_cfg.mqtt_pass;
             }
             if (!user.empty()) {
-                cmd += " -u '" + escape_shell_arg(user) + "'";
+                args.push_back("-u");
+                args.push_back(user);
             }
             if (!pass.empty()) {
-                cmd += " -P '" + escape_shell_arg(pass) + "'";
+                args.push_back("-P");
+                args.push_back(pass);
             }
-            cmd += " -t '" + escape_shell_arg(sensor_topic) + "'";
-            cmd += " -t '" + escape_shell_arg(prefix) + "/command/#'";
-            cmd += " -F \"%t:%p\" 2>/dev/null";
+            args.push_back("-t");
+            args.push_back(sensor_topic);
+            args.push_back("-t");
+            args.push_back(prefix + "/command/#");
+            args.push_back("-F");
+            args.push_back("%t:%p");
 
-            g_logger.info("Starting MQTT Subscriber: %s", cmd.c_str());
+            g_logger.info("Starting MQTT Subscriber via fork+execvp");
             
-            FILE* fp = popen(cmd.c_str(), "r");
-            if (!fp) {
+            int pipefds[2];
+            if (pipe(pipefds) < 0) {
                 trigger_error(701); // E701: MQTT_BROKER_UNREACHABLE
-                g_logger.error("MQTT: popen failed to start subscriber. Retrying in 10 seconds...");
+                g_logger.error("MQTT: pipe creation failed. Retrying in 10 seconds...");
                 for (int i = 0; i < 100 && g_running.load(); ++i) {
                     std::this_thread::sleep_for(std::chrono::milliseconds(100));
                 }
                 continue;
             }
-            
-            {
-                std::lock_guard<std::mutex> lk(g_mqtt_mtx);
-                g_mqtt_fp = fp;
+
+            pid_t pid = fork();
+            if (pid < 0) {
+                close(pipefds[0]);
+                close(pipefds[1]);
+                trigger_error(701); // E701: MQTT_BROKER_UNREACHABLE
+                g_logger.error("MQTT: fork failed. Retrying in 10 seconds...");
+                for (int i = 0; i < 100 && g_running.load(); ++i) {
+                    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+                }
+                continue;
             }
 
-            // Clear active MQTT connection error upon successful popen startup
-            if (g_active_error_code.load() == 701) {
-                trigger_error(0);
+            if (pid == 0) {
+                // Child process
+                dup2(pipefds[1], STDOUT_FILENO);
+                int devnull = open("/dev/null", O_WRONLY);
+                if (devnull >= 0) {
+                    dup2(devnull, STDERR_FILENO);
+                    close(devnull);
+                }
+                close(pipefds[0]);
+                close(pipefds[1]);
+
+                int max_fd = sysconf(_SC_OPEN_MAX);
+                if (max_fd < 0) max_fd = 1024;
+                for (int i = 3; i < max_fd; ++i) close(i);
+
+                std::vector<char*> argv;
+                for (const auto& a : args) {
+                    argv.push_back(const_cast<char*>(a.c_str()));
+                }
+                argv.push_back(nullptr);
+
+                execvp(argv[0], argv.data());
+                _exit(1);
+            }
+
+            // Parent process
+            close(pipefds[1]);
+
+            {
+                std::lock_guard<std::mutex> lk(g_mqtt_mtx);
+                g_mqtt_pid = pid;
+                g_mqtt_pipe_fd = pipefds[0];
+            }
+
+            FILE* fp = fdopen(pipefds[0], "r");
+            if (!fp) {
+                close(pipefds[0]);
+                g_logger.error("MQTT: fdopen failed. Retrying in 10 seconds...");
+                {
+                    std::lock_guard<std::mutex> lk(g_mqtt_mtx);
+                    g_mqtt_pid = -1;
+                    g_mqtt_pipe_fd = -1;
+                }
+                kill(pid, SIGTERM);
+                int status;
+                waitpid(pid, &status, 0);
+                trigger_error(701);
+                for (int i = 0; i < 100 && g_running.load(); ++i) {
+                    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+                }
+                continue;
+            }
+
+            // Clear active MQTT connection error upon successful startup
+            if (is_error_active(701)) {
+                clear_error(701);
             }
 
             // Publish Home Assistant auto-discovery configs
@@ -313,16 +383,15 @@ void start_mqtt_client() {
                 }
             }
 
-            FILE* fp_to_close = nullptr;
+            fclose(fp);
             {
                 std::lock_guard<std::mutex> lk(g_mqtt_mtx);
-                if (g_mqtt_fp) {
-                    fp_to_close = g_mqtt_fp;
-                    g_mqtt_fp = nullptr;
+                g_mqtt_pipe_fd = -1;
+                if (g_mqtt_pid == pid) {
+                    int status;
+                    waitpid(pid, &status, 0);
+                    g_mqtt_pid = -1;
                 }
-            }
-            if (fp_to_close) {
-                pclose(fp_to_close);
             }
             
             if (g_running.load()) {
@@ -338,16 +407,18 @@ void start_mqtt_client() {
 }
 
 void stop_mqtt_client() {
-    FILE* fp_to_close = nullptr;
+    pid_t pid_to_kill = -1;
     {
         std::lock_guard<std::mutex> lk(g_mqtt_mtx);
-        if (g_mqtt_fp) {
-            fp_to_close = g_mqtt_fp;
-            g_mqtt_fp = nullptr;
+        if (g_mqtt_pid > 0) {
+            pid_to_kill = g_mqtt_pid;
+            g_mqtt_pid = -1;
         }
     }
-    if (fp_to_close) {
-        pclose(fp_to_close);
+    if (pid_to_kill > 0) {
+        kill(pid_to_kill, SIGTERM);
+        int status;
+        waitpid(pid_to_kill, &status, 0);
     }
     if (g_mqtt_thread.joinable()) {
         g_mqtt_thread.join();

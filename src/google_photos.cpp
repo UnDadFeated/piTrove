@@ -98,8 +98,8 @@ void GooglePhotosManager::sync_now() {
     g_logger.error("GooglePhotos: Storage space critically low (<50MB) on cache drive '%s'. Skipping sync.", cache_dir.c_str());
     return;
   } else {
-    if (g_active_error_code.load() == 403) {
-      trigger_error(0);
+    if (is_error_active(403)) {
+      clear_error(403);
     }
   }
 
@@ -150,8 +150,8 @@ std::string GooglePhotosManager::get_access_token() {
       trigger_error(105); // E105: DNS_RESOLUTION_FAILURE
     } else {
       freeaddrinfo(res);
-      if (g_active_error_code.load() == 105) {
-        trigger_error(0);
+      if (is_error_active(105)) {
+        clear_error(105);
       }
     }
 
@@ -164,7 +164,7 @@ std::string GooglePhotosManager::get_access_token() {
                err_desc.find("revoked") != std::string::npos) {
       trigger_error(304); // E304: GOOGLE_PHOTOS_REFRESH_TOKEN_EXPIRED
     } else {
-      if (g_active_error_code.load() != 105) {
+      if (!is_error_active(105)) {
         trigger_error(301); // E301: GOOGLE_PHOTOS_SYNC_FAILED
       }
     }
@@ -275,6 +275,10 @@ void GooglePhotosManager::download_media(const std::string &access_token) {
       size_t host_start = 8; // length of "https://"
       size_t host_end = download_url.find('/', host_start);
       std::string host = (host_end == std::string::npos) ? download_url.substr(host_start) : download_url.substr(host_start, host_end - host_start);
+      size_t colon = host.find(':');
+      if (colon != std::string::npos) {
+        host = host.substr(0, colon);
+      }
       bool domain_valid = false;
       if (host == "googleusercontent.com" || 
           (host.length() > 22 && host.compare(host.length() - 22, 22, ".googleusercontent.com") == 0)) {
@@ -356,7 +360,21 @@ std::string GooglePhotosManager::parse_json_value(const std::string &json,
   if (quote_start == std::string::npos)
     return "";
 
-  size_t quote_end = json.find("\"", quote_start + 1);
+  size_t quote_end = std::string::npos;
+  for (size_t i = quote_start + 1; i < json.size(); ++i) {
+    if (json[i] == '"') {
+      size_t bs_count = 0;
+      size_t j = i;
+      while (j > quote_start + 1 && json[j - 1] == '\\') {
+        bs_count++;
+        j--;
+      }
+      if (bs_count % 2 == 0) {
+        quote_end = i;
+        break;
+      }
+    }
+  }
   if (quote_end == std::string::npos)
     return "";
 

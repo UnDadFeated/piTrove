@@ -119,7 +119,8 @@ std::shared_ptr<ImageData> ImageLoader::load(const std::string& path) {
     }
     stbi_image_free(pixels);
 
-    int exif = read_exif_rotation_from_memory(buffer.data(), (unsigned int)buffer.size());
+    ImageMetadata meta = read_metadata_from_memory(buffer.data(), (unsigned int)buffer.size());
+    int exif = meta.rotation;
     if (exif >= 2 && exif <= 8) {
         SDL_Surface* rotated = apply_exif_rotation(surf, exif);
         if (rotated) {
@@ -132,6 +133,8 @@ std::shared_ptr<ImageData> ImageLoader::load(const std::string& path) {
     result->width = surf->w;
     result->height = surf->h;
     result->exif_rotation = exif;
+    result->is_camera = meta.is_camera;
+    result->creation_time = meta.creation_time;
     result->valid = true;
 
    GpuColor avg = Renderer::get_average_color(surf);
@@ -170,7 +173,7 @@ std::shared_ptr<ImageData> ImageLoader::load(const std::string& path) {
     }
 
     // Per-pixel edge strips: average 3px deep per position
-    {
+    if (surf && surf->pixels && surf->w > 0 && surf->h > 0) {
         uint8_t* px = (uint8_t*)surf->pixels;
         int bpp = SDL_BYTESPERPIXEL(surf->format);
         int sw = surf->w, sh = surf->h;
@@ -185,9 +188,9 @@ std::shared_ptr<ImageData> ImageLoader::load(const std::string& path) {
                 const uint8_t* dp = px + x * bpp + d * pitch;
                 ar += dp[0]; ag += dp[1]; ab += dp[2]; ac++;
             }
-            result->edge_top_rgb[x * 3 + 0] = (uint8_t)(ar / ac);
-            result->edge_top_rgb[x * 3 + 1] = (uint8_t)(ag / ac);
-            result->edge_top_rgb[x * 3 + 2] = (uint8_t)(ab / ac);
+            result->edge_top_rgb[x * 3 + 0] = (uint8_t)(ac > 0 ? (ar / ac) : 0);
+            result->edge_top_rgb[x * 3 + 1] = (uint8_t)(ac > 0 ? (ag / ac) : 0);
+            result->edge_top_rgb[x * 3 + 2] = (uint8_t)(ac > 0 ? (ab / ac) : 0);
         }
 
         // Bottom edge (3 rows: sh-3, sh-2, sh-1)
@@ -202,9 +205,9 @@ std::shared_ptr<ImageData> ImageLoader::load(const std::string& path) {
                     ar += dp[0]; ag += dp[1]; ab += dp[2];
                 }
             }
-            result->edge_bot_rgb[x * 3 + 0] = (uint8_t)(ar / bot_samples);
-            result->edge_bot_rgb[x * 3 + 1] = (uint8_t)(ag / bot_samples);
-            result->edge_bot_rgb[x * 3 + 2] = (uint8_t)(ab / bot_samples);
+            result->edge_bot_rgb[x * 3 + 0] = (uint8_t)(bot_samples > 0 ? (ar / bot_samples) : 0);
+            result->edge_bot_rgb[x * 3 + 1] = (uint8_t)(bot_samples > 0 ? (ag / bot_samples) : 0);
+            result->edge_bot_rgb[x * 3 + 2] = (uint8_t)(bot_samples > 0 ? (ab / bot_samples) : 0);
         }
 
         // Left edge: one RGB per row
@@ -215,9 +218,9 @@ std::shared_ptr<ImageData> ImageLoader::load(const std::string& path) {
             for (int w = 0; w < 3 && w < sw; w++) {
                 ar += p[w * bpp + 0]; ag += p[w * bpp + 1]; ab += p[w * bpp + 2]; ac++;
             }
-            result->edge_lft_rgb[y * 3 + 0] = (uint8_t)(ar / ac);
-            result->edge_lft_rgb[y * 3 + 1] = (uint8_t)(ag / ac);
-            result->edge_lft_rgb[y * 3 + 2] = (uint8_t)(ab / ac);
+            result->edge_lft_rgb[y * 3 + 0] = (uint8_t)(ac > 0 ? (ar / ac) : 0);
+            result->edge_lft_rgb[y * 3 + 1] = (uint8_t)(ac > 0 ? (ag / ac) : 0);
+            result->edge_lft_rgb[y * 3 + 2] = (uint8_t)(ac > 0 ? (ab / ac) : 0);
         }
 
         // Right edge
@@ -229,9 +232,9 @@ std::shared_ptr<ImageData> ImageLoader::load(const std::string& path) {
                 int wc = sw - 1 - w;
                 if (wc >= 0) { ar += p[wc * bpp + 0]; ag += p[wc * bpp + 1]; ab += p[wc * bpp + 2]; ac++; }
             }
-            result->edge_rgt_rgb[y * 3 + 0] = (uint8_t)(ar / ac);
-            result->edge_rgt_rgb[y * 3 + 1] = (uint8_t)(ag / ac);
-            result->edge_rgt_rgb[y * 3 + 2] = (uint8_t)(ab / ac);
+            result->edge_rgt_rgb[y * 3 + 0] = (uint8_t)(ac > 0 ? (ar / ac) : 0);
+            result->edge_rgt_rgb[y * 3 + 1] = (uint8_t)(ac > 0 ? (ag / ac) : 0);
+            result->edge_rgt_rgb[y * 3 + 2] = (uint8_t)(ac > 0 ? (ab / ac) : 0);
         }
     }
 
@@ -496,4 +499,79 @@ int64_t ImageLoader::get_creation_time(std::string_view path) {
     }
     exif_data_unref(ed);
     return result;
+}
+
+ImageMetadata ImageLoader::read_metadata_from_memory(const uint8_t* buffer, unsigned int size) {
+    ImageMetadata meta;
+    if (!buffer || size == 0) return meta;
+
+    ExifData* ed = exif_data_new_from_data(buffer, size);
+    if (!ed) return meta;
+
+    // 1. Orientation/Rotation
+    ExifEntry* orient = exif_content_get_entry(ed->ifd[EXIF_IFD_0], EXIF_TAG_ORIENTATION);
+    if (!orient || !orient->data || orient->size < 2 || orient->format != EXIF_FORMAT_SHORT) {
+        orient = exif_content_get_entry(ed->ifd[EXIF_IFD_EXIF], EXIF_TAG_ORIENTATION);
+    }
+    if (orient && orient->data && orient->size >= 2 && orient->format == EXIF_FORMAT_SHORT) {
+        unsigned short val = exif_get_short(orient->data, exif_data_get_byte_order(ed));
+        if (val >= 1 && val <= 8) meta.rotation = val;
+    }
+
+    // 2. Camera verification (optical tags)
+    ExifEntry* exposure = exif_content_get_entry(ed->ifd[EXIF_IFD_EXIF], EXIF_TAG_EXPOSURE_TIME);
+    ExifEntry* fnumber = exif_content_get_entry(ed->ifd[EXIF_IFD_EXIF], EXIF_TAG_FNUMBER);
+    ExifEntry* iso = exif_content_get_entry(ed->ifd[EXIF_IFD_EXIF], EXIF_TAG_ISO_SPEED_RATINGS);
+    ExifEntry* focal = exif_content_get_entry(ed->ifd[EXIF_IFD_EXIF], EXIF_TAG_FOCAL_LENGTH);
+    ExifEntry* datetime = exif_content_get_entry(ed->ifd[EXIF_IFD_EXIF], EXIF_TAG_DATE_TIME_ORIGINAL);
+
+    int count = (exposure ? 1 : 0) + (fnumber ? 1 : 0) + (iso ? 1 : 0) + (focal ? 1 : 0) + (datetime ? 1 : 0);
+    meta.is_camera = (count >= 2);
+
+    // 3. Creation / Capture time
+    if (!datetime) {
+        datetime = exif_content_get_entry(ed->ifd[EXIF_IFD_0], EXIF_TAG_DATE_TIME);
+    }
+    if (!datetime) {
+        datetime = exif_content_get_entry(ed->ifd[EXIF_IFD_EXIF], EXIF_TAG_DATE_TIME_DIGITIZED);
+    }
+
+    if (datetime && datetime->data && datetime->size >= 19) {
+        std::string_view date_sv(reinterpret_cast<const char*>(datetime->data), 19);
+        if (date_sv.length() >= 19 && date_sv[4] == ':' && date_sv[7] == ':' && date_sv[10] == ' ' && date_sv[13] == ':' && date_sv[16] == ':') {
+            auto parse_int = [](std::string_view s) -> int {
+                int val = 0;
+                for (char c : s) {
+                    if (c < '0' || c > '9') return -1;
+                    val = val * 10 + (c - '0');
+                }
+                return val;
+            };
+
+            int year  = parse_int(date_sv.substr(0, 4));
+            int month = parse_int(date_sv.substr(5, 2));
+            int day   = parse_int(date_sv.substr(8, 2));
+            int hour  = parse_int(date_sv.substr(11, 2));
+            int min   = parse_int(date_sv.substr(14, 2));
+            int sec   = parse_int(date_sv.substr(17, 2));
+
+            if (year >= 1900 && year <= 2100 && month >= 1 && month <= 12 && day >= 1 && day <= 31) {
+                struct tm tm_dest = {};
+                tm_dest.tm_year = year - 1900;
+                tm_dest.tm_mon = month - 1;
+                tm_dest.tm_mday = day;
+                tm_dest.tm_hour = hour;
+                tm_dest.tm_min = min;
+                tm_dest.tm_sec = sec;
+                tm_dest.tm_isdst = -1;
+                time_t t = mktime(&tm_dest);
+                if (t != -1) {
+                    meta.creation_time = static_cast<int64_t>(t);
+                }
+            }
+        }
+    }
+
+    exif_data_unref(ed);
+    return meta;
 }

@@ -167,7 +167,7 @@ bool CacheManager::load_cached(MediaItem& mi) {
     if (!stmt_load) return false;
     std::lock_guard<std::mutex> lk(db_mutex);
     bool found = false;
-    sqlite3_bind_text(stmt_load, 1, mi.path.c_str(), -1, SQLITE_STATIC);
+    sqlite3_bind_text(stmt_load, 1, mi.path.c_str(), -1, SQLITE_TRANSIENT);
     if (sqlite3_step(stmt_load) == SQLITE_ROW) {
         int64_t col_w = sqlite3_column_int64(stmt_load, 0);
         int64_t col_h = sqlite3_column_int64(stmt_load, 1);
@@ -190,21 +190,42 @@ bool CacheManager::load_cached(MediaItem& mi) {
 void CacheManager::upsert(const MediaItem& mi, int bad, int preprocessed) {
     if (!stmt_upsert) return;
 
-    // NOTE: Resolving mutable fields (is_camera, creation_time) involves slow disk/CIFS I/O.
-    // We intentionally perform this resolution BEFORE locking db_mutex so that network or filesystem latency
-    // does not block database access for other threads. This is safe because MediaItem instances are
-    // thread-confined (thread-local or locked at higher scope) during metadata resolution.
-    if (mi.is_camera == -1 && !in_transaction && mi.type == "image" && bad == 0) {
-        mi.is_camera = ImageLoader::has_camera_exif(mi.path.c_str()) ? 1 : 0;
-    }
-
-    if (mi.creation_time == 0 && !in_transaction && mi.type == "image" && bad == 0) {
-        mi.creation_time = ImageLoader::get_creation_time(mi.path);
+    if ((mi.is_camera == -1 || mi.creation_time == 0) && mi.type == "image" && bad == 0) {
+        int db_is_cam = -1;
+        int64_t db_creat = 0;
+        bool db_found = false;
+        {
+            std::lock_guard<std::mutex> lk(db_mutex);
+            sqlite3_stmt* stmt_chk = nullptr;
+            const char* sql_chk = "SELECT is_camera, creation_time FROM cache WHERE path = ?;";
+            if (sqlite3_prepare_v2(db, sql_chk, -1, &stmt_chk, nullptr) == SQLITE_OK) {
+                sqlite3_bind_text(stmt_chk, 1, mi.path.c_str(), -1, SQLITE_TRANSIENT);
+                if (sqlite3_step(stmt_chk) == SQLITE_ROW) {
+                    db_is_cam = sqlite3_column_int(stmt_chk, 0);
+                    db_creat = sqlite3_column_int64(stmt_chk, 1);
+                    db_found = true;
+                }
+                sqlite3_finalize(stmt_chk);
+            }
+        }
+        if (db_found && db_is_cam != -1) {
+            mi.is_camera = db_is_cam;
+            mi.creation_time = db_creat;
+        } else if (!in_transaction) {
+            std::vector<uint8_t> buffer = ImageLoader::read_file_to_buffer(mi.path);
+            if (!buffer.empty()) {
+                ImageMetadata meta = ImageLoader::read_metadata_from_memory(buffer.data(), (unsigned int)buffer.size());
+                mi.is_camera = meta.is_camera ? 1 : 0;
+                mi.creation_time = meta.creation_time;
+            } else {
+                mi.is_camera = 0;
+            }
+        }
     }
 
     std::lock_guard<std::mutex> lk(db_mutex);
-    sqlite3_bind_text(stmt_upsert, 1, mi.path.c_str(), -1, SQLITE_STATIC);
-    sqlite3_bind_text(stmt_upsert, 2, mi.type.c_str(), -1, SQLITE_STATIC);
+    sqlite3_bind_text(stmt_upsert, 1, mi.path.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt_upsert, 2, mi.type.c_str(), -1, SQLITE_TRANSIENT);
     sqlite3_bind_int64(stmt_upsert, 3, mi.width);
     sqlite3_bind_int64(stmt_upsert, 4, mi.height);
     sqlite3_bind_int(stmt_upsert, 5, mi.exif_rotation);

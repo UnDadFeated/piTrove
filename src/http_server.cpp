@@ -23,6 +23,7 @@
 #include <algorithm>
 #include <filesystem>
 #include <iomanip>
+#include <poll.h>
 
 extern std::vector<MediaItem> g_eligible;
 extern int current_idx;
@@ -39,6 +40,22 @@ struct TrackedThreadInfo {
 };
 static std::vector<TrackedThreadInfo> g_http_client_threads;
 static std::mutex g_http_threads_mtx;
+
+static std::vector<int> g_active_client_fds;
+static std::mutex g_active_fds_mtx;
+
+static void register_client_fd(int fd) {
+    std::lock_guard<std::mutex> lk(g_active_fds_mtx);
+    g_active_client_fds.push_back(fd);
+}
+
+static void unregister_client_fd(int fd) {
+    std::lock_guard<std::mutex> lk(g_active_fds_mtx);
+    auto it = std::find(g_active_client_fds.begin(), g_active_client_fds.end(), fd);
+    if (it != g_active_client_fds.end()) {
+        g_active_client_fds.erase(it);
+    }
+}
 
 static void spawn_tracked_thread(std::function<void()> func) {
     auto finished = std::make_shared<std::atomic<bool>>(false);
@@ -82,8 +99,25 @@ static std::string parse_json_value(const std::string& json, const std::string& 
     if (auto key_pos = json.find("\"" + key + "\""); key_pos == std::string::npos) return "";
     else if (auto colon_pos = json.find(":", key_pos); colon_pos == std::string::npos) return "";
     else if (auto quote_start = json.find("\"", colon_pos); quote_start == std::string::npos) return "";
-    else if (auto quote_end = json.find("\"", quote_start + 1); quote_end == std::string::npos) return "";
-    else return json.substr(quote_start + 1, quote_end - quote_start - 1);
+    else {
+        size_t quote_end = std::string::npos;
+        for (size_t i = quote_start + 1; i < json.size(); ++i) {
+            if (json[i] == '"') {
+                size_t bs_count = 0;
+                size_t j = i;
+                while (j > quote_start + 1 && json[j - 1] == '\\') {
+                    bs_count++;
+                    j--;
+                }
+                if (bs_count % 2 == 0) {
+                    quote_end = i;
+                    break;
+                }
+            }
+        }
+        if (quote_end == std::string::npos) return "";
+        return json.substr(quote_start + 1, quote_end - quote_start - 1);
+    }
 }
 
 static bool has_query_param(const std::string& request, const std::string& key) {
@@ -1701,17 +1735,36 @@ static void handle_preview(int fd) {
 }
 
 static void handle_client(int client_fd) {
+    struct ClientFdGuard {
+        int fd;
+        ClientFdGuard(int f) : fd(f) { register_client_fd(fd); }
+        ~ClientFdGuard() { unregister_client_fd(fd); close(fd); }
+    };
+    ClientFdGuard guard(client_fd);
+
     // Set client socket timeout to prevent slowloris hangs
     struct timeval client_tv;
     { std::lock_guard lk(g_config_mtx); client_tv.tv_sec = g_cfg.http_socket_timeout; }
     client_tv.tv_usec = 0;
-    setsockopt(client_fd, SOL_SOCKET, SO_RCVTIMEO, &client_tv, sizeof(client_tv));
-    setsockopt(client_fd, SOL_SOCKET, SO_SNDTIMEO, &client_tv, sizeof(client_tv));
+    if (setsockopt(client_fd, SOL_SOCKET, SO_RCVTIMEO, &client_tv, sizeof(client_tv)) < 0) {
+        g_logger.warn("HTTP: Failed to set SO_RCVTIMEO on client socket.");
+    }
+    if (setsockopt(client_fd, SOL_SOCKET, SO_SNDTIMEO, &client_tv, sizeof(client_tv)) < 0) {
+        g_logger.warn("HTTP: Failed to set SO_SNDTIMEO on client socket.");
+    }
 
     std::string request;
     request.reserve(4096);
     char buf[1024];
     while (true) {
+        struct pollfd pfd;
+        pfd.fd = client_fd;
+        pfd.events = POLLIN;
+        pfd.revents = 0;
+        int poll_res = poll(&pfd, 1, 2000);
+        if (poll_res <= 0) {
+            break;
+        }
         ssize_t bytes_read = read(client_fd, buf, sizeof(buf));
         if (bytes_read <= 0) {
             break;
@@ -1722,6 +1775,48 @@ static void handle_client(int client_fd) {
         }
         if (request.size() >= 8192) {
             break;
+        }
+    }
+
+    size_t header_end = request.find("\r\n\r\n");
+    if (header_end != std::string::npos) {
+        std::string headers = request.substr(0, header_end);
+        size_t cl_pos = headers.find("Content-Length:");
+        if (cl_pos == std::string::npos) {
+            cl_pos = headers.find("content-length:");
+        }
+        if (cl_pos != std::string::npos) {
+            size_t val_pos = headers.find_first_not_of(" \t", cl_pos + 15);
+            size_t val_end = headers.find("\r\n", val_pos);
+            if (val_pos != std::string::npos && val_end != std::string::npos) {
+                std::string cl_str = headers.substr(val_pos, val_end - val_pos);
+                int content_length = safe_stoi(cl_str, 0);
+                if (content_length > 65536) {
+                    send_response(client_fd, "HTTP/1.1 413 Payload Too Large", "text/plain", "Payload Too Large");
+                    return;
+                }
+                if (content_length > 0) {
+                    size_t body_start = header_end + 4;
+                    size_t current_body_len = request.size() - body_start;
+                    while (current_body_len < (size_t)content_length) {
+                        struct pollfd pfd;
+                        pfd.fd = client_fd;
+                        pfd.events = POLLIN;
+                        pfd.revents = 0;
+                        int poll_res = poll(&pfd, 1, 2000);
+                        if (poll_res <= 0) {
+                            break;
+                        }
+                        size_t to_read = std::min(sizeof(buf), (size_t)(content_length - current_body_len));
+                        ssize_t bytes_read = read(client_fd, buf, to_read);
+                        if (bytes_read <= 0) {
+                            break;
+                        }
+                        request.append(buf, bytes_read);
+                        current_body_len += bytes_read;
+                    }
+                }
+            }
         }
     }
 
@@ -2011,8 +2106,8 @@ static void handle_client(int client_fd) {
                          << "}";
                 send_response(client_fd, "HTTP/1.1 400 Bad Request", "application/json", json_err.str());
             } else {
-                if (g_active_error_code.load() == 807) {
-                    trigger_error(0);
+                if (is_error_active(807)) {
+                    clear_error(807);
                 }
                 if (changed) {
                     g_cfg.save("/app/config/config.toml");
@@ -2052,8 +2147,8 @@ static void handle_client(int client_fd) {
                 trigger_error(126); // E126: HTTP_LOG_STREAM_IO_ERROR
                 log_content = "No logs available or log file not initialized yet.";
             } else {
-                if (g_active_error_code.load() == 126) {
-                    trigger_error(0);
+                if (is_error_active(126)) {
+                    clear_error(126);
                 }
             }
             
@@ -2129,7 +2224,6 @@ static void handle_client(int client_fd) {
             send_response(client_fd, "HTTP/1.1 404 Not Found", "text/plain", "Not Found");
         }
     }
-    close(client_fd);
 }
 
 static void server_loop(int port) {
@@ -2275,6 +2369,14 @@ void stop_http_server() {
     int fd = g_listen_fd.load();
     if (fd >= 0) {
         shutdown(fd, SHUT_RDWR);
+    }
+
+    // shutdown all active client connections to unblock reads/writes
+    {
+        std::lock_guard<std::mutex> lk(g_active_fds_mtx);
+        for (int cfd : g_active_client_fds) {
+            shutdown(cfd, SHUT_RDWR);
+        }
     }
     
     if (g_server_thread.joinable()) {

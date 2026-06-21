@@ -79,8 +79,8 @@ FontHandle& FontRenderer::load_font(const std::string& path, int size) {
     handle->size = size;
     fonts[key] = handle;
 
-    if (g_active_error_code.load() == 204) {
-        trigger_error(0);
+    if (is_error_active(204)) {
+        clear_error(204);
     }
 
     g_logger.debug("Successfully loaded font: %s", key.c_str());
