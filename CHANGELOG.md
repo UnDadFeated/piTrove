@@ -1,3 +1,12 @@
+## v13.3.1 — Deep Code Audit & Lifecycle Hardening (June 20, 2026)
+
+### Fixed
+- **Thread-safe playlist initialization** — Prevented startup data races between remote dashboard services and media initialization by synchronizing playlist setups.
+- **Robust display transition rendering** — Guarded image transition effects against invalid screen boundary configurations.
+- **Exception-safe database cache setup** — Prevented startup failures by trapping system errors during cache directory initialization.
+- **Responsive application shutdown** — Hardened background directory scanning to abort immediately upon exit signals, preventing process hangs.
+- **Dubious repository ownership** — Pre-configured the system installation process to preserve repository ownership states when updated under root.
+
 ## v13.3.0 — Code Audit & System Stability Upgrades (June 20, 2026)
 
 ### Fixed

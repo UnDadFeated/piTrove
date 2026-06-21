@@ -12,14 +12,18 @@
 
 bool CacheManager::open(const std::string& dir) {
     g_logger.info("[TRACE] CacheManager::open dir=%s", dir.c_str());
-    std::filesystem::create_directories(dir);
+    std::error_code ec;
+    std::filesystem::create_directories(dir, ec);
+    if (ec) {
+        g_logger.error("CacheManager: Failed to create directories %s: %s", dir.c_str(), ec.message().c_str());
+    }
 
     std::string path = dir + "/cache.db";
-    if (std::filesystem::exists(path) && !verify_database(path)) {
+    if (std::filesystem::exists(path, ec) && !ec && !verify_database(path)) {
         g_logger.warn("Cache database at %s has an outdated schema or is corrupt. Purging to rebuild...", path.c_str());
-        std::filesystem::remove(path);
-        std::filesystem::remove(path + "-wal");
-        std::filesystem::remove(path + "-shm");
+        std::filesystem::remove(path, ec);
+        std::filesystem::remove(path + "-wal", ec);
+        std::filesystem::remove(path + "-shm", ec);
     }
 
     int flags = SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_FULLMUTEX;

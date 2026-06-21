@@ -195,9 +195,11 @@ std::vector<MediaItem> MediaScanner::scan(const std::string& directory,
 
     std::function<void(const std::string&, int)> gather_dirs;
     gather_dirs = [&](const std::string& dir, int d) {
+        if (!g_running.load()) return;
         if (d > 2) return;
         std::vector<std::string> entries = read_dir_timeout(dir, 15000);
         for (const auto& name : entries) {
+            if (!g_running.load()) return;
             std::string p = dir + "/" + name;
             struct stat st;
             if (!stat_timeout(p, st, 5000)) continue;
@@ -229,12 +231,15 @@ std::vector<MediaItem> MediaScanner::scan(const std::string& directory,
     auto worker = [&](int start_idx, int end_idx) {
         try {
             for (int i = start_idx; i < end_idx; i++) {
+                if (!g_running.load()) break;
                 std::string target_dir = subdirs[i];
                 std::function<void(const std::string&, int)> rec;
                 rec = [&](const std::string& dir, int d) {
+                    if (!g_running.load()) return;
                     if (d > max_depth) return;
                     std::vector<std::string> entries = read_dir_timeout(dir, 15000);
                     for (const auto& name : entries) {
+                        if (!g_running.load()) return;
                         std::string p = dir + "/" + name;
                         struct stat st;
                         if (!stat_timeout(p, st, 5000)) continue;
