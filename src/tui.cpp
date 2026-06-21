@@ -704,7 +704,10 @@ void config_wizard(const std::string& config_path) {
                     val = (val == "1" || val == "[ON]" || val == "[  ON  ]") ? "[  ON  ]" : "[ OFF  ]";
                 }
                 std::string desc = item.desc;
-                if ((int)desc.length() > desc_w) desc = desc.substr(0, desc_w - 3) + "...";
+                if ((int)desc.length() > desc_w && desc_w >= 3) {
+                    desc.resize((size_t)(desc_w - 3));
+                    desc += "...";
+                }
 
                 if(edit_mode && i==sel_sub)
                     printf("  \033[1;32m%-*s \033[30;47m%-*s\033[0m \033[90m%-*s\033[0m\n", name_w, item.n, val_w, ed_buf.c_str(), desc_w, desc.c_str());
@@ -753,6 +756,9 @@ void config_wizard(const std::string& config_path) {
         }
 
         // Read all available bytes
+        if (input_buf_len >= (int)sizeof(input_buf) - 1) {
+            input_buf_len = 0;
+        }
         int n = read(STDIN_FILENO, input_buf + input_buf_len, sizeof(input_buf) - input_buf_len - 1);
         if (n > 0) {
             input_buf_len += n;
@@ -938,6 +944,10 @@ void config_wizard(const std::string& config_path) {
         if (pos > 0 && pos < input_buf_len) {
             input_buf_len -= pos;
             memmove(input_buf, input_buf + pos, input_buf_len);
+        } else if (pos == 0 && input_buf_len > 0) {
+            if (input_buf_len >= (int)sizeof(input_buf) - 1) {
+                input_buf_len = 0;
+            }
         } else {
             input_buf_len = 0;
         }

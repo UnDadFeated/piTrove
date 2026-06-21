@@ -17,7 +17,11 @@ static std::thread g_mqtt_thread;
 static std::mutex g_mqtt_mtx;
 static FILE* g_mqtt_fp = nullptr;
 
-static std::queue<std::string> g_pub_queue;
+struct MqttPubRequest {
+    std::string cmd;
+    std::string payload;
+};
+static std::queue<MqttPubRequest> g_pub_queue;
 static std::mutex g_pub_mtx;
 static std::condition_variable g_pub_cv;
 static std::thread g_pub_worker_thread;
@@ -26,7 +30,7 @@ static std::atomic<bool> g_pub_worker_running{false};
 static void pub_worker_loop() {
     g_logger.info("MQTT Publisher worker thread started");
     while (g_pub_worker_running.load()) {
-        std::string cmd;
+        MqttPubRequest req;
         {
             std::unique_lock<std::mutex> lk(g_pub_mtx);
             g_pub_cv.wait(lk, []() { return !g_pub_queue.empty() || !g_pub_worker_running.load(); });
@@ -34,12 +38,18 @@ static void pub_worker_loop() {
                 break;
             }
             if (!g_pub_queue.empty()) {
-                cmd = std::move(g_pub_queue.front());
+                req = std::move(g_pub_queue.front());
                 g_pub_queue.pop();
             }
         }
-        if (!cmd.empty()) {
-            [[maybe_unused]] int res = ::system(cmd.c_str());
+        if (!req.cmd.empty()) {
+            FILE* fp = popen(req.cmd.c_str(), "w");
+            if (fp) {
+                fwrite(req.payload.data(), 1, req.payload.size(), fp);
+                pclose(fp);
+            } else {
+                g_logger.error("MQTT Publisher: popen failed to start publish helper.");
+            }
         }
     }
     g_logger.info("MQTT Publisher worker thread stopped");
@@ -83,7 +93,7 @@ void mqtt_publish(const std::string& topic, const std::string& payload, bool ret
     if (retain) {
         cmd += " -r";
     }
-    cmd += " -t '" + escape_shell_arg(topic) + "' -m '" + escape_shell_arg(payload) + "'";
+    cmd += " -t '" + escape_shell_arg(topic) + "' -s";
 
     ensure_pub_worker_running();
     {
@@ -92,7 +102,7 @@ void mqtt_publish(const std::string& topic, const std::string& payload, bool ret
             g_logger.warn("MQTT: Outbound queue cap reached (50). Dropping publish request for topic '%s'", topic.c_str());
             return;
         }
-        g_pub_queue.push(cmd);
+        g_pub_queue.push({cmd, payload});
     }
     g_pub_cv.notify_one();
 }
@@ -244,7 +254,7 @@ void start_mqtt_client() {
             // Keep track of active motion timestamp initially
             g_last_motion_time.store(static_cast<int64_t>(std::time(nullptr)));
 
-            char buf[512];
+            char buf[4096];
             while (g_running.load() && fgets(buf, sizeof(buf), fp)) {
                 std::string line(buf);
                 line = trim(line);

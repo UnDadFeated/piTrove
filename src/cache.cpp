@@ -183,6 +183,7 @@ bool CacheManager::load_cached(MediaItem& mi) {
         if (bad == 0) found = true;
     }
     sqlite3_reset(stmt_load);
+    sqlite3_clear_bindings(stmt_load);
     return found;
 }
 
@@ -228,6 +229,7 @@ void CacheManager::upsert(const MediaItem& mi, int bad, int preprocessed) {
         }
     }
     sqlite3_reset(stmt_upsert);
+    sqlite3_clear_bindings(stmt_upsert);
 }
 
 void CacheManager::mark_shown(const std::string& path) {
@@ -250,6 +252,7 @@ void CacheManager::mark_shown(const std::string& path) {
         }
     }
     sqlite3_reset(stmt_mark);
+    sqlite3_clear_bindings(stmt_mark);
 }
 
 void CacheManager::mark_bad(const std::string& filepath) {

@@ -62,7 +62,11 @@ static void spawn_tracked_thread(std::function<void()> func) {
 }
 
 static std::string execute_curl(const std::string& cmd) {
-    std::shared_ptr<FILE> pipe(popen((cmd + " 2>/dev/null").c_str(), "r"), pclose);
+    std::string timed_cmd = cmd;
+    if (timed_cmd.rfind("curl ", 0) == 0) {
+        timed_cmd.insert(5, "--connect-timeout 10 --max-time 30 ");
+    }
+    std::shared_ptr<FILE> pipe(popen((timed_cmd + " 2>/dev/null").c_str(), "r"), pclose);
     if (!pipe) return "";
     char buffer[4096];
     std::string result = "";
@@ -82,21 +86,93 @@ static std::string parse_json_value(const std::string& json, const std::string& 
     else return json.substr(quote_start + 1, quote_end - quote_start - 1);
 }
 
-static std::string get_query_param(const std::string& request, const std::string& key) {
-    if (auto pos = request.find(key + "="); pos == std::string::npos) return "";
-    else {
-    pos += key.length() + 1;
-    if (auto end = request.find_first_of(" &\r\n", pos); end == std::string::npos) return request.substr(pos);
-    else {
+static bool has_query_param(const std::string& request, const std::string& key) {
+    std::string search_str;
+    size_t first_line_end = request.find("\r\n");
+    std::string first_line = (first_line_end == std::string::npos) ? request : request.substr(0, first_line_end);
+    size_t first_space = first_line.find(' ');
+    size_t second_space = (first_space == std::string::npos) ? std::string::npos : first_line.find(' ', first_space + 1);
     
-    // Simple URL decoding
-    std::string val = request.substr(pos, end - pos);
+    if (first_space != std::string::npos && second_space != std::string::npos) {
+        std::string path_query = first_line.substr(first_space + 1, second_space - first_space - 1);
+        size_t q_mark = path_query.find('?');
+        if (q_mark != std::string::npos) {
+            search_str = path_query.substr(q_mark + 1);
+        }
+    }
+    
+    size_t body_pos = request.find("\r\n\r\n");
+    if (body_pos != std::string::npos) {
+        if (!search_str.empty()) search_str += "&";
+        search_str += request.substr(body_pos + 4);
+    }
+    
+    if (search_str.empty()) {
+        search_str = request;
+    }
+    
+    size_t pos = 0;
+    while (true) {
+        pos = search_str.find(key + "=", pos);
+        if (pos == std::string::npos) return false;
+        if (pos == 0 || search_str[pos - 1] == '&') {
+            return true;
+        }
+        pos += 1;
+    }
+}
+
+static std::string get_query_param(const std::string& request, const std::string& key) {
+    std::string search_str;
+    size_t first_line_end = request.find("\r\n");
+    std::string first_line = (first_line_end == std::string::npos) ? request : request.substr(0, first_line_end);
+    size_t first_space = first_line.find(' ');
+    size_t second_space = (first_space == std::string::npos) ? std::string::npos : first_line.find(' ', first_space + 1);
+    
+    if (first_space != std::string::npos && second_space != std::string::npos) {
+        std::string path_query = first_line.substr(first_space + 1, second_space - first_space - 1);
+        size_t q_mark = path_query.find('?');
+        if (q_mark != std::string::npos) {
+            search_str = path_query.substr(q_mark + 1);
+        }
+    }
+    
+    size_t body_pos = request.find("\r\n\r\n");
+    if (body_pos != std::string::npos) {
+        if (!search_str.empty()) search_str += "&";
+        search_str += request.substr(body_pos + 4);
+    }
+    
+    if (search_str.empty()) {
+        search_str = request;
+    }
+    
+    size_t pos = 0;
+    while (true) {
+        pos = search_str.find(key + "=", pos);
+        if (pos == std::string::npos) return "";
+        if (pos == 0 || search_str[pos - 1] == '&') {
+            break;
+        }
+        pos += 1;
+    }
+    
+    pos += key.length() + 1;
+    size_t end = search_str.find_first_of(" &\r\n", pos);
+    std::string val = (end == std::string::npos) ? search_str.substr(pos) : search_str.substr(pos, end - pos);
+    
     std::string dec = "";
     for (size_t i = 0; i < val.length(); i++) {
         if (val[i] == '%' && i + 2 < val.length()) {
-            char hex[3] = { val[i+1], val[i+2], '\0' };
-            dec += (char)std::strtol(hex, nullptr, 16);
-            i += 2;
+            char c1 = val[i+1];
+            char c2 = val[i+2];
+            if (std::isxdigit(c1) && std::isxdigit(c2)) {
+                char hex[3] = { c1, c2, '\0' };
+                dec += (char)std::strtol(hex, nullptr, 16);
+                i += 2;
+            } else {
+                dec += '%';
+            }
         } else if (val[i] == '+') {
             dec += ' ';
         } else {
@@ -104,8 +180,6 @@ static std::string get_query_param(const std::string& request, const std::string
         }
     }
     return dec;
-    } // else (end != npos)
-    } // else (pos != npos)
 }
 
 static std::string get_host_header(const std::string& request) {
@@ -252,7 +326,7 @@ static std::string get_setup_html(const std::string& redirect_uri) {
             <code style="display:block; margin-top:0.4rem; padding: 0.5rem; text-align:center;">redirect_uri</code>
         </div>
 
-        <form action="/google_photos_setup" method="GET">
+        <form action="/google_photos_setup" method="POST">
             <div class="form-group" style="display:none;">
                 <input type="text" name="action" value="submit">
             </div>
@@ -1582,9 +1656,10 @@ static void handle_preview(int fd) {
     std::string mime = "image/jpeg";
     std::string lower_path = path;
     std::transform(lower_path.begin(), lower_path.end(), lower_path.begin(), ::tolower);
-    if (lower_path.find(".png") != std::string::npos) mime = "image/png";
-    else if (lower_path.find(".webp") != std::string::npos) mime = "image/webp";
-    else if (lower_path.find(".gif") != std::string::npos) mime = "image/gif";
+    std::string ext = std::filesystem::path(lower_path).extension().string();
+    if (ext == ".png") mime = "image/png";
+    else if (ext == ".webp") mime = "image/webp";
+    else if (ext == ".gif") mime = "image/gif";
 
     // Read file size
     file.seekg(0, std::ios::end);
@@ -1633,12 +1708,24 @@ static void handle_client(int client_fd) {
     setsockopt(client_fd, SOL_SOCKET, SO_RCVTIMEO, &client_tv, sizeof(client_tv));
     setsockopt(client_fd, SOL_SOCKET, SO_SNDTIMEO, &client_tv, sizeof(client_tv));
 
-    char buffer[8192];
-    std::memset(buffer, 0, sizeof(buffer));
-    ssize_t bytes_read = read(client_fd, buffer, sizeof(buffer) - 1);
-    if (bytes_read > 0) {
-        buffer[bytes_read] = '\0';
-        std::string request(buffer);
+    std::string request;
+    request.reserve(4096);
+    char buf[1024];
+    while (true) {
+        ssize_t bytes_read = read(client_fd, buf, sizeof(buf));
+        if (bytes_read <= 0) {
+            break;
+        }
+        request.append(buf, bytes_read);
+        if (request.find("\r\n\r\n") != std::string::npos) {
+            break;
+        }
+        if (request.size() >= 8192) {
+            break;
+        }
+    }
+
+    if (!request.empty()) {
         
         size_t first_line_end = request.find("\r\n");
         if (first_line_end != std::string::npos) {
@@ -1651,7 +1738,7 @@ static void handle_client(int client_fd) {
         if (request.rfind("GET / ", 0) == 0 || request.rfind("GET /dashboard", 0) == 0) {
             send_response(client_fd, "HTTP/1.1 200 OK", "text/html", get_dashboard_html());
         } 
-        else if (request.rfind("GET /google_photos_setup", 0) == 0) {
+        else if (request.rfind("GET /google_photos_setup", 0) == 0 || request.rfind("POST /google_photos_setup", 0) == 0) {
             std::string action = get_query_param(request, "action");
             if (action == "submit") {
                 std::string client_id = get_query_param(request, "client_id");
@@ -1751,42 +1838,42 @@ static void handle_client(int client_fd) {
                 std::lock_guard lock(g_config_mtx);
                 
                 // 1. Validation Checks
-                if (request.find("transition_delay=") != std::string::npos) {
+                if (has_query_param(request, "transition_delay")) {
                     double val = safe_stod(get_query_param(request, "transition_delay"), -999.0);
                     if (val < 1.0) {
                         validation_failed = true;
                         err_msg = "transition_delay must be >= 1.0";
                     }
                 }
-                if (!validation_failed && request.find("transition_duration=") != std::string::npos) {
+                if (!validation_failed && has_query_param(request, "transition_duration")) {
                     double val = safe_stod(get_query_param(request, "transition_duration"), -999.0);
                     if (val < 0.1 || val > 10.0) {
                         validation_failed = true;
                         err_msg = "transition_duration must be between 0.1 and 10.0";
                     }
                 }
-                if (!validation_failed && request.find("ken_burns_speed=") != std::string::npos) {
+                if (!validation_failed && has_query_param(request, "ken_burns_speed")) {
                     double val = safe_stod(get_query_param(request, "ken_burns_speed"), -999.0);
                     if (val < 0.001 || val > 5.0) {
                         validation_failed = true;
                         err_msg = "ken_burns_speed must be between 0.001 and 5.0";
                     }
                 }
-                if (!validation_failed && request.find("video_volume=") != std::string::npos) {
+                if (!validation_failed && has_query_param(request, "video_volume")) {
                     int val = safe_stoi(get_query_param(request, "video_volume"), -999);
                     if (val < 0 || val > 150) {
                         validation_failed = true;
                         err_msg = "video_volume must be between 0 and 150";
                     }
                 }
-                if (!validation_failed && request.find("mqtt_port=") != std::string::npos) {
+                if (!validation_failed && has_query_param(request, "mqtt_port")) {
                     int val = safe_stoi(get_query_param(request, "mqtt_port"), -999);
                     if (val < 1 || val > 65535) {
                         validation_failed = true;
                         err_msg = "mqtt_port must be between 1 and 65535";
                     }
                 }
-                if (!validation_failed && request.find("google_photos_sync_interval=") != std::string::npos) {
+                if (!validation_failed && has_query_param(request, "google_photos_sync_interval")) {
                     int val = safe_stoi(get_query_param(request, "google_photos_sync_interval"), -999);
                     if (val < 1) {
                         validation_failed = true;
@@ -1796,117 +1883,117 @@ static void handle_client(int client_fd) {
                 
                 // 2. Apply updates if validation succeeded
                 if (!validation_failed) {
-                    if (request.find("transition_delay=") != std::string::npos) {
+                    if (has_query_param(request, "transition_delay")) {
                         double val = safe_stod(get_query_param(request, "transition_delay"), g_cfg.transition_delay);
                         if (g_cfg.transition_delay != val) { g_cfg.transition_delay = val; changed = true; }
                     }
-                    if (request.find("transition_duration=") != std::string::npos) {
+                    if (has_query_param(request, "transition_duration")) {
                         double val = safe_stod(get_query_param(request, "transition_duration"), g_cfg.transition_duration);
                         if (g_cfg.transition_duration != val) { g_cfg.transition_duration = val; changed = true; }
                     }
-                    if (request.find("transition_effect=") != std::string::npos) {
+                    if (has_query_param(request, "transition_effect")) {
                         std::string val = get_query_param(request, "transition_effect");
                         if (!val.empty() && g_cfg.transition_effect != val) { g_cfg.transition_effect = val; changed = true; }
                     }
-                    if (request.find("ken_burns=") != std::string::npos) {
+                    if (has_query_param(request, "ken_burns")) {
                         std::string val = get_query_param(request, "ken_burns");
                         bool desired = (val == "true" || val == "1");
                         if (g_cfg.ken_burns != desired) { g_cfg.ken_burns = desired; changed = true; }
                     }
-                    if (request.find("ken_burns_speed=") != std::string::npos) {
+                    if (has_query_param(request, "ken_burns_speed")) {
                         double val = safe_stod(get_query_param(request, "ken_burns_speed"), g_cfg.ken_burns_speed);
                         if (g_cfg.ken_burns_speed != val) { g_cfg.ken_burns_speed = val; changed = true; }
                     }
-                    if (request.find("shuffle=") != std::string::npos) {
+                    if (has_query_param(request, "shuffle")) {
                         std::string val = get_query_param(request, "shuffle");
                         bool desired = (val == "true" || val == "1");
                         if (g_cfg.shuffle != desired) { g_cfg.shuffle = desired; changed = true; }
                     }
-                    if (request.find("play_just_photos=") != std::string::npos) {
+                    if (has_query_param(request, "play_just_photos")) {
                         std::string val = get_query_param(request, "play_just_photos");
                         bool desired = (val == "true" || val == "1");
                         if (g_cfg.play_just_photos != desired) { g_cfg.play_just_photos = desired; changed = true; }
                     }
-                    if (request.find("play_just_videos=") != std::string::npos) {
+                    if (has_query_param(request, "play_just_videos")) {
                         std::string val = get_query_param(request, "play_just_videos");
                         bool desired = (val == "true" || val == "1");
                         if (g_cfg.play_just_videos != desired) { g_cfg.play_just_videos = desired; changed = true; }
                     }
-                    if (request.find("twin_portrait_enabled=") != std::string::npos) {
+                    if (has_query_param(request, "twin_portrait_enabled")) {
                         std::string val = get_query_param(request, "twin_portrait_enabled");
                         bool desired = (val == "true" || val == "1");
                         if (g_cfg.twin_portrait_enabled != desired) { g_cfg.twin_portrait_enabled = desired; changed = true; }
                     }
-                    if (request.find("video_volume=") != std::string::npos) {
+                    if (has_query_param(request, "video_volume")) {
                         int val = safe_stoi(get_query_param(request, "video_volume"), g_cfg.video_volume);
                         if (g_cfg.video_volume != val) { g_cfg.video_volume = val; changed = true; }
                     }
-                    if (request.find("timer_enabled=") != std::string::npos) {
+                    if (has_query_param(request, "timer_enabled")) {
                         std::string val = get_query_param(request, "timer_enabled");
                         bool desired = (val == "true" || val == "1");
                         if (g_cfg.timer_enabled != desired) { g_cfg.timer_enabled = desired; changed = true; }
                     }
-                    if (request.find("filename_enabled=") != std::string::npos) {
+                    if (has_query_param(request, "filename_enabled")) {
                         std::string val = get_query_param(request, "filename_enabled");
                         bool desired = (val == "true" || val == "1");
                         if (g_cfg.filename_enabled != desired) { g_cfg.filename_enabled = desired; changed = true; }
                     }
-                    if (request.find("count_enabled=") != std::string::npos) {
+                    if (has_query_param(request, "count_enabled")) {
                         std::string val = get_query_param(request, "count_enabled");
                         bool desired = (val == "true" || val == "1");
                         if (g_cfg.count_enabled != desired) { g_cfg.count_enabled = desired; changed = true; }
                     }
-                    if (request.find("date_overlay_enabled=") != std::string::npos) {
+                    if (has_query_param(request, "date_overlay_enabled")) {
                         std::string val = get_query_param(request, "date_overlay_enabled");
                         bool desired = (val == "true" || val == "1");
                         if (g_cfg.date_overlay_enabled != desired) { g_cfg.date_overlay_enabled = desired; changed = true; }
                     }
-                    if (request.find("clock_enabled=") != std::string::npos) {
+                    if (has_query_param(request, "clock_enabled")) {
                         std::string val = get_query_param(request, "clock_enabled");
                         bool desired = (val == "true" || val == "1");
                         if (g_cfg.clock_enabled != desired) { g_cfg.clock_enabled = desired; changed = true; }
                     }
-                    if (request.find("blurred_background=") != std::string::npos) {
+                    if (has_query_param(request, "blurred_background")) {
                         std::string val = get_query_param(request, "blurred_background");
                         bool desired = (val == "true" || val == "1");
                         if (g_cfg.blurred_background != desired) { g_cfg.blurred_background = desired; changed = true; }
                     }
-                    if (request.find("color_matched_matte=") != std::string::npos) {
+                    if (has_query_param(request, "color_matched_matte")) {
                         std::string val = get_query_param(request, "color_matched_matte");
                         bool desired = (val == "true" || val == "1");
                         if (g_cfg.color_matched_matte != desired) { g_cfg.color_matched_matte = desired; changed = true; }
                     }
-                    if (request.find("mqtt_enabled=") != std::string::npos) {
+                    if (has_query_param(request, "mqtt_enabled")) {
                         std::string val = get_query_param(request, "mqtt_enabled");
                         bool desired = (val == "true" || val == "1");
                         if (g_cfg.mqtt_enabled != desired) { g_cfg.mqtt_enabled = desired; changed = true; }
                     }
-                    if (request.find("mqtt_broker=") != std::string::npos) {
+                    if (has_query_param(request, "mqtt_broker")) {
                         std::string val = get_query_param(request, "mqtt_broker");
                         if (!val.empty() && g_cfg.mqtt_broker != val) { g_cfg.mqtt_broker = val; changed = true; }
                     }
-                    if (request.find("mqtt_port=") != std::string::npos) {
+                    if (has_query_param(request, "mqtt_port")) {
                         int val = safe_stoi(get_query_param(request, "mqtt_port"), g_cfg.mqtt_port);
                         if (g_cfg.mqtt_port != val) { g_cfg.mqtt_port = val; changed = true; }
                     }
-                    if (request.find("mqtt_topic_prefix=") != std::string::npos) {
+                    if (has_query_param(request, "mqtt_topic_prefix")) {
                         std::string val = get_query_param(request, "mqtt_topic_prefix");
                         if (!val.empty() && g_cfg.mqtt_topic_prefix != val) { g_cfg.mqtt_topic_prefix = val; changed = true; }
                     }
-                    if (request.find("google_photos_enabled=") != std::string::npos) {
+                    if (has_query_param(request, "google_photos_enabled")) {
                         std::string val = get_query_param(request, "google_photos_enabled");
                         bool desired = (val == "true" || val == "1");
                         if (g_cfg.google_photos_enabled != desired) { g_cfg.google_photos_enabled = desired; changed = true; }
                     }
-                    if (request.find("google_photos_album_id=") != std::string::npos) {
+                    if (has_query_param(request, "google_photos_album_id")) {
                         std::string val = get_query_param(request, "google_photos_album_id");
                         if (g_cfg.google_photos_album_id != val) { g_cfg.google_photos_album_id = val; changed = true; }
                     }
-                    if (request.find("google_photos_sync_interval=") != std::string::npos) {
+                    if (has_query_param(request, "google_photos_sync_interval")) {
                         int val = safe_stoi(get_query_param(request, "google_photos_sync_interval"), g_cfg.google_photos_sync_interval);
                         if (g_cfg.google_photos_sync_interval != val) { g_cfg.google_photos_sync_interval = val; changed = true; }
                     }
-                    if (request.find("touch_enabled=") != std::string::npos) {
+                    if (has_query_param(request, "touch_enabled")) {
                         std::string val = get_query_param(request, "touch_enabled");
                         bool desired = (val == "true" || val == "1");
                         if (g_cfg.touch_enabled != desired) { g_cfg.touch_enabled = desired; changed = true; }

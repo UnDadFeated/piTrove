@@ -40,7 +40,13 @@ bool Config::load(const std::string& path) {
         else if (key == "log_dir")           this->log_dir = val;
         else if (key == "splash_file")       this->splash_file = val;
         else if (key == "fullscreen")        this->fullscreen = (val == "1" || val == "true");
-        else if (key == "rotation")          this->rotation = safe_stoi(val, this->rotation);
+        else if (key == "rotation") {
+            int r = safe_stoi(val, this->rotation);
+            if (r != 0 && r != 90 && r != 180 && r != 270) {
+                r = 0;
+            }
+            this->rotation = r;
+        }
         else if (key == "splash_overlay_y")  this->splash_overlay_y = safe_stof(val, this->splash_overlay_y);
         else if (key == "timer_enabled")     this->timer_enabled = (val == "1" || val == "true");
         else if (key == "timer_x")           this->timer_x = safe_stof(val, this->timer_x);

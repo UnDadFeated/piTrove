@@ -101,7 +101,7 @@ static bool get_image_metadata_fast(const std::string& path, int& out_w, int& ou
 }
 
 static bool get_video_metadata_ffprobe(const std::string& path, int& out_w, int& out_h, double& out_duration) {
-    std::string cmd = "ffprobe -v error -select_streams v:0 -show_entries stream=width,height -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 " + escape_shell_arg(path);
+    std::string cmd = "ffprobe -v error -select_streams v:0 -show_entries stream=width,height -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 '" + escape_shell_arg(path) + "'";
     std::shared_ptr<FILE> pipe(popen((cmd + " 2>/dev/null").c_str(), "r"), pclose);
     if (!pipe) return false;
     char buffer[128];

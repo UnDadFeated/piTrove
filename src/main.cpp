@@ -911,11 +911,7 @@ static void watchdog_loop() {
             g_logger.error("[WATCHDOG] CRITICAL: Slideshow loop frozen! Last heartbeat was %d seconds ago. Forcing restart...", (int)(now - last_heartbeat));
             trigger_error(809); // E809: WATCHDOG_FORCED_RESTART
             // Restore physical display power before exiting
-            int fd = open("/sys/class/graphics/fb0/blank", O_WRONLY);
-            if (fd >= 0) {
-                (void)write(fd, "0", 1);
-                close(fd);
-            }
+            set_display_power(true);
             sync();
             _exit(99); // Force exit immediately to let Docker compose restart us
         }
@@ -959,7 +955,7 @@ static void keepalive_loop() {
         }
         if (!g_keepalive_running.load() || !g_running.load()) break;
         
-        std::string cmd = "ping -c 2 -W 3 " + escape_shell_arg(gateway) + " >/dev/null 2>&1";
+        std::string cmd = "ping -c 2 -W 3 '" + escape_shell_arg(gateway) + "' >/dev/null 2>&1";
         int res = ::system(cmd.c_str());
         if (res == 0) {
             if (network_lost_time != 0) {
@@ -1472,10 +1468,8 @@ int main(int argc, char** argv) {
         auto scan_end = std::chrono::steady_clock::now();
         auto scan_ms = std::chrono::duration_cast<std::chrono::milliseconds>(scan_end - scan_start).count();
         g_logger.info("Scan complete: %d items in %ld ms", (int)g_scanned_items.size(), (long)scan_ms);
-    }
 
-    // --- PHASE 2: CACHE (bulk transaction, render at 0.1s intervals) ---
-    if (do_scan) {
+        // --- PHASE 2: CACHE (bulk transaction, render at 0.1s intervals) ---
         g_logger.info("Phase 2: Caching metadata...");
 
         if (!g_cache) {
@@ -2440,8 +2434,10 @@ int main(int argc, char** argv) {
                         next_twin_data = nullptr;
                         next_is_twin = false;
 
-                        if (transition_prev_target) { SDL_DestroyTexture(transition_prev_target); transition_prev_target = nullptr; }
-                        if (transition_next_target) { SDL_DestroyTexture(transition_next_target); transition_next_target = nullptr; }
+                        SDL_DestroyTexture(transition_prev_target);
+                        transition_prev_target = nullptr;
+                        SDL_DestroyTexture(transition_next_target);
+                        transition_next_target = nullptr;
 
                         current_tex = current_data ? current_data->texture : nullptr;
                         if (!is_video_transition) {
@@ -2752,13 +2748,13 @@ int main(int argc, char** argv) {
             // Preload next items asynchronously while resting
             if (g_preload) {
                 int lookahead_idx = g_eligible.empty() ? 0 : (current_idx + (current_twin_data ? 2 : 1)) % (int)g_eligible.size();
-                bool next_is_twin = g_eligible.empty() ? false : should_be_twin_portrait(g_eligible, lookahead_idx);
+                bool lookahead_is_twin = g_eligible.empty() ? false : should_be_twin_portrait(g_eligible, lookahead_idx);
                 
                 if (lookahead_idx >= 0 && lookahead_idx < (int)g_eligible.size()) {
                     if (g_eligible[lookahead_idx].type == "image") {
                         g_preload->enqueue(g_eligible[lookahead_idx].path);
                     }
-                    if (next_is_twin) {
+                    if (lookahead_is_twin) {
                         int lookahead_idx2 = (lookahead_idx + 1) % (int)g_eligible.size();
                         if (lookahead_idx2 >= 0 && lookahead_idx2 < (int)g_eligible.size()) {
                             if (g_eligible[lookahead_idx2].type == "image") {
