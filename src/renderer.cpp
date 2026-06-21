@@ -108,7 +108,12 @@ static GpuColor get_pixel_color(SDL_Surface* surface, int x, int y) {
     uint32_t pixel = 0;
     switch (bpp) {
         case 1: pixel = *p; break;
-        case 2: pixel = *(uint16_t*)p; break;
+        case 2: {
+            uint16_t pixel16;
+            memcpy(&pixel16, p, 2);
+            pixel = pixel16;
+            break;
+        }
         case 3:
             if (SDL_BYTEORDER == SDL_BIG_ENDIAN) {
                 pixel = p[0] << 16 | p[1] << 8 | p[2];
@@ -116,7 +121,12 @@ static GpuColor get_pixel_color(SDL_Surface* surface, int x, int y) {
                 pixel = p[0] | p[1] << 8 | p[2] << 16;
             }
             break;
-        case 4: pixel = *(uint32_t*)p; break;
+        case 4: {
+            uint32_t pixel32;
+            memcpy(&pixel32, p, 4);
+            pixel = pixel32;
+            break;
+        }
         default: return {0, 0, 0, 255};
     }
 

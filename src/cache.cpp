@@ -65,12 +65,16 @@ bool CacheManager::open(const std::string& dir) {
 
     char* err = nullptr;
     if (sqlite3_exec(db, "PRAGMA journal_mode=WAL;", nullptr, nullptr, &err) != SQLITE_OK) {
-        trigger_error(406); // E406: SQLITE_JOURNAL_MODE_ERROR
+        g_logger.warn("Failed to set WAL mode: %s", err ? err : "unknown");
         if (err) sqlite3_free(err);
+        close();
+        return false;
     }
     if (sqlite3_exec(db, "PRAGMA synchronous=NORMAL;", nullptr, nullptr, &err) != SQLITE_OK) {
         g_logger.warn("Failed to set synchronous=NORMAL: %s", err ? err : "unknown");
         if (err) sqlite3_free(err);
+        close();
+        return false;
     }
     char mmap_sql[64];
     long long mmap_val = 0;

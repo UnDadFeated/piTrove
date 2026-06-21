@@ -12,6 +12,10 @@
 #include <algorithm>
 #include <thread>
 #include <future>
+#include <utility>
+#include <memory>
+#include <atomic>
+#include <chrono>
 #include <cstdlib>
 #include <cstring>
 #include <sys/syscall.h>
@@ -54,11 +58,30 @@ std::vector<std::string> read_dir_timeout(const std::string& path, [[maybe_unuse
     return read_dir(path);
 }
 
- bool stat_timeout(const std::string& path, struct stat& st, [[maybe_unused]] int timeout_ms) {
-    // alarm() is process-global and races between threads.
-    // Revert to plain stat() with a comment that CIFS should not block
-    // indefinitely in practice.
-    return stat(path.c_str(), &st) == 0;
+struct StatResult {
+    bool ok;
+    struct stat data;
+};
+
+bool stat_timeout(const std::string& path, struct stat& st, int timeout_ms) {
+    StatResult result{};
+    result.ok = false;
+    std::atomic<bool> done{false};
+
+    std::string p(path);
+    std::thread([p, &result, &done]() {
+        stat(p.c_str(), &result.data);
+        result.ok = true;
+        done.store(true);
+    }).detach();
+
+    auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeout_ms);
+    while (!done.load() && std::chrono::steady_clock::now() < deadline) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    if (!done.load()) return false; // timed out
+    st = result.data;
+    return result.ok;
 }
 
 

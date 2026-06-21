@@ -89,7 +89,9 @@ bool organize_media_archive(const std::string& root_dir, bool in_place) {
             scanned_count++;
 
             // Skip if already in organized out-of-place path
-            std::string rel_path_str = fs::relative(src_path, root_dir).generic_string();
+            std::error_code ec;
+            std::string rel_path_str = fs::relative(src_path, root_dir, ec).generic_string();
+            if (ec) { g_logger.warn("Organizer: skipping %s: %s", src_path.c_str(), ec.message().c_str()); continue; }
             if (!in_place && std::regex_search("/" + rel_path_str, org_pattern)) {
                 continue;
             }

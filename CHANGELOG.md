@@ -1,3 +1,17 @@
+## v13.3.2 — Code Audit Fixes: Concurrency, Safety & Resource Management (June 21, 2026)
+
+### Fixed
+- **Unaligned memory access on ARM** — Replaced raw pointer casts in pixel color extraction with memcpy-based access to prevent undefined behavior and bus errors on Raspberry Pi ARM architecture.
+- **Archive organizer abort on invalid paths** — Added error_code-based filesystem operations to skip unreadable items during media archive organization instead of aborting the entire scan.
+- **Display overlay settings saved to wrong config** — Replaced hardcoded config path in on-screen display menu with dynamic loaded_path from config struct, ensuring settings persist to the correct file.
+- **Logger data race on log file path** — Protected log_file_path reads and writes in the background flush loop with a dedicated mutex to prevent concurrent string mutation.
+- **CIFS stat hanging the slideshow loop** — Implemented non-blocking stat_timeout() with thread-pool and timeout mechanism to abort stuck network filesystem requests.
+- **Preload queue capacity race condition** — Ensured loaded_count capacity checks are fully protected under the work mutex in the worker thread.
+- **Database initialization error paths** — Added proper cleanup on WAL mode and synchronous PRAGMA failures to prevent unclosed database connections.
+- **Terminal UI division-by-zero crash** — Added bounds guards to terminal resize calculations to prevent SIGFPE on extreme window sizes.
+- **Google Photos incomplete file handling** — Added minimum file size validation (1KB) to prevent processing of incomplete or error downloads.
+- **Preload thread use-after-free on shutdown** — Replaced unsafe thread detachment with shared_ptr state lifetime management and join-with-timeout to prevent accessing destroyed queue state.
+
 ## v13.3.1 — Deep Code Audit & Lifecycle Hardening (June 20, 2026)
 
 ### Fixed
