@@ -12,6 +12,7 @@ struct FontHandle {
     TTF_Font* font{nullptr};
     std::string path;
     int size{0};
+    uint64_t last_used{0};
 };
 
 class Renderer;

@@ -47,7 +47,10 @@ FontRenderer::~FontRenderer() {
 FontHandle& FontRenderer::load_font(const std::string& path, int size) {
     std::string key = path + ":" + std::to_string(size);
     auto it = fonts.find(key);
-    if (it != fonts.end()) return *it->second;
+    if (it != fonts.end()) {
+        it->second->last_used = SDL_GetTicks();
+        return *it->second;
+    }
 
     TTF_Font* font = TTF_OpenFont(path.c_str(), size);
     if (!font) {
@@ -77,7 +80,29 @@ FontHandle& FontRenderer::load_font(const std::string& path, int size) {
     handle->font = font;
     handle->path = path;
     handle->size = size;
+    handle->last_used = SDL_GetTicks();
     fonts[key] = handle;
+
+    // Evict oldest font if cache exceeds 32 entries
+    if (fonts.size() > 32) {
+        std::string oldest_key;
+        uint64_t oldest_time = UINT64_MAX;
+        for (const auto& [k, h] : fonts) {
+            if (h->last_used < oldest_time) {
+                oldest_time = h->last_used;
+                oldest_key = k;
+            }
+        }
+        if (!oldest_key.empty() && oldest_key != key) {
+            auto evict = fonts.find(oldest_key);
+            if (evict != fonts.end()) {
+                if (evict->second && evict->second->font) {
+                    TTF_CloseFont(evict->second->font);
+                }
+                fonts.erase(evict);
+            }
+        }
+    }
 
     if (is_error_active(204)) {
         clear_error(204);

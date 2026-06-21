@@ -1,3 +1,13 @@
+## v13.3.0 — Code Audit & System Stability Upgrades (June 20, 2026)
+
+### Fixed
+- **Divide-by-zero protection** — Guarded image downscaling, ambient backlight blending, and screen resizing logic to prevent application crashes when encountering zero-byte or corrupted media items.
+- **Database transaction safety** — Hardened cache database queries to copy all bound values, avoiding potential memory reference issues if query strings are deallocated during active transactions.
+- **Web dashboard stability** — Enforced strict read timeouts and active connection tracking limits on the remote web server to prevent stalled browsers or half-open connections from exhausting system sockets.
+- **Google Photos synchronization** — Restructured URL validation to correctly parse domains containing custom port mappings and handle escaped quotes in photo metadata.
+- **MQTT remote controller robustness** — Upgraded remote messaging subscriptions to run as a separate managed background service, preventing command delays and ensuring proper communication shutdown when the frame exits.
+- **Safe library operations** — Rewrote system utility tools to use non-exception-throwing filesystem APIs, avoiding unexpected termination when scanning folders without read permissions.
+
 ## v13.2.8 — Terminal Configuration Stability & Compatibility (June 20, 2026)
 
 ### Fixed

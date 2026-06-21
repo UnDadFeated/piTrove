@@ -2877,6 +2877,8 @@ int main(int argc, char** argv) {
         delete g_preload;
         g_preload = nullptr;
     }
+    cleanup_nas_thread();
+    cleanup_prefetch_thread();
     if (current_data) { current_data = nullptr; }
     if (current_twin_data) { current_twin_data = nullptr; }
     if (next_data) { next_data = nullptr; }
