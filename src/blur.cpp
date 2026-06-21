@@ -160,8 +160,9 @@ void compute_matte_color(const RawImage& src, uint8_t& r, uint8_t& g, uint8_t& b
     int x1 = src.width * 3 / 4, y1 = src.height * 3 / 4;
 
     long sum_r = 0, sum_g = 0, sum_b = 0, count = 0;
-    for (int y = y0; y < y1; y++) {
-        for (int x = x0; x < x1; x++) {
+    int step = 16;
+    for (int y = y0; y < y1; y += step) {
+        for (int x = x0; x < x1; x += step) {
             const uint8_t* px = src.pixels + y * 4 * src.width + x * 4;
             sum_r += px[0]; sum_g += px[1]; sum_b += px[2];
             count++;

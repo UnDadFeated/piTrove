@@ -91,6 +91,7 @@ void GooglePhotosManager::sync_now() {
 
   // Check for critical disk space in cache directory (E403)
   std::error_code space_ec;
+  std::filesystem::create_directories(cache_dir, space_ec);
   auto space_info = std::filesystem::space(cache_dir, space_ec);
   if (!space_ec && space_info.available < 50 * 1024 * 1024) {
     trigger_error(403); // E403: DISK_SPACE_CRITICAL
@@ -320,7 +321,11 @@ void GooglePhotosManager::download_media(const std::string &access_token) {
 }
 
 std::string GooglePhotosManager::execute_curl(const std::string &cmd) {
-  std::shared_ptr<FILE> pipe(popen((cmd + " 2>/dev/null").c_str(), "r"),
+  std::string timed_cmd = cmd;
+  if (timed_cmd.rfind("curl ", 0) == 0) {
+      timed_cmd.insert(5, "--connect-timeout 10 --max-time 30 ");
+  }
+  std::shared_ptr<FILE> pipe(popen((timed_cmd + " 2>/dev/null").c_str(), "r"),
                              pclose);
   if (!pipe) {
     g_logger.error("GooglePhotos: Failed to popen curl command.");

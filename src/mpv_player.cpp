@@ -170,8 +170,9 @@ bool MpvPlayer::play(const std::string& path, int volume) {
     prefetch_video(path);
     pid_t pid = fork();
     if (pid == 0) {
-        // Child Process: close inherited parent descriptors and execute mpv
-        for (int i = 3; i < 1024; ++i) close(i);
+        int max_fd = sysconf(_SC_OPEN_MAX);
+        if (max_fd < 0) max_fd = 1024;
+        for (int i = 3; i < max_fd; ++i) close(i);
 
         // Redirect stdout/stderr to log file to inspect mpv status
         int dbg = open("/app/logs/mpv_debug.log", O_WRONLY | O_CREAT | O_TRUNC, 0644);

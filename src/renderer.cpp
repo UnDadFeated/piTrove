@@ -1508,10 +1508,10 @@ void Renderer::render_splash(int phase, int progress, int total, int done, [[may
         {
             std::ifstream meminfo("/proc/meminfo");
             if (meminfo.is_open()) {
-                char label[32];
+                char mem_label[32];
                 long val;
-                while (meminfo >> label >> val) {
-                    if (std::strcmp(label, "MemAvailable:") == 0) {
+                while (meminfo >> mem_label >> val) {
+                    if (std::strcmp(mem_label, "MemAvailable:") == 0) {
                         cached_mem_mb = val / 1024;
                         break;
                     }

@@ -185,7 +185,8 @@ void TransitionEngine::render_pixelate(SDL_Texture* prev_tex, SDL_Texture* next_
     SDL_SetRenderDrawBlendMode(sdl, SDL_BLENDMODE_BLEND);
     float block_alpha = 0.6f * p;
     SDL_SetRenderDrawColor(sdl, 0, 0, 0, (Uint8)(block_alpha * 255.0f));
-    std::vector<SDL_FRect> rects;
+    static thread_local std::vector<SDL_FRect> rects;
+    rects.clear();
     rects.reserve((size_t)(screen_w / block + 1) * (screen_h / block + 1));
     for (int by = 0; by < screen_h; by += block) {
         for (int bx = 0; bx < screen_w; bx += block) {

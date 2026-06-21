@@ -51,6 +51,24 @@ FontHandle& FontRenderer::load_font(const std::string& path, int size) {
 
     TTF_Font* font = TTF_OpenFont(path.c_str(), size);
     if (!font) {
+        std::string exe_dir = get_exe_dir();
+        std::vector<std::string> fallbacks = {
+            exe_dir + "/src/fonts/DejaVuSansMono-Bold.ttf",
+            exe_dir + "/fonts/DejaVuSansMono-Bold.ttf",
+            "/app/src/fonts/DejaVuSansMono-Bold.ttf",
+            "/usr/share/fonts/truetype/dejavu/DejaVuSansMono-Bold.ttf"
+        };
+        for (const auto& f : fallbacks) {
+            if (f != path) {
+                font = TTF_OpenFont(f.c_str(), size);
+                if (font) {
+                    g_logger.warn("Failed to load font '%s', fell back to '%s'", path.c_str(), f.c_str());
+                    break;
+                }
+            }
+        }
+    }
+    if (!font) {
         trigger_error(204); // E204: MISSING_FONT_FILES
         throw std::runtime_error("Font load failed");
     }
