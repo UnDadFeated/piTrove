@@ -226,8 +226,10 @@ void start_mqtt_client() {
                 args.push_back("-P");
                 args.push_back(pass);
             }
-            args.push_back("-t");
-            args.push_back(sensor_topic);
+            if (!sensor_topic.empty()) {
+                args.push_back("-t");
+                args.push_back(sensor_topic);
+            }
             args.push_back("-t");
             args.push_back(prefix + "/command/#");
             args.push_back("-F");

@@ -623,6 +623,7 @@ std::optional<std::tuple<int,int,int>> get_item_date(const MediaItem& item) {
 std::string escape_shell_arg(std::string_view input) {
     std::string escaped;
     for (char c : input) {
+        if (c == '\0' || c == '\n' || c == '\r') continue;
         if (c == '\'') {
             escaped += "'\\''";
         } else {
@@ -684,7 +685,7 @@ static std::atomic<time_t> g_last_nas_check_time{0};
 static bool perform_nas_online_check() {
     std::string media_dir;
     {
-        std::lock_guard<std::shared_mutex> lk(g_config_mtx);
+        std::shared_lock<std::shared_mutex> lk(g_config_mtx);
         media_dir = g_cfg.media_dir;
     }
     if (media_dir.empty()) return true;

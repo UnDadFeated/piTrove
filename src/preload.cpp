@@ -22,7 +22,7 @@ static void compute_average_color(const RawImage& src, uint8_t& r, uint8_t& g, u
     for (int y = 0; y < src.height; y += step_y) {
         for (int x = 0; x < src.width; x += step_x) {
             long long offset = (long long)y * 4 * src.width + (long long)x * 4;
-            if (offset >= 0) {
+            if (offset >= 0 && offset + 3 < (long long)src.width * src.height * 4) {
                 const uint8_t* px = src.pixels + offset;
                 sum_r += px[0]; sum_g += px[1]; sum_b += px[2];
                 ++samples;
