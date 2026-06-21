@@ -167,6 +167,71 @@ bool MpvPlayer::play(const std::string& path, int volume) {
     g_logger.info("VIDEO_PLAY: Launching mpv with dynamic core limit: %s, connector: %s, audio_device: %s",
                   threads_arg, connector_arg.c_str(), audio_arg.empty() ? "default" : audio_arg.c_str());
 
+    std::vector<std::string> args = {
+        "mpv",
+        "--vo=drm",
+        connector_arg,
+        "--hwdec=auto",
+        "--keepaspect=yes",
+        "--no-osc",
+        "--no-osd-bar",
+        "--osd-level=3",
+        "--osd-status-msg=${filename} - ${time-remaining}",
+        "--osd-align-x=left",
+        "--osd-align-y=bottom",
+        margin_x_arg,
+        margin_y_arg,
+        "--osd-font-size=10",
+        threads_arg,
+        "--cache=yes",
+        "--demuxer-max-bytes=1024M",
+        "--demuxer-readahead-secs=120",
+        "--demuxer-max-back-bytes=256M",
+        "--demuxer-lavf-buffersize=131072",
+        "--stream-buffer-size=4MiB",
+        "--cache-secs=120",
+        "--cache-pause=yes",
+        "--cache-pause-initial=yes",
+        "--cache-pause-wait=2",
+        "--vd-lavc-skiploopfilter=bidir",
+        "--vd-lavc-fast=yes",
+        "--framedrop=no"
+    };
+
+    if (volume > 0) {
+        args.push_back("--volume=" + std::to_string(volume));
+        if (!audio_arg.empty()) {
+            args.push_back(audio_arg);
+        }
+    } else {
+        args.push_back("--no-audio");
+    }
+
+    if (cc_enabled) {
+        args.push_back("--sub-create-cc-track=yes");
+        args.push_back("--sub-auto=all");
+        args.push_back("--sub-visibility=yes");
+        args.push_back("--sid=auto");
+        args.push_back("--sub-align-x=center");
+        args.push_back("--sub-align-y=bottom");
+        args.push_back(sub_margin_y_arg);
+        if (!sub_file.empty()) {
+            args.push_back(sub_file);
+        }
+    } else {
+        args.push_back("--no-sub");
+    }
+
+    args.push_back(path);
+
+    // Convert to char* argv array
+    std::vector<char*> argv_exec;
+    argv_exec.reserve(args.size() + 1);
+    for (const auto& a : args) {
+        argv_exec.push_back(const_cast<char*>(a.c_str()));
+    }
+    argv_exec.push_back(nullptr);
+
     prefetch_video(path);
     pid_t pid = fork();
     if (pid == 0) {
@@ -181,71 +246,6 @@ bool MpvPlayer::play(const std::string& path, int volume) {
             dup2(dbg, STDERR_FILENO);
             close(dbg);
         }
-
-        std::vector<std::string> args = {
-            "mpv",
-            "--vo=drm",
-            connector_arg,
-            "--hwdec=auto",
-            "--keepaspect=yes",
-            "--no-osc",
-            "--no-osd-bar",
-            "--osd-level=3",
-            "--osd-status-msg=${filename} - ${time-remaining}",
-            "--osd-align-x=left",
-            "--osd-align-y=bottom",
-            margin_x_arg,
-            margin_y_arg,
-            "--osd-font-size=10",
-            threads_arg,
-            "--cache=yes",
-            "--demuxer-max-bytes=1024M",
-            "--demuxer-readahead-secs=120",
-            "--demuxer-max-back-bytes=256M",
-            "--demuxer-lavf-buffersize=131072",
-            "--stream-buffer-size=4MiB",
-            "--cache-secs=120",
-            "--cache-pause=yes",
-            "--cache-pause-initial=yes",
-            "--cache-pause-wait=2",
-            "--vd-lavc-skiploopfilter=bidir",
-            "--vd-lavc-fast=yes",
-            "--framedrop=no"
-        };
-
-        if (volume > 0) {
-            args.push_back("--volume=" + std::to_string(volume));
-            if (!audio_arg.empty()) {
-                args.push_back(audio_arg);
-            }
-        } else {
-            args.push_back("--no-audio");
-        }
-
-        if (cc_enabled) {
-            args.push_back("--sub-create-cc-track=yes");
-            args.push_back("--sub-auto=all");
-            args.push_back("--sub-visibility=yes");
-            args.push_back("--sid=auto");
-            args.push_back("--sub-align-x=center");
-            args.push_back("--sub-align-y=bottom");
-            args.push_back(sub_margin_y_arg);
-            if (!sub_file.empty()) {
-                args.push_back(sub_file);
-            }
-        } else {
-            args.push_back("--no-sub");
-        }
-
-        args.push_back(path);
-
-        // Convert to char* argv array
-        std::vector<char*> argv_exec;
-        argv_exec.reserve(args.size() + 1);
-        for (const auto& a : args) {
-            argv_exec.push_back(const_cast<char*>(a.c_str()));
-        }
-        argv_exec.push_back(nullptr);
 
         execvp("mpv", argv_exec.data());
         _exit(1); // child exit if exec fails

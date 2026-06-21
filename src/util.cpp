@@ -116,14 +116,27 @@ void crash_handler(int sig) {
         (void)write(STDERR_FILENO, purge_msg, strlen(purge_msg));
 
         char path[512];
-        int n = snprintf(path, sizeof(path), "%s/cache.db", g_crash_cache_dir_safe);
-        if (n > 0 && (size_t)n < sizeof(path) - 5) {
-            unlink(path);
-            strcat(path, "-wal");
-            unlink(path);
-            strcpy(path + strlen(path) - 3, "shm");
-            unlink(path);
+        size_t len = 0;
+        while (len < sizeof(path) - 16 && g_crash_cache_dir_safe[len] != '\0') {
+            path[len] = g_crash_cache_dir_safe[len];
+            len++;
         }
+        const char* suffix = "/cache.db";
+        size_t idx = 0;
+        while (suffix[idx] != '\0') {
+            path[len++] = suffix[idx++];
+        }
+        path[len] = '\0';
+
+        unlink(path);
+
+        // append "-wal"
+        path[len] = '-'; path[len+1] = 'w'; path[len+2] = 'a'; path[len+3] = 'l'; path[len+4] = '\0';
+        unlink(path);
+
+        // replace "wal" with "shm"
+        path[len+1] = 's'; path[len+2] = 'h'; path[len+3] = 'm'; path[len+4] = '\0';
+        unlink(path);
     }
 
     signal(sig, SIG_DFL);
@@ -143,14 +156,27 @@ void terminate_handler() {
 
     if (!g_database_complete.load() && g_crash_cache_dir_safe[0] != '\0') {
         char path[512];
-        int n = snprintf(path, sizeof(path), "%s/cache.db", g_crash_cache_dir_safe);
-        if (n > 0 && (size_t)n < sizeof(path) - 5) {
-            unlink(path);
-            strcat(path, "-wal");
-            unlink(path);
-            strcpy(path + strlen(path) - 3, "shm");
-            unlink(path);
+        size_t len = 0;
+        while (len < sizeof(path) - 16 && g_crash_cache_dir_safe[len] != '\0') {
+            path[len] = g_crash_cache_dir_safe[len];
+            len++;
         }
+        const char* suffix = "/cache.db";
+        size_t idx = 0;
+        while (suffix[idx] != '\0') {
+            path[len++] = suffix[idx++];
+        }
+        path[len] = '\0';
+
+        unlink(path);
+
+        // append "-wal"
+        path[len] = '-'; path[len+1] = 'w'; path[len+2] = 'a'; path[len+3] = 'l'; path[len+4] = '\0';
+        unlink(path);
+
+        // replace "wal" with "shm"
+        path[len+1] = 's'; path[len+2] = 'h'; path[len+3] = 'm'; path[len+4] = '\0';
+        unlink(path);
     }
     std::abort();
 }
@@ -250,7 +276,12 @@ std::string get_timestamp() {
     auto t = std::chrono::system_clock::to_time_t(now);
     char buf[64];
     struct tm tm_buf;
-    std::strftime(buf, sizeof(buf), "%Y-%m-%d %H:%M:%S", localtime_r(&t, &tm_buf));
+    struct tm* tm_ptr = localtime_r(&t, &tm_buf);
+    if (tm_ptr) {
+        std::strftime(buf, sizeof(buf), "%Y-%m-%d %H:%M:%S", tm_ptr);
+    } else {
+        std::strcpy(buf, "0000-00-00 00:00:00");
+    }
     return std::string(buf);
 }
 
@@ -306,13 +337,22 @@ void Logger::flush_loop() {
 void Logger::init(const std::string& path, LogLevel lvl, int keep_count) {
     level = lvl;
     log_dir = path;
-    std::filesystem::create_directories(path);
+    std::error_code ec;
+    std::filesystem::create_directories(path, ec);
+    if (ec) {
+        fprintf(stderr, "[ERROR] Logger: Failed to create directories %s: %s\n", path.c_str(), ec.message().c_str());
+    }
 
     auto now = std::chrono::system_clock::now();
     auto t = std::chrono::system_clock::to_time_t(now);
     char fname[128];
     struct tm tm_buf;
-    std::strftime(fname, sizeof(fname), "piTrove_%Y%m%d_%H%M%S.log", localtime_r(&t, &tm_buf));
+    struct tm* tm_ptr = localtime_r(&t, &tm_buf);
+    if (tm_ptr) {
+        std::strftime(fname, sizeof(fname), "piTrove_%Y%m%d_%H%M%S.log", tm_ptr);
+    } else {
+        std::strcpy(fname, "piTrove_00000000_000000.log");
+    }
     log_file_path = path + "/" + fname;
 
     // Rotate: keep specified number of old log files
@@ -323,7 +363,12 @@ void Logger::init(const std::string& path, LogLevel lvl, int keep_count) {
         FILE* f = fopen(log_file_path.c_str(), "w");
         if (f) {
             char timebuf[64];
-            struct tm htm = *localtime_r(&t, &tm_buf);
+            struct tm tm_buf_htm;
+            struct tm* htm_ptr = localtime_r(&t, &tm_buf_htm);
+            struct tm htm = {};
+            if (htm_ptr) {
+                htm = *htm_ptr;
+            }
             std::strftime(timebuf, sizeof(timebuf), "%Y-%m-%d %H:%M:%S", &htm);
             fprintf(f, "=== piTrove v%s started %s ===\n", VERSION, timebuf);
             fclose(f);
@@ -856,9 +901,8 @@ void check_network_status() {
     } else if (has_apipa && !has_valid_ip) {
         trigger_error(103); // E103: IP_CONFIGURATION_ERROR
     } else {
-        if (g_active_error_code.load() == 102 || g_active_error_code.load() == 103) {
-            trigger_error(0);
-        }
+        clear_error(102);
+        clear_error(103);
     }
 }
 
@@ -870,21 +914,20 @@ void prefetch_video(const std::string& path) {
     {
         std::lock_guard lk(g_prefetch_mtx);
         if (g_prefetch_thread.joinable()) {
-            g_prefetch_thread.join();
+            g_prefetch_thread.detach();
         }
+        g_prefetch_thread = std::thread([path]() {
+            int fd = open(path.c_str(), O_RDONLY | O_NONBLOCK);
+            if (fd < 0) return;
+            off_t file_size = lseek(fd, 0, SEEK_END);
+            if (file_size <= 0) { close(fd); return; }
+            lseek(fd, 0, SEEK_SET);
+            size_t prefetch_bytes = std::min((size_t)file_size, (size_t)(8 * 1024 * 1024));
+            posix_fadvise(fd, 0, (off_t)prefetch_bytes, POSIX_FADV_WILLNEED);
+            readahead(fd, 0, prefetch_bytes);
+            close(fd);
+        });
     }
-    std::lock_guard lk(g_prefetch_mtx);
-    g_prefetch_thread = std::thread([path]() {
-        int fd = open(path.c_str(), O_RDONLY | O_NONBLOCK);
-        if (fd < 0) return;
-        off_t file_size = lseek(fd, 0, SEEK_END);
-        if (file_size <= 0) { close(fd); return; }
-        lseek(fd, 0, SEEK_SET);
-        size_t prefetch_bytes = std::min((size_t)file_size, (size_t)(8 * 1024 * 1024));
-        posix_fadvise(fd, 0, (off_t)prefetch_bytes, POSIX_FADV_WILLNEED);
-        readahead(fd, 0, prefetch_bytes);
-        close(fd);
-    });
 }
 
 void cleanup_prefetch_thread() {

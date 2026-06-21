@@ -189,6 +189,8 @@ struct Config {
     // CLI Overrides
     bool    dry_run{false};
 
+    std::string loaded_path;
+
     bool load(const std::string& path);
     bool save(const std::string& path);
     void parse_args(int argc, char** argv);

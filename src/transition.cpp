@@ -75,6 +75,7 @@ void TransitionEngine::reset() {
 
 
 void TransitionEngine::render_fade(SDL_Texture* prev_tex, SDL_Texture* next_tex, int screen_w, int screen_h) {
+    if (screen_w <= 0 || screen_h <= 0) return;
     if (!renderer) return;
     
     SDL_Renderer* sdl = renderer->sdl_renderer;
@@ -97,6 +98,7 @@ void TransitionEngine::render_fade(SDL_Texture* prev_tex, SDL_Texture* next_tex,
 }
 
 void TransitionEngine::render_wipe(SDL_Texture* prev_tex, SDL_Texture* next_tex, int direction, int screen_w, int screen_h) {
+    if (screen_w <= 0 || screen_h <= 0) return;
     if (!renderer) return;
     
     SDL_Renderer* sdl = renderer->sdl_renderer;
@@ -135,6 +137,7 @@ void TransitionEngine::render_wipe(SDL_Texture* prev_tex, SDL_Texture* next_tex,
 }
 
 void TransitionEngine::render_ken_burns(SDL_Texture* prev_tex, SDL_Texture* next_tex, int screen_w, int screen_h, float zoom) {
+    if (screen_w <= 0 || screen_h <= 0) return;
     if (!renderer || !next_tex) return;
     
     SDL_Renderer* sdl = renderer->sdl_renderer;

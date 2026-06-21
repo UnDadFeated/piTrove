@@ -83,8 +83,9 @@ static std::string execute_curl(const std::string& cmd) {
     if (timed_cmd.rfind("curl ", 0) == 0) {
         timed_cmd.insert(5, "--connect-timeout 10 --max-time 30 ");
     }
-    std::shared_ptr<FILE> pipe(popen((timed_cmd + " 2>/dev/null").c_str(), "r"), pclose);
-    if (!pipe) return "";
+    FILE* raw_pipe = popen((timed_cmd + " 2>/dev/null").c_str(), "r");
+    if (!raw_pipe) return "";
+    std::shared_ptr<FILE> pipe(raw_pipe, pclose);
     char buffer[4096];
     std::string result = "";
     while (!feof(pipe.get())) {
@@ -1912,7 +1913,13 @@ static void handle_client(int client_fd) {
                         g_cfg.google_photos_refresh_token = refresh_token;
                         g_cfg.google_photos_enabled = true;
                     }
-                    g_cfg.save("/app/config/config.toml"); // active config location in container
+                    std::string save_path;
+                    {
+                        std::shared_lock lk(g_config_mtx);
+                        save_path = g_cfg.loaded_path;
+                    }
+                    if (save_path.empty()) save_path = "/app/config/config.toml";
+                    g_cfg.save(save_path); // active config location in container
                     
                     // Clear error and restart background sync thread safely
                     trigger_error(0);
@@ -2110,7 +2117,13 @@ static void handle_client(int client_fd) {
                     clear_error(807);
                 }
                 if (changed) {
-                    g_cfg.save("/app/config/config.toml");
+                    std::string save_path;
+                    {
+                        std::shared_lock lk(g_config_mtx);
+                        save_path = g_cfg.loaded_path;
+                    }
+                    if (save_path.empty()) save_path = "/app/config/config.toml";
+                    g_cfg.save(save_path);
                     g_config_changed.store(true);
                 }
                 send_response(client_fd, "HTTP/1.1 200 OK", "application/json", "{\"status\":\"ok\"}");

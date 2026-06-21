@@ -8,7 +8,20 @@
 #include <cstdio>
 
 
+static std::string strip_comments(const std::string& line) {
+    bool in_quotes = false;
+    for (size_t i = 0; i < line.size(); ++i) {
+        if (line[i] == '"') {
+            in_quotes = !in_quotes;
+        } else if ((line[i] == '#' || line[i] == ';') && !in_quotes) {
+            return std::string(line.substr(0, i));
+        }
+    }
+    return line;
+}
+
 bool Config::load(const std::string& path) {
+    this->loaded_path = path;
     std::ifstream f(path);
     if (!f.is_open()) {
         g_active_error_code.store(802); // E802: CONFIG_SECTION_MISSING
@@ -18,7 +31,7 @@ bool Config::load(const std::string& path) {
     std::string section;
     std::string line;
     while (std::getline(f, line)) {
-        line = trim(line);
+        line = trim(strip_comments(line));
         if (line.empty() || line[0] == '#' || line[0] == ';') continue;
         if (line[0] == '[' && line.back() == ']') {
             section = line.substr(1, line.size() - 2);

@@ -131,14 +131,16 @@ static bool is_item_in_seasonal_window(const MediaItem& item, int window_days) {
             time_t t = std::time(nullptr);
             struct tm tm_buf;
             struct tm* now = localtime_r(&t, &tm_buf);
-            int curr_m = now->tm_mon + 1;
-            
-            int max_month_spread = (int)std::ceil(window_days / 30.0);
-            int diff = std::abs(curr_m - folder_m);
-            if (diff > 6) diff = 12 - diff;
-            
-            if (diff > max_month_spread) {
-                return false;
+            if (now) {
+                int curr_m = now->tm_mon + 1;
+                
+                int max_month_spread = (int)std::ceil(window_days / 30.0);
+                int diff = std::abs(curr_m - folder_m);
+                if (diff > 6) diff = 12 - diff;
+                
+                if (diff > max_month_spread) {
+                    return false;
+                }
             }
         }
     }
@@ -756,9 +758,9 @@ static void watchman_loop() {
         
         time_t now = std::time(nullptr);
         struct tm curr_tm;
-        localtime_r(&now, &curr_tm);
+        struct tm* tm_res = localtime_r(&now, &curr_tm);
         
-        if (curr_tm.tm_yday != last_yday) {
+        if (tm_res && curr_tm.tm_yday != last_yday) {
             if (g_offline_mode.load()) {
                 g_logger.warn("Watchman: System is in Offline Recovery Mode. Skipping midnight temporal window shift.");
                 continue;
@@ -1736,9 +1738,13 @@ int main(int argc, char** argv) {
 
     // Find the first valid item to display, skipping and removing bad/missing files
     int load_attempts = 0;
+    std::unique_lock<std::mutex> playlist_lock(g_playlist_mtx);
     while (load_attempts < (int)g_eligible.size() && load_attempts < 20) {
         std::string path = g_eligible[current_idx].path;
-        if (!file_exists(path)) {
+        playlist_lock.unlock();
+        bool exists = file_exists(path);
+        playlist_lock.lock();
+        if (!exists) {
             g_logger.warn("MISSING_FILE: First media file is missing/deleted from disk: %s", path.c_str());
             if (is_media_dir_healthy(g_cfg.media_dir)) {
                 if (g_cache) g_cache->mark_bad(path);
@@ -1772,6 +1778,7 @@ int main(int argc, char** argv) {
                 std::string path_l = g_eligible[current_idx].path;
                 std::string path_r = g_eligible[next_idx].path;
 
+                playlist_lock.unlock();
                 bool exists_l = file_exists(path_l);
                 bool exists_r = file_exists(path_r);
                 std::shared_ptr<ImageData> l_data = nullptr;
@@ -1780,6 +1787,7 @@ int main(int argc, char** argv) {
                     l_data = ImageLoader::load(path_l);
                     r_data = ImageLoader::load(path_r);
                 }
+                playlist_lock.lock();
 
                 // Re-validate indices since we unlocked
                 if (g_eligible.empty()) break;
@@ -1860,7 +1868,10 @@ int main(int argc, char** argv) {
                     load_attempts++;
                 }
             } else {
-                std::shared_ptr<ImageData> single_data = ImageLoader::load(g_eligible[current_idx].path);
+                std::string single_path = g_eligible[current_idx].path;
+                playlist_lock.unlock();
+                std::shared_ptr<ImageData> single_data = ImageLoader::load(single_path);
+                playlist_lock.lock();
 
                 if (g_eligible.empty()) break;
                 if (current_idx >= (int)g_eligible.size()) current_idx = 0;
@@ -1908,6 +1919,7 @@ int main(int argc, char** argv) {
             }
         }
     }
+    playlist_lock.unlock();
 
     bool transitioning = false;
     std::string transition_effect;

@@ -107,8 +107,6 @@ void GooglePhotosManager::sync_now() {
                 "folder '%s'...",
                 cache_dir.c_str());
 
-  std::filesystem::create_directories(cache_dir);
-
   std::string access_token = get_access_token();
   if (access_token.empty()) {
     trigger_error(301); // E301: GOOGLE_PHOTOS_SYNC_FAILED
@@ -281,7 +279,9 @@ void GooglePhotosManager::download_media(const std::string &access_token) {
       }
       bool domain_valid = false;
       if (host == "googleusercontent.com" || 
-          (host.length() > 22 && host.compare(host.length() - 22, 22, ".googleusercontent.com") == 0)) {
+          (host.length() > 22 && host.compare(host.length() - 22, 22, ".googleusercontent.com") == 0) ||
+          host == "ggpht.com" ||
+          (host.length() > 10 && host.compare(host.length() - 10, 10, ".ggpht.com") == 0)) {
         domain_valid = true;
       }
       if (!domain_valid) {
@@ -329,12 +329,12 @@ std::string GooglePhotosManager::execute_curl(const std::string &cmd) {
   if (timed_cmd.rfind("curl ", 0) == 0) {
       timed_cmd.insert(5, "--connect-timeout 10 --max-time 30 ");
   }
-  std::shared_ptr<FILE> pipe(popen((timed_cmd + " 2>/dev/null").c_str(), "r"),
-                             pclose);
-  if (!pipe) {
+  FILE* raw_pipe = popen((timed_cmd + " 2>/dev/null").c_str(), "r");
+  if (!raw_pipe) {
     g_logger.error("GooglePhotos: Failed to popen curl command.");
     return "";
   }
+  std::shared_ptr<FILE> pipe(raw_pipe, pclose);
 
   char buffer[4096];
   std::string result = "";

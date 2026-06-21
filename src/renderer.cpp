@@ -170,6 +170,7 @@ bool Renderer::init(int w, int h, bool fullscreen) {
     if (!sdl_renderer) {
         g_logger.error("SDL_CreateRenderer failed: %s", SDL_GetError());
         SDL_DestroyWindow(window);
+        window = nullptr;
         SDL_Quit();
         return false;
     }

@@ -235,6 +235,13 @@ void start_mqtt_client() {
             args.push_back("-F");
             args.push_back("%t:%p");
 
+            std::vector<char*> argv;
+            argv.reserve(args.size() + 1);
+            for (const auto& a : args) {
+                argv.push_back(const_cast<char*>(a.c_str()));
+            }
+            argv.push_back(nullptr);
+
             g_logger.info("Starting MQTT Subscriber via fork+execvp");
             
             int pipefds[2];
@@ -273,12 +280,6 @@ void start_mqtt_client() {
                 int max_fd = sysconf(_SC_OPEN_MAX);
                 if (max_fd < 0) max_fd = 1024;
                 for (int i = 3; i < max_fd; ++i) close(i);
-
-                std::vector<char*> argv;
-                for (const auto& a : args) {
-                    argv.push_back(const_cast<char*>(a.c_str()));
-                }
-                argv.push_back(nullptr);
 
                 execvp(argv[0], argv.data());
                 _exit(1);

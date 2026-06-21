@@ -634,7 +634,7 @@ case "$branch_choice" in
         ;;
     3)
         if [[ -d "$PRIMARY_HOME/piTrove/.git" ]]; then
-            INSTALL_BRANCH=$(cd "$PRIMARY_HOME/piTrove" 2>/dev/null && git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
+            INSTALL_BRANCH=$(cd "$PRIMARY_HOME/piTrove" 2>/dev/null && sudo -u "$PRIMARY_USER" git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
             if [[ -z "$INSTALL_BRANCH" ]]; then
                 INSTALL_BRANCH="main"
                 BRANCH_LABEL="main"
@@ -666,17 +666,17 @@ if [[ ! -d "$PRIMARY_HOME/piTrove/.git" ]]; then
         warn "Directory $PRIMARY_HOME/piTrove exists but is not a valid Git repository. Cleaning it up for a fresh clone..."
         rm -rf "$PRIMARY_HOME/piTrove"
     fi
-    run_with_spinner "Cloning piTrove repository (branch: $INSTALL_BRANCH)" git clone --branch "$INSTALL_BRANCH" --single-branch https://github.com/UnDadFeated/piTrove.git "$PRIMARY_HOME/piTrove"
+    run_with_spinner "Cloning piTrove repository (branch: $INSTALL_BRANCH)" sudo -u "$PRIMARY_USER" git clone --branch "$INSTALL_BRANCH" --single-branch https://github.com/UnDadFeated/piTrove.git "$PRIMARY_HOME/piTrove"
 else
     info "Repository exists. Updating source..."
     cd "$PRIMARY_HOME/piTrove"
-    CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
+    CURRENT_BRANCH=$(sudo -u "$PRIMARY_USER" git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
     if [[ "$CURRENT_BRANCH" != "$INSTALL_BRANCH" ]]; then
         info "Switching from branch '$CURRENT_BRANCH' to '$INSTALL_BRANCH'..."
-        git fetch origin || true
-        git checkout "$INSTALL_BRANCH" || true
+        sudo -u "$PRIMARY_USER" git fetch origin || true
+        sudo -u "$PRIMARY_USER" git checkout "$INSTALL_BRANCH" || true
     fi
-    git pull origin "$INSTALL_BRANCH" || warn "Repository update failed. Using active local copy."
+    sudo -u "$PRIMARY_USER" git pull origin "$INSTALL_BRANCH" || warn "Repository update failed. Using active local copy."
 fi
 chown -R $PRIMARY_USER:$PRIMARY_USER "$PRIMARY_HOME/piTrove"
 info "Repository ready at: ${CYAN}$PRIMARY_HOME/piTrove${NC} (branch: ${BOLD}${BRANCH_LABEL}${NC})"
