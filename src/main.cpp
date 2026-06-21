@@ -133,7 +133,7 @@ static bool is_item_in_seasonal_window(const MediaItem& item, int window_days) {
             struct tm* now = localtime_r(&t, &tm_buf);
             int curr_m = now->tm_mon + 1;
             
-            int max_month_spread = std::ceil(window_days / 30.0);
+            int max_month_spread = (int)std::ceil(window_days / 30.0);
             int diff = std::abs(curr_m - folder_m);
             if (diff > 6) diff = 12 - diff;
             

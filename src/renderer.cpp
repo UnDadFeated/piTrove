@@ -262,7 +262,7 @@ void Renderer::calculate_fit_rect(int img_w, int img_h, SDL_Rect& out_rect) {
     int mat_size = 0;
     int border_w = 0;
     {
-        std::lock_guard lock(g_config_mtx);
+        std::shared_lock lock(g_config_mtx);
         has_matting = g_cfg.matting;
         has_border = g_cfg.border_enabled;
         mat_size = g_renderer.scale_px(g_cfg.matting_size);
@@ -339,7 +339,7 @@ void Renderer::draw_background(ImageData* data, const std::string& bg_style, Uin
         std::string snap_pattern_style;
         int snap_blend_count;
         {
-            std::lock_guard lk(g_config_mtx);
+            std::shared_lock lk(g_config_mtx);
             snap_pattern_offset = g_cfg.pattern_offset;
             snap_pattern_style = g_cfg.pattern_style;
             snap_blend_count = g_cfg.pattern_blend_count;
@@ -980,7 +980,9 @@ void Renderer::draw_bias_lighting(const SDL_Rect& fit_rect, Uint8 avg_r, Uint8 a
         }
     };
 
-    if (g_cfg.edge_glow_shadow) {
+    bool shadow_mode;
+    { std::shared_lock lk(g_config_mtx); shadow_mode = g_cfg.edge_glow_shadow; }
+    if (shadow_mode) {
         // 3D Shadow Look: only right and bottom glows, and bottom-right corner glow
         auto glow_down_shadow = [&](int gx, int gy, int gw, int max_depth) {
             for (int s = 0; s < max_depth; s++) {
@@ -1284,7 +1286,7 @@ void Renderer::load_splash(const std::string& path) {
     font_renderer = new FontRenderer(this);
     std::string font_path = "";
     {
-        std::lock_guard lock(g_config_mtx);
+        std::shared_lock lock(g_config_mtx);
         if (g_cfg.font_path != "auto" && !g_cfg.font_path.empty()) {
             font_path = g_cfg.font_path;
         }
@@ -1431,17 +1433,17 @@ void Renderer::render_splash(int phase, int progress, int total, int done, [[may
     static double start_ticks = (double)SDL_GetTicks();
     double uptime = ((double)SDL_GetTicks() - start_ticks) / 1000.0;
 
-    int terminal_start_y = sh * 0.56f;
-    int bottom_matte_padding = sh * 0.06f;
+    int terminal_start_y = (int)(sh * 0.56f);
+    int bottom_matte_padding = (int)(sh * 0.06f);
     int black_area_end = sh - bottom_matte_padding;
 
     // 2. Animated scanlines for top white/graphics area (removed for performance)
 
     // 3. UI Box dimensions
-    int box_w = sw * 0.90f;
+    int box_w = (int)(sw * 0.90f);
     int box_x = (sw - box_w) / 2;
-    int box_y = terminal_start_y + (sh * 0.015f);
-    int box_h = black_area_end - box_y - (sh * 0.015f);
+    int box_y = (int)(terminal_start_y + (sh * 0.015f));
+    int box_h = (int)(black_area_end - box_y - (sh * 0.015f));
 
     draw_splash_box(box_x, box_y, box_w, box_h);
 
@@ -1644,7 +1646,7 @@ void Renderer::render_splash(int phase, int progress, int total, int done, [[may
 
         float mmap_mb = 0.0f;
         {
-            std::lock_guard lock(g_config_mtx);
+            std::shared_lock lock(g_config_mtx);
             mmap_mb = (float)g_cfg.cache_mmap_size / (1024.0f * 1024.0f);
         }
         std::snprintf(cache_buf, sizeof(cache_buf), "MMAP_SIZE: %.0f MB", mmap_mb);

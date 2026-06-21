@@ -71,7 +71,7 @@ bool CacheManager::open(const std::string& dir) {
     char mmap_sql[64];
     long long mmap_val = 0;
     {
-        std::lock_guard lk(g_config_mtx);
+        std::shared_lock lk(g_config_mtx);
         mmap_val = (long long)g_cfg.cache_mmap_size;
     }
     snprintf(mmap_sql, sizeof(mmap_sql), "PRAGMA mmap_size=%lld", mmap_val);

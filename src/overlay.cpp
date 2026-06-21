@@ -28,7 +28,7 @@ void OverlayManager::init() {
     std::string exe_dir = get_exe_dir();
     std::string font_path = "";
     {
-        std::lock_guard lock(g_config_mtx);
+        std::shared_lock lock(g_config_mtx);
         if (g_cfg.font_path != "auto" && !g_cfg.font_path.empty()) {
             font_path = g_cfg.font_path;
         }
@@ -221,7 +221,7 @@ void OverlayManager::draw_all(int current_idx, int total_items, const MediaItem*
     bool adaptive_text_enabled = false;
 
     {
-        std::lock_guard lock(g_config_mtx);
+        std::shared_lock lock(g_config_mtx);
         date_enabled = g_cfg.date_overlay_enabled;
         date_text = g_cfg.date_text;
         date_x = g_cfg.date_x;
@@ -366,7 +366,7 @@ void OverlayManager::draw_all(int current_idx, int total_items, const MediaItem*
         {
             std::string db_dir = "/home/pi/piTrove/cache";
             {
-                std::lock_guard lock(g_config_mtx);
+                std::shared_lock lock(g_config_mtx);
                 db_dir = g_cfg.cache_dir;
             }
             std::string path = db_dir + "/cache.db";
@@ -652,7 +652,7 @@ void OverlayManager::draw_popup_menu() {
     double delay = 120.0;
     int volume = 0;
     {
-        std::lock_guard lk(g_config_mtx);
+        std::shared_lock lk(g_config_mtx);
         shuffle = g_cfg.shuffle;
         delay = g_cfg.transition_delay;
         volume = g_cfg.video_volume;

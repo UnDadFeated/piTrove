@@ -321,7 +321,7 @@ void scan_directory(const std::string& dir, int depth,
     int scan_days;
     std::vector<std::string> ignore_f;
     {
-        std::lock_guard lk(g_config_mtx);
+        std::shared_lock lk(g_config_mtx);
         scan_days = g_cfg.scan_window_days;
         ignore_f = g_cfg.ignore_folders;
     }
