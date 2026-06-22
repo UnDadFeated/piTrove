@@ -1317,8 +1317,18 @@
                                         </div>
                                         <div class="toggle-card" onclick="this.querySelector('input').click()" style="grid-column: span 4;">
                                             <span class="toggle-label">Slideshow Interval</span>
-                                            <input type="range" id="set-interval" min="5" max="300" value="30" step="5" style="flex:1;" oninput="var v=parseInt(this.value);document.getElementById('set-interval-value').textContent=v>=60?(v/60)+'m':v+'s'">
-                                            <span class="range-val" id="set-interval-value" style="min-width:50px;text-align:center;font-size:14px;">30s</span>
+                                            <select id="set-interval" style="flex:1; padding:0.4rem; border-radius:8px; border:1px solid var(--border-color); background:rgba(0,0,0,0.2); color:var(--text-main);">
+                                            <option value="30" selected>30s</option>
+                                            <option value="60">60s</option>
+                                            <option value="90">90s</option>
+                                            <option value="120">120s (2m)</option>
+                                            <option value="150">150s (2m)</option>
+                                            <option value="180">180s (3m)</option>
+                                            <option value="210">210s (3m)</option>
+                                            <option value="240">240s (4m)</option>
+                                            <option value="270">270s (4m)</option>
+                                            <option value="300">300s (5m)</option>
+                                            </select>
                                         </div>
                                     </div>
                                 </div>
