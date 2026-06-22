@@ -1,10 +1,10 @@
-## v13.3.6 â Redesigned Dashboard Settings (June 22, 2026)
+## v13.3.6 — Redesigned Dashboard Settings (June 22, 2026)
 
 ### Changed
-- **Dashboard redesign** â Replaced vertical form layout with compact 4-column toggle grid organized into Playback, Display, and Network sections
-- **Edge Lighting** â Renamed "Photo Overlay" toggle to "Edge Lighting" for clarity
-- **Hero heading** â Updated to "C++ Digital Picture &amp; Video Frame for Raspberry Pi"
-- **Toggle interaction** â Entire toggle card is now a clickable touch target for touchscreen use
+- **Dashboard redesign** — Replaced vertical form layout with compact 4-column toggle grid organized into Playback, Display, and Network sections
+- **Edge Lighting** — Renamed "Photo Overlay" toggle to "Edge Lighting" for clarity
+- **Hero heading** — Updated to "C++ Digital Picture &amp; Video Frame for Raspberry Pi"
+- **Toggle interaction** — Entire toggle card is now a clickable touch target for touchscreen use
 
 ## v13.3.5 — NAS Health-Aware Network Recovery & Image Load Timeout Guards (June 21, 2026)
 
