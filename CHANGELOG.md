@@ -1,3 +1,15 @@
+## v13.3.4 -- Security Hardening (June 21, 2026)
+
+### Added
+- **HTTP API key authentication** -- Optional API key in `[remote]` section of config.toml. When set, `/api/settings/update` requires `Authorization: Bearer <key>` header. Leave blank to disable (backward compatible).
+- **Error codes E901, E902** -- HTTP_API_KEY_MISSING and HTTP_API_KEY_INVALID for API auth failures.
+
+### Fixed
+- **Watchdog NTP drift false positives** -- Replaced wall-clock `time(nullptr)` with `std::chrono::steady_clock` to prevent false watchdog triggers when NTP adjusts the system clock backward.
+- **Shell injection in escape_shell_arg** -- Added escaping for `$`, backticks, `!`, `\`, `;`, `&`, `|`, `<`, `>` in addition to existing single-quote handling. Prevents command injection via malformed OAuth credentials.
+- **popen null dereference** -- Added nullptr check after `popen()` in `execute_curl()` to prevent crash when pipe creation fails.
+- **Unbounded HTTP POST body** -- Added 64KB absolute request size cap and 256KB Content-Length upper bound to prevent memory exhaustion attacks.
+
 ## v13.3.2 — Code Audit Fixes: Concurrency, Safety & Resource Management (June 21, 2026)
 
 ### Fixed

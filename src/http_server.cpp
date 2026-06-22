@@ -1228,6 +1228,7 @@ static std::string get_dashboard_html() {
             <div class="telemetry-card">
                 <div class="telemetry-title">App Settings</div>
                 <form id="settings-form" onsubmit="event.preventDefault(); saveSettings();" style="display: flex; flex-direction: column; gap: 1.2rem;">
+                    <div class="form-group" style="grid-column: 1 / -1;"><label for="set-api-key">API Key for /api/settings/update</label><input type="password" id="set-api-key" placeholder="Set API key (blank = no auth)"><span id="api-key-status" style="font-size:0.75rem;color:var(--text-muted);margin-left:0.5rem;"></span></div>
                     <div>
                         <h3 style="font-size: 0.85rem; text-transform: uppercase; color: var(--accent); letter-spacing: 1px; margin-bottom: 0.6rem; border-bottom: 1px solid var(--border-color); padding-bottom: 0.2rem; font-weight: 800;">Slideshow & Playback</h3>
                         <div class="form-grid" style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 0.8rem; margin-bottom: 0.6rem;">
@@ -1331,6 +1332,7 @@ static std::string get_dashboard_html() {
                     document.getElementById('set-blurred-background').checked = settings.blurred_background;
                     document.getElementById('set-color-matched-matte').checked = settings.color_matched_matte;
                     document.getElementById('set-touch-enabled').checked = settings.touch_enabled;
+                    document.getElementById('api-key-status').textContent = settings.api_key_set ? '(configured)' : '(not set)';
                 }
             } catch (err) {
                 console.error("Failed to load settings:", err);
@@ -1347,7 +1349,8 @@ static std::string get_dashboard_html() {
             const touch = document.getElementById('set-touch-enabled').checked ? "1" : "0";
             
             try {
-                const url = `/api/settings/update?transition_delay=${delay}&video_volume=${volume}&shuffle=${shuffle}&ken_burns=${kenBurns}&blurred_background=${blurredBg}&color_matched_matte=${matte}&touch_enabled=${touch}`;
+                const apiKey = document.getElementById('set-api-key').value;
+            const url = `/api/settings/update?transition_delay=${delay}&video_volume=${volume}&shuffle=${shuffle}&ken_burns=${kenBurns}&blurred_background=${blurredBg}&color_matched_matte=${matte}&touch_enabled=${touch}${apiKey ? '&api_key=' + encodeURIComponent(apiKey) : ''}`;
                 const res = await fetch(url);
                 if (res.ok) {
                     showToast("Configuration Saved Successfully!");
@@ -1622,6 +1625,7 @@ static std::string get_api_settings() {
         << "  \"google_photos_enabled\": " << (g_cfg.google_photos_enabled ? "true" : "false") << ",\n"
         << "  \"google_photos_album_id\": \"" << escape_json(g_cfg.google_photos_album_id) << "\",\n"
         << "  \"google_photos_sync_interval\": " << g_cfg.google_photos_sync_interval << ",\n"
+        << "  \"api_key_set\": " << (!g_cfg.http_api_key.empty() ? "true" : "false") << ",\n"
         << "  \"touch_enabled\": " << (g_cfg.touch_enabled ? "true" : "false") << "\n"
         << "}";
     return oss.str();
