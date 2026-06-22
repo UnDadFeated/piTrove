@@ -14,6 +14,7 @@
 - **README version badge** — Updated from v13.3.4 to v13.3.8 to match the current release.
 
 - **Slideshow interval selector** — Replaced free-form number input and range slider with dropdown selectors (30–300s in 30s steps) on both the dashboard settings page and the dashboard demo page.
+- **Dashboard dark mode readability** — Fixed palette selector, theme toggle button, and interval dropdown to use card-background/card-border CSS variables (defined in both themes) with color-scheme:dark hint for native select popups.
 
 ## v13.3.7 — Dashboard PIN Security & Error Code Catalog (June 22, 2026)
 
