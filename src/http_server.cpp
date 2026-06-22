@@ -1156,13 +1156,13 @@ static std::string get_dashboard_html() {
     <div class="container">
         <header style="position: relative;">
             <div style="position: absolute; right: 1rem; top: 1.25rem; display: flex; gap: 0.5rem; align-items: center; z-index: 10;">
-                <select id="palette-select" onchange="changePalette(this.value)" style="background: var(--bg-secondary); color: var(--text-main); border: 1px solid var(--border-color); border-radius: 8px; padding: 0.25rem 0.5rem; font-size: 0.75rem; cursor: pointer; outline: none;">
+                <select id="palette-select" onchange="changePalette(this.value)" style="background: var(--card-bg); color: var(--text-main); border: 1px solid var(--card-border); border-radius: 8px; padding: 0.25rem 0.5rem; font-size: 0.75rem; cursor: pointer; outline: none; color-scheme:dark;">
                     <option value="grey">Zinc</option>
                     <option value="emerald">Emerald</option>
                     <option value="sapphire">Sapphire</option>
                     <option value="amber">Amber</option>
                 </select>
-                <button onclick="toggleTheme()" id="theme-btn" style="background: var(--bg-secondary); color: var(--text-main); border: 1px solid var(--border-color); border-radius: 8px; padding: 0.25rem 0.5rem; font-size: 0.75rem; cursor: pointer; outline: none;">🌙</button>
+                <button onclick="toggleTheme()" id="theme-btn" style="background: var(--card-bg); color: var(--text-main); border: 1px solid var(--card-border); border-radius: 8px; padding: 0.25rem 0.5rem; font-size: 0.75rem; cursor: pointer; outline: none; color-scheme:dark;">🌙</button>
             </div>
             <h1>piTrove controller</h1>
             <div class="subtitle">v11.0.0 glassmorphic system</div>
@@ -1235,7 +1235,7 @@ static std::string get_dashboard_html() {
                     <div>
                         <h3 style="font-size: 0.85rem; text-transform: uppercase; color: var(--accent); letter-spacing: 1px; margin-bottom: 0.6rem; border-bottom: 1px solid var(--border-color); padding-bottom: 0.2rem; font-weight: 800;">Slideshow & Playback</h3>
                         <div class="form-grid" style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 0.8rem; margin-bottom: 0.6rem;">
-                            <div class="form-group"><label for="set-transition-delay">Interval</label><select id="set-transition-delay" style="width:100%; padding:0.4rem; border-radius:8px; border:1px solid var(--border-color); background:rgba(0,0,0,0.2); color:var(--text-main);"><option value="30">30s</option>
+                            <div class="form-group"><label for="set-transition-delay">Interval</label><select id="set-transition-delay" style="width:100%; padding:0.4rem; border-radius:8px; border:1px solid var(--card-border); background:var(--card-bg); color:var(--text-main); color-scheme:dark;"><option value="30">30s</option>
 <option value="60">60s</option>
 <option value="90">90s</option>
 <option value="120" selected>120s (2m)</option>
