@@ -897,19 +897,19 @@
                         
                         <div class="controls-row">
                             <button class="ctrl-btn" onclick="showToast(&#39;Sent: Previous&#39;)">
-                                <span class="icon">&#9166;</span>
+                                <span class="icon">⏮</span>
                                 <span class="label">Previous</span>
                             </button>
                             <button class="ctrl-btn wide accent" onclick="togglePause(); showToast(&#39;Sent: Pause&#39;)">
-                                <span class="icon" id="demo-pause-icon">&#9648;&#9648;</span>
+                                <span class="icon" id="demo-pause-icon">⏸</span>
                                 <span class="label" id="demo-pause-label">Pause</span>
                             </button>
                             <button class="ctrl-btn" onclick="showToast(&#39;Sent: Next&#39;)">
-                                <span class="icon">&#9167;</span>
+                                <span class="icon">⏭</span>
                                 <span class="label">Next</span>
                             </button>
                             <button class="ctrl-btn active" onclick="toggleShuffle(this); showToast(&#39;Shuffle toggled&#39;)">
-                                <span class="icon">&#128256;</span>
+                                <span class="icon">🔀</span>
                                 <span class="label" id="demo-shuffle-label">ON</span>
                             </button>
                         </div>
@@ -938,7 +938,7 @@
                         </div>
                         <div class="action-row" style="margin-top:0.75rem;">
                             <button class="action-btn active" onclick="toggleActive(this); showToast(&#39;Screen toggled&#39;)">
-                                <span>&#128237;</span>
+                                <span>🌍</span>
                                 <span>Screen: <strong>ON</strong></span>
                             </button>
                             <button class="action-btn" onclick="showToast(&#39;Motion triggered&#39;)">
@@ -1089,11 +1089,11 @@ v13.3.4 2026-06-21 10:00:33.456 [INFO] MPV: Video finished (15.3s duration)</div
             var label = document.getElementById('demo-pause-label');
             var btn = document.querySelector('#tab-remote .ctrl-btn.wide');
             if (pauseOn) {
-                icon.innerHTML = '&#9654;';
+                icon.innerHTML = '▶';
                 label.textContent = 'Resume';
                 btn.classList.add('active');
             } else {
-                icon.innerHTML = '&#9648;&#9648;';
+                icon.innerHTML = '⏸';
                 label.textContent = 'Pause';
                 btn.classList.remove('active');
             }
