@@ -673,9 +673,6 @@ std::string escape_shell_arg(std::string_view input) {
         if (c == '\0' || c == '\n' || c == '\r') continue;
         if (c == '\'') {
             escaped += "'\\''";
-        } else if (c == '$' || c == '`' || c == '!' || c == '\\' || c == ';' || c == '&' || c == '|' || c == '<' || c == '>') {
-            escaped += '\\';
-            escaped += c;
         } else {
             escaped += c;
         }
