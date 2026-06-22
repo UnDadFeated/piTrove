@@ -55,21 +55,6 @@ Once the installation completes, the picture frame runs automatically in the bac
   *(Fetches the latest code/binary, rebuilds the container, and safely merges new configurations. Adding the `--cron` flag schedules this check to run daily in the background.)*
   
   *(For raw manual execution, the CLI transparently runs: `docker exec -it piTrove /app/piTrove --config /app/config/config.toml`)*
-### Configuration Reference
-The application reads settings from `/app/config/config.toml` (bind-mounted from `~/piTrove/config/config.toml` on the host). Key settings:
-
-| Section | Key | Default | Description |
-|---------|-----|---------|-------------|
-| `[remote]` | `api_key` | `""` | Optional API key for web dashboard auth. Leave blank to disable. |
-| `[remote]` | `http_port` | `8080` | Web dashboard listening port. |
-| `[media]` | `google_photos_enabled` | `false` | Enable Google Photos sync. |
-| `[media]` | `google_photos_sync_interval` | `3600` | Sync check interval in seconds. |
-| `[media]` | `google_photos_cache_dir` | `"~/google_photos_cache"` | Local cache directory for synced photos. |
-| `[scan]` | `window_days` | `15` | Seasonal window for photo filtering. |
-| `[scan]` | `scan_depth` | `10` | Recursive directory scan depth. |
-| `[overlay]` | `blurred_background` | `true` | Enable blurred background effect. |
-| `[overlay]` | `color_matched_matte` | `true` | Enable color-matched matte borders. |
-| `[overlay]` | `touch_enabled` | `true` | Enable touchscreen navigation overlays.
 
 ---
 
