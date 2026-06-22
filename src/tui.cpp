@@ -136,7 +136,8 @@ void config_wizard(const std::string& config_path) {
         {"Splash Overlay Y", FLT, "Vertical position of splash UI (0.0 to 1.0)"},
         {"Auto Update", TGL, "Enable automatic background system updates"},
         {"Auto Update Branch", ENM, "Git branch to pull updates from (main/develop)"},
-        {"Touchscreen Mode", TGL, "Enable touchscreen tap-to-menu and virtual keyboard controls"}
+        {"Touchscreen Mode", TGL, "Enable touchscreen tap-to-menu and virtual keyboard controls"},
+        {"Dashboard PIN", STR, "4-digit PIN to unlock touch dashboard"}
     };
     static const CI CC[] = {
         {"Timer Enabled", TGL, "Show remaining photo/video duration overlay"},

@@ -1,3 +1,9 @@
+## v13.3.9 — PIN Keypad Touchscreen Lock (June 22, 2026)
+
+### Added
+- **Dashboard PIN lock** — New TUI-configurable 4-digit PIN that must be entered before the touch navigation overlay is shown. After 3 failed attempts, the keypad locks for 60 seconds with a countdown display.
+- **Weather default location** — Default weather coordinates changed to Los Angeles, US (34.05, -118.24). Weather remains disabled by default (user-configurable in the TUI).
+
 ## v13.3.8 — Code Audit Bug Fixes (June 22, 2026)
 
 ### Fixed

@@ -87,8 +87,8 @@ struct Config {
 
     // [dashboard]
     bool    weather_enabled{false};
-    float   weather_lat{-999.0f};
-    float   weather_lon{-999.0f};
+    float   weather_lat{34.05f};
+    float   weather_lon{-118.24f};
 
     // [remote]
     bool    http_enabled{false};
@@ -108,6 +108,7 @@ struct Config {
 
     // [touch]
     bool    touch_enabled{false};
+    std::string dashboard_pin{""};
 
     // [collage]
     bool    collage_enabled{false};

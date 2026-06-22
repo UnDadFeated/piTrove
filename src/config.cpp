@@ -104,6 +104,7 @@ bool Config::load(const std::string& path) {
         else if (key == "weather_enabled")   this->weather_enabled = (val == "1" || val == "true");
         else if (key == "weather_lat")       this->weather_lat = safe_stof(val, this->weather_lat);
         else if (key == "weather_lon")       this->weather_lon = safe_stof(val, this->weather_lon);
+        else if (key == "dashboard_pin")      this->dashboard_pin = val;
         else if (key == "http_enabled")      this->http_enabled = (val == "1" || val == "true");
         else if (key == "http_port") {
             int p = safe_stoi(val, this->http_port);
@@ -374,6 +375,7 @@ bool Config::save(const std::string& path) {
     f << "weather_enabled = " << (this->weather_enabled ? "1" : "0") << "\n";
     f << "weather_lat = " << this->weather_lat << "\n";
     f << "weather_lon = " << this->weather_lon << "\n\n";
+    f << "dashboard_pin = \"" << this->dashboard_pin << "\"\n";
 
     f << "[remote]\n";
     f << "http_enabled = " << (this->http_enabled ? "1" : "0") << "\n";
