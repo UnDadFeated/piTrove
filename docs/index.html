@@ -26,13 +26,12 @@
         }
         
         body {
-            font-family: 'Inter', -apple-system, system-ui, sans-serif;
+            font-family: "Inter", -apple-system, system-ui, sans-serif;
             background: var(--bg);
             color: var(--text);
             line-height: 1.6;
         }
         
-        /* Header */
         header {
             position: fixed;
             top: 0;
@@ -82,7 +81,6 @@
         }
         nav a:hover { color: var(--text); }
         
-        /* Hero */
         .hero {
             padding: 110px 24px 40px;
             max-width: 1120px;
@@ -112,14 +110,142 @@
             font-weight: 500;
         }
         
-        /* App Preview */
-        .preview-wrapper {
-            max-width: 960px;
-            margin: 0 auto 100px;
-            padding: 0 24px;
+        .install {
+            max-width: 640px;
+            margin: 0 auto;
+            padding: 40px 24px;
+            text-align: center;
+        }
+        .install h2 {
+            font-size: 1.75rem;
+            font-weight: 700;
+            margin-bottom: 8px;
+        }
+        .install > p {
+            color: var(--text-muted);
+            margin-bottom: 24px;
+            font-size: 0.9375rem;
+        }
+        .install-box {
+            background: var(--bg-elevated);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 20px;
+            text-align: left;
+        }
+        .install-box pre {
+            font-family: "JetBrains Mono", monospace;
+            font-size: 0.875rem;
+            background: var(--bg);
+            padding: 14px 16px;
+            border-radius: 8px;
+            overflow-x: auto;
+            color: var(--text);
+            line-height: 1.6;
+            margin: 0;
+        }
+        .prompt { color: #34d399; }
+        .cmd { color: #e4e4e7; }
+        .install-steps {
+            margin-top: 20px;
+            text-align: left;
+        }
+        .install-step {
+            display: flex;
+            gap: 12px;
+            align-items: flex-start;
+            padding: 10px 0;
+            border-bottom: 1px solid var(--border);
+            font-size: 0.875rem;
+            color: var(--text-muted);
+        }
+        .install-step:last-child { border-bottom: none; }
+        .step-num {
+            background: var(--accent-glow);
+            color: var(--accent);
+            width: 24px;
+            height: 24px;
+            border-radius: 6px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 700;
+            font-size: 0.8125rem;
+            flex-shrink: 0;
+        }
+        .install-step code {
+            background: var(--accent-glow);
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-family: "JetBrains Mono", monospace;
+            font-size: 0.8rem;
         }
         
-        /* Dashboard — matches app exactly */
+        .features {
+            max-width: 1120px;
+            margin: 0 auto;
+            padding: 60px 24px;
+        }
+        .features h2 {
+            font-size: 1.75rem;
+            font-weight: 700;
+            text-align: center;
+            margin-bottom: 12px;
+            letter-spacing: -0.02em;
+        }
+        .features-sub {
+            text-align: center;
+            color: var(--text-muted);
+            font-size: 0.9375rem;
+            margin-bottom: 40px;
+            max-width: 500px;
+            margin-left: auto;
+            margin-right: auto;
+        }
+        .feature-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 16px;
+        }
+        .feature-card {
+            background: var(--bg-elevated);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 24px;
+            transition: border-color 0.2s;
+        }
+        .feature-card:hover { border-color: rgba(255,255,255,0.15); }
+        .feature-icon {
+            width: 40px;
+            height: 40px;
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.125rem;
+            margin-bottom: 14px;
+        }
+        .fi-accent { background: var(--accent-glow); color: var(--accent); }
+        .fi-purple { background: rgba(167,139,250,0.12); color: #a78bfa; }
+        .fi-green { background: rgba(52,211,153,0.12); color: #34d399; }
+        .fi-pink { background: rgba(244,114,182,0.12); color: #f472b6; }
+        .feature-card h3 {
+            font-size: 1rem;
+            font-weight: 600;
+            margin-bottom: 6px;
+        }
+        .feature-card p {
+            font-size: 0.875rem;
+            color: var(--text-muted);
+            line-height: 1.6;
+        }
+        
+        .preview-wrapper {
+            max-width: 960px;
+            margin: 0 auto;
+            padding: 40px 24px 100px;
+        }
+        
         .dashboard {
             background: var(--bg-card);
             border: 1px solid var(--border);
@@ -133,7 +259,7 @@
             position: relative;
         }
         .dash-header::before {
-            content: '';
+            content: "";
             position: absolute;
             top: 0; left: 0; right: 0;
             height: 3px;
@@ -154,7 +280,7 @@
             padding: 4px 10px;
             font-size: 0.75rem;
             cursor: pointer;
-            font-family: 'Inter', sans-serif;
+            font-family: "Inter", sans-serif;
         }
         .dash-topbar select:focus,
         .dash-topbar button:focus {
@@ -179,7 +305,6 @@
             margin-bottom: 1.25rem;
         }
         
-        /* Tabs */
         .tabs {
             display: flex;
             gap: 0.5rem;
@@ -195,7 +320,7 @@
             border: none;
             padding: 0.75rem;
             color: var(--text-muted);
-            font-family: 'Inter', sans-serif;
+            font-family: "Inter", sans-serif;
             font-weight: 600;
             font-size: 0.95rem;
             border-radius: 12px;
@@ -212,11 +337,9 @@
             box-shadow: 0 4px 12px var(--accent-glow);
         }
         
-        /* Tab Content */
         .tab-content { display: none; padding: 0 1.5rem 1.5rem; }
         .tab-content.active { display: block; }
         
-        /* Remote Tab */
         .preview-card {
             background: var(--bg-elevated);
             border: 1px solid var(--border);
@@ -278,12 +401,11 @@
         .meta-badge.photo { background: rgba(161,161,170,0.12); color: var(--text); }
         .meta-badge.video { background: var(--accent-glow); color: var(--accent); border-color: var(--accent); }
         .meta-timer {
-            font-family: 'JetBrains Mono', monospace;
+            font-family: "JetBrains Mono", monospace;
             font-size: 0.75rem;
             color: var(--text-muted);
         }
         
-        /* Playback Controls */
         .controls-row {
             display: flex;
             gap: 0.5rem;
@@ -294,7 +416,7 @@
             border-radius: 12px;
             padding: 0.75rem;
             color: var(--text);
-            font-family: 'Inter', sans-serif;
+            font-family: "Inter", sans-serif;
             font-size: 0.9rem;
             font-weight: 600;
             cursor: pointer;
@@ -323,7 +445,6 @@
         .ctrl-btn .label { font-size: 0.75rem; }
         .ctrl-btn.wide { flex: 1.5; }
         
-        /* Telemetry Card */
         .telemetry-card {
             background: var(--bg-elevated);
             border: 1px solid var(--border);
@@ -342,7 +463,7 @@
             gap: 8px;
         }
         .telemetry-title::before {
-            content: '';
+            content: "";
             width: 8px;
             height: 8px;
             background: var(--accent);
@@ -365,7 +486,7 @@
             color: var(--text-muted);
         }
         .telemetry-value {
-            font-family: 'JetBrains Mono', monospace;
+            font-family: "JetBrains Mono", monospace;
             font-size: 1.0625rem;
             font-weight: 600;
             color: var(--text);
@@ -377,7 +498,6 @@
             margin-top: 0.2rem;
         }
         
-        /* Action Buttons */
         .action-row {
             display: flex;
             gap: 0.5rem;
@@ -388,7 +508,7 @@
             border-radius: 12px;
             padding: 0.6rem;
             color: var(--text);
-            font-family: 'Inter', sans-serif;
+            font-family: "Inter", sans-serif;
             font-size: 0.85rem;
             font-weight: 600;
             cursor: pointer;
@@ -410,7 +530,6 @@
             border-color: #ef4444;
         }
         
-        /* Settings Tab */
         .settings-card {
             background: var(--bg-elevated);
             border: 1px solid var(--border);
@@ -461,7 +580,7 @@
             border-radius: 10px;
             padding: 0.6rem 0.8rem;
             color: var(--text);
-            font-family: 'Inter', sans-serif;
+            font-family: "Inter", sans-serif;
             font-size: 0.9rem;
             transition: border-color 0.2s;
         }
@@ -491,7 +610,7 @@
             cursor: pointer;
         }
         .range-val {
-            font-family: 'JetBrains Mono', monospace;
+            font-family: "JetBrains Mono", monospace;
             font-size: 0.85rem;
             color: var(--text);
             min-width: 40px;
@@ -525,7 +644,7 @@
             background: var(--accent);
             color: var(--bg);
             border: 1px solid var(--border);
-            font-family: 'Inter', sans-serif;
+            font-family: "Inter", sans-serif;
             transition: all 0.2s;
         }
         .btn-save:hover {
@@ -545,13 +664,12 @@
             background: rgba(0,0,0,0.25);
             padding: 0.15rem 0.35rem;
             border-radius: 6px;
-            font-family: 'JetBrains Mono', monospace;
+            font-family: "JetBrains Mono", monospace;
             font-size: 0.7rem;
             color: var(--accent);
             border: 1px solid var(--border);
         }
         
-        /* Logs Tab */
         .logs-card {
             background: var(--bg-elevated);
             border: 1px solid var(--border);
@@ -563,7 +681,7 @@
             border: 1px solid var(--border);
             border-radius: 12px;
             padding: 1rem;
-            font-family: 'JetBrains Mono', monospace;
+            font-family: "JetBrains Mono", monospace;
             font-size: 0.6875rem;
             color: #4ade80;
             height: 320px;
@@ -572,132 +690,6 @@
             line-height: 1.4;
         }
         
-        /* Features */
-        .features {
-            max-width: 1120px;
-            margin: 0 auto;
-            padding: 60px 24px;
-        }
-        .features h2 {
-            font-size: 1.75rem;
-            font-weight: 700;
-            text-align: center;
-            margin-bottom: 12px;
-            letter-spacing: -0.02em;
-        }
-        .features-sub {
-            text-align: center;
-            color: var(--text-muted);
-            font-size: 0.9375rem;
-            margin-bottom: 40px;
-            max-width: 500px;
-            margin-left: auto;
-            margin-right: auto;
-        }
-        .feature-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-            gap: 16px;
-        }
-        .feature-card {
-            background: var(--bg-elevated);
-            border: 1px solid var(--border);
-            border-radius: 12px;
-            padding: 24px;
-            transition: border-color 0.2s;
-        }
-        .feature-card:hover { border-color: rgba(255,255,255,0.15); }
-        .feature-icon {
-            width: 40px;
-            height: 40px;
-            border-radius: 10px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 1.125rem;
-            margin-bottom: 14px;
-        }
-        .fi-accent { background: var(--accent-glow); color: var(--accent); }
-        .fi-purple { background: rgba(167,139,250,0.12); color: #a78bfa; }
-        .fi-green { background: rgba(52,211,153,0.12); color: #34d399; }
-        .fi-pink { background: rgba(244,114,182,0.12); color: #f472b6; }
-        .feature-card h3 {
-            font-size: 1rem;
-            font-weight: 600;
-            margin-bottom: 6px;
-        }
-        .feature-card p {
-            font-size: 0.875rem;
-            color: var(--text-muted);
-            line-height: 1.6;
-        }
-        
-        /* Install */
-        .install {
-            max-width: 640px;
-            margin: 0 auto;
-            padding: 60px 24px;
-            text-align: center;
-        }
-        .install h2 {
-            font-size: 1.75rem;
-            font-weight: 700;
-            margin-bottom: 8px;
-        }
-        .install > p {
-            color: var(--text-muted);
-            margin-bottom: 24px;
-            font-size: 0.9375rem;
-        }
-        .install-box {
-            background: var(--bg-elevated);
-            border: 1px solid var(--border);
-            border-radius: 12px;
-            padding: 20px;
-            text-align: left;
-        }
-        .install-box pre {
-            font-family: 'JetBrains Mono', monospace;
-            font-size: 0.875rem;
-            background: var(--bg);
-            padding: 14px 16px;
-            border-radius: 8px;
-            overflow-x: auto;
-            color: var(--text);
-            line-height: 1.6;
-            margin: 0;
-        }
-        .install-box .prompt { color: #34d399; }
-        .install-box .cmd { color: #e4e4e7; }
-        .install-steps {
-            margin-top: 20px;
-            text-align: left;
-        }
-        .install-step {
-            display: flex;
-            gap: 12px;
-            align-items: flex-start;
-            padding: 10px 0;
-            border-bottom: 1px solid var(--border);
-            font-size: 0.875rem;
-            color: var(--text-muted);
-        }
-        .install-step:last-child { border-bottom: none; }
-        .step-num {
-            background: var(--accent-glow);
-            color: var(--accent);
-            width: 24px;
-            height: 24px;
-            border-radius: 6px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-weight: 700;
-            font-size: 0.8125rem;
-            flex-shrink: 0;
-        }
-        
-        /* Footer */
         footer {
             border-top: 1px solid var(--border);
             padding: 32px 24px;
@@ -715,7 +707,6 @@
         footer a { color: var(--text-muted); text-decoration: none; }
         footer a:hover { color: var(--text); }
         
-        /* Toast */
         .toast {
             position: fixed;
             bottom: 2rem;
@@ -737,7 +728,6 @@
             transform: translateX(-50%) translateY(0);
         }
         
-        /* Responsive */
         @media (max-width: 768px) {
             .form-grid { grid-template-columns: 1fr; }
             .telemetry-grid { grid-template-columns: repeat(2, 1fr); }
@@ -771,14 +761,75 @@
     </header>
 
     <main>
-        <!-- Hero -->
         <section class="hero">
             <h1>A digital frame that<br>never skips a beat.</h1>
             <p>Professional-grade slideshow engine built for Raspberry Pi. Hardware-accelerated rendering, NAS storage, and smart home integration.</p>
             <p class="hero-ver">C++ &middot; Docker &middot; DRM/KMS &middot; Raspberry Pi 4 &amp; 5</p>
         </section>
 
-        <!-- Live Demo Dashboard -->
+        <section class="install" id="install">
+            <h2>Get started</h2>
+            <p>One command. Fully containerized. Runs on boot.</p>
+            <div class="install-box">
+                <pre><span class="prompt">$ </span><span class="cmd">wget -qO- https://raw.githubusercontent.com/UnDadFeated/piTrove/main/install.sh | sudo bash</span></pre>
+                <div class="install-steps">
+                    <div class="install-step">
+                        <span class="step-num">1</span>
+                        <span>Flash <strong>Raspberry Pi OS Lite 64-bit</strong> via the Pi Imager.</span>
+                    </div>
+                    <div class="install-step">
+                        <span class="step-num">2</span>
+                        <span>Boot the Pi, connect to your network, and SSH in.</span>
+                    </div>
+                    <div class="install-step">
+                        <span class="step-num">3</span>
+                        <span>Run the install command above. Docker, media mounts, and systemd unit are set up automatically.</span>
+                    </div>
+                    <div class="install-step">
+                        <span class="step-num">4</span>
+                        <span>Access the web dashboard at <code>http://&lt;pi-ip&gt;:8080</code>.</span>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section class="features" id="features">
+            <h2>Built for reliability</h2>
+            <p class="features-sub">Every component designed to run unattended for months without intervention.</p>
+            <div class="feature-grid">
+                <div class="feature-card">
+                    <div class="feature-icon fi-accent">&#9889;</div>
+                    <h3>DRM/KMS Rendering</h3>
+                    <p>Direct GPU framebuffer rendering via SDL3. No desktop environment required.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon fi-purple">&#9670;</div>
+                    <h3>Docker Containerized</h3>
+                    <p>All dependencies isolated. Build once, run on Raspberry Pi 4 or 5.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon fi-green">&#127912;</div>
+                    <h3>NAS-Optimized I/O</h3>
+                    <p>Custom filesystem scanner with CIFS hang prevention for network storage.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon fi-pink">&#9729;</div>
+                    <h3>Google Photos Sync</h3>
+                    <p>Background OAuth2 sync from your albums with configurable intervals.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon fi-accent">&#127968;</div>
+                    <h3>Home Assistant MQTT</h3>
+                    <p>Auto-discovers as a smart home device with screen, skip, and motion controls.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon fi-purple">&#128268;</div>
+                    <h3>Glassmorphic Dashboard</h3>
+                    <p>Web remote with live telemetry, playback controls, settings, and log streaming.</p>
+                </div>
+            </div>
+        </section>
+
         <section class="preview-wrapper" id="demo">
             <div class="dashboard">
                 <div class="dash-header">
@@ -789,7 +840,7 @@
                             <option>Sapphire</option>
                             <option>Amber</option>
                         </select>
-                        <button onclick="this.textContent=this.textContent==='🌙'?'☀️':'🌙'">🌙</button>
+                        <button onclick="this.textContent=this.textContent==='&#127769;'?'&#9728;&#65039;':'&#127769;'">&#127769;</button>
                     </div>
                     <div class="dash-title">piTrove controller</div>
                     <div class="dash-subtitle">v13.3.4 glassmorphic system</div>
@@ -801,7 +852,6 @@
                     <button class="tab-btn" onclick="switchTab(this, 'logs')">Diagnostics</button>
                 </div>
 
-                <!-- Remote Tab -->
                 <div id="tab-remote" class="tab-content active">
                     <div class="preview-card">
                         <div class="preview-screen">
@@ -825,17 +875,17 @@
                         </div>
                         
                         <div class="controls-row">
-                            <button class="ctrl-btn" onclick="showToast('Sent: Previous')">
+                            <button class="ctrl-btn" onclick="showToast(&#39;Sent: Previous&#39;)">
                                 <span class="icon">&#9166;</span>
                             </button>
-                            <button class="ctrl-btn wide accent" onclick="showToast('Sent: Pause')">
+                            <button class="ctrl-btn wide accent" onclick="togglePause(); showToast(&#39;Sent: Pause&#39;)">
                                 <span class="icon" id="demo-pause-icon">&#9648;&#9648;</span>
                                 <span class="label" id="demo-pause-label">Pause</span>
                             </button>
-                            <button class="ctrl-btn" onclick="showToast('Sent: Next')">
+                            <button class="ctrl-btn" onclick="showToast(&#39;Sent: Next&#39;)">
                                 <span class="icon">&#9167;</span>
                             </button>
-                            <button class="ctrl-btn active" onclick="toggleActive(this); showToast('Shuffle toggled')">
+                            <button class="ctrl-btn active" onclick="toggleActive(this); showToast(&#39;Shuffle toggled&#39;)">
                                 <span class="icon">&#128256;</span>
                             </button>
                         </div>
@@ -846,7 +896,7 @@
                         <div class="telemetry-grid">
                             <div class="telemetry-item">
                                 <span class="telemetry-label">CPU Temp</span>
-                                <span class="telemetry-value">48.2&deg;C</span>
+                                <span class="telemetry-value">48.2&#176;C</span>
                             </div>
                             <div class="telemetry-item">
                                 <span class="telemetry-label">Cache DB</span>
@@ -863,15 +913,15 @@
                             </div>
                         </div>
                         <div class="action-row" style="margin-top:0.75rem;">
-                            <button class="action-btn active" onclick="toggleActive(this); showToast('Screen toggled')">
+                            <button class="action-btn active" onclick="toggleActive(this); showToast(&#39;Screen toggled&#39;)">
                                 <span>&#128237;</span>
                                 <span>Screen: <strong>ON</strong></span>
                             </button>
-                            <button class="action-btn" onclick="showToast('Motion triggered')">
+                            <button class="action-btn" onclick="showToast(&#39;Motion triggered&#39;)">
                                 <span>&#127936;</span>
                                 <span>Motion</span>
                             </button>
-                            <button class="action-btn danger" onclick="if(confirm('Restart piTrove?')) showToast('Restart sent')">
+                            <button class="action-btn danger" onclick="if(confirm(&#39;Restart piTrove?&#39;)) showToast(&#39;Restart sent&#39;)">
                                 <span>&#128260;</span>
                                 <span>Restart</span>
                             </button>
@@ -879,7 +929,6 @@
                     </div>
                 </div>
 
-                <!-- Settings Tab -->
                 <div id="tab-settings" class="tab-content">
                     <div class="settings-card">
                         <div class="telemetry-title">App Settings</div>
@@ -902,7 +951,7 @@
                                     <div class="form-group">
                                         <label for="set-volume">Video Volume</label>
                                         <div class="range-row">
-                                            <input type="range" id="set-volume" min="0" max="150" value="50" oninput="document.getElementById('demo-volume-val').textContent=this.value+'%'">
+                                            <input type="range" id="set-volume" min="0" max="150" value="50" oninput="document.getElementById(&#39;demo-volume-val&#39;).textContent=this.value+&#39;%&#39;">
                                             <span class="range-val" id="demo-volume-val">50%</span>
                                         </div>
                                     </div>
@@ -941,7 +990,7 @@
                                 </div>
                             </div>
                             
-                            <button class="btn-save" onclick="showToast('Configuration Saved Successfully!')">Save Configuration</button>
+                            <button class="btn-save" onclick="showToast(&#39;Configuration Saved Successfully!&#39;)">Save Configuration</button>
                         </div>
                         <div class="settings-footer">
                             More configuration options are available via the <code>ssh pitrove config</code> command.
@@ -949,7 +998,6 @@
                     </div>
                 </div>
 
-                <!-- Logs Tab -->
                 <div id="tab-logs" class="tab-content">
                     <div class="logs-card">
                         <div class="telemetry-title">Diagnostics Logs</div>
@@ -976,76 +1024,11 @@ v13.3.4 2026-06-21 10:00:33.456 [INFO] MPV: Video finished (15.3s duration)</div
                 </div>
             </div>
         </section>
-
-        <!-- Features -->
-        <section class="features" id="features">
-            <h2>Built for reliability</h2>
-            <p class="features-sub">Every component designed to run unattended for months without intervention.</p>
-            <div class="feature-grid">
-                <div class="feature-card">
-                    <div class="feature-icon fi-accent">&#9889;</div>
-                    <h3>DRM/KMS Rendering</h3>
-                    <p>Direct GPU framebuffer rendering via SDL3. No desktop environment required.</p>
-                </div>
-                <div class="feature-card">
-                    <div class="feature-icon fi-purple">&#9670;</div>
-                    <h3>Docker Containerized</h3>
-                    <p>All dependencies isolated. Build once, run on Raspberry Pi 4 or 5.</p>
-                </div>
-                <div class="feature-card">
-                    <div class="feature-icon fi-green">&#127912;</div>
-                    <h3>NAS-Optimized I/O</h3>
-                    <p>Custom filesystem scanner with CIFS hang prevention for network storage.</p>
-                </div>
-                <div class="feature-card">
-                    <div class="feature-icon fi-pink">&#9729;</div>
-                    <h3>Google Photos Sync</h3>
-                    <p>Background OAuth2 sync from your albums with configurable intervals.</p>
-                </div>
-                <div class="feature-card">
-                    <div class="feature-icon fi-accent">&#127968;</div>
-                    <h3>Home Assistant MQTT</h3>
-                    <p>Auto-discovers as a smart home device with screen, skip, and motion controls.</p>
-                </div>
-                <div class="feature-card">
-                    <div class="feature-icon fi-purple">&#128268;</div>
-                    <h3>Glassmorphic Dashboard</h3>
-                    <p>Web remote with live telemetry, playback controls, settings, and log streaming.</p>
-                </div>
-            </div>
-        </section>
-
-        <!-- Install -->
-        <section class="install" id="install">
-            <h2>Get started</h2>
-            <p>One command. Fully containerized. Runs on boot.</p>
-            <div class="install-box">
-                <pre><span class="prompt">$ </span><span class="cmd">wget -qO- https://raw.githubusercontent.com/UnDadFeated/piTrove/main/install.sh | sudo bash</span></pre>
-                <div class="install-steps">
-                    <div class="install-step">
-                        <span class="step-num">1</span>
-                        <span>Flash <strong>Raspberry Pi OS Lite 64-bit</strong> via the Pi Imager.</span>
-                    </div>
-                    <div class="install-step">
-                        <span class="step-num">2</span>
-                        <span>Boot the Pi, connect to your network, and SSH in.</span>
-                    </div>
-                    <div class="install-step">
-                        <span class="step-num">3</span>
-                        <span>Run the install command above. Docker, media mounts, and systemd unit are set up automatically.</span>
-                    </div>
-                    <div class="install-step">
-                        <span class="step-num">4</span>
-                        <span>Access the web dashboard at <code style="background:var(--accent-glow);padding:2px 6px;border-radius:4px;font-family:'JetBrains Mono',monospace;font-size:0.8rem;">http://&lt;pi-ip&gt;:8080</code>.</span>
-                    </div>
-                </div>
-            </div>
-        </section>
     </main>
 
     <footer>
         <div class="footer-inner">
-            <span>&copy; 2026 piTrove &middot; MIT License</span>
+            <span>&#169; 2026 piTrove &middot; MIT License</span>
             <span>
                 <a href="https://github.com/UnDadFeated/piTrove" target="_blank">GitHub</a>
                 &middot;
@@ -1075,29 +1058,30 @@ v13.3.4 2026-06-21 10:00:33.456 [INFO] MPV: Video finished (15.3s duration)</div
             setTimeout(() => toast.classList.remove('show'), 2500);
         }
 
-        // Simulate live timer countdown in Remote tab
+        var pauseOn = false;
+        function togglePause() {
+            pauseOn = !pauseOn;
+            var icon = document.getElementById('demo-pause-icon');
+            var label = document.getElementById('demo-pause-label');
+            if (pauseOn) {
+                icon.innerHTML = '&#9654;';
+                label.textContent = 'Resume';
+            } else {
+                icon.innerHTML = '&#9648;&#9648;';
+                label.textContent = 'Pause';
+            }
+        }
+
         (function() {
-            const timerEl = document.querySelector('#tab-remote .meta-timer');
+            var timerEl = document.querySelector('#tab-remote .meta-timer');
             if (!timerEl) return;
-            let seconds = 12;
-            setInterval(() => {
+            var seconds = 12;
+            setInterval(function() {
                 seconds--;
                 if (seconds < 0) seconds = 15;
                 timerEl.textContent = seconds + 's';
             }, 1000);
         })();
-
-        // Simulate pause toggle in Remote tab
-        const pauseBtn = document.querySelector('#demo-pause-label');
-        const pauseIcon = document.querySelector('#demo-pause-icon');
-        if (pauseBtn && pauseIcon) {
-            document.querySelector('#tab-remote .ctrl-btn.wide').addEventListener('click', function() {
-                const isPaused = pauseBtn.textContent === 'Resume';
-                pauseBtn.textContent = isPaused ? 'Pause' : 'Resume';
-                pauseIcon.innerHTML = isPaused ? '&#9648;&#9648;' : '&#9654;';
-                this.classList.toggle('active');
-            });
-        }
     </script>
 </body>
 </html>
