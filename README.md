@@ -9,7 +9,7 @@ A professional-grade, **containerized** digital picture & video frame applicatio
 [![OS](https://img.shields.io/badge/OS-Trixie%20Lite%20%28Debian%2013%29-lightgreen?style=flat-square)](https://www.debian.org/)
 [![Architecture](https://img.shields.io/badge/arch-aarch64-orange?style=flat-square)](https://en.wikipedia.org/wiki/AArch64)
 [![Graphics](https://img.shields.io/badge/graphics-SDL3-red?style=flat-square)](https://www.libsdl.org/)
-[![Version](https://img.shields.io/badge/version-13.2.1-blue?style=flat-square)]()
+[![Version](https://img.shields.io/badge/version-13.3.4-blue?style=flat-square)]()
 
 ## 🚀 Quick Start
 
@@ -55,6 +55,21 @@ Once the installation completes, the picture frame runs automatically in the bac
   *(Fetches the latest code/binary, rebuilds the container, and safely merges new configurations. Adding the `--cron` flag schedules this check to run daily in the background.)*
   
   *(For raw manual execution, the CLI transparently runs: `docker exec -it piTrove /app/piTrove --config /app/config/config.toml`)*
+### Configuration Reference
+The application reads settings from `/app/config/config.toml` (bind-mounted from `~/piTrove/config/config.toml` on the host). Key settings:
+
+| Section | Key | Default | Description |
+|---------|-----|---------|-------------|
+| `[remote]` | `api_key` | `""` | Optional API key for web dashboard auth. Leave blank to disable. |
+| `[remote]` | `http_port` | `8080` | Web dashboard listening port. |
+| `[media]` | `google_photos_enabled` | `false` | Enable Google Photos sync. |
+| `[media]` | `google_photos_sync_interval` | `3600` | Sync check interval in seconds. |
+| `[media]` | `google_photos_cache_dir` | `"~/google_photos_cache"` | Local cache directory for synced photos. |
+| `[scan]` | `window_days` | `15` | Seasonal window for photo filtering. |
+| `[scan]` | `scan_depth` | `10` | Recursive directory scan depth. |
+| `[overlay]` | `blurred_background` | `true` | Enable blurred background effect. |
+| `[overlay]` | `color_matched_matte` | `true` | Enable color-matched matte borders. |
+| `[overlay]` | `touch_enabled` | `true` | Enable touchscreen navigation overlays.
 
 ---
 
@@ -95,11 +110,17 @@ Once the installation completes, the picture frame runs automatically in the bac
 ### ☁️ Cloud Integration
 - **Google Photos Synchronization**: Syncs photos directly from user-selected Google Photos albums, storing them in a local cache directory with customizable check intervals. Includes robust OAuth2 authentication validation and user-friendly step-by-step setup prompts built directly into the installer.
 
+#### Setting up Google Photos
+1. Create a [Google OAuth 2.0 Client ID](https://console.cloud.google.com/apis/credentials) (Web application type).
+2. Run `pitrove config` and select the Google Photos setup menu.
+3. Enter your Client ID, Client Secret, and authorize the app to get a Refresh Token.
+4. Configure the sync interval and cache directory in config.toml.
+
 ### 🛠️ System & Control
 - **Headless Design**: Operates via DRM/KMS (native framebuffer). No X11 or Wayland required.
 - **Dynamic Display & GPU Probing**: Programmatically queries active connected DRM/KMS connector outputs and indices (sysfs `card*-*/status`), auto-configuring stable KMSDRM environments before SDL3 starts up.
 - **Low Power**: Scheduled display sleep/wake times and automatic backlight dimming.
-- **Glassmorphic HTTP HUD & Settings Control Panel**: Built-in glassmorphic web dashboard featuring interactive player controls, dynamic slideshow diagnostics telemetry (temp, cache DB size, queue size), complete configuration settings editing (with toggles for touchscreen mode, playlist shuffle, Ken Burns transitions, background blur, color-matched matte options, and video volume), live system logs stream (with scroll-preservation control), active MQTT broker connection cards, screen switches, and simulated motion triggers.
+- **Glassmorphic HTTP HUD & Settings Control Panel**: Built-in glassmorphic web dashboard featuring interactive player controls, dynamic slideshow diagnostics telemetry (temp, cache DB size, queue size), complete configuration settings editing (with toggles for touchscreen mode, playlist shuffle, Ken Burns transitions, background blur, color-matched matte options, and video volume), live system logs stream (with scroll-preservation control), active MQTT broker connection cards, screen switches, and simulated motion triggers. Protected by optional API key authentication — set `[remote] api_key` in config.toml to require Bearer token auth for all settings changes.
 - **TUI Hardware & Config Wizard**: A robust, 10-tab terminal-based configurator menu over SSH featuring dedicated `"Hardware Settings"` and `"MQTT Integration"` menus to dynamically configure all frame variables.
 - **Interactive Touchscreen Control**: When touchscreen mode is enabled, touching the screen displays floating navigation overlays (Previous, Settings, Next) to easily advance or go back. The configuration menu features +/- buttons, volume sliders, and a full numerical keyboard modal for on-screen adjustments.
 - **Config Clamping Safety**: Implements 10 strict boundary checks and clamp safety validation logic inside the TOML configuration loader to guarantee system resilience.
