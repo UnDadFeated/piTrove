@@ -1,3 +1,17 @@
+## v13.3.6 â Redesigned Dashboard Settings (June 22, 2026)
+
+### Changed
+- **Dashboard redesign** â Replaced vertical form layout with compact 4-column toggle grid organized into Playback, Display, and Network sections
+- **Edge Lighting** â Renamed "Photo Overlay" toggle to "Edge Lighting" for clarity
+- **Hero heading** â Updated to "C++ Digital Picture &amp; Video Frame for Raspberry Pi"
+- **Toggle interaction** â Entire toggle card is now a clickable touch target for touchscreen use
+
+## v13.3.5 — NAS Health-Aware Network Recovery & Image Load Timeout Guards (June 21, 2026)
+
+### Fixed
+- **Network recovery no longer waits for gateway ping to fail** — The keepalive loop now also checks NAS mount health via `is_nas_online()`. If the gateway is reachable but the NAS mount is dead, the system triggers the same recovery sequence (soft WiFi reset at 60s, hard reboot at 180s) instead of leaving the frame in a partially-connected state.
+- **Image load hangs on stale CIFS mounts** — All 6 image load call sites in the main loop are now guarded with a 3-second timeout via `load_timed()`. If a file read on a stale mount hangs, the load aborts after 3 seconds instead of blocking the slideshow thread indefinitely. Failed loads increment the consecutive failure counter, triggering offline recovery mode after 3 failures.
+
 ## v13.3.4 -- Security Hardening (June 21, 2026)
 
 ### Added
