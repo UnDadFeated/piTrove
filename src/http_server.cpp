@@ -1953,7 +1953,7 @@ static void handle_client(int client_fd) {
                     g_logger.warn("HTTP: /api/settings/update rejected - no auth header");
                     return;
                 }
-                auth_pos += 17;
+                auth_pos += 15;
                 size_t auth_end = request.find("\r\n", auth_pos);
                 if (auth_end == std::string::npos) auth_end = request.size();
                 std::string auth_value = request.substr(auth_pos, auth_end - auth_pos);
