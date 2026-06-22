@@ -1235,7 +1235,16 @@ static std::string get_dashboard_html() {
                     <div>
                         <h3 style="font-size: 0.85rem; text-transform: uppercase; color: var(--accent); letter-spacing: 1px; margin-bottom: 0.6rem; border-bottom: 1px solid var(--border-color); padding-bottom: 0.2rem; font-weight: 800;">Slideshow & Playback</h3>
                         <div class="form-grid" style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 0.8rem; margin-bottom: 0.6rem;">
-                            <div class="form-group"><label for="set-transition-delay">Interval (sec)</label><input type="number" id="set-transition-delay" style="width:100%; padding:0.4rem; border-radius:8px; border:1px solid var(--border-color); background:rgba(0,0,0,0.2); color:var(--text-main);"></div>
+                            <div class="form-group"><label for="set-transition-delay">Interval</label><select id="set-transition-delay" style="width:100%; padding:0.4rem; border-radius:8px; border:1px solid var(--border-color); background:rgba(0,0,0,0.2); color:var(--text-main);"><option value="30">30s</option>
+<option value="60">60s</option>
+<option value="90">90s</option>
+<option value="120" selected>120s (2m)</option>
+<option value="150">150s (2m)</option>
+<option value="180">180s (3m)</option>
+<option value="210">210s (3m)</option>
+<option value="240">240s (4m)</option>
+<option value="270">270s (4m)</option>
+<option value="300">300s (5m)</option></select></div>
                             <div class="form-group"><label for="set-video-volume">Video Volume</label><div style="display:flex; align-items:center; gap:0.5rem;"><input type="range" id="set-video-volume" min="0" max="150" style="flex:1;" oninput="document.getElementById('lbl-video-volume-val').innerText = this.value + '%'"><span id="lbl-video-volume-val">--%</span></div></div>
                         </div>
                         <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 0.8rem;">

@@ -13,6 +13,7 @@
 - **CHANGELOG formatting** — Fixed v13.3.4 section to use proper em-dashes consistently with the rest of the changelog.
 - **README version badge** — Updated from v13.3.4 to v13.3.8 to match the current release.
 
+- **Slideshow interval selector** — Replaced free-form number input and range slider with dropdown selectors (30–300s in 30s steps) on both the dashboard settings page and the dashboard demo page.
 
 ## v13.3.7 — Dashboard PIN Security & Error Code Catalog (June 22, 2026)
 
