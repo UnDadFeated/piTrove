@@ -84,7 +84,10 @@ static std::string execute_curl(const std::string& cmd) {
         timed_cmd.insert(5, "--connect-timeout 10 --max-time 30 ");
     }
     FILE* raw_pipe = popen((timed_cmd + " 2>/dev/null").c_str(), "r");
-    if (!raw_pipe) return "";
+    if (!raw_pipe) {
+        g_logger.warn("HTTP: popen() returned null for cmd='%s'", timed_cmd.c_str());
+        return "";
+    }
     std::shared_ptr<FILE> pipe(raw_pipe, pclose);
     char buffer[4096];
     std::string result = "";
@@ -1350,7 +1353,7 @@ static std::string get_dashboard_html() {
             
             try {
                 const apiKey = document.getElementById('set-api-key').value;
-            const url = `/api/settings/update?transition_delay=${delay}&video_volume=${volume}&shuffle=${shuffle}&ken_burns=${kenBurns}&blurred_background=${blurredBg}&color_matched_matte=${matte}&touch_enabled=${touch}${apiKey ? '&api_key=' + encodeURIComponent(apiKey) : ''}`;
+                const url = `/api/settings/update?transition_delay=${delay}&video_volume=${volume}&shuffle=${shuffle}&ken_burns=${kenBurns}&blurred_background=${blurredBg}&color_matched_matte=${matte}&touch_enabled=${touch}${apiKey ? '&api_key=' + encodeURIComponent(apiKey) : ''}`;
                 const res = await fetch(url);
                 if (res.ok) {
                     showToast("Configuration Saved Successfully!");
@@ -1936,6 +1939,34 @@ static void handle_client(int client_fd) {
             }
         } 
         else if (request.rfind("GET /api/settings/update", 0) == 0) {
+            // API key authentication check
+            std::string api_key;
+            { std::shared_lock<std::shared_mutex> lk(g_config_mtx); api_key = g_cfg.http_api_key; }
+            if (!api_key.empty()) {
+                size_t auth_pos = request.find("Authorization: ");
+                if (auth_pos == std::string::npos) {
+                    auth_pos = request.find("authorization: ");
+                }
+                if (auth_pos == std::string::npos) {
+                    std::string body = "HTTP/1.1 401 Unauthorized\r\nContent-Type: text/plain\r\nConnection: close\r\n\r\nAPI key required";
+                    (void)write(client_fd, body.c_str(), body.size());
+                    g_logger.warn("HTTP: /api/settings/update rejected - no auth header");
+                    return;
+                }
+                auth_pos += 17;
+                size_t auth_end = request.find("\r\n", auth_pos);
+                if (auth_end == std::string::npos) auth_end = request.size();
+                std::string auth_value = request.substr(auth_pos, auth_end - auth_pos);
+                if (auth_value.rfind("Bearer ", 0) == 0) {
+                    auth_value = auth_value.substr(7);
+                }
+                if (auth_value != api_key) {
+                    std::string body = "HTTP/1.1 401 Unauthorized\r\nContent-Type: text/plain\r\nConnection: close\r\n\r\nInvalid API key";
+                    (void)write(client_fd, body.c_str(), body.size());
+                    g_logger.warn("HTTP: /api/settings/update rejected - invalid key");
+                    return;
+                }
+            }
             bool changed = false;
             bool validation_failed = false;
             std::string err_msg = "";
