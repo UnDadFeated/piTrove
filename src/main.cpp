@@ -95,7 +95,7 @@ int current_idx = 0;
 static std::thread g_watchman_thread;
 static std::atomic<bool> g_watchman_running{false};
 static std::atomic<bool> g_watchman_finished{false};
-static std::atomic<int64_t> g_last_heartbeat_time{0};
+static std::chrono::steady_clock::time_point g_watchdog_last_time;
 
 static bool is_item_in_seasonal_window(const MediaItem& item, int window_days) {
     if (window_days <= 0) return true;
@@ -874,7 +874,7 @@ static std::atomic<bool> g_watchdog_running{false};
 
 static void watchdog_loop() {
     g_logger.info("Watchdog: Software watchdog thread active.");
-    g_last_heartbeat_time.store(static_cast<int64_t>(std::time(nullptr)));
+    g_watchdog_last_time = std::chrono::steady_clock::now();
     while (g_watchdog_running.load()) {
         std::this_thread::sleep_for(std::chrono::seconds(5));
         if (!g_watchdog_running.load()) break;
@@ -895,12 +895,10 @@ static void watchdog_loop() {
         // If playing video, mpv player controls playback, so we skip checking heartbeat
         if (paused || blanked || empty || is_video) {
             // Keep resetting heartbeat while paused/blanked/playing video
-            g_last_heartbeat_time.store(static_cast<int64_t>(std::time(nullptr)));
+            g_watchdog_last_time = std::chrono::steady_clock::now();
             continue;
         }
 
-        int64_t now = static_cast<int64_t>(std::time(nullptr));
-        int64_t last_heartbeat = g_last_heartbeat_time.load();
         double delay = 15.0;
         {
             std::lock_guard<std::shared_mutex> lk(g_config_mtx);
@@ -908,9 +906,11 @@ static void watchdog_loop() {
         }
 
         // Allow up to 3x transition delay or a minimum of 45 seconds before forcing restart
+        auto now = std::chrono::steady_clock::now();
+        auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(now - g_watchdog_last_time).count();
         int64_t max_silent_time = std::max((int64_t)45, (int64_t)(delay * 3));
-        if (now - last_heartbeat > max_silent_time) {
-            g_logger.error("[WATCHDOG] CRITICAL: Slideshow loop frozen! Last heartbeat was %d seconds ago. Forcing restart...", (int)(now - last_heartbeat));
+        if (elapsed > max_silent_time) {
+            g_logger.error("[WATCHDOG] CRITICAL: Slideshow loop frozen! Last heartbeat was %d seconds ago. Forcing restart...", (int)elapsed);
             trigger_error(809); // E809: WATCHDOG_FORCED_RESTART
             // Restore physical display power before exiting
             set_display_power(true);
@@ -1953,7 +1953,7 @@ int main(int argc, char** argv) {
         double dt = std::chrono::duration<double>(now - last_frame_time).count();
         last_frame_time = now;
 
-        g_last_heartbeat_time.store(static_cast<int64_t>(std::time(nullptr)));
+        g_watchdog_last_time = std::chrono::steady_clock::now();
 
         // Periodic touch screen check (every 5 seconds)
         static double touch_check_timer = 0.0;

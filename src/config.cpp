@@ -109,6 +109,7 @@ bool Config::load(const std::string& path) {
             int p = safe_stoi(val, this->http_port);
             this->http_port = (p >= 1 && p <= 65535) ? p : 9000;
         }
+        else if (key == "api_key")         this->http_api_key = val;
         else if (key == "volume")            this->video_volume = std::clamp(safe_stoi(val, this->video_volume), 0, 150);
         else if (key == "probe_timeout")     this->video_probe_timeout = std::clamp(safe_stoi(val, this->video_probe_timeout), 1, 30);
         else if (key == "enabled" && section == "date_overlay") this->date_overlay_enabled = (val == "1" || val == "true");
@@ -377,7 +378,8 @@ bool Config::save(const std::string& path) {
     f << "[remote]\n";
     f << "http_enabled = " << (this->http_enabled ? "1" : "0") << "\n";
     f << "http_port = " << this->http_port << "\n";
-    f << "web_dashboard_enabled = " << (this->web_dashboard_enabled ? "1" : "0") << "\n\n";
+    f << "web_dashboard_enabled = " << (this->web_dashboard_enabled ? "1" : "0") << "\n";
+    f << "api_key = \"" << this->http_api_key << "\"\n\n";
 
     f << "[features]\n";
     f << "on_this_day_enabled = " << (this->on_this_day_enabled ? "1" : "0") << "\n";

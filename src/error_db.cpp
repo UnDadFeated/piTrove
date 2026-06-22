@@ -934,6 +934,18 @@ std::vector<ErrorSeed> get_all_error_seeds() {
             "WATCHDOG_FORCED_RESTART",
             "The rendering loop froze and the internal watchdog forced an emergency restart.",
             "Check for GPU/EGL driver issues or extremely large image files that stall decoding."
+        },
+        {
+            "E901",
+            "HTTP_API_KEY_MISSING",
+            "The HTTP dashboard API key is configured but the request was missing an Authorization header.",
+            "Include an Authorization: Bearer header with your API key when calling /api/settings/update."
+        },
+        {
+            "E902",
+            "HTTP_API_KEY_INVALID",
+            "The HTTP dashboard API key provided does not match the configured value.",
+            "Verify the API key in config.toml under [remote] api_key matches the one sent in the Authorization header."
         }
     };
 }

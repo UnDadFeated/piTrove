@@ -79,6 +79,7 @@ struct Config {
     int     max_texture_dim{1920};
     int     http_socket_timeout{2};
     int     http_bind_attempts{10};
+    std::string http_api_key{""};
 
     // [slideshow] advanced
     std::string sleep_time{""};
