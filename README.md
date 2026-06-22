@@ -60,7 +60,7 @@ Once the installation completes, the picture frame runs automatically in the bac
 
 ## ✨ Key Features
 
-### 🖼️ High-Performance Media Engine
+### 🖼 High-Performance Media Engine
 - **Broad Format Support**: Native loading for JPEG, PNG, TIFF, WebP, HEIC/HEIF, BMP, and TGA.
 - **Cinematic Visuals**: 
   - **Twin-Portrait Collage**: Automatically groups adjacent portrait-format images to display them side-by-side in a split-screen collage with individual frame borders and animations.
@@ -83,7 +83,7 @@ Once the installation completes, the picture frame runs automatically in the bac
 - **Intelligent Cooldown**: Ensures the same photo isn't shown too frequently (default 330-day cooldown).
 - **Robust Skip Pipeline**: Gracefully intercepts deleted, missing, or corrupt assets, dynamically marking them bad in the cache database and removing them from the queue to prevent application interruptions.
 
-### 🛰️ MQTT & Home Assistant Smart Home Integration
+### 🛰 MQTT & Home Assistant Smart Home Integration
 - **Lightweight Subscriber Pipe**: Spawns a background subprocess listener executing `mosquitto_sub -F "%t:%p"` to receive remote controls instantly and safely with zero rendering loop delay.
 - **Home Assistant Auto-Discovery**: Automatically publishes standard JSON config payloads to `homeassistant/` on startup. Instantly registers:
   - **Screen Switch** (Toggles physical backlight and solid black blanking overlay)
