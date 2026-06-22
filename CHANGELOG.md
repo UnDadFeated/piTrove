@@ -1,3 +1,19 @@
+## v13.3.8 — Code Audit Bug Fixes (June 22, 2026)
+
+### Fixed
+
+- **HTTP API key authentication** — Fixed an off-by-two parsing error in Bearer token validation that caused all authorized API requests to be rejected as unauthorized.
+- **CIFS stat timeout crash** — Eliminated a use-after-free bug in the directory scanner where a timed-out filesystem operation could write to freed memory, causing crashes on unresponsive network mounts.
+- **Shell argument escaping** — Removed spurious backslash escapes that were producing literal backslash characters inside single-quoted shell arguments, corrupting paths and values
+  containing special characters like dollar signs or backticks.
+
+### Changed
+
+- **CHANGELOG completeness** — Added the missing v13.3.3 entry documenting the API key auth restoration and popen logging fix that was previously unreleased.
+- **CHANGELOG formatting** — Fixed v13.3.4 section to use proper em-dashes consistently with the rest of the changelog.
+- **README version badge** — Updated from v13.3.4 to v13.3.8 to match the current release.
+
+
 ## v13.3.7 — Dashboard PIN Security & Error Code Catalog (June 22, 2026)
 
 ### Added
