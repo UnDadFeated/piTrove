@@ -1,3 +1,0 @@
-User-agent: *
-Allow: /
-Sitemap: https://undadfeated.github.io/piTrove/sitemap.xml
