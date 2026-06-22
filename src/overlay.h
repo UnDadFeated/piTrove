@@ -29,6 +29,13 @@ public:
     bool nav_overlay_active{false};
     Uint64 nav_overlay_show_time{0};
 
+    // PIN keypad state
+    bool pin_active{false};
+    std::string pin_input{""};
+    int pin_attempts{0};
+    Uint64 pin_locked_until{0};
+    bool pin_unlocked{false};
+
     OverlayManager(Renderer* renderer);
     ~OverlayManager();
 
@@ -40,6 +47,8 @@ public:
     void draw_popup_menu();
     void draw_virtual_keyboard();
     void draw_nav_overlay();
+    void draw_pin_keypad();
+    bool check_pin(const std::string& input);
 
     // Handle touch/click events on menu or keyboard. Returns true if handled.
     bool handle_touch_click(float x, float y);

@@ -566,6 +566,9 @@ void OverlayManager::draw_all(int current_idx, int total_items, const MediaItem*
             draw_nav_overlay();
         }
     }
+    if (pin_active) {
+        draw_pin_keypad();
+    }
 }
 
 void OverlayManager::draw_nav_overlay() {
@@ -948,9 +951,193 @@ void OverlayManager::draw_virtual_keyboard() {
     font_renderer->draw_text(kb_x + 20 + (kb_w - 40 - cw)/2, kb_y + 333, title_font, "Cancel / Close Keyboard", 161, 161, 170, 255);
 }
 
+void OverlayManager::draw_pin_keypad() {
+    if (!font_loaded || !font_renderer || !overlay_font) return;
+
+    int sw = g_renderer.screen_w;
+    int sh = g_renderer.screen_h;
+
+    // Semi-transparent dark overlay background
+    SDL_SetRenderDrawBlendMode(renderer->sdl_renderer, SDL_BLENDMODE_BLEND);
+    SDL_SetRenderDrawColor(renderer->sdl_renderer, 0, 0, 0, 200);
+    SDL_FRect bg = {0, 0, (float)sw, (float)sh};
+    SDL_RenderFillRect(renderer->sdl_renderer, &bg);
+
+    // Modal box dimensions
+    int modal_w = 320;
+    int modal_h = 420;
+    int mx = (sw - modal_w) / 2;
+    int my = (sh - modal_h) / 2;
+
+    // Draw modal background
+    SDL_SetRenderDrawColor(renderer->sdl_renderer, 20, 20, 25, 240);
+    SDL_FRect mrect = {(float)mx, (float)my, (float)modal_w, (float)modal_h};
+    SDL_RenderFillRect(renderer->sdl_renderer, &mrect);
+    SDL_SetRenderDrawColor(renderer->sdl_renderer, 60, 60, 70, 200);
+    SDL_RenderRect(renderer->sdl_renderer, &mrect);
+
+    // Check lockout state
+    Uint64 now = SDL_GetTicks();
+    bool locked = (pin_locked_until > now);
+
+    FontHandle& title_font = font_renderer->load_font(overlay_font->path, 24);
+    FontHandle& body_font = font_renderer->load_font(overlay_font->path, 18);
+
+    // Title
+    std::string title = locked ? "Dashboard Locked" : "Enter PIN";
+    font_renderer->draw_text(mx + (modal_w - (int)title.length() * 12) / 2, my + 20, title_font, title, 230, 230, 230, 255);
+
+    if (locked) {
+        int remaining = (int)((pin_locked_until - now) / 1000);
+        std::string lock_msg = "Locked for " + std::to_string(remaining) + "s";
+        font_renderer->draw_text(mx + (modal_w - (int)lock_msg.length() * 10) / 2, my + 55, body_font, lock_msg, 255, 180, 80, 255);
+        std::string hint = "Too many failed attempts";
+        font_renderer->draw_text(mx + (modal_w - (int)hint.length() * 8) / 2, my + 80, body_font, hint, 180, 180, 180, 255);
+        return;
+    }
+
+    // Draw 4 PIN dots (filled rectangles)
+    int dot_size = 16;
+    int dot_gap = 12;
+    int dots_total_w = 4 * dot_size + 3 * dot_gap;
+    int dot_start_x = mx + (modal_w - dots_total_w) / 2;
+    int dot_y = my + 55;
+
+    for (int i = 0; i < 4; i++) {
+        SDL_FRect dot = {(float)(dot_start_x + i * (dot_size + dot_gap)), (float)dot_y, (float)dot_size, (float)dot_size};
+        bool filled = (i < (int)pin_input.length());
+        if (filled) {
+            SDL_SetRenderDrawColor(renderer->sdl_renderer, 100, 180, 255, 255);
+            SDL_RenderFillRect(renderer->sdl_renderer, &dot);
+        } else {
+            SDL_SetRenderDrawColor(renderer->sdl_renderer, 40, 40, 50, 255);
+            SDL_RenderFillRect(renderer->sdl_renderer, &dot);
+        }
+        SDL_SetRenderDrawColor(renderer->sdl_renderer, 80, 80, 100, 200);
+        SDL_RenderRect(renderer->sdl_renderer, &dot);
+    }
+
+    // Draw numeric keypad
+    int key_size = 64;
+    int key_gap = 10;
+    int keypad_w = 3 * key_size + 2 * key_gap;
+    int kx = mx + (modal_w - keypad_w) / 2;
+    int ky = my + 100;
+
+    // Keys: 1-9, backspace, 0, OK  (row-major, 4 rows x 3 cols)
+    static const char* keys[] = {"1","2","3","4","5","6","7","8","9","<","0","OK"};
+
+    for (int i = 0; i < 12; i++) {
+        int row = i / 3;
+        int col = i % 3;
+        int bx = kx + col * (key_size + key_gap);
+        int by = ky + row * (key_size + key_gap);
+
+        bool is_ok = (i == 11);
+        bool is_del = (i == 9);
+        if (is_ok) {
+            SDL_SetRenderDrawColor(renderer->sdl_renderer, 30, 120, 50, 255);
+        } else if (is_del) {
+            SDL_SetRenderDrawColor(renderer->sdl_renderer, 120, 40, 40, 255);
+        } else {
+            SDL_SetRenderDrawColor(renderer->sdl_renderer, 40, 40, 50, 230);
+        }
+
+        SDL_FRect krect = {(float)bx, (float)by, (float)key_size, (float)key_size};
+        SDL_RenderFillRect(renderer->sdl_renderer, &krect);
+        SDL_SetRenderDrawColor(renderer->sdl_renderer, 60, 60, 80, 200);
+        SDL_RenderRect(renderer->sdl_renderer, &krect);
+
+        // Center the key label
+        std::string label = keys[i];
+        int tw = (int)label.length() * 14;
+        font_renderer->draw_text(bx + (key_size - tw) / 2, by + 16, title_font, label, 220, 220, 230, 255);
+    }
+
+    // Error / attempt count message
+    if (pin_attempts > 0) {
+        int remaining = 3 - pin_attempts;
+        std::string err = "Wrong PIN (" + std::to_string(remaining) + " left)";
+        font_renderer->draw_text(mx + (modal_w - (int)err.length() * 9) / 2, my + modal_h - 40, body_font, err, 255, 120, 120, 255);
+    }
+}
+
+bool OverlayManager::check_pin(const std::string& input) {
+    std::string stored;
+    {
+        std::shared_lock<std::shared_mutex> lk(g_config_mtx);
+        stored = g_cfg.dashboard_pin;
+    }
+    if (stored.empty()) return true; // No PIN configured = always passes
+    return input == stored;
+}
+
 bool OverlayManager::handle_touch_click(float x, float y) {
     int sw = g_renderer.screen_w;
     int sh = g_renderer.screen_h;
+
+    // Check PIN keypad clicks first
+    if (pin_active) {
+        Uint64 now = SDL_GetTicks();
+        if (pin_locked_until > now) return true; // Still locked
+
+        int sw = g_renderer.screen_w;
+        int sh = g_renderer.screen_h;
+        int modal_w = 320;
+        int modal_h = 420;
+        int mx = (sw - modal_w) / 2;
+        int my = (sh - modal_h) / 2;
+        int key_size = 64;
+        int key_gap = 10;
+        int keypad_w = 3 * key_size + 2 * key_gap;
+        int kx = mx + (modal_w - keypad_w) / 2;
+        int ky = my + 100;
+
+        for (int i = 0; i < 12; i++) {
+            int row = i / 3;
+            int col = i % 3;
+            int bx = kx + col * (key_size + key_gap);
+            int by = ky + row * (key_size + key_gap);
+
+            if (x >= bx && x <= bx + key_size && y >= by && y <= by + key_size) {
+                if (i == 9) {
+                    // Backspace
+                    if (!pin_input.empty()) pin_input.pop_back();
+                    return true;
+                } else if (i == 11) {
+                    // OK - validate PIN
+                    if ((int)pin_input.length() < 4) return true;
+                    if (check_pin(pin_input)) {
+                        pin_active = false;
+                        pin_input.clear();
+                        pin_attempts = 0;
+                        pin_unlocked = true;
+                        g_logger.info("TOUCH_INPUT: PIN correct, unlocking touch controls.");
+                        nav_overlay_active = true;
+                        nav_overlay_show_time = SDL_GetTicks();
+                    } else {
+                        pin_attempts++;
+                        pin_input.clear();
+                        g_logger.info("TOUCH_INPUT: Wrong PIN entered (attempt %d/3).", pin_attempts);
+                        if (pin_attempts >= 3) {
+                            pin_locked_until = SDL_GetTicks() + 60000;
+                            pin_attempts = 0;
+                            g_logger.info("TOUCH_INPUT: PIN lockout activated for 60 seconds.");
+                        }
+                    }
+                    return true;
+                } else {
+                    // Digit 0-9
+                    if ((int)pin_input.length() < 4) {
+                        if (i == 10) pin_input += '0';
+                        else pin_input += ('1' + i);
+                    }
+                    return true;
+                }
+            }
+        }
+        return true; // PIN click consumed (clicked outside buttons but on PIN overlay)
+    }
 
     // Check Touch Navigation Overlay clicks first
     if (nav_overlay_active && !menu_active) {

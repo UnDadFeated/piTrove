@@ -2128,13 +2128,21 @@ int main(int argc, char** argv) {
                                 if (g_overlay->menu_active || g_overlay->keyboard_active || g_overlay->nav_overlay_active) {
                                     g_overlay->handle_touch_click(mx, my);
                                 } else {
-                                    if (g_mpv_player.is_active()) {
-                                        g_logger.info("TOUCH_INPUT: Touch during video: stopping mpv to open touch navigation overlay.");
-                                        g_mpv_player.stop();
+                                    // Check if PIN is configured and not yet unlocked
+                                    std::string stored_pin;
+                                    { std::shared_lock<std::shared_mutex> lk(g_config_mtx); stored_pin = g_cfg.dashboard_pin; }
+                                    if (!stored_pin.empty() && !g_overlay->pin_unlocked) {
+                                        g_overlay->pin_active = true;
+                                        g_logger.info("TOUCH_INPUT: PIN required before showing navigation overlay.");
+                                    } else {
+                                        if (g_mpv_player.is_active()) {
+                                            g_logger.info("TOUCH_INPUT: Touch during video: stopping mpv to open touch navigation overlay.");
+                                            g_mpv_player.stop();
+                                        }
+                                        g_overlay->nav_overlay_active = true;
+                                        g_overlay->nav_overlay_show_time = SDL_GetTicks();
+                                        g_logger.info("TOUCH_INPUT: Activating navigation overlay via click.");
                                     }
-                                    g_overlay->nav_overlay_active = true;
-                                    g_overlay->nav_overlay_show_time = SDL_GetTicks();
-                                    g_logger.info("TOUCH_INPUT: Activating navigation overlay via click.");
                                 }
                             } else {
                                 g_remote_command.store(1);
@@ -2162,13 +2170,21 @@ int main(int argc, char** argv) {
                             if (g_overlay->menu_active || g_overlay->keyboard_active || g_overlay->nav_overlay_active) {
                                 g_overlay->handle_touch_click(mx, my);
                             } else {
-                                if (g_mpv_player.is_active()) {
-                                    g_logger.info("TOUCH_INPUT: Finger touch during video: stopping mpv to open touch navigation overlay.");
-                                    g_mpv_player.stop();
+                                // Check if PIN is configured and not yet unlocked
+                                std::string stored_pin;
+                                { std::shared_lock<std::shared_mutex> lk(g_config_mtx); stored_pin = g_cfg.dashboard_pin; }
+                                if (!stored_pin.empty() && !g_overlay->pin_unlocked) {
+                                    g_overlay->pin_active = true;
+                                    g_logger.info("TOUCH_INPUT: PIN required before showing navigation overlay (finger).");
+                                } else {
+                                    if (g_mpv_player.is_active()) {
+                                        g_logger.info("TOUCH_INPUT: Finger touch during video: stopping mpv to open touch navigation overlay.");
+                                        g_mpv_player.stop();
+                                    }
+                                    g_overlay->nav_overlay_active = true;
+                                    g_overlay->nav_overlay_show_time = SDL_GetTicks();
+                                    g_logger.info("TOUCH_INPUT: Activating navigation overlay via finger touch.");
                                 }
-                                g_overlay->nav_overlay_active = true;
-                                g_overlay->nav_overlay_show_time = SDL_GetTicks();
-                                g_logger.info("TOUCH_INPUT: Activating navigation overlay via finger touch.");
                             }
                         }
                     }
