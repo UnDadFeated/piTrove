@@ -959,30 +959,43 @@ static void keepalive_loop() {
         
         std::string cmd = "ping -c 2 -W 3 '" + escape_shell_arg(gateway) + "' >/dev/null 2>&1";
         int res = ::system(cmd.c_str());
-        if (res == 0) {
+        
+        // Also check if NAS mount is reachable — gateway may be up but NAS down
+        bool nas_ok = is_nas_online();
+        int64_t now = static_cast<int64_t>(std::time(nullptr));
+        
+        if (res == 0 && nas_ok) {
+            // Both gateway and NAS are reachable
             if (network_lost_time != 0) {
                 WifiStats ws = read_wifi_stats(interface);
                 if (ws.has_data) {
-                    g_logger.info("Keepalive: Gateway %s is reachable again. WiFi: quality=%d/%d, signal=%ddBm, noise=%ddBm.",
+                    g_logger.info("Keepalive: Gateway %s is reachable and NAS mount is healthy. WiFi: quality=%d/%d, signal=%ddBm, noise=%ddBm.",
                                   gateway.c_str(), ws.quality, 255, ws.signal_dbm, ws.noise_dbm);
                 } else {
-                    g_logger.info("Keepalive: Gateway %s is reachable again. Connection restored.", gateway.c_str());
+                    g_logger.info("Keepalive: Gateway %s is reachable and NAS mount is healthy. Connection restored.", gateway.c_str());
                 }
                 network_lost_time = 0;
                 last_wifi_reset_time = 0;
             }
         } else {
-            int64_t now = static_cast<int64_t>(std::time(nullptr));
+            // Gateway unreachable OR NAS unreachable — track downtime
             if (network_lost_time == 0) {
                 network_lost_time = now;
                 last_wifi_reset_time = now;
                 WifiStats ws = read_wifi_stats(interface);
-                if (ws.has_data) {
-                    g_logger.warn("Keepalive: Gateway %s is unreachable (ping returned %d). WiFi: quality=%d/%d, signal=%ddBm, noise=%ddBm, missed_beacons=%lu.",
-                                  gateway.c_str(), res, ws.quality, 255, ws.signal_dbm, ws.noise_dbm, ws.missed_beacons);
+                
+                std::string reason;
+                if (res != 0) {
+                    reason = "Gateway unreachable (ping failed)";
                 } else {
-                    g_logger.warn("Keepalive: Gateway %s is unreachable (ping returned %d). Start tracking downtime.",
-                                  gateway.c_str(), res);
+                    reason = "NAS mount unreachable (gateway reachable)";
+                }
+                
+                if (ws.has_data) {
+                    g_logger.warn("Keepalive: %s. WiFi: quality=%d/%d, signal=%ddBm, noise=%ddBm, missed_beacons=%lu.",
+                                  reason.c_str(), ws.quality, 255, ws.signal_dbm, ws.noise_dbm, ws.missed_beacons);
+                } else {
+                    g_logger.warn("Keepalive: %s. Start tracking downtime.", reason.c_str());
                 }
                 
                 // Capture kernel WiFi driver logs at the moment of network loss
