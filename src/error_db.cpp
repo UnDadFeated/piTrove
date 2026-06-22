@@ -946,6 +946,44 @@ std::vector<ErrorSeed> get_all_error_seeds() {
             "HTTP_API_KEY_INVALID",
             "The HTTP dashboard API key provided does not match the configured value.",
             "Verify the API key in config.toml under [remote] api_key matches the one sent in the Authorization header."
+        },
+
+        // --- Dashboard Security & Authentication (E900s) ---
+        {
+            "E903",
+            "DASHBOARD_PIN_LOCKOUT",
+            "Dashboard access locked after 5 consecutive failed PIN attempts.",
+            "Wait 15 seconds for auto-unlock, or restart the container to reset the lockout counter."
+        },
+        {
+            "E904",
+            "DASHBOARD_PIN_INVALID",
+            "The entered 4-digit PIN does not match the stored dashboard PIN.",
+            "Enter the correct dashboard PIN. Default is 0000 if no custom PIN has been set."
+        },
+        {
+            "E905",
+            "DASHBOARD_PIN_LOCKOUT_TIMER",
+            "Dashboard remains locked due to an active PIN lockout timer.",
+            "Wait for the 15-second cooldown to expire. The dashboard will auto-unlock when the timer completes."
+        },
+        {
+            "E906",
+            "DASHBOARD_PIN_STORAGE_MISSING",
+            "No dashboard PIN is configured in local storage.",
+            "Use the default PIN (0000) or change it via the pitrove config command."
+        },
+        {
+            "E907",
+            "DASHBOARD_AUTH_REQUIRED",
+            "The dashboard settings endpoint requires API key authentication but none was provided.",
+            "Set the api_key in config.toml under [remote] and include it as a Bearer token in the Authorization header."
+        },
+        {
+            "E908",
+            "DASHBOARD_AUTH_MISMATCH",
+            "The API key sent with the request does not match the configured value.",
+            "Verify the Bearer token matches the api_key defined in [remote] of config.toml."
         }
     };
 }

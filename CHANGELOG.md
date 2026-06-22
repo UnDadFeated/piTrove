@@ -1,3 +1,19 @@
+## v13.3.7 — Dashboard PIN Security & Error Code Catalog (June 22, 2026)
+
+### Added
+- **Dashboard PIN error codes** — New E903–E908 diagnostic codes for PIN lockout, invalid PIN, and authentication failures
+- **PIN lockout cooldown** — Dashboard auto-unlocks after 15-second lockout following 5 failed PIN attempts
+- **Error code catalog expansion** — 6 new dashboard security codes covering lockout, storage, and auth mismatches
+
+### Changed
+- **PIN Change button removed** — PIN changes now handled via `pitrove config` command only
+- **README cleaned** — Removed stray bytes after emoji characters, documented default PIN (0000)
+- **MQTT toggle removed** — Network section removed from dashboard settings
+
+### Fixed
+- **README encoding** — Removed corrupted UTF-8 bytes after emoji headings
+- **CHANGELOG encoding** — Fixed em-dash characters to proper UTF-8 (U+2014)
+
 ## v13.3.6 — Redesigned Dashboard Settings (June 22, 2026)
 
 ### Changed
