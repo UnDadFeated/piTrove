@@ -3,238 +3,558 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>piTrove — Premium C++ Digital Picture & Video Frame for Raspberry Pi</title>
-    <meta name="description" content="piTrove is an enterprise-grade, containerized digital picture and video frame slideshow for Raspberry Pi 4 & 5. Optimized for NAS storage, Google Photos sync, and Home Assistant MQTT.">
-    <meta name="google-site-verification" content="4zm-u4ZCSOyGAPuEU8KNjviN6MeUMyo7jbiqFRQ-cOg" />
-    <meta name="keywords" content="raspberry pi photo frame, digital picture frame, raspberry pi video frame, containerized slideshow, pitrove, smart home photo frame, google photos sync, home assistant mqtt, sdl3 slideshow c++">
+    <title>piTrove — Digital Picture &amp; Video Frame for Raspberry Pi</title>
+    <meta name="description" content="A containerized digital picture and video frame for Raspberry Pi. Built with C++ for stability, featuring DRM/KMS rendering, NAS storage, and smart home integration.">
     
-    <!-- Open Graph / Facebook -->
-    <meta property="og:type" content="website">
-    <meta property="og:url" content="https://undadfeated.github.io/piTrove/">
-    <meta property="og:title" content="piTrove — Premium C++ Digital Picture & Video Frame for Raspberry Pi">
-    <meta property="og:description" content="Containerized, high-performance slideshow and video engine optimized for network storage, Google Photos integration, and smart home automation.">
-    <meta property="og:image" content="https://raw.githubusercontent.com/UnDadFeated/piTrove/main/src/splash.png">
-
-    <!-- Fonts & Icons -->
+    <!-- Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
     
-    <link rel="stylesheet" href="style.css">
+    <style>
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+        
+        :root {
+            --bg: #0a0a0c;
+            --bg-elevated: #131316;
+            --bg-card: #1a1a1f;
+            --border: rgba(255,255,255,0.08);
+            --text: #e4e4e7;
+            --text-muted: #71717a;
+            --accent: #a78bfa;
+            --accent-dim: rgba(167,139,250,0.12);
+            --radius: 12px;
+        }
+        
+        body {
+            font-family: 'Inter', -apple-system, system-ui, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            line-height: 1.6;
+            -webkit-font-smoothing: antialiased;
+        }
+        
+        /* Header */
+        header {
+            position: fixed;
+            top: 0;
+            width: 100%;
+            z-index: 100;
+            border-bottom: 1px solid var(--border);
+            background: rgba(10,10,12,0.8);
+            backdrop-filter: blur(16px);
+        }
+        .header-inner {
+            max-width: 1120px;
+            margin: 0 auto;
+            padding: 0 24px;
+            height: 60px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        .logo {
+            font-weight: 700;
+            font-size: 1.125rem;
+            color: var(--text);
+            text-decoration: none;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .logo-icon {
+            width: 28px;
+            height: 28px;
+            background: var(--accent);
+            border-radius: 6px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 14px;
+        }
+        nav { display: flex; gap: 24px; align-items: center; }
+        nav a {
+            color: var(--text-muted);
+            text-decoration: none;
+            font-size: 0.875rem;
+            font-weight: 500;
+            transition: color 0.2s;
+        }
+        nav a:hover { color: var(--text); }
+        .nav-github {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 14px;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            color: var(--text) !important;
+            font-size: 0.8125rem;
+        }
+        .nav-github:hover { background: var(--bg-card); }
+        
+        /* Hero */
+        .hero {
+            padding: 140px 24px 80px;
+            max-width: 1120px;
+            margin: 0 auto;
+            text-align: center;
+        }
+        .hero-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 6px 14px;
+            border-radius: 100px;
+            border: 1px solid var(--border);
+            background: var(--bg-elevated);
+            font-size: 0.8125rem;
+            color: var(--text-muted);
+            margin-bottom: 28px;
+        }
+        .hero-badge span {
+            color: var(--accent);
+            font-weight: 600;
+        }
+        .hero h1 {
+            font-size: clamp(2.5rem, 6vw, 4rem);
+            font-weight: 700;
+            line-height: 1.1;
+            letter-spacing: -0.03em;
+            margin-bottom: 20px;
+        }
+        .hero h1 .gradient {
+            background: linear-gradient(135deg, var(--accent), #ec4899);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        .hero p {
+            font-size: 1.125rem;
+            color: var(--text-muted);
+            max-width: 560px;
+            margin: 0 auto 36px;
+            line-height: 1.7;
+        }
+        .hero-actions {
+            display: flex;
+            gap: 12px;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 11px 22px;
+            border-radius: 10px;
+            font-size: 0.9375rem;
+            font-weight: 600;
+            text-decoration: none;
+            transition: all 0.2s;
+            cursor: pointer;
+            border: none;
+        }
+        .btn-primary {
+            background: var(--text);
+            color: var(--bg);
+        }
+        .btn-primary:hover { opacity: 0.85; }
+        .btn-secondary {
+            background: var(--bg-card);
+            color: var(--text);
+            border: 1px solid var(--border);
+        }
+        .btn-secondary:hover { border-color: rgba(255,255,255,0.15); }
+        
+        /* App Preview */
+        .preview {
+            max-width: 960px;
+            margin: 0 auto 100px;
+            padding: 0 24px;
+        }
+        .preview-frame {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            overflow: hidden;
+        }
+        .preview-bar {
+            height: 36px;
+            background: var(--bg-elevated);
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            padding: 0 14px;
+            gap: 7px;
+        }
+        .preview-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: rgba(255,255,255,0.1);
+        }
+        .preview-dot:first-child { background: #ff5f57; }
+        .preview-dot:nth-child(2) { background: #ffbd2e; }
+        .preview-dot:nth-child(3) { background: #28c840; }
+        .preview-body {
+            display: grid;
+            grid-template-columns: 220px 1fr;
+            min-height: 420px;
+        }
+        .preview-sidebar {
+            border-right: 1px solid var(--border);
+            padding: 20px 0;
+        }
+        .sidebar-item {
+            padding: 9px 18px;
+            font-size: 0.8125rem;
+            color: var(--text-muted);
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .sidebar-item.active {
+            color: var(--text);
+            background: var(--accent-dim);
+            border-right: 2px solid var(--accent);
+        }
+        .sidebar-item i { width: 16px; text-align: center; }
+        .preview-main {
+            padding: 24px;
+        }
+        .preview-stats {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 12px;
+            margin-bottom: 24px;
+        }
+        .stat-card {
+            background: var(--bg-elevated);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 14px;
+        }
+        .stat-label {
+            font-size: 0.6875rem;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin-bottom: 4px;
+        }
+        .stat-value {
+            font-size: 1.125rem;
+            font-weight: 700;
+            font-family: 'JetBrains Mono', monospace;
+        }
+        .preview-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 10px;
+        }
+        .preview-thumb {
+            aspect-ratio: 4/3;
+            border-radius: 8px;
+            border: 1px solid var(--border);
+            overflow: hidden;
+            position: relative;
+        }
+        .preview-thumb .overlay {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            padding: 8px;
+            background: linear-gradient(transparent, rgba(0,0,0,0.7));
+            font-size: 0.6875rem;
+            color: rgba(255,255,255,0.8);
+        }
+        .thumb-1 { background: linear-gradient(135deg, #667eea, #764ba2); }
+        .thumb-2 { background: linear-gradient(135deg, #f093fb, #f5576c); }
+        .thumb-3 { background: linear-gradient(135deg, #4facfe, #00f2fe); }
+        .thumb-4 { background: linear-gradient(135deg, #43e97b, #38f9d7); }
+        .thumb-5 { background: linear-gradient(135deg, #fa709a, #fee140); }
+        .thumb-6 { background: linear-gradient(135deg, #a18cd1, #fbc2eb); }
+        
+        /* Features */
+        .features {
+            max-width: 1120px;
+            margin: 0 auto;
+            padding: 80px 24px;
+        }
+        .features h2 {
+            font-size: 2rem;
+            font-weight: 700;
+            text-align: center;
+            margin-bottom: 12px;
+            letter-spacing: -0.02em;
+        }
+        .features-sub {
+            text-align: center;
+            color: var(--text-muted);
+            font-size: 1rem;
+            margin-bottom: 56px;
+            max-width: 500px;
+            margin-left: auto;
+            margin-right: auto;
+        }
+        .feature-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 16px;
+        }
+        .feature-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 28px;
+            transition: border-color 0.2s;
+        }
+        .feature-card:hover { border-color: rgba(255,255,255,0.15); }
+        .feature-icon {
+            width: 40px;
+            height: 40px;
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.125rem;
+            margin-bottom: 16px;
+        }
+        .fi-purple { background: var(--accent-dim); color: var(--accent); }
+        .fi-blue { background: rgba(96,165,250,0.12); color: #60a5fa; }
+        .fi-green { background: rgba(52,211,153,0.12); color: #34d399; }
+        .fi-orange { background: rgba(251,146,60,0.12); color: #fb923c; }
+        .fi-pink { background: rgba(244,114,182,0.12); color: #f472b6; }
+        .fi-cyan { background: rgba(34,211,238,0.12); color: #22d3ee; }
+        .feature-card h3 {
+            font-size: 1rem;
+            font-weight: 600;
+            margin-bottom: 8px;
+        }
+        .feature-card p {
+            font-size: 0.875rem;
+            color: var(--text-muted);
+            line-height: 1.6;
+        }
+        
+        /* Install */
+        .install {
+            max-width: 720px;
+            margin: 0 auto;
+            padding: 80px 24px;
+            text-align: center;
+        }
+        .install h2 {
+            font-size: 2rem;
+            font-weight: 700;
+            margin-bottom: 12px;
+            letter-spacing: -0.02em;
+        }
+        .install > p {
+            color: var(--text-muted);
+            margin-bottom: 32px;
+        }
+        .install-box {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 24px;
+            text-align: left;
+        }
+        .install-box pre {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.875rem;
+            background: var(--bg);
+            padding: 16px;
+            border-radius: 8px;
+            overflow-x: auto;
+            color: var(--text);
+            line-height: 1.6;
+        }
+        .install-box .prompt { color: #34d399; }
+        .install-box .cmd { color: #e4e4e7; }
+        
+        /* Footer */
+        footer {
+            border-top: 1px solid var(--border);
+            padding: 40px 24px;
+            text-align: center;
+            color: var(--text-muted);
+            font-size: 0.8125rem;
+        }
+        footer a { color: var(--text-muted); text-decoration: none; }
+        footer a:hover { color: var(--text); }
+        .footer-inner {
+            max-width: 1120px;
+            margin: 0 auto;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        /* Responsive */
+        @media (max-width: 768px) {
+            .preview-body { grid-template-columns: 1fr; }
+            .preview-sidebar { display: none; }
+            .preview-stats { grid-template-columns: repeat(2, 1fr); }
+            .preview-grid { grid-template-columns: repeat(2, 1fr); }
+            .footer-inner { flex-direction: column; gap: 12px; }
+        }
+        @media (max-width: 480px) {
+            .preview-stats { grid-template-columns: 1fr; }
+        }
+    </style>
 </head>
-<body class="dark-theme">
-    <header id="site-header">
-        <div class="header-container">
-            <a href="#" class="logo-area" id="logo-link">
-                <img src="logo.png" alt="piTrove Logo" class="logo-img" style="height: 28px; width: auto; filter: drop-shadow(0 0 3px var(--text-primary));">
-                <span class="logo-text">piTrove</span>
+<body>
+    <header>
+        <div class="header-inner">
+            <a href="#" class="logo">
+                <div class="logo-icon">&#9632;</div>
+                piTrove
             </a>
-            <nav id="main-nav">
-                <a href="https://www.reddit.com/r/piTrove/" target="_blank" rel="noopener" class="nav-item"><i class="fa-brands fa-reddit"></i><span class="nav-text"> Subreddit</span></a>
-                <a href="https://github.com/UnDadFeated/piTrove" target="_blank" rel="noopener" class="github-btn" id="github-link-btn"><i class="fa-brands fa-github"></i><span class="nav-text"> GitHub</span></a>
+            <nav>
+                <a href="#features">Features</a>
+                <a href="#install">Install</a>
+                <a href="https://github.com/UnDadFeated/piTrove" target="_blank" class="nav-github">
+                    <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+                    GitHub
+                </a>
             </nav>
-            <button id="theme-toggle" aria-label="Toggle Theme" class="theme-toggle-btn">
-                <i class="fa-solid fa-moon"></i>
-            </button>
         </div>
     </header>
 
     <main>
-        <!-- Hero Section -->
-        <section id="hero">
-            <div class="container hero-container">
-                <div class="hero-content-full">
-                    <div class="badge-container">
-                        <span class="premium-badge"><i class="fa-solid fa-shield-halved"></i> C++ DRM/KMS ENGINE</span>
-                    </div>
-                    <h1 class="hero-title">C++ Pi Digital Picture & Video Frame<br><span class="hero-subtitle-tag">- Docker Containerized -</span></h1>
-                    <p class="hero-subtitle">High-performance digital slideshow and video engine for Raspberry Pi 4 & 5. Optimized for NAS storage stability, Google Photos integration, Home Assistant MQTT automation, and glassy web controls.</p>
-                </div>
+        <!-- Hero -->
+        <section class="hero">
+            <div class="hero-badge">
+                <span>C++ &middot; Docker &middot; DRM/KMS</span>
+                &middot; Raspberry Pi 4 &amp; 5
             </div>
-        </sectio        <!-- Quick Start & Commands Section -->
-        <section id="install">
-            <div class="container">
-                <h2 class="section-title"><i class="fa-solid fa-terminal"></i> Quick Start & Installation</h2>
-                
-                <div class="format-card" style="background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 12px; padding: 1.5rem; box-shadow: var(--shadow-premium); display: flex; flex-direction: column; gap: 1.25rem; margin-top: 1.5rem;">
-                    <div>
-                        <h3 style="font-size: 1.15rem; display: flex; align-items: center; gap: 0.5rem; color: var(--text-primary); margin-bottom: 0.5rem;"><i class="fa-solid fa-play" style="color: var(--text-secondary);"></i> Bootstrap Installation</h3>
-                        <p style="color: var(--text-secondary); font-size: 0.9rem; line-height: 1.5; margin-bottom: 0.75rem;">
-                            Flash <strong>Raspberry Pi OS Lite (64-bit, Trixie)</strong> via the <a href="https://www.raspberrypi.com/software/" target="_blank" style="color: var(--text-primary); text-decoration: underline; font-weight: 600;">Raspberry Pi Imager</a>. Boot the Pi, SSH in, and run:
-                        </p>
-                        <div class="quick-install-box" id="quick-install-container" style="margin-top: 0; padding: 0.75rem 1rem;">
-                            <div class="code-line">
-                                <code style="font-size: 0.8rem;">wget -qO- https://raw.githubusercontent.com/UnDadFeated/piTrove/main/install.sh | sudo bash</code>
-                                <button id="copy-btn" class="copy-button" aria-label="Copy installation command"><i class="fa-regular fa-copy"></i></button>
+            <h1>
+                A digital frame that<br>
+                <span class="gradient">never skips a beat.</span>
+            </h1>
+            <p>
+                Professional-grade slideshow engine built for stability on Raspberry Pi. 
+                Hardware-accelerated rendering, NAS storage, and smart home integration&mdash;all in one container.
+            </p>
+            <div class="hero-actions">
+                <a href="#install" class="btn btn-primary">
+                    <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 1a.5.5 0 01.5.5v5.79l2.25-2.25a.5.5 0 11.7.7l-3 3a.5.5 0 01-.7 0l-3-3a.5.5 0 11.7-.7L7.5 7.29V1.5A.5.5 0 018 1z"/><path d="M2 8a6 6 0 016-6 6 6 0 016 6 5.97 5.97 0 01-.77 2.87.5.5 0 01-.86-.5A4.97 4.97 0 0013 8a5 5 0 00-5-5 5 5 0 00-5 5 4.97 4.97 0 00.63 2.37.5.5 0 11-.86.5A5.97 5.97 0 012 8z"/><path d="M7 14h2v-2H7v2z"/></svg>
+                    Install
+                </a>
+                <a href="https://github.com/UnDadFeated/piTrove" target="_blank" class="btn btn-secondary">
+                    View Source
+                </a>
+            </div>
+        </section>
+
+        <!-- App Preview -->
+        <section class="preview">
+            <div class="preview-frame">
+                <div class="preview-bar">
+                    <div class="preview-dot"></div>
+                    <div class="preview-dot"></div>
+                    <div class="preview-dot"></div>
+                </div>
+                <div class="preview-body">
+                    <div class="preview-sidebar">
+                        <div class="sidebar-item active"><i>&#9776;</i> Dashboard</div>
+                        <div class="sidebar-item"><i>&#9881;</i> Settings</div>
+                        <div class="sidebar-item"><i>&#9776;</i> Photos</div>
+                        <div class="sidebar-item"><i>&#128395;</i> Videos</div>
+                        <div class="sidebar-item"><i>&#9889;</i> MQTT</div>
+                        <div class="sidebar-item"><i>&#128274;</i> Logs</div>
+                    </div>
+                    <div class="preview-main">
+                        <div class="preview-stats">
+                            <div class="stat-card">
+                                <div class="stat-label">Queue</div>
+                                <div class="stat-value">2,847</div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-label">Cache</div>
+                                <div class="stat-value">1.2 GB</div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-label">Temp</div>
+                                <div class="stat-value">48&deg;C</div>
+                            </div>
+                            <div class="stat-card">
+                                <div class="stat-label">Uptime</div>
+                                <div class="stat-value">14d</div>
                             </div>
                         </div>
-                    </div>
-                    
-                    <div style="border-top: 1px solid rgba(255,255,255,0.06); padding-top: 1.25rem;">
-                        <h3 style="font-size: 1.15rem; display: flex; align-items: center; gap: 0.5rem; color: var(--text-primary); margin-bottom: 0.75rem;"><i class="fa-solid fa-screwdriver-wrench" style="color: var(--text-secondary);"></i> CLI & Utility Tools</h3>
-                        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 0.75rem;">
-                            <div style="border-bottom: 1px solid rgba(255,255,255,0.04); padding-bottom: 0.4rem;">
-                                <code style="font-family: monospace; font-weight: 700; color: var(--text-primary); background: var(--bg-primary); padding: 0.15rem 0.35rem; border-radius: 4px; border: 1px solid var(--border-color); font-size: 0.8rem;">pitrove config</code>
-                                <div style="font-size: 0.8rem; color: var(--text-secondary); margin-top: 0.25rem; line-height: 1.3;">Terminal configuration wizard (TUI) to adjust settings & MQTT.</div>
-                            </div>
-                            <div style="border-bottom: 1px solid rgba(255,255,255,0.04); padding-bottom: 0.4rem;">
-                                <code style="font-family: monospace; font-weight: 700; color: var(--text-primary); background: var(--bg-primary); padding: 0.15rem 0.35rem; border-radius: 4px; border: 1px solid var(--border-color); font-size: 0.8rem;">pitrove logs</code>
-                                <div style="font-size: 0.8rem; color: var(--text-secondary); margin-top: 0.25rem; line-height: 1.3;">Stream rendering logic, database metrics, and loader threads.</div>
-                            </div>
-                            <div style="border-bottom: 1px solid rgba(255,255,255,0.04); padding-bottom: 0.4rem;">
-                                <code style="font-family: monospace; font-weight: 700; color: var(--text-primary); background: var(--bg-primary); padding: 0.15rem 0.35rem; border-radius: 4px; border: 1px solid var(--border-color); font-size: 0.8rem;">pitrove restart</code>
-                                <div style="font-size: 0.8rem; color: var(--text-secondary); margin-top: 0.25rem; line-height: 1.3;">Restart the underlying Docker container safely.</div>
-                            </div>
-                            <div style="border-bottom: 1px solid rgba(255,255,255,0.04); padding-bottom: 0.4rem;">
-                                <code style="font-family: monospace; font-weight: 700; color: var(--text-primary); background: var(--bg-primary); padding: 0.15rem 0.35rem; border-radius: 4px; border: 1px solid var(--border-color); font-size: 0.8rem;">sudo ./install.sh --update</code>
-                                <div style="font-size: 0.8rem; color: var(--text-secondary); margin-top: 0.25rem; line-height: 1.3;">Update package, download latest code, and rebuild binary.</div>
-                            </div>
-                            <div style="grid-column: span 2; border-bottom: none; padding-bottom: 0;">
-                                <code style="font-family: monospace; font-weight: 700; color: var(--text-primary); background: var(--bg-primary); padding: 0.15rem 0.35rem; border-radius: 4px; border: 1px solid var(--border-color); font-size: 0.8rem;">sudo ./install.sh --organize [path]</code>
-                                <div style="font-size: 0.8rem; color: var(--text-secondary); margin-top: 0.25rem; line-height: 1.3;">Optional chronological sorting and date-prefixing utility.</div>
-                            </div>
+                        <div class="preview-grid">
+                            <div class="preview-thumb thumb-1"><div class="overlay">Sunset.jpg</div></div>
+                            <div class="preview-thumb thumb-2"><div class="overlay">Portrait.png</div></div>
+                            <div class="preview-thumb thumb-3"><div class="overlay">Landscape.webp</div></div>
+                            <div class="preview-thumb thumb-4"><div class="overlay">Nature.heic</div></div>
+                            <div class="preview-thumb thumb-5"><div class="overlay">Family.jpg</div></div>
+                            <div class="preview-thumb thumb-6"><div class="overlay">Vacation.png</div></div>
                         </div>
                     </div>
                 </div>
             </div>
         </section>
 
-        <!-- Media Playback Support (Pictures & Videos) -->
-        <section id="media-formats" style="background: var(--bg-secondary);">
-            <div class="container">
-                <h2 class="section-title"><i class="fa-solid fa-photo-film"></i> Media Playback & Formats</h2>
-                <p class="organizer-intro" style="margin-bottom: 1rem;">piTrove is designed from the ground up for seamless, high-fidelity playback of both high-resolution photography and hardware-accelerated video clips.</p>
-
-                <div class="format-card-grid">
-                    <!-- Photos Column -->
-                    <div class="format-column">
-                        <h3 style="font-size: 1.15rem; display: flex; align-items: center; gap: 0.5rem; color: var(--text-primary);"><i class="fa-solid fa-image" style="color: var(--text-secondary);"></i> High-Res Photography</h3>
-                        <p style="color: var(--text-secondary); font-size: 0.85rem; line-height: 1.5;">
-                            Native, multi-threaded image decoding utilizing hardware-accelerated color conversions. Displays pictures with professional-grade transitions, CRT vignette shaders, and color-matched blur backgrounds.
-                        </p>
-                        <ul style="color: var(--text-secondary); font-size: 0.8rem; padding-left: 1.25rem; line-height: 1.5; display: grid; grid-template-columns: 1fr 1fr; gap: 0.3rem;">
-                            <li><strong>JPEG / JPG</strong> — Standard capture</li>
-                            <li><strong>PNG</strong> — Lossless graphics</li>
-                            <li><strong>WebP</strong> — Next-gen compression</li>
-                            <li><strong>HEIC / HEIF</strong> — Modern iOS format</li>
-                            <li><strong>TIFF / TIF</strong> — High-bit depth</li>
-                            <li><strong>BMP / TGA</strong> — Raw structures</li>
-                        </ul>
-                    </div>
-
-                    <!-- Videos Column -->
-                    <div class="format-column video-column">
-                        <h3 style="font-size: 1.15rem; display: flex; align-items: center; gap: 0.5rem; color: var(--text-primary);"><i class="fa-solid fa-video" style="color: var(--text-secondary);"></i> Cinematic Video Engine</h3>
-                        <p style="color: var(--text-secondary); font-size: 0.85rem; line-height: 1.5;">
-                            Interleaves video clips within your photo playlist. Leverages an optimized native subprocess linking the direct-to-framebuffer DRM/KMS hardware decoder.
-                        </p>
-                        <ul style="color: var(--text-secondary); font-size: 0.8rem; padding-left: 1.25rem; line-height: 1.5; display: grid; grid-template-columns: 1fr 1fr; gap: 0.3rem;">
-                            <li><strong>MP4 / MKV / MOV</strong> — Formats</li>
-                            <li><strong>H.264 / AVC</strong> — Up to 1080p60</li>
-                            <li><strong>H.265 / HEVC</strong> — Up to 4K60</li>
-                            <li><strong>Dynamic Volume</strong> (0-150)</li>
-                            <li><strong>Aggressive buffering</strong></li>
-                            <li><strong>Subtitle support (.srt)</strong></li>
-                        </ul>
-                    </div>
+        <!-- Features -->
+        <section class="features" id="features">
+            <h2>Built for reliability</h2>
+            <p class="features-sub">Every component designed to run unattended for months without intervention.</p>
+            <div class="feature-grid">
+                <div class="feature-card">
+                    <div class="feature-icon fi-purple">&#9889;</div>
+                    <h3>DRM/KMS Rendering</h3>
+                    <p>Direct GPU framebuffer rendering via SDL3. No desktop environment required&mdash;just raw performance on the Pi.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon fi-blue">&#9670;</div>
+                    <h3>Docker Containerized</h3>
+                    <p>All dependencies isolated. Build once, run anywhere on Raspberry Pi 4 or 5 with Trixie Lite.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon fi-green">&#128395;</div>
+                    <h3>NAS-Optimized I/O</h3>
+                    <p>Custom getdents64 scanner with CIFS hang prevention. Your media on network storage, no lockups.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon fi-orange">&#9729;</div>
+                    <h3>Google Photos Sync</h3>
+                    <p>Background OAuth2 sync from your albums. Configurable interval and local cache directory.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon fi-pink">&#127968;</div>
+                    <h3>Home Assistant MQTT</h3>
+                    <p>Auto-discovers as a smart home device. Screen on/off, skip, play/pause, and motion-based waking.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon fi-cyan">&#127912;</div>
+                    <h3>Cinematic Presentation</h3>
+                    <p>Ken Burns pans, crossfade transitions, color-matched matte borders, and ambient bias backlighting.</p>
                 </div>
             </div>
         </section>
 
-
-        <!-- Capabilities Section -->
-        <section id="capabilities">
-            <div class="container">
-                <h2 class="section-title"><i class="fa-solid fa-microchip"></i> System Capabilities</h2>
-                
-                <div class="capabilities-grid">
-                    <div class="compact-feature-item">
-                        <div class="item-icon"><i class="fa-solid fa-bolt"></i></div>
-                        <div>
-                            <h3>DRM/KMS Hardware Acceleration</h3>
-                            <p>Direct rendering to the GPU framebuffer via SDL3. Zero desktop environment or windowing overhead.</p>
-                        </div>
-                    </div>
-                    
-                    <div class="compact-feature-item">
-                        <div class="item-icon"><i class="fa-solid fa-sliders"></i></div>
-                        <div>
-                            <h3>Interactive Web Settings & HUD</h3>
-                            <p>Premium glassmorphic dashboard to remote-control slideshow, tweak config values, and stream logs live.</p>
-                        </div>
-                    </div>
-                    
-                    <div class="compact-feature-item">
-                        <div class="item-icon"><i class="fa-solid fa-cloud"></i></div>
-                        <div>
-                            <h3>Google Photos Cloud Sync</h3>
-                            <p>OAuth2-authenticated background sync daemon to download and cache images automatically.</p>
-                        </div>
-                    </div>
-                    
-                    <div class="compact-feature-item">
-                        <div class="item-icon"><i class="fa-solid fa-house-signal"></i></div>
-                        <div>
-                            <h3>Home Assistant MQTT Integration</h3>
-                            <p>Instant remote triggers, screen backlight control, play/pause switches, and motion wakers.</p>
-                        </div>
-                    </div>
-
-                    <div class="compact-feature-item">
-                        <div class="item-icon"><i class="fa-solid fa-crop-simple"></i></div>
-                        <div>
-                            <h3>Cinematic Ken Burns Effect</h3>
-                            <p>Smooth, custom pan and zoom scaling animations returning fluidly to original dimensions.</p>
-                        </div>
-                    </div>
-
-                    <div class="compact-feature-item">
-                        <div class="item-icon"><i class="fa-solid fa-wand-magic-sparkles"></i></div>
-                        <div>
-                            <h3>Dynamic Bias Backlighting</h3>
-                            <p>Real-time edge sampling that casts soft color glows behind the screen to blend the frame with the wall.</p>
-                        </div>
-                    </div>
-
-                    <div class="compact-feature-item">
-                        <div class="item-icon"><i class="fa-solid fa-filter"></i></div>
-                        <div>
-                            <h3>On-This-Day & Content Filters</h3>
-                            <p>Year-agnostic seasonal calendar windows, intelligent animal/people classification, and document clutter skipping.</p>
-                        </div>
-                    </div>
-
-                    <div class="compact-feature-item">
-                        <div class="item-icon"><i class="fa-solid fa-shield-halved"></i></div>
-                        <div>
-                            <h3>Resilient Storage & Cache</h3>
-                            <p>Linux getdents64 filesystem scanner preventing CIFS hangs, coupled with thread-safe SQLite3 WAL caching.</p>
-                        </div>
-                    </div>
-
-                    <div class="compact-feature-item">
-                        <div class="item-icon"><i class="fa-solid fa-hand-pointer"></i></div>
-                        <div>
-                            <h3>Touchscreen Interface & Navigation</h3>
-                            <p>Enable floating navigation overlays (Previous, Settings, Next) on touch, plus settings sliders, +/- adjusters, and a virtual keyboard modal directly on the screen.</p>
-                        </div>
-                    </div>
-                </div>
+        <!-- Install -->
+        <section class="install" id="install">
+            <h2>Get started</h2>
+            <p>Flash Raspberry Pi OS Lite 64-bit, boot the Pi, and run one command.</p>
+            <div class="install-box">
+                <pre><span class="prompt">$ </span><span class="cmd">wget -qO- https://raw.githubusercontent.com/UnDadFeated/piTrove/main/install.sh | sudo bash</span></pre>
             </div>
         </section>
     </main>
 
     <footer>
-        <div class="container footer-content">
-            <p>&copy; 2026 piTrove. Released under the MIT License.</p>
-            <div class="footer-links">
-                <a href="https://github.com/UnDadFeated/piTrove" target="_blank" rel="noopener"><i class="fa-brands fa-github"></i> GitHub</a>
-                <a href="https://www.reddit.com/r/piTrove/" target="_blank" rel="noopener"><i class="fa-brands fa-reddit"></i> Subreddit</a>
-            </div>
+        <div class="footer-inner">
+            <span>&copy; 2026 piTrove &middot; MIT License</span>
+            <span>
+                <a href="https://github.com/UnDadFeated/piTrove" target="_blank">GitHub</a>
+                &middot;
+                <a href="https://www.reddit.com/r/piTrove/" target="_blank">Subreddit</a>
+            </span>
         </div>
     </footer>
-
-    <script src="app.js"></script>
 </body>
 </html>
