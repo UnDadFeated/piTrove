@@ -3,27 +3,26 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>piTrove — Digital Picture &amp; Video Frame for Raspberry Pi</title>
+    <title>piTrove — Digital Picture & Video Frame for Raspberry Pi</title>
     <meta name="description" content="A containerized digital picture and video frame for Raspberry Pi. Built with C++ for stability, featuring DRM/KMS rendering, NAS storage, and smart home integration.">
     
-    <!-- Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
     
     <style>
         *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
         
         :root {
-            --bg: #0a0a0c;
-            --bg-elevated: #131316;
-            --bg-card: #1a1a1f;
-            --border: rgba(255,255,255,0.08);
-            --text: #e4e4e7;
-            --text-muted: #71717a;
-            --accent: #a78bfa;
-            --accent-dim: rgba(167,139,250,0.12);
-            --radius: 12px;
+            --bg: #0f0f11;
+            --bg-elevated: #161619;
+            --bg-card: rgba(22,22,25,0.75);
+            --border: rgba(228,228,231,0.12);
+            --text: #f4f4f5;
+            --text-muted: #a1a1aa;
+            --accent: #e4e4e7;
+            --accent-glow: rgba(228,228,231,0.15);
+            --radius: 16px;
         }
         
         body {
@@ -31,7 +30,6 @@
             background: var(--bg);
             color: var(--text);
             line-height: 1.6;
-            -webkit-font-smoothing: antialiased;
         }
         
         /* Header */
@@ -41,14 +39,14 @@
             width: 100%;
             z-index: 100;
             border-bottom: 1px solid var(--border);
-            background: rgba(10,10,12,0.8);
+            background: rgba(15,15,17,0.75);
             backdrop-filter: blur(16px);
         }
         .header-inner {
             max-width: 1120px;
             margin: 0 auto;
             padding: 0 24px;
-            height: 60px;
+            height: 55px;
             display: flex;
             align-items: center;
             justify-content: space-between;
@@ -71,8 +69,10 @@
             align-items: center;
             justify-content: center;
             font-size: 14px;
+            color: var(--bg);
+            font-weight: 800;
         }
-        nav { display: flex; gap: 24px; align-items: center; }
+        nav { display: flex; gap: 20px; align-items: center; }
         nav a {
             color: var(--text-muted);
             text-decoration: none;
@@ -81,208 +81,505 @@
             transition: color 0.2s;
         }
         nav a:hover { color: var(--text); }
-        .nav-github {
-            display: inline-flex;
-            align-items: center;
-            gap: 6px;
-            padding: 6px 14px;
-            border: 1px solid var(--border);
-            border-radius: 8px;
-            color: var(--text) !important;
-            font-size: 0.8125rem;
-        }
-        .nav-github:hover { background: var(--bg-card); }
         
         /* Hero */
         .hero {
-            padding: 140px 24px 80px;
+            padding: 110px 24px 40px;
             max-width: 1120px;
             margin: 0 auto;
             text-align: center;
         }
-        .hero-badge {
-            display: inline-flex;
-            align-items: center;
-            gap: 8px;
-            padding: 6px 14px;
-            border-radius: 100px;
-            border: 1px solid var(--border);
-            background: var(--bg-elevated);
-            font-size: 0.8125rem;
-            color: var(--text-muted);
-            margin-bottom: 28px;
-        }
-        .hero-badge span {
-            color: var(--accent);
-            font-weight: 600;
-        }
         .hero h1 {
-            font-size: clamp(2.5rem, 6vw, 4rem);
-            font-weight: 700;
+            font-size: clamp(2rem, 5vw, 3rem);
+            font-weight: 800;
             line-height: 1.1;
             letter-spacing: -0.03em;
-            margin-bottom: 20px;
-        }
-        .hero h1 .gradient {
-            background: linear-gradient(135deg, var(--accent), #ec4899);
+            margin-bottom: 16px;
+            background: linear-gradient(135deg, var(--text) 30%, var(--text-muted) 100%);
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
         }
         .hero p {
-            font-size: 1.125rem;
+            font-size: 1.0625rem;
             color: var(--text-muted);
-            max-width: 560px;
-            margin: 0 auto 36px;
-            line-height: 1.7;
+            max-width: 520px;
+            margin: 0 auto 8px;
         }
-        .hero-actions {
-            display: flex;
-            gap: 12px;
-            justify-content: center;
-            flex-wrap: wrap;
+        .hero-ver {
+            font-size: 0.875rem;
+            color: var(--text-muted);
+            margin-bottom: 32px;
+            font-weight: 500;
         }
-        .btn {
-            display: inline-flex;
-            align-items: center;
-            gap: 8px;
-            padding: 11px 22px;
-            border-radius: 10px;
-            font-size: 0.9375rem;
-            font-weight: 600;
-            text-decoration: none;
-            transition: all 0.2s;
-            cursor: pointer;
-            border: none;
-        }
-        .btn-primary {
-            background: var(--text);
-            color: var(--bg);
-        }
-        .btn-primary:hover { opacity: 0.85; }
-        .btn-secondary {
-            background: var(--bg-card);
-            color: var(--text);
-            border: 1px solid var(--border);
-        }
-        .btn-secondary:hover { border-color: rgba(255,255,255,0.15); }
         
         /* App Preview */
-        .preview {
+        .preview-wrapper {
             max-width: 960px;
             margin: 0 auto 100px;
             padding: 0 24px;
         }
-        .preview-frame {
+        
+        /* Dashboard — matches app exactly */
+        .dashboard {
             background: var(--bg-card);
             border: 1px solid var(--border);
-            border-radius: 16px;
+            border-radius: 24px;
+            padding: 0;
             overflow: hidden;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.5);
         }
-        .preview-bar {
-            height: 36px;
-            background: var(--bg-elevated);
-            border-bottom: 1px solid var(--border);
-            display: flex;
-            align-items: center;
-            padding: 0 14px;
-            gap: 7px;
-        }
-        .preview-dot {
-            width: 10px;
-            height: 10px;
-            border-radius: 50%;
-            background: rgba(255,255,255,0.1);
-        }
-        .preview-dot:first-child { background: #ff5f57; }
-        .preview-dot:nth-child(2) { background: #ffbd2e; }
-        .preview-dot:nth-child(3) { background: #28c840; }
-        .preview-body {
-            display: grid;
-            grid-template-columns: 220px 1fr;
-            min-height: 420px;
-        }
-        .preview-sidebar {
-            border-right: 1px solid var(--border);
-            padding: 20px 0;
-        }
-        .sidebar-item {
-            padding: 9px 18px;
-            font-size: 0.8125rem;
-            color: var(--text-muted);
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        }
-        .sidebar-item.active {
-            color: var(--text);
-            background: var(--accent-dim);
-            border-right: 2px solid var(--accent);
-        }
-        .sidebar-item i { width: 16px; text-align: center; }
-        .preview-main {
-            padding: 24px;
-        }
-        .preview-stats {
-            display: grid;
-            grid-template-columns: repeat(4, 1fr);
-            gap: 12px;
-            margin-bottom: 24px;
-        }
-        .stat-card {
-            background: var(--bg-elevated);
-            border: 1px solid var(--border);
-            border-radius: 10px;
-            padding: 14px;
-        }
-        .stat-label {
-            font-size: 0.6875rem;
-            color: var(--text-muted);
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
-            margin-bottom: 4px;
-        }
-        .stat-value {
-            font-size: 1.125rem;
-            font-weight: 700;
-            font-family: 'JetBrains Mono', monospace;
-        }
-        .preview-grid {
-            display: grid;
-            grid-template-columns: repeat(3, 1fr);
-            gap: 10px;
-        }
-        .preview-thumb {
-            aspect-ratio: 4/3;
-            border-radius: 8px;
-            border: 1px solid var(--border);
-            overflow: hidden;
+        .dash-header {
+            padding: 1.5rem 1.5rem 0;
             position: relative;
         }
-        .preview-thumb .overlay {
+        .dash-header::before {
+            content: '';
+            position: absolute;
+            top: 0; left: 0; right: 0;
+            height: 3px;
+            background: var(--accent);
+        }
+        .dash-topbar {
+            display: flex;
+            justify-content: flex-end;
+            gap: 6px;
+            margin-bottom: 12px;
+        }
+        .dash-topbar select,
+        .dash-topbar button {
+            background: var(--bg-elevated);
+            color: var(--text-muted);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 4px 10px;
+            font-size: 0.75rem;
+            cursor: pointer;
+            font-family: 'Inter', sans-serif;
+        }
+        .dash-topbar select:focus,
+        .dash-topbar button:focus {
+            outline: none;
+            border-color: var(--accent);
+            color: var(--text);
+        }
+        .dash-title {
+            font-weight: 800;
+            font-size: 1.8rem;
+            letter-spacing: 1.5px;
+            color: var(--text);
+            text-align: center;
+            margin-bottom: 2px;
+        }
+        .dash-subtitle {
+            text-align: center;
+            font-size: 0.85rem;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            margin-bottom: 1.25rem;
+        }
+        
+        /* Tabs */
+        .tabs {
+            display: flex;
+            gap: 0.5rem;
+            background: var(--bg-elevated);
+            border: 1px solid var(--border);
+            padding: 0.35rem;
+            border-radius: 16px;
+            margin: 0 1.5rem 1.25rem;
+        }
+        .tab-btn {
+            flex: 1;
+            background: transparent;
+            border: none;
+            padding: 0.75rem;
+            color: var(--text-muted);
+            font-family: 'Inter', sans-serif;
+            font-weight: 600;
+            font-size: 0.95rem;
+            border-radius: 12px;
+            cursor: pointer;
+            transition: all 0.25s ease;
+        }
+        .tab-btn:hover {
+            color: var(--text);
+            background: rgba(255,255,255,0.04);
+        }
+        .tab-btn.active {
+            color: var(--bg);
+            background: var(--accent);
+            box-shadow: 0 4px 12px var(--accent-glow);
+        }
+        
+        /* Tab Content */
+        .tab-content { display: none; padding: 0 1.5rem 1.5rem; }
+        .tab-content.active { display: block; }
+        
+        /* Remote Tab */
+        .preview-card {
+            background: var(--bg-elevated);
+            border: 1px solid var(--border);
+            border-radius: 20px;
+            padding: 1rem;
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+            margin-bottom: 0.8rem;
+        }
+        .preview-screen {
+            width: 100%;
+            aspect-ratio: 4 / 3;
+            border-radius: 14px;
+            background: #000;
+            overflow: hidden;
+            position: relative;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border: 1px solid var(--border);
+        }
+        .preview-screen .media-img {
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+        }
+        .preview-screen .overlay-info {
             position: absolute;
             bottom: 0;
             left: 0;
             right: 0;
-            padding: 8px;
-            background: linear-gradient(transparent, rgba(0,0,0,0.7));
-            font-size: 0.6875rem;
-            color: rgba(255,255,255,0.8);
+            padding: 12px 14px;
+            background: linear-gradient(transparent, rgba(0,0,0,0.8));
+            font-size: 0.75rem;
+            color: rgba(255,255,255,0.85);
         }
-        .thumb-1 { background: linear-gradient(135deg, #667eea, #764ba2); }
-        .thumb-2 { background: linear-gradient(135deg, #f093fb, #f5576c); }
-        .thumb-3 { background: linear-gradient(135deg, #4facfe, #00f2fe); }
-        .thumb-4 { background: linear-gradient(135deg, #43e97b, #38f9d7); }
-        .thumb-5 { background: linear-gradient(135deg, #fa709a, #fee140); }
-        .thumb-6 { background: linear-gradient(135deg, #a18cd1, #fbc2eb); }
+        .overlay-info .file-name {
+            font-weight: 600;
+            font-size: 0.85rem;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            margin-bottom: 4px;
+        }
+        .overlay-info .meta-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .meta-badge {
+            padding: 3px 8px;
+            border-radius: 6px;
+            font-size: 0.7rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            border: 1px solid var(--border);
+        }
+        .meta-badge.photo { background: rgba(161,161,170,0.12); color: var(--text); }
+        .meta-badge.video { background: var(--accent-glow); color: var(--accent); border-color: var(--accent); }
+        .meta-timer {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.75rem;
+            color: var(--text-muted);
+        }
+        
+        /* Playback Controls */
+        .controls-row {
+            display: flex;
+            gap: 0.5rem;
+        }
+        .ctrl-btn {
+            background: var(--bg-elevated);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 0.75rem;
+            color: var(--text);
+            font-family: 'Inter', sans-serif;
+            font-size: 0.9rem;
+            font-weight: 600;
+            cursor: pointer;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 4px;
+            transition: all 0.2s;
+            flex: 1;
+        }
+        .ctrl-btn:hover {
+            border-color: var(--accent);
+            background: rgba(255,255,255,0.03);
+            transform: translateY(-1px);
+        }
+        .ctrl-btn.accent:hover {
+            background: var(--accent);
+            color: var(--bg);
+        }
+        .ctrl-btn.active {
+            background: var(--accent);
+            color: var(--bg);
+            border-color: var(--accent);
+        }
+        .ctrl-btn .icon { font-size: 1.35rem; }
+        .ctrl-btn .label { font-size: 0.75rem; }
+        .ctrl-btn.wide { flex: 1.5; }
+        
+        /* Telemetry Card */
+        .telemetry-card {
+            background: var(--bg-elevated);
+            border: 1px solid var(--border);
+            border-radius: 20px;
+            padding: 1.25rem;
+        }
+        .telemetry-title {
+            font-size: 0.8rem;
+            text-transform: uppercase;
+            letter-spacing: 1.5px;
+            color: var(--text-muted);
+            margin-bottom: 0.75rem;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .telemetry-title::before {
+            content: '';
+            width: 8px;
+            height: 8px;
+            background: var(--accent);
+            border-radius: 50%;
+            box-shadow: 0 0 8px var(--accent);
+        }
+        .telemetry-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 0.75rem;
+            margin-bottom: 0.75rem;
+        }
+        .telemetry-item {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+        }
+        .telemetry-label {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+        }
+        .telemetry-value {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 1.0625rem;
+            font-weight: 600;
+            color: var(--text);
+        }
+        .mqtt-row {
+            grid-column: span 3;
+            border-top: 1px solid var(--border);
+            padding-top: 0.4rem;
+            margin-top: 0.2rem;
+        }
+        
+        /* Action Buttons */
+        .action-row {
+            display: flex;
+            gap: 0.5rem;
+        }
+        .action-btn {
+            background: var(--bg-elevated);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 0.6rem;
+            color: var(--text);
+            font-family: 'Inter', sans-serif;
+            font-size: 0.85rem;
+            font-weight: 600;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            transition: all 0.2s;
+            flex: 1;
+            justify-content: center;
+        }
+        .action-btn:hover {
+            border-color: var(--accent);
+            background: rgba(255,255,255,0.03);
+            transform: translateY(-1px);
+        }
+        .action-btn.danger:hover {
+            background: #ef4444;
+            color: #fff;
+            border-color: #ef4444;
+        }
+        
+        /* Settings Tab */
+        .settings-card {
+            background: var(--bg-elevated);
+            border: 1px solid var(--border);
+            border-radius: 20px;
+            padding: 1.25rem;
+        }
+        .settings-section {
+            margin-bottom: 1.25rem;
+        }
+        .settings-section:last-child { margin-bottom: 0; }
+        .section-label {
+            font-size: 0.85rem;
+            text-transform: uppercase;
+            color: var(--accent);
+            letter-spacing: 1px;
+            margin-bottom: 0.6rem;
+            border-bottom: 1px solid var(--border);
+            padding-bottom: 0.2rem;
+            font-weight: 800;
+        }
+        .settings-form {
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+        }
+        .form-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 0.8rem;
+        }
+        .form-group {
+            display: flex;
+            flex-direction: column;
+            gap: 0.3rem;
+        }
+        .form-group label {
+            font-weight: 600;
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: var(--text-muted);
+        }
+        .form-group input[type="number"],
+        .form-group input[type="password"],
+        .form-group input[type="text"] {
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 0.6rem 0.8rem;
+            color: var(--text);
+            font-family: 'Inter', sans-serif;
+            font-size: 0.9rem;
+            transition: border-color 0.2s;
+        }
+        .form-group input:focus {
+            outline: none;
+            border-color: var(--accent);
+        }
+        .range-row {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        .range-row input[type="range"] {
+            -webkit-appearance: none;
+            width: 100%;
+            height: 6px;
+            background: var(--bg);
+            border-radius: 3px;
+            border: none;
+        }
+        .range-row input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 18px;
+            height: 18px;
+            border-radius: 50%;
+            background: var(--accent);
+            cursor: pointer;
+        }
+        .range-val {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.85rem;
+            color: var(--text);
+            min-width: 40px;
+            text-align: right;
+        }
+        .checkbox-row {
+            display: flex;
+            align-items: center;
+            gap: 0.4rem;
+        }
+        .checkbox-row input[type="checkbox"] {
+            cursor: pointer;
+            width: 16px;
+            height: 16px;
+        }
+        .checkbox-row label {
+            font-size: 0.85rem;
+            color: var(--text-muted);
+            cursor: pointer;
+            text-transform: none;
+            letter-spacing: 0;
+            font-weight: 400;
+        }
+        .btn-save {
+            width: 100%;
+            border-radius: 14px;
+            padding: 1rem;
+            font-size: 1rem;
+            font-weight: 800;
+            cursor: pointer;
+            background: var(--accent);
+            color: var(--bg);
+            border: 1px solid var(--border);
+            font-family: 'Inter', sans-serif;
+            transition: all 0.2s;
+        }
+        .btn-save:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 0 15px var(--accent-glow);
+        }
+        .settings-footer {
+            margin-top: 1.2rem;
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            text-align: center;
+            border-top: 1px solid var(--border);
+            padding-top: 0.8rem;
+            line-height: 1.4;
+        }
+        .settings-footer code {
+            background: rgba(0,0,0,0.25);
+            padding: 0.15rem 0.35rem;
+            border-radius: 6px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.7rem;
+            color: var(--accent);
+            border: 1px solid var(--border);
+        }
+        
+        /* Logs Tab */
+        .logs-card {
+            background: var(--bg-elevated);
+            border: 1px solid var(--border);
+            border-radius: 20px;
+            padding: 1.25rem;
+        }
+        .log-console {
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 1rem;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.6875rem;
+            color: #4ade80;
+            height: 320px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            line-height: 1.4;
+        }
         
         /* Features */
         .features {
             max-width: 1120px;
             margin: 0 auto;
-            padding: 80px 24px;
+            padding: 60px 24px;
         }
         .features h2 {
-            font-size: 2rem;
+            font-size: 1.75rem;
             font-weight: 700;
             text-align: center;
             margin-bottom: 12px;
@@ -291,8 +588,8 @@
         .features-sub {
             text-align: center;
             color: var(--text-muted);
-            font-size: 1rem;
-            margin-bottom: 56px;
+            font-size: 0.9375rem;
+            margin-bottom: 40px;
             max-width: 500px;
             margin-left: auto;
             margin-right: auto;
@@ -303,10 +600,10 @@
             gap: 16px;
         }
         .feature-card {
-            background: var(--bg-card);
+            background: var(--bg-elevated);
             border: 1px solid var(--border);
-            border-radius: var(--radius);
-            padding: 28px;
+            border-radius: 12px;
+            padding: 24px;
             transition: border-color 0.2s;
         }
         .feature-card:hover { border-color: rgba(255,255,255,0.15); }
@@ -318,18 +615,16 @@
             align-items: center;
             justify-content: center;
             font-size: 1.125rem;
-            margin-bottom: 16px;
+            margin-bottom: 14px;
         }
-        .fi-purple { background: var(--accent-dim); color: var(--accent); }
-        .fi-blue { background: rgba(96,165,250,0.12); color: #60a5fa; }
+        .fi-accent { background: var(--accent-glow); color: var(--accent); }
+        .fi-purple { background: rgba(167,139,250,0.12); color: #a78bfa; }
         .fi-green { background: rgba(52,211,153,0.12); color: #34d399; }
-        .fi-orange { background: rgba(251,146,60,0.12); color: #fb923c; }
         .fi-pink { background: rgba(244,114,182,0.12); color: #f472b6; }
-        .fi-cyan { background: rgba(34,211,238,0.12); color: #22d3ee; }
         .feature-card h3 {
             font-size: 1rem;
             font-weight: 600;
-            margin-bottom: 8px;
+            margin-bottom: 6px;
         }
         .feature-card p {
             font-size: 0.875rem;
@@ -339,51 +634,77 @@
         
         /* Install */
         .install {
-            max-width: 720px;
+            max-width: 640px;
             margin: 0 auto;
-            padding: 80px 24px;
+            padding: 60px 24px;
             text-align: center;
         }
         .install h2 {
-            font-size: 2rem;
+            font-size: 1.75rem;
             font-weight: 700;
-            margin-bottom: 12px;
-            letter-spacing: -0.02em;
+            margin-bottom: 8px;
         }
         .install > p {
             color: var(--text-muted);
-            margin-bottom: 32px;
+            margin-bottom: 24px;
+            font-size: 0.9375rem;
         }
         .install-box {
-            background: var(--bg-card);
+            background: var(--bg-elevated);
             border: 1px solid var(--border);
-            border-radius: var(--radius);
-            padding: 24px;
+            border-radius: 12px;
+            padding: 20px;
             text-align: left;
         }
         .install-box pre {
             font-family: 'JetBrains Mono', monospace;
             font-size: 0.875rem;
             background: var(--bg);
-            padding: 16px;
+            padding: 14px 16px;
             border-radius: 8px;
             overflow-x: auto;
             color: var(--text);
             line-height: 1.6;
+            margin: 0;
         }
         .install-box .prompt { color: #34d399; }
         .install-box .cmd { color: #e4e4e7; }
+        .install-steps {
+            margin-top: 20px;
+            text-align: left;
+        }
+        .install-step {
+            display: flex;
+            gap: 12px;
+            align-items: flex-start;
+            padding: 10px 0;
+            border-bottom: 1px solid var(--border);
+            font-size: 0.875rem;
+            color: var(--text-muted);
+        }
+        .install-step:last-child { border-bottom: none; }
+        .step-num {
+            background: var(--accent-glow);
+            color: var(--accent);
+            width: 24px;
+            height: 24px;
+            border-radius: 6px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 700;
+            font-size: 0.8125rem;
+            flex-shrink: 0;
+        }
         
         /* Footer */
         footer {
             border-top: 1px solid var(--border);
-            padding: 40px 24px;
+            padding: 32px 24px;
             text-align: center;
             color: var(--text-muted);
             font-size: 0.8125rem;
         }
-        footer a { color: var(--text-muted); text-decoration: none; }
-        footer a:hover { color: var(--text); }
         .footer-inner {
             max-width: 1120px;
             margin: 0 auto;
@@ -391,17 +712,42 @@
             justify-content: space-between;
             align-items: center;
         }
+        footer a { color: var(--text-muted); text-decoration: none; }
+        footer a:hover { color: var(--text); }
+        
+        /* Toast */
+        .toast {
+            position: fixed;
+            bottom: 2rem;
+            left: 50%;
+            transform: translateX(-50%) translateY(100px);
+            background: var(--bg-elevated);
+            border: 1px solid var(--accent);
+            color: var(--text);
+            padding: 0.75rem 1.5rem;
+            border-radius: 12px;
+            backdrop-filter: blur(16px);
+            font-weight: 600;
+            font-size: 0.875rem;
+            transition: transform 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            z-index: 200;
+            pointer-events: none;
+        }
+        .toast.show {
+            transform: translateX(-50%) translateY(0);
+        }
         
         /* Responsive */
         @media (max-width: 768px) {
-            .preview-body { grid-template-columns: 1fr; }
-            .preview-sidebar { display: none; }
-            .preview-stats { grid-template-columns: repeat(2, 1fr); }
-            .preview-grid { grid-template-columns: repeat(2, 1fr); }
+            .form-grid { grid-template-columns: 1fr; }
+            .telemetry-grid { grid-template-columns: repeat(2, 1fr); }
+            .mqtt-row { grid-column: span 2; }
             .footer-inner { flex-direction: column; gap: 12px; }
+            .action-row, .controls-row { flex-wrap: wrap; }
         }
         @media (max-width: 480px) {
-            .preview-stats { grid-template-columns: 1fr; }
+            .telemetry-grid { grid-template-columns: 1fr; }
+            .mqtt-row { grid-column: span 1; }
         }
     </style>
 </head>
@@ -409,13 +755,14 @@
     <header>
         <div class="header-inner">
             <a href="#" class="logo">
-                <div class="logo-icon">&#9632;</div>
+                <div class="logo-icon">p</div>
                 piTrove
             </a>
             <nav>
+                <a href="#demo">Live Demo</a>
                 <a href="#features">Features</a>
                 <a href="#install">Install</a>
-                <a href="https://github.com/UnDadFeated/piTrove" target="_blank" class="nav-github">
+                <a href="https://github.com/UnDadFeated/piTrove" target="_blank" style="display:inline-flex;align-items:center;gap:6px;padding:6px 14px;border:1px solid var(--border);border-radius:8px;color:var(--text) !important;">
                     <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
                     GitHub
                 </a>
@@ -426,73 +773,205 @@
     <main>
         <!-- Hero -->
         <section class="hero">
-            <div class="hero-badge">
-                <span>C++ &middot; Docker &middot; DRM/KMS</span>
-                &middot; Raspberry Pi 4 &amp; 5
-            </div>
-            <h1>
-                A digital frame that<br>
-                <span class="gradient">never skips a beat.</span>
-            </h1>
-            <p>
-                Professional-grade slideshow engine built for stability on Raspberry Pi. 
-                Hardware-accelerated rendering, NAS storage, and smart home integration&mdash;all in one container.
-            </p>
-            <div class="hero-actions">
-                <a href="#install" class="btn btn-primary">
-                    <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 1a.5.5 0 01.5.5v5.79l2.25-2.25a.5.5 0 11.7.7l-3 3a.5.5 0 01-.7 0l-3-3a.5.5 0 11.7-.7L7.5 7.29V1.5A.5.5 0 018 1z"/><path d="M2 8a6 6 0 016-6 6 6 0 016 6 5.97 5.97 0 01-.77 2.87.5.5 0 01-.86-.5A4.97 4.97 0 0013 8a5 5 0 00-5-5 5 5 0 00-5 5 4.97 4.97 0 00.63 2.37.5.5 0 11-.86.5A5.97 5.97 0 012 8z"/><path d="M7 14h2v-2H7v2z"/></svg>
-                    Install
-                </a>
-                <a href="https://github.com/UnDadFeated/piTrove" target="_blank" class="btn btn-secondary">
-                    View Source
-                </a>
-            </div>
+            <h1>A digital frame that<br>never skips a beat.</h1>
+            <p>Professional-grade slideshow engine built for Raspberry Pi. Hardware-accelerated rendering, NAS storage, and smart home integration.</p>
+            <p class="hero-ver">C++ &middot; Docker &middot; DRM/KMS &middot; Raspberry Pi 4 &amp; 5</p>
         </section>
 
-        <!-- App Preview -->
-        <section class="preview">
-            <div class="preview-frame">
-                <div class="preview-bar">
-                    <div class="preview-dot"></div>
-                    <div class="preview-dot"></div>
-                    <div class="preview-dot"></div>
-                </div>
-                <div class="preview-body">
-                    <div class="preview-sidebar">
-                        <div class="sidebar-item active"><i>&#9776;</i> Dashboard</div>
-                        <div class="sidebar-item"><i>&#9881;</i> Settings</div>
-                        <div class="sidebar-item"><i>&#9776;</i> Photos</div>
-                        <div class="sidebar-item"><i>&#128395;</i> Videos</div>
-                        <div class="sidebar-item"><i>&#9889;</i> MQTT</div>
-                        <div class="sidebar-item"><i>&#128274;</i> Logs</div>
+        <!-- Live Demo Dashboard -->
+        <section class="preview-wrapper" id="demo">
+            <div class="dashboard">
+                <div class="dash-header">
+                    <div class="dash-topbar">
+                        <select>
+                            <option>Zinc</option>
+                            <option>Emerald</option>
+                            <option>Sapphire</option>
+                            <option>Amber</option>
+                        </select>
+                        <button onclick="this.textContent=this.textContent==='🌙'?'☀️':'🌙'">🌙</button>
                     </div>
-                    <div class="preview-main">
-                        <div class="preview-stats">
-                            <div class="stat-card">
-                                <div class="stat-label">Queue</div>
-                                <div class="stat-value">2,847</div>
+                    <div class="dash-title">piTrove controller</div>
+                    <div class="dash-subtitle">v13.3.4 glassmorphic system</div>
+                </div>
+                
+                <div class="tabs">
+                    <button class="tab-btn active" onclick="switchTab(this, 'remote')">Remote</button>
+                    <button class="tab-btn" onclick="switchTab(this, 'settings')">Settings</button>
+                    <button class="tab-btn" onclick="switchTab(this, 'logs')">Diagnostics</button>
+                </div>
+
+                <!-- Remote Tab -->
+                <div id="tab-remote" class="tab-content active">
+                    <div class="preview-card">
+                        <div class="preview-screen">
+                            <div style="width:100%;height:100%;background:linear-gradient(135deg,#1e1b4b,#311042);display:flex;flex-direction:column;align-items:center;justify-content:center;">
+                                <svg width="90" height="90" viewBox="0 0 400 300" style="width:60%;height:auto;">
+                                    <rect width="100%" height="100%" fill="none"/>
+                                    <circle cx="50%" cy="43%" r="45" fill="none" stroke="#a21caf" stroke-width="4" stroke-dasharray="10 5" opacity="0.8"/>
+                                    <path d="M190 110 L220 130 L190 150 Z" fill="#f43f5e" transform="scale(0.75) translate(66,43)"/>
+                                    <text x="50%" y="70%" font-family="Inter,sans-serif" font-size="16" fill="#f8fafc" font-weight="600" text-anchor="middle">Video Playback Active</text>
+                                    <text x="50%" y="82%" font-family="Inter,sans-serif" font-size="11" fill="#94a3b8" text-anchor="middle">Rendering on HDMI display</text>
+                                </svg>
                             </div>
-                            <div class="stat-card">
-                                <div class="stat-label">Cache</div>
-                                <div class="stat-value">1.2 GB</div>
-                            </div>
-                            <div class="stat-card">
-                                <div class="stat-label">Temp</div>
-                                <div class="stat-value">48&deg;C</div>
-                            </div>
-                            <div class="stat-card">
-                                <div class="stat-label">Uptime</div>
-                                <div class="stat-value">14d</div>
+                            <div class="overlay-info">
+                                <div class="file-name">2024-08_Family_Beach.jpg</div>
+                                <div class="meta-row">
+                                    <span class="meta-badge photo">Photo</span>
+                                    <span>3 / 2,847</span>
+                                    <span class="meta-timer">12s</span>
+                                </div>
                             </div>
                         </div>
-                        <div class="preview-grid">
-                            <div class="preview-thumb thumb-1"><div class="overlay">Sunset.jpg</div></div>
-                            <div class="preview-thumb thumb-2"><div class="overlay">Portrait.png</div></div>
-                            <div class="preview-thumb thumb-3"><div class="overlay">Landscape.webp</div></div>
-                            <div class="preview-thumb thumb-4"><div class="overlay">Nature.heic</div></div>
-                            <div class="preview-thumb thumb-5"><div class="overlay">Family.jpg</div></div>
-                            <div class="preview-thumb thumb-6"><div class="overlay">Vacation.png</div></div>
+                        
+                        <div class="controls-row">
+                            <button class="ctrl-btn" onclick="showToast('Sent: Previous')">
+                                <span class="icon">&#9166;</span>
+                            </button>
+                            <button class="ctrl-btn wide accent" onclick="showToast('Sent: Pause')">
+                                <span class="icon" id="demo-pause-icon">&#9648;&#9648;</span>
+                                <span class="label" id="demo-pause-label">Pause</span>
+                            </button>
+                            <button class="ctrl-btn" onclick="showToast('Sent: Next')">
+                                <span class="icon">&#9167;</span>
+                            </button>
+                            <button class="ctrl-btn active" onclick="toggleActive(this); showToast('Shuffle toggled')">
+                                <span class="icon">&#128256;</span>
+                            </button>
                         </div>
+                    </div>
+                    
+                    <div class="telemetry-card">
+                        <div class="telemetry-title">System &amp; Automation</div>
+                        <div class="telemetry-grid">
+                            <div class="telemetry-item">
+                                <span class="telemetry-label">CPU Temp</span>
+                                <span class="telemetry-value">48.2&deg;C</span>
+                            </div>
+                            <div class="telemetry-item">
+                                <span class="telemetry-label">Cache DB</span>
+                                <span class="telemetry-value">1.24 MB</span>
+                            </div>
+                            <div class="telemetry-item">
+                                <span class="telemetry-label">Queue</span>
+                                <span class="telemetry-value">2,847</span>
+                            </div>
+                            <div class="telemetry-item mqtt-row">
+                                <span class="telemetry-label">MQTT Connection</span>
+                                <span class="telemetry-value" style="color:#22c55e;">Connected</span>
+                                <span style="font-size:0.75rem;color:var(--text-muted);margin-top:2px;">Broker: 192.168.4.100:1883</span>
+                            </div>
+                        </div>
+                        <div class="action-row" style="margin-top:0.75rem;">
+                            <button class="action-btn active" onclick="toggleActive(this); showToast('Screen toggled')">
+                                <span>&#128237;</span>
+                                <span>Screen: <strong>ON</strong></span>
+                            </button>
+                            <button class="action-btn" onclick="showToast('Motion triggered')">
+                                <span>&#127936;</span>
+                                <span>Motion</span>
+                            </button>
+                            <button class="action-btn danger" onclick="if(confirm('Restart piTrove?')) showToast('Restart sent')">
+                                <span>&#128260;</span>
+                                <span>Restart</span>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Settings Tab -->
+                <div id="tab-settings" class="tab-content">
+                    <div class="settings-card">
+                        <div class="telemetry-title">App Settings</div>
+                        <div class="settings-form">
+                            <div class="form-group">
+                                <label>API Key</label>
+                                <div style="display:flex;align-items:center;gap:8px;">
+                                    <input type="password" value="" placeholder="Set API key (blank = no auth)" style="flex:1;">
+                                    <span style="font-size:0.75rem;color:var(--text-muted);white-space:nowrap;">(not set)</span>
+                                </div>
+                            </div>
+                            
+                            <div class="settings-section">
+                                <div class="section-label">Slideshow &amp; Playback</div>
+                                <div class="form-grid">
+                                    <div class="form-group">
+                                        <label for="set-interval">Interval (sec)</label>
+                                        <input type="number" id="set-interval" value="15">
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="set-volume">Video Volume</label>
+                                        <div class="range-row">
+                                            <input type="range" id="set-volume" min="0" max="150" value="50" oninput="document.getElementById('demo-volume-val').textContent=this.value+'%'">
+                                            <span class="range-val" id="demo-volume-val">50%</span>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="form-grid" style="margin-top:0.5rem;">
+                                    <div class="checkbox-row">
+                                        <input type="checkbox" id="set-shuffle" checked>
+                                        <label for="set-shuffle">Shuffle Playlist</label>
+                                    </div>
+                                    <div class="checkbox-row">
+                                        <input type="checkbox" id="set-kenburns" checked>
+                                        <label for="set-kenburns">Ken Burns Effect</label>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div class="settings-section">
+                                <div class="section-label">Display Options</div>
+                                <div class="form-grid">
+                                    <div class="checkbox-row">
+                                        <input type="checkbox" id="set-blur" checked>
+                                        <label for="set-blur">Blurred Background</label>
+                                    </div>
+                                    <div class="checkbox-row">
+                                        <input type="checkbox" id="set-matte" checked>
+                                        <label for="set-matte">Color-Matched Matte</label>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <div class="settings-section">
+                                <div class="section-label">Input &amp; Touch</div>
+                                <div class="checkbox-row">
+                                    <input type="checkbox" id="set-touch" checked>
+                                    <label for="set-touch">Enable Touchscreen Mode</label>
+                                </div>
+                            </div>
+                            
+                            <button class="btn-save" onclick="showToast('Configuration Saved Successfully!')">Save Configuration</button>
+                        </div>
+                        <div class="settings-footer">
+                            More configuration options are available via the <code>ssh pitrove config</code> command.
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Logs Tab -->
+                <div id="tab-logs" class="tab-content">
+                    <div class="logs-card">
+                        <div class="telemetry-title">Diagnostics Logs</div>
+                        <div class="log-console" id="demo-log-console">v13.3.4 2026-06-21 10:00:01.123 [INFO] piTrove started
+v13.3.4 2026-06-21 10:00:01.456 [INFO] DRM/KMS: Found card1 - /dev/dri/card1
+v13.3.4 2026-06-21 10:00:01.789 [INFO] Renderer: SDL3 KMSDRM initialized
+v13.3.4 2026-06-21 10:00:02.012 [INFO] Scanner: Scanning /mnt/nas/Photos...
+v13.3.4 2026-06-21 10:00:03.345 [INFO] Scanner: Found 2847 eligible items
+v13.3.4 2026-06-21 10:00:03.678 [INFO] Cache: SQLite3 WAL-mode loaded
+v13.3.4 2026-06-21 10:00:03.901 [INFO] MQTT: Connected to broker 192.168.4.100:1883
+v13.3.4 2026-06-21 10:00:04.123 [INFO] MQTT: HA auto-discovery published
+v13.3.4 2026-06-21 10:00:04.456 [INFO] HTTP: Dashboard listening on port 8080
+v13.3.4 2026-06-21 10:00:04.789 [INFO] Slideshow loop started
+v13.3.4 2026-06-21 10:00:05.012 [INFO] Loading: 2024-08_Family_Beach.jpg
+v13.3.4 2026-06-21 10:00:05.345 [INFO] Render: 1920x1080 | 12ms | Ken Burns enabled
+v13.3.4 2026-06-21 10:00:08.678 [INFO] Transition: Dissolve 2.0s
+v13.3.4 2026-06-21 10:00:10.901 [INFO] Loading: 2024-07_Sunset.webp
+v13.3.4 2026-06-21 10:00:11.234 [INFO] Render: 1920x1080 | 8ms | EXIF rotation applied
+v13.3.4 2026-06-21 10:00:15.567 [INFO] Transition: Crossfade 1.5s
+v13.3.4 2026-06-21 10:00:17.890 [INFO] Loading: 2025-01_Vacation.mp4
+v13.3.4 2026-06-21 10:00:18.123 [INFO] MPV: Video playback started - H.265/HEVC 4K
+v13.3.4 2026-06-21 10:00:33.456 [INFO] MPV: Video finished (15.3s duration)</div>
                     </div>
                 </div>
             </div>
@@ -504,34 +983,34 @@
             <p class="features-sub">Every component designed to run unattended for months without intervention.</p>
             <div class="feature-grid">
                 <div class="feature-card">
-                    <div class="feature-icon fi-purple">&#9889;</div>
+                    <div class="feature-icon fi-accent">&#9889;</div>
                     <h3>DRM/KMS Rendering</h3>
-                    <p>Direct GPU framebuffer rendering via SDL3. No desktop environment required&mdash;just raw performance on the Pi.</p>
+                    <p>Direct GPU framebuffer rendering via SDL3. No desktop environment required.</p>
                 </div>
                 <div class="feature-card">
-                    <div class="feature-icon fi-blue">&#9670;</div>
+                    <div class="feature-icon fi-purple">&#9670;</div>
                     <h3>Docker Containerized</h3>
-                    <p>All dependencies isolated. Build once, run anywhere on Raspberry Pi 4 or 5 with Trixie Lite.</p>
+                    <p>All dependencies isolated. Build once, run on Raspberry Pi 4 or 5.</p>
                 </div>
                 <div class="feature-card">
-                    <div class="feature-icon fi-green">&#128395;</div>
+                    <div class="feature-icon fi-green">&#127912;</div>
                     <h3>NAS-Optimized I/O</h3>
-                    <p>Custom getdents64 scanner with CIFS hang prevention. Your media on network storage, no lockups.</p>
+                    <p>Custom filesystem scanner with CIFS hang prevention for network storage.</p>
                 </div>
                 <div class="feature-card">
-                    <div class="feature-icon fi-orange">&#9729;</div>
+                    <div class="feature-icon fi-pink">&#9729;</div>
                     <h3>Google Photos Sync</h3>
-                    <p>Background OAuth2 sync from your albums. Configurable interval and local cache directory.</p>
+                    <p>Background OAuth2 sync from your albums with configurable intervals.</p>
                 </div>
                 <div class="feature-card">
-                    <div class="feature-icon fi-pink">&#127968;</div>
+                    <div class="feature-icon fi-accent">&#127968;</div>
                     <h3>Home Assistant MQTT</h3>
-                    <p>Auto-discovers as a smart home device. Screen on/off, skip, play/pause, and motion-based waking.</p>
+                    <p>Auto-discovers as a smart home device with screen, skip, and motion controls.</p>
                 </div>
                 <div class="feature-card">
-                    <div class="feature-icon fi-cyan">&#127912;</div>
-                    <h3>Cinematic Presentation</h3>
-                    <p>Ken Burns pans, crossfade transitions, color-matched matte borders, and ambient bias backlighting.</p>
+                    <div class="feature-icon fi-purple">&#128268;</div>
+                    <h3>Glassmorphic Dashboard</h3>
+                    <p>Web remote with live telemetry, playback controls, settings, and log streaming.</p>
                 </div>
             </div>
         </section>
@@ -539,9 +1018,27 @@
         <!-- Install -->
         <section class="install" id="install">
             <h2>Get started</h2>
-            <p>Flash Raspberry Pi OS Lite 64-bit, boot the Pi, and run one command.</p>
+            <p>One command. Fully containerized. Runs on boot.</p>
             <div class="install-box">
                 <pre><span class="prompt">$ </span><span class="cmd">wget -qO- https://raw.githubusercontent.com/UnDadFeated/piTrove/main/install.sh | sudo bash</span></pre>
+                <div class="install-steps">
+                    <div class="install-step">
+                        <span class="step-num">1</span>
+                        <span>Flash <strong>Raspberry Pi OS Lite 64-bit</strong> via the Pi Imager.</span>
+                    </div>
+                    <div class="install-step">
+                        <span class="step-num">2</span>
+                        <span>Boot the Pi, connect to your network, and SSH in.</span>
+                    </div>
+                    <div class="install-step">
+                        <span class="step-num">3</span>
+                        <span>Run the install command above. Docker, media mounts, and systemd unit are set up automatically.</span>
+                    </div>
+                    <div class="install-step">
+                        <span class="step-num">4</span>
+                        <span>Access the web dashboard at <code style="background:var(--accent-glow);padding:2px 6px;border-radius:4px;font-family:'JetBrains Mono',monospace;font-size:0.8rem;">http://&lt;pi-ip&gt;:8080</code>.</span>
+                    </div>
+                </div>
             </div>
         </section>
     </main>
@@ -556,5 +1053,51 @@
             </span>
         </div>
     </footer>
+
+    <div id="toast" class="toast"></div>
+
+    <script>
+        function switchTab(btn, tabId) {
+            document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+            btn.classList.add('active');
+            document.getElementById('tab-' + tabId).classList.add('active');
+        }
+
+        function toggleActive(el) {
+            el.classList.toggle('active');
+        }
+
+        function showToast(message) {
+            const toast = document.getElementById('toast');
+            toast.textContent = message;
+            toast.classList.add('show');
+            setTimeout(() => toast.classList.remove('show'), 2500);
+        }
+
+        // Simulate live timer countdown in Remote tab
+        (function() {
+            const timerEl = document.querySelector('#tab-remote .meta-timer');
+            if (!timerEl) return;
+            let seconds = 12;
+            setInterval(() => {
+                seconds--;
+                if (seconds < 0) seconds = 15;
+                timerEl.textContent = seconds + 's';
+            }, 1000);
+        })();
+
+        // Simulate pause toggle in Remote tab
+        const pauseBtn = document.querySelector('#demo-pause-label');
+        const pauseIcon = document.querySelector('#demo-pause-icon');
+        if (pauseBtn && pauseIcon) {
+            document.querySelector('#tab-remote .ctrl-btn.wide').addEventListener('click', function() {
+                const isPaused = pauseBtn.textContent === 'Resume';
+                pauseBtn.textContent = isPaused ? 'Pause' : 'Resume';
+                pauseIcon.innerHTML = isPaused ? '&#9648;&#9648;' : '&#9654;';
+                this.classList.toggle('active');
+            });
+        }
+    </script>
 </body>
 </html>
