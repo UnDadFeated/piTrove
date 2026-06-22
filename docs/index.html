@@ -724,6 +724,27 @@
             z-index: 200;
             pointer-events: none;
         }
+        /* Touch optimization */
+        * {
+            -webkit-tap-highlight-color: transparent;
+            -webkit-touch-callout: none;
+            user-select: none;
+        }
+        input, textarea, select {
+            user-select: text;
+            -webkit-user-select: text;
+        }
+        button, .ctrl-btn, .action-btn {
+            touch-action: manipulation;
+            -webkit-tap-highlight-color: transparent;
+        }
+        /* Prevent double-tap zoom on buttons */
+        @media (pointer: coarse) {
+            .ctrl-btn, .action-btn, .tab-btn, .btn-save {
+                min-height: 44px;
+                min-width: 44px;
+            }
+        }
         .toast.show {
             transform: translateX(-50%) translateY(0);
         }
@@ -877,6 +898,7 @@
                         <div class="controls-row">
                             <button class="ctrl-btn" onclick="showToast(&#39;Sent: Previous&#39;)">
                                 <span class="icon">&#9166;</span>
+                                <span class="label">Previous</span>
                             </button>
                             <button class="ctrl-btn wide accent" onclick="togglePause(); showToast(&#39;Sent: Pause&#39;)">
                                 <span class="icon" id="demo-pause-icon">&#9648;&#9648;</span>
@@ -884,9 +906,11 @@
                             </button>
                             <button class="ctrl-btn" onclick="showToast(&#39;Sent: Next&#39;)">
                                 <span class="icon">&#9167;</span>
+                                <span class="label">Next</span>
                             </button>
-                            <button class="ctrl-btn active" onclick="toggleActive(this); showToast(&#39;Shuffle toggled&#39;)">
+                            <button class="ctrl-btn active" onclick="toggleShuffle(this); showToast(&#39;Shuffle toggled&#39;)">
                                 <span class="icon">&#128256;</span>
+                                <span class="label" id="demo-shuffle-label">ON</span>
                             </button>
                         </div>
                     </div>
@@ -951,8 +975,8 @@
                                     <div class="form-group">
                                         <label for="set-volume">Video Volume</label>
                                         <div class="range-row">
-                                            <input type="range" id="set-volume" min="0" max="150" value="50" oninput="document.getElementById(&#39;demo-volume-val&#39;).textContent=this.value+&#39;%&#39;">
-                                            <span class="range-val" id="demo-volume-val">50%</span>
+                                            <input type="range" id="set-volume" min="0" max="150" value="0" oninput="document.getElementById(&#39;demo-volume-val&#39;).textContent=this.value+&#39;%&#39;">
+                                            <span class="range-val" id="demo-volume-val">--%</span>
                                         </div>
                                     </div>
                                 </div>
@@ -1063,12 +1087,28 @@ v13.3.4 2026-06-21 10:00:33.456 [INFO] MPV: Video finished (15.3s duration)</div
             pauseOn = !pauseOn;
             var icon = document.getElementById('demo-pause-icon');
             var label = document.getElementById('demo-pause-label');
+            var btn = document.querySelector('#tab-remote .ctrl-btn.wide');
             if (pauseOn) {
                 icon.innerHTML = '&#9654;';
                 label.textContent = 'Resume';
+                btn.classList.add('active');
             } else {
                 icon.innerHTML = '&#9648;&#9648;';
                 label.textContent = 'Pause';
+                btn.classList.remove('active');
+            }
+        }
+
+        var shuffleOn = true;
+        function toggleShuffle(btn) {
+            shuffleOn = !shuffleOn;
+            var label = document.getElementById('demo-shuffle-label');
+            if (shuffleOn) {
+                btn.classList.add('active');
+                label.textContent = 'ON';
+            } else {
+                btn.classList.remove('active');
+                label.textContent = 'OFF';
             }
         }
 
