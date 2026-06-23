@@ -58,7 +58,7 @@ struct Config {
     bool    show_people_faces{true};
     bool    keep_animals{true};
 
-    // New features v10.2.0
+    // [display] border
     bool    on_this_day_enabled{false};
     bool    web_dashboard_enabled{true};
     bool    diagnostics_hud_enabled{false};
@@ -66,7 +66,7 @@ struct Config {
     bool    twin_portrait_enabled{true};
     bool    closed_captions_enabled{true};
 
-    // New features v10.3.1 (Balanced Interleaving & OS Fallbacks)
+    // [display] drm/video devices
     std::string drm_connector{"auto"};
     std::string drm_card{"auto"};
     std::string font_path{"auto"};
