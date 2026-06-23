@@ -55,7 +55,7 @@ std::vector<ErrorSeed> get_all_error_seeds() {
             "E109",
             "NAS_CREDENTIALS_INVALID",
             "Authentication to the network storage share was rejected.",
-            "Verify the username and password in /home/pi/piTrove/config/nas.cred."
+            "Verify the username and password in ~/piTrove/config/nas.cred."
         },
         {
             "E110",

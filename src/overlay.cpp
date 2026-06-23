@@ -364,7 +364,7 @@ void OverlayManager::draw_all(int current_idx, int total_items, const MediaItem*
 
         std::uintmax_t db_size_kb = 0;
         {
-            std::string db_dir = "/home/pi/piTrove/cache";
+            std::string db_dir = "/app/cache";
             {
                 std::shared_lock lock(g_config_mtx);
                 db_dir = g_cfg.cache_dir;
