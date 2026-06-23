@@ -73,7 +73,7 @@ struct Config {
     std::string video_audio_device{"auto"};
 
     // Subtitles
-    std::string video_subtitles_dir{"/home/pi/piTrove/subtitles"};
+    std::string video_subtitles_dir{"/app/subtitles"};
     int     osd_offset_x{-50};
     int     osd_offset_y{-80};
     int     max_texture_dim{1920};

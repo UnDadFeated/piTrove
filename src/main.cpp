@@ -1184,7 +1184,7 @@ int main(int argc, char** argv) {
                 if (file_exists(c)) { config_path = c; break; }
             }
             if (config_path.empty()) {
-                config_path = "/home/pi/piTrove/src/config/config.toml";
+                config_path = "src/config/config.toml";
             }
         }
         
