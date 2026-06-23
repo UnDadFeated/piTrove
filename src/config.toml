@@ -1,44 +1,67 @@
 # ==========================================
-# piTrove Configuration File (v10.1.0)
+# piTrove Configuration File
 # ==========================================
+# This is the default configuration template bundled with the application.
+# It is copied into the Docker container at build time as a fallback.
+# The active configuration is loaded from the bind-mounted path at runtime.
+# For production use, edit config/config.toml on the host.
 
 [paths]
-media_dir = /mnt/nas
-cache_dir = /home/pi/piTrove/cache
-log_dir = /home/pi/piTrove/logs
+media_dir = "/app/media"
+cache_dir = "/app/cache"
+log_dir = "/app/logs"
+splash_file = "src/splash.png"
 
 [display]
-rotation = 0 # Deprecated/Ignored in Modesetting DRM pipeline
-splash_file = src/splash.png
+resolution = 1920,1080
+fullscreen = 0
+rotation = 0
+slideshow_fps = 30
 splash_overlay_y = 0.5
-auto_display_rotation = 1 # Deprecated/Ignored in Modesetting DRM pipeline
+auto_display_rotation = 0
+border_enabled = 1
+border_width = 10
+vignette_enabled = 1
+bg_style = "pattern"
+pattern_brightness = 45
+pattern_style = "random_animated"
+pattern_blend_count = 2
+blurred_background = 1
+color_matched_matte = 1
+matte_opacity = 0.5
+vignette_strength = 0.35
+blur_radius = 14
+glow_depth = 43
+edge_glow_shadow = 1
 
 [slideshow]
-shuffle = 1
-transition_delay = 120.0
+transition_delay = 120
 transition_duration = 1.5
-slideshow_fps = 30
 transition_effect = "crossfade"
 ken_burns = 0
 ken_burns_speed = 0.1
+ken_burns_zoom = 0.15
+shuffle = 1
+bias_lighting = 1
+bias_anim_speed = 0.5
+bias_anim_style = "edge_glow"
+bias_color_mode = "auto"
+bias_strength = 110
+edge_glow_shadow = 1
 matting = 1
 matting_size = 96
 cooldown_days = 330
 reset_cooldown_on_restart = 0
 preload_capacity = 4
 preload_workers = 2
-brightness_auto = 0
-brightness_auto_min = 50
-brightness_auto_max = 100
-bias_lighting = 1
- bias_anim_speed = 0.5
- bias_anim_style = "edge_glow"
- bias_color_mode = "auto"
- ken_burns_zoom = 0.15
- bias_strength = 110
- edge_glow_shadow = 1
- 
- [scan]
+clock_enabled = 0
+clock_x = 0.5
+clock_y = 0.96
+clock_font_size = 18
+clock_color = "white"
+clock_24h = 1
+
+[scan]
 recursive = 1
 depth = 10
 max_concurrent = 4
@@ -49,62 +72,52 @@ ignore_folders = ["@eaDir", "@Recycle", "Thumbs.db"]
 mmap_size = 67108864
 
 [log]
-level = info
+level = "info"
 log_keep_count = 5
 
 [overlay]
-font_path = "auto"
 timer_enabled = 1
 timer_x = 0.94
 timer_y = 0.03
 timer_font_size = 12
-timer_color = yellow
+timer_color = "yellow"
 filename_enabled = 1
 filename_x = 0.04
 filename_y = 0.966
+filename_font_size = 12
 count_enabled = 0
+count_x = 0.5
+count_y = 0.02
+count_font_size = 20
 videos_per_photos = 10
 play_just_photos = 0
 play_just_videos = 0
 show_people_faces = 1
 keep_animals = 1
-sleep_time = ""
-wake_time = ""
-
-[date_overlay]
-enabled = 0
-text = "%Y-%m-%d"
-x = 0.1
-y = 0.08
-font_size = 20
-color = cyan
-
-[touch]
-enabled = 0
-
-[collage]
-enabled = 0
-cols = 2
-rows = 2
+font_path = "auto"
 
 [video]
 volume = 0
-probe_timeout = 5
+probe_timeout = 3
 closed_captions_enabled = 1
 drm_connector = "auto"
 drm_card = "auto"
 video_audio_device = "auto"
+subtitles_dir = "/app/subtitles"
 osd_offset_x = -50
 osd_offset_y = -80
+max_texture_dim = 1920
+http_socket_timeout = 2
+http_bind_attempts = 10
 
 [dashboard]
 weather_enabled = 0
-weather_lat = 34.05.0
+weather_lat = 34.05
 weather_lon = -118.24
-dashboard_pin = "".0
+dashboard_pin = ""
 
 [remote]
-http_enabled = 1
+http_enabled = 0
 http_port = 9000
 web_dashboard_enabled = 1
 
@@ -114,9 +127,30 @@ diagnostics_hud_enabled = 0
 adaptive_text_enabled = 1
 twin_portrait_enabled = 1
 
+[date_overlay]
+enabled = 0
+text = "%Y-%m-%d"
+x = 0.1
+y = 0.08
+font_size = 20
+color = "cyan"
+
+[brightness]
+auto = 0
+auto_min = 50
+auto_max = 100
+
+[touch]
+enabled = 0
+
+[collage]
+enabled = 0
+cols = 2
+rows = 2
+
 [mqtt]
 enabled = 0
-broker = "192.168.4.111"
+broker = "localhost"
 port = 1883
 user = ""
 pass = ""
@@ -133,4 +167,12 @@ album_id = ""
 sync_interval_mins = 60
 cache_dir = "/app/cache/google_photos"
 
+[updates]
+auto_update = 0
+auto_update_branch = "main"
 
+[keepalive]
+enabled = 1
+interval_secs = 120
+gateway_ip = "192.168.1.1"
+wifi_interface = "wlan0"
