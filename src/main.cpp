@@ -1243,6 +1243,37 @@ int main(int argc, char** argv) {
         g_logger.warn("No config file found, using defaults");
     }
 
+    // Warn about deprecated config keys
+    {
+        std::ifstream cfg_check(config_path);
+        if (cfg_check.is_open()) {
+            std::string line;
+            while (std::getline(cfg_check, line)) {
+                if (line.find("rotation") != std::string::npos && line.find("auto_display_rotation") == std::string::npos) {
+                    g_logger.warn("Deprecated config key 'rotation' found - KMSDRM pipeline ignores this value");
+                }
+            }
+        }
+    }
+
+    // Validate that key directories exist
+    {
+        auto check_dir = [](const std::string& name, const std::string& dir) {
+            if (dir.empty()) return;
+            struct stat st;
+            if (stat(dir.c_str(), &st) != 0) {
+                g_logger.warn("Config directory '%s' (%s) does not exist - will create on first access", name, dir.c_str());
+            } else if (!S_ISDIR(st.st_mode)) {
+                g_logger.warn("Config '%s' path (%s) is not a directory", name, dir.c_str());
+            }
+        };
+        check_dir("media_dir", g_cfg.media_dir);
+        check_dir("cache_dir", g_cfg.cache_dir);
+        check_dir("log_dir", g_cfg.log_dir);
+    }
+
+
+
     std::string media_dir;
     std::string cache_dir;
     std::string log_dir;
@@ -1949,6 +1980,10 @@ int main(int argc, char** argv) {
     double fps_timer = 0.0;
     int frame_counter = 0;
     int active_fps = 60;
+
+    // Splash-to-first-photo fade state
+    bool first_photo_fade = true;
+    Uint64 fade_start_time = 0;
 
     while (g_running.load()) {
         if (g_config_changed.load()) {
@@ -2853,6 +2888,21 @@ int main(int argc, char** argv) {
                     advance_playlist(current_twin_data ? 2 : 1);
                 }
             }
+        }
+
+        // Splash-to-first-photo fade-out
+        if (first_photo_fade && (g_eligible.empty() || g_eligible[current_idx].type != "video")) {
+            if (fade_start_time == 0) fade_start_time = SDL_GetTicks();
+            Uint64 fade_elapsed = SDL_GetTicks() - fade_start_time;
+            float fade_alpha = 1.0f - std::min(1.0f, fade_elapsed / 500.0f);
+            if (fade_alpha > 0.0f) {
+                SDL_SetRenderDrawBlendMode(g_renderer.sdl_renderer, SDL_BLENDMODE_BLEND);
+                SDL_SetRenderDrawColor(g_renderer.sdl_renderer, 0, 0, 0, (Uint8)(fade_alpha * 255.0f));
+                SDL_FRect fade_rect = {0, 0, (float)g_renderer.screen_w, (float)g_renderer.screen_h};
+                SDL_RenderFillRect(g_renderer.sdl_renderer, &fade_rect);
+                g_renderer.present();
+            }
+            if (fade_alpha <= 0.0f) first_photo_fade = false;
         }
 
         playlist_lock.unlock(); // Unlock before frame sleep throttling

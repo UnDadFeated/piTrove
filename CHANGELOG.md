@@ -1,3 +1,18 @@
+# Changelog
+
+## v14.1.0 - Quality of Life Improvements (June 23, 2026)
+
+### Added
+- **Transition progress bar** - Optional progress indicator bar at the bottom of the screen showing remaining photo display time. Configured via config toggle or TUI Overlays menu.
+- **On-this-day date range** - Extended On This Day feature with a +/- day range setting, allowing matching photos within N days of the current date (not just exact month/day).
+- **Splash-to-first-photo fade** - First photo now fades in from black for a smoother startup experience.
+- **TUI Restore Defaults** - Press R in the TUI to reset all settings in the current category to factory defaults.
+- **Startup directory validation** - App now checks that media, cache, and log directories exist at startup and logs a warning if they are missing.
+- **Deprecated config key warnings** - Usage of deprecated config keys (e.g. rotation) now triggers a startup log warning.
+
+### Changed
+- **Offline mode message** - Error console now shows a friendlier, more descriptive message when offline rather than a generic diagnostic warning.
+- **TUI footer reorganized** - R Restore key added to the settings navigation footer.
 ## v13.4.0 — TUI Restructure & PIN Security Refinements (June 23, 2026)
 
 ### Added
@@ -838,8 +853,6 @@
 - **Edge sampling asymmetry** ? Fixed bottom edge pixel sampling to use 3 rows (matching the top edge) instead of a broken d=-1..+1 loop that yielded only 2 samples.
 - **Config logger guard** ? Added is_initialized() check before calling g_logger.warn during config load to prevent early-initialization log loss.
 - **Splash counter format** ? Removed zero-padded %06d format from FILES FND and CACHED display strings.
-
-# Changelog
 
 ## v11.4.1 — Concurrency, Stability & Cooldown Persistence (May 28, 2026)
 
@@ -1754,5 +1767,4 @@ if (!current_is_video && current_tex.id == 0) → CRT
 ---
 
 (Older versions archived in previous releases)
-
 

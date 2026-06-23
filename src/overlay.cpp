@@ -218,6 +218,7 @@ void OverlayManager::draw_all(int current_idx, int total_items, const MediaItem*
 
     bool diagnostics_hud_enabled = false;
     bool on_this_day_enabled = false;
+    int on_this_day_range = 0;
     bool adaptive_text_enabled = false;
 
     {
@@ -255,6 +256,7 @@ void OverlayManager::draw_all(int current_idx, int total_items, const MediaItem*
 
         diagnostics_hud_enabled = g_cfg.diagnostics_hud_enabled;
         on_this_day_enabled = g_cfg.on_this_day_enabled;
+        on_this_day_range = g_cfg.on_this_day_range;
         adaptive_text_enabled = g_cfg.adaptive_text_enabled;
     }
 
@@ -438,6 +440,25 @@ void OverlayManager::draw_all(int current_idx, int total_items, const MediaItem*
         }
     }
 
+    // 6b. Transition Progress Bar
+    if (g_cfg.progress_bar_enabled && !is_video && transition_delay > 0.0) {
+        int bar_h = 4;
+        int bar_w = sw - pad * 2;
+        int bar_x = pad;
+        int bar_y = sh - bar_h - pad;
+        double progress = std::min(1.0, item_timer / transition_delay);
+        int fill_w = (int)(bar_w * progress);
+        // Background bar
+        SDL_SetRenderDrawBlendMode(g_renderer.sdl_renderer, SDL_BLENDMODE_BLEND);
+        SDL_SetRenderDrawColor(g_renderer.sdl_renderer, 80, 80, 80, 120);
+        SDL_FRect bg_rect = {(float)bar_x, (float)bar_y, (float)bar_w, (float)bar_h};
+        SDL_RenderFillRect(g_renderer.sdl_renderer, &bg_rect);
+        // Fill bar
+        SDL_SetRenderDrawColor(g_renderer.sdl_renderer, 255, 255, 255, 180);
+        SDL_FRect fill_rect = {(float)bar_x, (float)bar_y, (float)fill_w, (float)bar_h};
+        SDL_RenderFillRect(g_renderer.sdl_renderer, &fill_rect);
+    }
+
     // 7. Gold Ribbon Anniversary Banner (On This Day)
     bool show_ribbon = false;
     int anniversary_years = 0;
@@ -448,10 +469,21 @@ void OverlayManager::draw_all(int current_idx, int total_items, const MediaItem*
             struct tm tm_now;
             struct tm* tmi = localtime_r(&now_t, &tm_now);
             if (tmi) {
-                int today_m = tmi->tm_mon + 1;
-                int today_d = tmi->tm_mday;
-                if (m == today_m && d == today_d) {
-                    int today_y = tmi->tm_year + 1900;
+                int today_y = tmi->tm_year + 1900;
+                // Compute calendar-day difference for on-this-day range matching
+                int diff_days = 0;
+                struct tm photo_tm = {};
+                photo_tm.tm_year = y;
+                photo_tm.tm_mon = m - 1;
+                photo_tm.tm_mday = d;
+                photo_tm.tm_hour = 12;
+                photo_tm.tm_isdst = -1;
+                time_t photo_epoch = mktime(&photo_tm);
+                if (photo_epoch != (time_t)-1) {
+                    double secs = difftime(now_t, photo_epoch);
+                    diff_days = abs((int)(secs / 86400.0)) % 365;
+                }
+                if (diff_days <= on_this_day_range) {
                     anniversary_years = today_y - y;
                     if (anniversary_years > 0) {
                         show_ribbon = true;
@@ -496,9 +528,9 @@ void OverlayManager::draw_all(int current_idx, int total_items, const MediaItem*
         snprintf(buf, sizeof(buf), "E%d", code_num);
         std::string code_str = buf;
 
-        std::string title = "SYSTEM_DIAGNOSTICS_WARNING";
-        std::string desc = "An internal diagnostic error occurred.";
-        std::string rec = "Please inspect config settings or reboot the frame.";
+        std::string title = "OFFLINE_MODE";
+        std::string desc = "No network connection detected. Showing cached media library.";
+        std::string rec = "Check your network connection or configure media paths in piTrove config.";
 
         if (g_cache) {
             g_cache->get_error_details(code_str, title, desc, rec);

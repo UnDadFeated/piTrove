@@ -60,10 +60,12 @@ struct Config {
 
     // [display] border
     bool    on_this_day_enabled{false};
+    int     on_this_day_range{0};  // +/- days for on-this-day matching (0=exact)
     bool    web_dashboard_enabled{true};
     bool    diagnostics_hud_enabled{false};
     bool    adaptive_text_enabled{true};
     bool    twin_portrait_enabled{true};
+    bool    progress_bar_enabled{false};  // Show transition progress bar at bottom
     bool    closed_captions_enabled{true};
 
     // [display] drm/video devices
