@@ -1,4 +1,3 @@
-## v13.3.9 — PIN Keypad Touchscreen Lock (June 22, 2026)
 ## v13.4.0 — TUI Restructure & PIN Security Refinements (June 23, 2026)
 
 ### Added
@@ -15,6 +14,7 @@
 - **Dashboard PIN lock** — New TUI-configurable 4-digit PIN that must be entered before the touch navigation overlay is shown. After 3 failed attempts, the keypad locks for 60 seconds with a countdown display.
 - **Weather default location** — Default weather coordinates changed to Los Angeles, US (34.05, -118.24). Weather remains disabled by default (user-configurable in the TUI).
 
+## v13.3.9 — PIN Keypad Touchscreen Lock (June 22, 2026)
 ## v13.3.8 — Code Audit Bug Fixes (June 22, 2026)
 
 ### Fixed
@@ -63,30 +63,6 @@
 - **Network recovery no longer waits for gateway ping to fail** — The keepalive loop now also checks NAS mount health via `is_nas_online()`. If the gateway is reachable but the NAS mount is dead, the system triggers the same recovery sequence (soft WiFi reset at 60s, hard reboot at 180s) instead of leaving the frame in a partially-connected state.
 - **Image load hangs on stale CIFS mounts** — All 6 image load call sites in the main loop are now guarded with a 3-second timeout via `load_timed()`. If a file read on a stale mount hangs, the load aborts after 3 seconds instead of blocking the slideshow thread indefinitely. Failed loads increment the consecutive failure counter, triggering offline recovery mode after 3 failures.
 
-## v13.3.3 — API Key Auth Restoration & Popen Safety (June 21, 2026)
-
-### Fixed
-
-- **HTTP API key authentication restored** — Re-added Bearer token validation on
-  `/api/settings/update` endpoint that was lost during code audit refactoring.
-- **Popen failure logging** — Added warning message when `popen()` returns null in HTTP
-  curl execution, aiding diagnostics of subprocess launch failures.
-
-## v13.3.5 — NAS Health-Aware Network Recovery & Image Load Timeout Guards (June 21, 2026)
-
-### Fixed
-- **Network recovery no longer waits for gateway ping to fail** — The keepalive loop now also checks NAS mount health via `is_nas_online()`. If the gateway is reachable but the NAS mount is dead, the system triggers the same recovery sequence (soft WiFi reset at 60s, hard reboot at 180s) instead of leaving the frame in a partially-connected state.
-- **Image load hangs on stale CIFS mounts** — All 6 image load call sites in the main loop are now guarded with a 3-second timeout via `load_timed()`. If a file read on a stale mount hangs, the load aborts after 3 seconds instead of blocking the slideshow thread indefinitely. Failed loads increment the consecutive failure counter, triggering offline recovery mode after 3 failures.
-
-## v13.3.3 — API Key Auth Restoration & Popen Safety (June 21, 2026)
-
-### Fixed
-
-- **HTTP API key authentication restored** — Re-added Bearer token validation on
-  `/api/settings/update` endpoint that was lost during code audit refactoring.
-- **Popen failure logging** — Added warning message when `popen()` returns null in HTTP
-  curl execution, aiding diagnostics of subprocess launch failures.
-
 ## v13.3.4 -- Security Hardening (June 21, 2026)
 
 ### Added
@@ -98,6 +74,15 @@
 - **Shell injection in escape_shell_arg** -- Added escaping for `$`, backticks, `!`, `\`, `;`, `&`, `|`, `<`, `>` in addition to existing single-quote handling. Prevents command injection via malformed OAuth credentials.
 - **popen null dereference** -- Added nullptr check after `popen()` in `execute_curl()` to prevent crash when pipe creation fails.
 - **Unbounded HTTP POST body** -- Added 64KB absolute request size cap and 256KB Content-Length upper bound to prevent memory exhaustion attacks.
+
+## v13.3.3 — API Key Auth Restoration & Popen Safety (June 21, 2026)
+
+### Fixed
+
+- **HTTP API key authentication restored** — Re-added Bearer token validation on
+  `/api/settings/update` endpoint that was lost during code audit refactoring.
+- **Popen failure logging** — Added warning message when `popen()` returns null in HTTP
+  curl execution, aiding diagnostics of subprocess launch failures.
 
 ## v13.3.2 — Code Audit Fixes: Concurrency, Safety & Resource Management (June 21, 2026)
 
@@ -1576,14 +1561,6 @@
 
 - **CRITICAL · Preload thread explosion** — `preload_running` flag raced between `update()`, `advance()`, and the preload thread, causing ~30 threads/sec spawned for the same image → SIGKILL by systemd in ~30s. Fixed with 4-part atomic lifecycle: (1) `preload_next()` atomically check-and-sets `preload_running=true` under `preload_lifecycle_mtx` before spawning, (2) preload thread keeps `preload_running=true` on success (prevents `update()` from restarting loop), (3) swap path resets `preload_running=false` so guard block can trigger next preload, (4) `advance()` joins in-flight thread then resets flag.
 
-## v7.9.0 — MPV black screen fix, countdown timer overlay (May 20, 2026)
-
-### Fixed
-
-- **Video black screen on Pi 5** — `hwdec=auto-safe` defaulted to `drmprime` which bypasses the Raylib FBO texture pipeline. Changed to `hwdec=v4l2m2m-copy` which brings decoded frames into shared GPU memory. Set `fbo.internal_format=0` (auto-detect) instead of `0x1908` which chokes GLES2 layout allocations.
-- **EGL surface asymmetry** — `make_egl_current()` and `release_egl_current()` now map both `EGL_DRAW` and `EGL_READ` surfaces instead of a single surface, preventing context flip draw validation failures.
-- **Countdown timer missing** — Replaced synchronous 60fps `mpv_get_property("time-remaining")` polling (which flooded IPC and caused thread locks) with `mpv_observe_property()` async listeners on the event thread. Updates pass via `std::atomic<double>` to the overlay engine. Timer overlay now shows `MM:SS` countdown during video playback.
-
 ## v7.8.1 — EXIF rotation at display time, skip video probing in Phase 2 (May 20, 2026)
 
 ### Fixed
@@ -1777,3 +1754,5 @@ if (!current_is_video && current_tex.id == 0) → CRT
 ---
 
 (Older versions archived in previous releases)
+
+
