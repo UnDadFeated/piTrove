@@ -562,6 +562,7 @@ void OverlayManager::draw_all(int current_idx, int total_items, const MediaItem*
         Uint64 now_ms = SDL_GetTicks();
         if (now_ms - nav_overlay_show_time > 3000) {
             nav_overlay_active = false;
+            pin_unlocked = false;
         } else {
             draw_nav_overlay();
         }
@@ -1154,6 +1155,7 @@ bool OverlayManager::handle_touch_click(float x, float y) {
         if (x >= left_x && x <= left_x + btn_size && y >= btn_y && y <= btn_y + btn_size) {
             g_remote_command.store(2); // previous
             nav_overlay_active = false;
+            pin_unlocked = false;
             g_logger.info("TOUCH_INPUT: Previous button clicked on navigation overlay.");
             return true;
         }
@@ -1161,6 +1163,7 @@ bool OverlayManager::handle_touch_click(float x, float y) {
         if (x >= right_x && x <= right_x + btn_size && y >= btn_y && y <= btn_y + btn_size) {
             g_remote_command.store(1); // next
             nav_overlay_active = false;
+            pin_unlocked = false;
             g_logger.info("TOUCH_INPUT: Next button clicked on navigation overlay.");
             return true;
         }
@@ -1168,12 +1171,14 @@ bool OverlayManager::handle_touch_click(float x, float y) {
         if (x >= center_x && x <= center_x + btn_size && y >= btn_y && y <= btn_y + btn_size) {
             menu_active = true;
             nav_overlay_active = false;
+            pin_unlocked = false;
             g_logger.info("TOUCH_INPUT: Settings gear clicked on navigation overlay, opening menu.");
             return true;
         }
 
         // Clicked outside buttons: dismiss the navigation overlay
         nav_overlay_active = false;
+        pin_unlocked = false;
         return true;
     }
 
