@@ -83,6 +83,8 @@ bool Config::load(const std::string& path) {
         else if (key == "show_people_faces") this->show_people_faces = !(val == "0" || val == "false");
         else if (key == "keep_animals")      this->keep_animals = !(val == "0" || val == "false");
         else if (key == "on_this_day_enabled") this->on_this_day_enabled = (val == "1" || val == "true");
+        else if (key == "on_this_day_range") this->on_this_day_range = std::clamp(safe_stoi(val, this->on_this_day_range), 0, 31);
+        else if (key == "progress_bar_enabled") this->progress_bar_enabled = (val == "1" || val == "true");
         else if (key == "web_dashboard_enabled") this->web_dashboard_enabled = !(val == "0" || val == "false");
         else if (key == "diagnostics_hud_enabled") this->diagnostics_hud_enabled = (val == "1" || val == "true");
         else if (key == "adaptive_text_enabled") this->adaptive_text_enabled = !(val == "0" || val == "false");
@@ -355,6 +357,7 @@ bool Config::save(const std::string& path) {
     f << "wake_time = " << (this->wake_time.empty() ? "\"\"" : "\"" + this->wake_time + "\"") << "\n";
     f << "filename_font_size = " << this->filename_font_size << "\n";
     f << "count_font_size = " << this->count_font_size << "\n";
+    f << "progress_bar_enabled = " << (this->progress_bar_enabled ? "1" : "0") << "\n";
     f << "font_path = \"" << (this->font_path.empty() ? "auto" : this->font_path) << "\"\n\n";
 
     f << "[video]\n";
@@ -385,6 +388,7 @@ bool Config::save(const std::string& path) {
 
     f << "[features]\n";
     f << "on_this_day_enabled = " << (this->on_this_day_enabled ? "1" : "0") << "\n";
+    f << "on_this_day_range = " << this->on_this_day_range << "\n";
     f << "diagnostics_hud_enabled = " << (this->diagnostics_hud_enabled ? "1" : "0") << "\n";
     f << "adaptive_text_enabled = " << (this->adaptive_text_enabled ? "1" : "0") << "\n";
     f << "twin_portrait_enabled = " << (this->twin_portrait_enabled ? "1" : "0") << "\n\n";

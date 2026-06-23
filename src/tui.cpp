@@ -141,7 +141,8 @@ void config_wizard(const std::string& config_path) {
         {"Count Enabled", TGL, "Show playlist progress (e.g., '14 / 2054')"},
         {"Diagnostics HUD", TGL, "Monospace OSD overlay showing FPS, SoC temp, SQLite size, tags"},
         {"Adaptive Text", TGL, "Color text outline dynamically based on background brightness"},
-        {"Splash Overlay Y", FLT, "Vertical position of splash UI (0.0 to 1.0)"}
+        {"Splash Overlay Y", FLT, "Vertical position of splash UI (0.0 to 1.0)"},
+        {"Progress Bar", TGL, "Show transition progress indicator bar at bottom of screen"}
     };
     static const CI CD[] = {
         {"Video Volume", INT, "Volume level for video playback (0=muted)"},
@@ -183,7 +184,8 @@ void config_wizard(const std::string& config_path) {
         {"Max Concurrent", INT, "Max threads during loading (match CPU cores)"},
         {"Keep People", TGL, "Only show photos containing people (family, faces, friends)"},
         {"Keep Animals", TGL, "Only show photos containing animals (pets, wildlife)"},
-        {"On This Day", TGL, "Filter playlist to pictures matching current month and day"}
+        {"On This Day", TGL, "Filter playlist to pictures matching current month and day"},
+        {"On This Day Range", INT, "Match photos within +/- N days of current date (0 = exact only)"}
     };
     static const CI CH[] = {
         {"Weather Enabled", TGL, "Fetch local weather via Open-Meteo API"},
@@ -298,6 +300,7 @@ void config_wizard(const std::string& config_path) {
             case 12: return g_cfg.diagnostics_hud_enabled?"[ON]":"[OFF]";
             case 13: return g_cfg.adaptive_text_enabled?"[ON]":"[OFF]";
             case 14: return std::to_string(g_cfg.splash_overlay_y);
+            case 15: return g_cfg.progress_bar_enabled?"[ON]":"[OFF]";
         }
         if (c == 3) switch(i) {
             case 0: return std::to_string(g_cfg.video_volume);
@@ -339,6 +342,7 @@ void config_wizard(const std::string& config_path) {
             case 5: return g_cfg.show_people_faces?"[ON]":"[OFF]";
             case 6: return g_cfg.keep_animals?"[ON]":"[OFF]";
             case 7: return g_cfg.on_this_day_enabled?"[ON]":"[OFF]";
+            case 8: return std::to_string(g_cfg.on_this_day_range);
         }
         if (c == 5) switch(i) {
             case 0: return g_cfg.weather_enabled?"[ON]":"[OFF]";
@@ -439,6 +443,7 @@ void config_wizard(const std::string& config_path) {
                 case 12:g_cfg.diagnostics_hud_enabled=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
                 case 13:g_cfg.adaptive_text_enabled=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
                 case 14:{ try { g_cfg.splash_overlay_y=std::stof(v); } catch(...) {} break; }
+                case 15:g_cfg.progress_bar_enabled=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
             }
             else if(c==3) switch(i){
                 case 0:{ try { int val = std::stoi(v); g_cfg.video_volume=std::clamp(val, 0, 150); } catch(...) {} break; }
@@ -499,6 +504,7 @@ void config_wizard(const std::string& config_path) {
                 case 5:g_cfg.show_people_faces=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
                 case 6:g_cfg.keep_animals=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
                 case 7:g_cfg.on_this_day_enabled=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
+                case 8:{ try { int val = std::stoi(v); g_cfg.on_this_day_range=std::clamp(val, 0, 31); } catch(...) {} break; }
             }
             else if(c==5) switch(i){
                 case 0:g_cfg.weather_enabled=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
@@ -744,7 +750,7 @@ void config_wizard(const std::string& config_path) {
             printf("\033[0m\n");
 
             if(!edit_mode)
-                printf("  \033[1;37m[^/v]\033[0m Select    \033[1;37m[</>]\033[0m Category    \033[1;37m[SPACE/ENTER]\033[0m Toggle/Edit    \033[1;32m[S]\033[0m Save    \033[1;31m[Q]\033[0m Quit\n");
+                printf("  \033[1;37m[^/v]\033[0m Select    \033[1;37m[</>]\033[0m Category    \033[1;37m[SPACE/ENTER]\033[0m Toggle/Edit    \033[1;32m[R]\033[0m Restore    \033[1;32m[S]\033[0m Save    \033[1;31m[Q]\033[0m Quit\n");
             else
                 printf("  \033[1;32m[ENTER]\033[0m Confirm   \033[1;31m[ESC]\033[0m Cancel      \033[1;37m[^/v]\033[0m Cycle Options\n");
 
@@ -898,6 +904,79 @@ void config_wizard(const std::string& config_path) {
                         flash_msg("[OK] Configuration saved.", 1, 2000);
                     }
                     run = false;
+                    dirty_full = true;
+                }
+                else if (c == 'r' || c == 'R') {
+                    // Restore current category to factory defaults
+                    {
+                        std::lock_guard lk(g_config_mtx);
+                        if (sel == 0) { // Display
+                            g_cfg.screen_w = 1920; g_cfg.screen_h = 1080;
+                            g_cfg.rotation = 0; g_cfg.ken_burns_zoom = 0.15f;
+                            g_cfg.auto_display_rotation = true; g_cfg.brightness_auto = true;
+                            g_cfg.brightness_auto_min = 30; g_cfg.brightness_auto_max = 100;
+                            g_cfg.border_enabled = true; g_cfg.border_width = 25;
+                            g_cfg.bg_style = "pattern"; g_cfg.pattern_offset = 75;
+                            g_cfg.pattern_style = "animated_combined"; g_cfg.pattern_blend_count = 2;
+                        } else if (sel == 1) { // Slideshow
+                            g_cfg.transition_delay = 10.0f; g_cfg.transition_duration = 0.8f;
+                            g_cfg.transition_effect = "dissolve"; g_cfg.ken_burns = true;
+                            g_cfg.ken_burns_speed = 0.05f; g_cfg.bias_lighting = true;
+                            g_cfg.bias_anim_speed = 1.0f; g_cfg.bias_anim_style = "aura";
+                            g_cfg.bias_color_mode = "auto"; g_cfg.matting = false;
+                            g_cfg.matting_size = 25; g_cfg.cooldown_days = 0;
+                            g_cfg.shuffle = true; g_cfg.twin_portrait_enabled = false;
+                            g_cfg.preload_capacity = 4; g_cfg.preload_workers = 2;
+                            g_cfg.reset_cooldown_on_restart = false; g_cfg.edge_glow_shadow = true;
+                        } else if (sel == 2) { // Overlays
+                            g_cfg.timer_enabled = true; g_cfg.timer_x = 0.5f;
+                            g_cfg.timer_y = 0.02f; g_cfg.timer_font_size = 16;
+                            g_cfg.timer_color = "yellow"; g_cfg.clock_enabled = false;
+                            g_cfg.clock_x = 0.5f; g_cfg.clock_y = 0.02f;
+                            g_cfg.clock_font_size = 16; g_cfg.clock_color = "yellow";
+                            g_cfg.clock_24h = false; g_cfg.count_enabled = true;
+                            g_cfg.diagnostics_hud_enabled = false; g_cfg.adaptive_text_enabled = true;
+                            g_cfg.splash_overlay_y = 0.85f; g_cfg.progress_bar_enabled = false;
+                        } else if (sel == 3) { // Videos
+                            g_cfg.video_volume = 0; g_cfg.videos_per_photos = 3;
+                            g_cfg.video_probe_timeout = 5; g_cfg.play_just_photos = false;
+                            g_cfg.play_just_videos = false; g_cfg.closed_captions_enabled = false;
+                            g_cfg.video_subtitles_dir = "/app/subtitles";
+                            g_cfg.osd_offset_x = 0; g_cfg.osd_offset_y = 0;
+                            g_cfg.max_texture_dim = 1920;
+                        } else if (sel == 4) { // Scanning
+                            g_cfg.recursive = true; g_cfg.scan_depth = 10;
+                            g_cfg.scan_window_days = 15; g_cfg.ignore_folders.clear();
+                            g_cfg.max_concurrent = 4; g_cfg.show_people_faces = true;
+                            g_cfg.keep_animals = false; g_cfg.on_this_day_enabled = false;
+                            g_cfg.on_this_day_range = 0;
+                        } else if (sel == 5) { // Weather
+                            g_cfg.weather_enabled = false;
+                            g_cfg.weather_lat = 37.7749f; g_cfg.weather_lon = -122.4194f;
+                        } else if (sel == 6) { // Security
+                            g_cfg.touch_enabled = true; g_cfg.dashboard_pin = "";
+                            g_cfg.auto_update = false; g_cfg.auto_update_branch = "main";
+                        } else if (sel == 7) { // Hardware
+                            g_cfg.sleep_time = ""; g_cfg.wake_time = "";
+                            g_cfg.drm_card = "auto"; g_cfg.drm_connector = "auto";
+                            g_cfg.font_path = ""; g_cfg.video_audio_device = "auto";
+                        } else if (sel == 8) { // Advanced
+                            g_cfg.verbose = false; g_cfg.http_socket_timeout = 10;
+                            g_cfg.http_bind_attempts = 10;
+                            g_cfg.cache_mmap_size = 67108864; g_cfg.log_keep_count = 5;
+                        } else if (sel == 9) { // MQTT
+                            g_cfg.mqtt_enabled = false; g_cfg.mqtt_broker = "";
+                            g_cfg.mqtt_port = 1883; g_cfg.mqtt_user = "";
+                            g_cfg.mqtt_pass = ""; g_cfg.mqtt_topic_prefix = "pitrove";
+                            g_cfg.mqtt_motionsensor_topic = ""; g_cfg.mqtt_motionsensor_cooldown = 60;
+                        } else if (sel == 10) { // GPhotos
+                            g_cfg.google_photos_enabled = false; g_cfg.google_photos_client_id = "";
+                            g_cfg.google_photos_client_secret = ""; g_cfg.google_photos_refresh_token = "";
+                            g_cfg.google_photos_album_id = ""; g_cfg.google_photos_sync_interval = 60;
+                            g_cfg.google_photos_cache_dir = "";
+                        }
+                    }
+                    flash_msg("[OK] Category restored to defaults.", 1, 2000);
                     dirty_full = true;
                 }
                 else if (c == '\n' || c == '\r' || c == ' ') {

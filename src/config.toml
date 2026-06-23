@@ -94,6 +94,7 @@ play_just_photos = 0
 play_just_videos = 0
 show_people_faces = 1
 keep_animals = 1
+progress_bar_enabled = 0
 font_path = "auto"
 
 [video]
@@ -123,6 +124,7 @@ web_dashboard_enabled = 1
 
 [features]
 on_this_day_enabled = 0
+on_this_day_range = 0
 diagnostics_hud_enabled = 0
 adaptive_text_enabled = 1
 twin_portrait_enabled = 1
