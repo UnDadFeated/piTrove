@@ -1,4 +1,15 @@
 ## v13.3.9 — PIN Keypad Touchscreen Lock (June 22, 2026)
+## v13.4.0 — TUI Restructure & PIN Security Refinements (June 23, 2026)
+
+### Added
+- **TUI Security submenu** — New category with Touchscreen Mode, Dashboard PIN, Auto Update, and Auto Update Branch settings.
+- **PIN-on-click** — Dashboard PIN keypad is now shown on first touch/click, before the navigation overlay appears. PIN must be re-entered each time the overlay is dismissed or times out.
+
+### Changed
+- **TUI categories reordered** — Categories restructured by relevance: Display, Slideshow, Overlays, Videos, Scanning, Weather, Security, Hardware, Advanced, MQTT, GPhotos.
+- **Settings reorganized** — Splash Overlay Y moved to Overlays, HTTP Timeout/Bind moved to Advanced, Min/Max Brightness moved to Display, Sleep/Wake moved to Hardware.
+- **System category removed** — Former System settings redistributed to more appropriate categories (Display, Overlays, Advanced, Hardware, Security).
+
 
 ### Added
 - **Dashboard PIN lock** — New TUI-configurable 4-digit PIN that must be entered before the touch navigation overlay is shown. After 3 failed attempts, the keypad locks for 60 seconds with a countdown display.

@@ -117,27 +117,14 @@ void config_wizard(const std::string& config_path) {
         {"Ken Burns Zoom", FLT, "Zoom intensity for Ken Burns effect (0.0 to 1.0)"},
         {"Auto Display Rotation", TGL, "Rotate images based on EXIF orientation"},
         {"Brightness Auto", TGL, "Auto backlight dimming based on time of day"},
+        {"Min Brightness", INT, "Floor for auto-brightness (0-100)"},
+        {"Max Brightness", INT, "Ceiling for auto-brightness (0-100)"},
         {"3D Border", TGL, "Enable 3D miter border around photos"},
         {"3D Border Width", INT, "Thickness of the 3D border in pixels"},
         {"Background Style", ENM, "Background style option (photo, plain, pattern)"},
         {"Pattern Brightness", INT, "Contrast offset for animated pattern style (0 to 150)"},
         {"Pattern Style", ENM, "Design pattern type (combined, grid, waves, dots)"},
         {"Pattern Blend Count", INT, "Number of design patterns to blend (1 to 3)"}
-    };
-    static const CI CB[] = {
-        {"Media Directory", STR, "Root folder containing photos and videos"},
-        {"Cache Directory", STR, "Folder for SQLite metadata cache"},
-        {"Log Directory", STR, "Folder to store runtime logs"},
-        {"Sleep Time", STR, "Time to turn off HDMI port (HH:MM, e.g. 23:00)"},
-        {"Wake Time", STR, "Time to turn on HDMI port (HH:MM, e.g. 07:30)"},
-        {"HTTP Remote", TGL, "Enable local web server to skip/pause"},
-        {"Web Dashboard", TGL, "Enable glassmorphic HTTP web remote control dashboard"},
-        {"HTTP Port", INT, "Port for local web server and dashboard (default: 9000)"},
-        {"Splash Overlay Y", FLT, "Vertical position of splash UI (0.0 to 1.0)"},
-        {"Auto Update", TGL, "Enable automatic background system updates"},
-        {"Auto Update Branch", ENM, "Git branch to pull updates from (main/develop)"},
-        {"Touchscreen Mode", TGL, "Enable touchscreen tap-to-menu and virtual keyboard controls"},
-        {"Dashboard PIN", STR, "4-digit PIN to unlock touch dashboard"}
     };
     static const CI CC[] = {
         {"Timer Enabled", TGL, "Show remaining photo/video duration overlay"},
@@ -153,7 +140,8 @@ void config_wizard(const std::string& config_path) {
         {"Clock 24h", TGL, "Use 24-hour format for clock"},
         {"Count Enabled", TGL, "Show playlist progress (e.g., '14 / 2054')"},
         {"Diagnostics HUD", TGL, "Monospace OSD overlay showing FPS, SoC temp, SQLite size, tags"},
-        {"Adaptive Text", TGL, "Color text outline dynamically based on background brightness"}
+        {"Adaptive Text", TGL, "Color text outline dynamically based on background brightness"},
+        {"Splash Overlay Y", FLT, "Vertical position of splash UI (0.0 to 1.0)"}
     };
     static const CI CD[] = {
         {"Video Volume", INT, "Volume level for video playback (0=muted)"},
@@ -165,9 +153,7 @@ void config_wizard(const std::string& config_path) {
         {"Subtitles Dir", STR, "Path to folder containing .srt files (matching video basename)"},
         {"OSD Offset X", INT, "Horizontal offset for mpv OSD overlay (pixels, negative=left)"},
         {"OSD Offset Y", INT, "Vertical offset for mpv OSD overlay (pixels, negative=down)"},
-        {"Max Tex Dim", INT, "Max texture dimension in pixels (256-8192)"},
-        {"HTTP Timeout", INT, "HTTP client socket timeout in seconds (1-60)"},
-        {"HTTP Bind Atmpt", INT, "Max HTTP port binding attempts (1-100)"}
+        {"Max Tex Dim", INT, "Max texture dimension in pixels (256-8192)"}
     };
     static const CI CE[] = {
         {"Transition Delay", FLT, "Seconds to display photo before transitioning"},
@@ -204,7 +190,15 @@ void config_wizard(const std::string& config_path) {
         {"Latitude", FLT, "Location latitude for weather API"},
         {"Longitude", FLT, "Location longitude for weather API"}
     };
+    static const CI CSEC[] = {
+        {"Touchscreen Mode", TGL, "Enable touchscreen tap-to-menu and virtual keyboard controls"},
+        {"Dashboard PIN", STR, "4-digit PIN to unlock touch dashboard"},
+        {"Auto Update", TGL, "Enable automatic background system updates"},
+        {"Auto Update Branch", ENM, "Git branch to pull updates from (main/develop)"}
+    };
     static const CI CF[] = {
+        {"Sleep Time", STR, "Time to turn off HDMI port (HH:MM, e.g. 23:00)"},
+        {"Wake Time", STR, "Time to turn on HDMI port (HH:MM, e.g. 07:30)"},
         {"DRM Card", STR, "Parent GPU modesetting card path (e.g. '/dev/dri/card1' or 'auto')"},
         {"DRM Connector", STR, "Active connected display connector port (e.g. 'HDMI-A-1' or 'auto')"},
         {"Font Path", STR, "Custom path to TTF/OTF font file (or 'auto' for default search)"},
@@ -212,8 +206,8 @@ void config_wizard(const std::string& config_path) {
     };
     static const CI CI2[] = {
         {"Log Level", ENM, "Console verbosity (debug, info, warn, error)"},
-        {"Min Brightness", INT, "Floor for auto-brightness (0-100)"},
-        {"Max Brightness", INT, "Ceiling for auto-brightness (0-100)"},
+        {"HTTP Timeout", INT, "HTTP client socket timeout in seconds (1-60)"},
+        {"HTTP Bind Atmpt", INT, "Max HTTP port binding attempts (1-100)"},
         {"SQLite mmap Size", INT, "Bytes to allocate for DB memory mapping"},
         {"Log Keep Count", INT, "Number of old log files to retain (default: 5)"}
     };
@@ -240,19 +234,19 @@ void config_wizard(const std::string& config_path) {
     struct CAT { const char* n; const CI* i; int c; };
     static const CAT CATS[] = {
         {"Display", CA, sizeof(CA)/sizeof(CA[0])},
-        {"System", CB, sizeof(CB)/sizeof(CB[0])},
+        {"Slideshow", CE, sizeof(CE)/sizeof(CE[0])},
         {"Overlays", CC, sizeof(CC)/sizeof(CC[0])},
         {"Videos", CD, sizeof(CD)/sizeof(CD[0])},
-        {"Slideshow", CE, sizeof(CE)/sizeof(CE[0])},
         {"Scanning", CG, sizeof(CG)/sizeof(CG[0])},
         {"Weather", CH, sizeof(CH)/sizeof(CH[0])},
+        {"Security", CSEC, sizeof(CSEC)/sizeof(CSEC[0])},
         {"Hardware", CF, sizeof(CF)/sizeof(CF[0])},
         {"Advanced", CI2, sizeof(CI2)/sizeof(CI2[0])},
         {"MQTT", CMQ, sizeof(CMQ)/sizeof(CMQ[0])},
         {"GPhotos", CGP, sizeof(CGP)/sizeof(CGP[0])}
     };
     static const char* CAT_COMPACT[] = {
-        "Disp", "Syst", "Over", "Vids", "Slide", "Scan", "Weath", "HW", "Adv", "MQTT", "Cloud"
+        "Disp", "Slid", "Over", "Vids", "Scan", "Weath", "Sec", "HW", "Adv", "MQTT", "Cloud"
     };
 
     // ── DATA ACCESSORS ──
@@ -268,12 +262,14 @@ void config_wizard(const std::string& config_path) {
             case 2: return std::to_string(g_cfg.ken_burns_zoom);
             case 3: return g_cfg.auto_display_rotation?"[ON]":"[OFF]";
             case 4: return g_cfg.brightness_auto?"[ON]":"[OFF]";
-            case 5: return g_cfg.border_enabled?"[ON]":"[OFF]";
-            case 6: return std::to_string(g_cfg.border_width);
-            case 7: return g_cfg.bg_style;
-            case 8: return std::to_string(g_cfg.pattern_offset);
-            case 9: return g_cfg.pattern_style;
-            case 10: return std::to_string(g_cfg.pattern_blend_count);
+            case 5: return std::to_string(g_cfg.brightness_auto_min);
+            case 6: return std::to_string(g_cfg.brightness_auto_max);
+            case 7: return g_cfg.border_enabled?"[ON]":"[OFF]";
+            case 8: return std::to_string(g_cfg.border_width);
+            case 9: return g_cfg.bg_style;
+            case 10: return std::to_string(g_cfg.pattern_offset);
+            case 11: return g_cfg.pattern_style;
+            case 12: return std::to_string(g_cfg.pattern_blend_count);
         }
         if (c == 1) switch(i) {
             case 0: return g_cfg.media_dir; case 1: return g_cfg.cache_dir; case 2: return g_cfg.log_dir;
@@ -301,6 +297,7 @@ void config_wizard(const std::string& config_path) {
             case 11: return g_cfg.count_enabled?"[ON]":"[OFF]";
             case 12: return g_cfg.diagnostics_hud_enabled?"[ON]":"[OFF]";
             case 13: return g_cfg.adaptive_text_enabled?"[ON]":"[OFF]";
+            case 14: return std::to_string(g_cfg.splash_overlay_y);
         }
         if (c == 3) switch(i) {
             case 0: return std::to_string(g_cfg.video_volume);
@@ -313,10 +310,8 @@ void config_wizard(const std::string& config_path) {
             case 7: return std::to_string(g_cfg.osd_offset_x);
             case 8: return std::to_string(g_cfg.osd_offset_y);
             case 9: return std::to_string(g_cfg.max_texture_dim);
-            case 10: return std::to_string(g_cfg.http_socket_timeout);
-            case 11: return std::to_string(g_cfg.http_bind_attempts);
         }
-        if (c == 4) switch(i) {
+        if (c == 1) switch(i) {
             case 0: return std::to_string(g_cfg.transition_delay);
             case 1: return std::to_string(g_cfg.transition_duration);
             case 2: return g_cfg.transition_effect;
@@ -335,7 +330,7 @@ void config_wizard(const std::string& config_path) {
             case 16: return g_cfg.reset_cooldown_on_restart?"[ON]":"[OFF]";
             case 17: return g_cfg.edge_glow_shadow?"[ON]":"[OFF]";
         }
-        if (c == 5) switch(i) {
+        if (c == 4) switch(i) {
             case 0: return g_cfg.recursive?"[ON]":"[OFF]";
             case 1: return std::to_string(g_cfg.scan_depth);
             case 2: return std::to_string(g_cfg.scan_window_days);
@@ -345,21 +340,29 @@ void config_wizard(const std::string& config_path) {
             case 6: return g_cfg.keep_animals?"[ON]":"[OFF]";
             case 7: return g_cfg.on_this_day_enabled?"[ON]":"[OFF]";
         }
-        if (c == 6) switch(i) {
+        if (c == 5) switch(i) {
             case 0: return g_cfg.weather_enabled?"[ON]":"[OFF]";
             case 1: return std::to_string(g_cfg.weather_lat);
             case 2: return std::to_string(g_cfg.weather_lon);
         }
+        if (c == 6) switch(i) {
+            case 0: return g_cfg.touch_enabled?"[ON]":"[OFF]";
+            case 1: return g_cfg.dashboard_pin.empty()?"(not set)":g_cfg.dashboard_pin;
+            case 2: return g_cfg.auto_update?"[ON]":"[OFF]";
+            case 3: return g_cfg.auto_update_branch;
+        }
         if (c == 7) switch(i) {
-            case 0: return g_cfg.drm_card;
-            case 1: return g_cfg.drm_connector;
-            case 2: return g_cfg.font_path;
-            case 3: return g_cfg.video_audio_device;
+            case 0: return g_cfg.sleep_time;
+            case 1: return g_cfg.wake_time;
+            case 2: return g_cfg.drm_card;
+            case 3: return g_cfg.drm_connector;
+            case 4: return g_cfg.font_path;
+            case 5: return g_cfg.video_audio_device;
         }
         if (c == 8) switch(i) {
             case 0: return g_cfg.verbose?"debug":"info";
-            case 1: return std::to_string(g_cfg.brightness_auto_min);
-            case 2: return std::to_string(g_cfg.brightness_auto_max);
+            case 1: return std::to_string(g_cfg.http_socket_timeout);
+            case 2: return std::to_string(g_cfg.http_bind_attempts);
             case 3: return std::to_string(g_cfg.cache_mmap_size);
             case 4: return std::to_string(g_cfg.log_keep_count);
         }
@@ -404,12 +407,14 @@ void config_wizard(const std::string& config_path) {
                 case 2:{ try { float val=std::stof(v); g_cfg.ken_burns_zoom=std::clamp(val, 0.01f, 5.0f); } catch(...) {} break; }
                 case 3:g_cfg.auto_display_rotation=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
                 case 4:g_cfg.brightness_auto=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
-                case 5:g_cfg.border_enabled=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
-                case 6:{ try { int val = std::stoi(v); g_cfg.border_width=std::clamp(val, 0, 250); } catch(...) {} break; }
-                case 7:g_cfg.bg_style=v;break;
-                case 8:{ try { int val = std::stoi(v); g_cfg.pattern_offset=std::clamp(val, 0, 150); } catch(...) {} break; }
-                case 9:g_cfg.pattern_style=v;break;
-                case 10:{ try { int val = std::stoi(v); g_cfg.pattern_blend_count=std::clamp(val, 1, 3); } catch(...) {} break; }
+                case 5:{ try { int val = std::stoi(v); g_cfg.brightness_auto_min=std::clamp(val, 0, 100); } catch(...) {} break; }
+                case 6:{ try { int val = std::stoi(v); g_cfg.brightness_auto_max=std::clamp(val, 0, 100); } catch(...) {} break; }
+                case 7:g_cfg.border_enabled=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
+                case 8:{ try { int val = std::stoi(v); g_cfg.border_width=std::clamp(val, 0, 250); } catch(...) {} break; }
+                case 9:g_cfg.bg_style=v;break;
+                case 10:{ try { int val = std::stoi(v); g_cfg.pattern_offset=std::clamp(val, 0, 150); } catch(...) {} break; }
+                case 11:g_cfg.pattern_style=v;break;
+                case 12:{ try { int val = std::stoi(v); g_cfg.pattern_blend_count=std::clamp(val, 1, 3); } catch(...) {} break; }
             }
             else if(c==1) switch(i){
                 case 0:g_cfg.media_dir=v;break; case 1:g_cfg.cache_dir=v;break; case 2:g_cfg.log_dir=v;break;
@@ -433,6 +438,7 @@ void config_wizard(const std::string& config_path) {
                 case 11:g_cfg.count_enabled=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
                 case 12:g_cfg.diagnostics_hud_enabled=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
                 case 13:g_cfg.adaptive_text_enabled=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
+                case 14:{ try { g_cfg.splash_overlay_y=std::stof(v); } catch(...) {} break; }
             }
             else if(c==3) switch(i){
                 case 0:{ try { int val = std::stoi(v); g_cfg.video_volume=std::clamp(val, 0, 150); } catch(...) {} break; }
@@ -445,10 +451,8 @@ void config_wizard(const std::string& config_path) {
                 case 7:{ try { g_cfg.osd_offset_x=std::stoi(v); } catch(...) {} break; }
                 case 8:{ try { g_cfg.osd_offset_y=std::stoi(v); } catch(...) {} break; }
                 case 9:{ try { g_cfg.max_texture_dim=std::clamp(std::stoi(v), 256, 8192); } catch(...) {} break; }
-                case 10:{ try { g_cfg.http_socket_timeout=std::clamp(std::stoi(v), 1, 60); } catch(...) {} break; }
-                case 11:{ try { g_cfg.http_bind_attempts=std::clamp(std::stoi(v), 1, 100); } catch(...) {} break; }
             }
-            else if(c==4) switch(i){
+            else if(c==1) switch(i){
                 case 0:{ try { float val = std::stof(v); g_cfg.transition_delay=std::max(1.0f, val); } catch(...) {} break; } case 1:{ try { float val = std::stof(v); g_cfg.transition_duration=std::clamp(val, 0.1f, 10.0f); } catch(...) {} break; }
                 case 2:g_cfg.transition_effect=v;break;
                 case 3:g_cfg.ken_burns=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
@@ -466,7 +470,7 @@ void config_wizard(const std::string& config_path) {
                 case 16:g_cfg.reset_cooldown_on_restart=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
                 case 17:g_cfg.edge_glow_shadow=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
             }
-            else if(c==5) switch(i){
+            else if(c==4) switch(i){
                 case 0:g_cfg.recursive=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
                 case 1:{ try { int val = std::stoi(v); g_cfg.scan_depth=std::clamp(val, 1, 100); } catch(...) {} break; }
                 case 2:{ try { int val = std::stoi(v); g_cfg.scan_window_days=std::clamp(val, 0, 365); } catch(...) {} break; }
@@ -496,21 +500,29 @@ void config_wizard(const std::string& config_path) {
                 case 6:g_cfg.keep_animals=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
                 case 7:g_cfg.on_this_day_enabled=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
             }
-            else if(c==6) switch(i){
+            else if(c==5) switch(i){
                 case 0:g_cfg.weather_enabled=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
                 case 1:{ try { float vl=std::stof(v); if(vl>=-90.0f&&vl<=90.0f) g_cfg.weather_lat=vl; } catch(...) {} break; }
                 case 2:{ try { float vn=std::stof(v); if(vn>=-180.0f&&vn<=180.0f) g_cfg.weather_lon=vn; } catch(...) {} break; }
             }
+            else if(c==6) switch(i){
+                case 0:g_cfg.touch_enabled=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
+                case 1:g_cfg.dashboard_pin=v;break;
+                case 2:g_cfg.auto_update=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
+                case 3:g_cfg.auto_update_branch=v;break;
+            }
             else if(c==7) switch(i){
-                case 0:g_cfg.drm_card=v;break;
-                case 1:g_cfg.drm_connector=v;break;
-                case 2:g_cfg.font_path=v;break;
-                case 3:g_cfg.video_audio_device=v;break;
+                case 0:g_cfg.sleep_time=v;break;
+                case 1:g_cfg.wake_time=v;break;
+                case 2:g_cfg.drm_card=v;break;
+                case 3:g_cfg.drm_connector=v;break;
+                case 4:g_cfg.font_path=v;break;
+                case 5:g_cfg.video_audio_device=v;break;
             }
             else if(c==8) switch(i){
                 case 0:{ if(v=="debug") g_cfg.verbose=true; else g_cfg.verbose=false; }break;
-                case 1:{ try { int val = std::stoi(v); g_cfg.brightness_auto_min=std::clamp(val, 0, 100); } catch(...) {} break; }
-                case 2:{ try { int val = std::stoi(v); g_cfg.brightness_auto_max=std::clamp(val, 0, 100); } catch(...) {} break; }
+                case 1:{ try { int val = std::stoi(v); g_cfg.http_socket_timeout=std::clamp(val, 1, 60); } catch(...) {} break; }
+                case 2:{ try { int val = std::stoi(v); g_cfg.http_bind_attempts=std::clamp(val, 1, 100); } catch(...) {} break; }
                 case 3:{ try { g_cfg.cache_mmap_size = std::clamp(std::stoll(v), 0LL, 268435456LL); } catch(...) {} break; }
                 case 4:{ try { g_cfg.log_keep_count=std::clamp(std::stoi(v), 1, 100); } catch(...) {} break; }
             }

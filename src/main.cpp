@@ -2117,35 +2117,35 @@ int main(int argc, char** argv) {
                         }
                     } else if (event.button.button == SDL_BUTTON_LEFT) {
                         if (g_overlay) {
+                            float mx = event.button.x;
+                            float my = event.button.y;
                             bool touch_mode = false;
                             {
                                 std::lock_guard lk(g_config_mtx);
                                 touch_mode = g_cfg.touch_enabled;
                             }
-                            if (touch_mode) {
-                                float mx = event.button.x;
-                                float my = event.button.y;
-                                if (g_overlay->menu_active || g_overlay->keyboard_active || g_overlay->nav_overlay_active) {
-                                    g_overlay->handle_touch_click(mx, my);
-                                } else {
-                                    // Check if PIN is configured and not yet unlocked
-                                    std::string stored_pin;
-                                    { std::shared_lock<std::shared_mutex> lk(g_config_mtx); stored_pin = g_cfg.dashboard_pin; }
-                                    if (!stored_pin.empty() && !g_overlay->pin_unlocked) {
-                                        g_overlay->pin_active = true;
-                                        g_logger.info("TOUCH_INPUT: PIN required before showing navigation overlay.");
-                                    } else {
-                                        if (g_mpv_player.is_active()) {
-                                            g_logger.info("TOUCH_INPUT: Touch during video: stopping mpv to open touch navigation overlay.");
-                                            g_mpv_player.stop();
-                                        }
-                                        g_overlay->nav_overlay_active = true;
-                                        g_overlay->nav_overlay_show_time = SDL_GetTicks();
-                                        g_logger.info("TOUCH_INPUT: Activating navigation overlay via click.");
-                                    }
-                                }
+                            // Route clicks to active overlays (menu, keyboard, nav, PIN keypad)
+                            if (g_overlay->menu_active || g_overlay->keyboard_active || g_overlay->nav_overlay_active || g_overlay->pin_active) {
+                                g_overlay->handle_touch_click(mx, my);
                             } else {
-                                g_remote_command.store(1);
+                                // Check if PIN is configured and not yet unlocked
+                                std::string stored_pin;
+                                { std::shared_lock<std::shared_mutex> lk(g_config_mtx); stored_pin = g_cfg.dashboard_pin; }
+                                if (!stored_pin.empty() && !g_overlay->pin_unlocked) {
+                                    g_overlay->pin_active = true;
+                                    g_logger.info("TOUCH_INPUT: PIN required before showing navigation overlay.");
+                                } else if (touch_mode) {
+                                    if (g_mpv_player.is_active()) {
+                                        g_logger.info("TOUCH_INPUT: Touch during video: stopping mpv to open touch navigation overlay.");
+                                        g_mpv_player.stop();
+                                    }
+                                    g_overlay->nav_overlay_active = true;
+                                    g_overlay->nav_overlay_show_time = SDL_GetTicks();
+                                    g_logger.info("TOUCH_INPUT: Activating navigation overlay via click.");
+                                } else {
+                                    // PIN unlocked or no PIN set, proceed with non-touch click
+                                    g_remote_command.store(1);
+                                }
                             }
                         }
                     }
@@ -2159,32 +2159,30 @@ int main(int argc, char** argv) {
                         mqtt_publish(prefix + "/status/screen", "ON", true);
                     }
                     if (g_overlay) {
+                        float mx = event.tfinger.x * g_renderer.screen_w;
+                        float my = event.tfinger.y * g_renderer.screen_h;
                         bool touch_mode = false;
                         {
                             std::lock_guard lk(g_config_mtx);
                             touch_mode = g_cfg.touch_enabled;
                         }
-                        if (touch_mode) {
-                            float mx = event.tfinger.x * g_renderer.screen_w;
-                            float my = event.tfinger.y * g_renderer.screen_h;
-                            if (g_overlay->menu_active || g_overlay->keyboard_active || g_overlay->nav_overlay_active) {
-                                g_overlay->handle_touch_click(mx, my);
+                        if (g_overlay->menu_active || g_overlay->keyboard_active || g_overlay->nav_overlay_active || g_overlay->pin_active) {
+                            g_overlay->handle_touch_click(mx, my);
+                        } else if (touch_mode) {
+                            // Check if PIN is configured and not yet unlocked
+                            std::string stored_pin;
+                            { std::shared_lock<std::shared_mutex> lk(g_config_mtx); stored_pin = g_cfg.dashboard_pin; }
+                            if (!stored_pin.empty() && !g_overlay->pin_unlocked) {
+                                g_overlay->pin_active = true;
+                                g_logger.info("TOUCH_INPUT: PIN required before showing navigation overlay (finger).");
                             } else {
-                                // Check if PIN is configured and not yet unlocked
-                                std::string stored_pin;
-                                { std::shared_lock<std::shared_mutex> lk(g_config_mtx); stored_pin = g_cfg.dashboard_pin; }
-                                if (!stored_pin.empty() && !g_overlay->pin_unlocked) {
-                                    g_overlay->pin_active = true;
-                                    g_logger.info("TOUCH_INPUT: PIN required before showing navigation overlay (finger).");
-                                } else {
-                                    if (g_mpv_player.is_active()) {
-                                        g_logger.info("TOUCH_INPUT: Finger touch during video: stopping mpv to open touch navigation overlay.");
-                                        g_mpv_player.stop();
-                                    }
-                                    g_overlay->nav_overlay_active = true;
-                                    g_overlay->nav_overlay_show_time = SDL_GetTicks();
-                                    g_logger.info("TOUCH_INPUT: Activating navigation overlay via finger touch.");
+                                if (g_mpv_player.is_active()) {
+                                    g_logger.info("TOUCH_INPUT: Finger touch during video: stopping mpv to open touch navigation overlay.");
+                                    g_mpv_player.stop();
                                 }
+                                g_overlay->nav_overlay_active = true;
+                                g_overlay->nav_overlay_show_time = SDL_GetTicks();
+                                g_logger.info("TOUCH_INPUT: Activating navigation overlay via finger touch.");
                             }
                         }
                     }
