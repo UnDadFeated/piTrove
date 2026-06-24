@@ -9,7 +9,11 @@ A professional-grade, **containerized** digital picture & video frame applicatio
 [![OS](https://img.shields.io/badge/OS-Trixie%20Lite%20%28Debian%2013%29-lightgreen?style=flat-square)](https://www.debian.org/)
 [![Architecture](https://img.shields.io/badge/arch-aarch64-orange?style=flat-square)](https://en.wikipedia.org/wiki/AArch64)
 [![Graphics](https://img.shields.io/badge/graphics-SDL3-red?style=flat-square)](https://www.libsdl.org/)
-[![Version](https://img.shields.io/badge/version-13.4.0-blue?style=flat-square)]()
+[![Version](https://img.shields.io/badge/version-14.1.0-blue?style=flat-square)]()
+[![Stars](https://img.shields.io/github/stars/UnDadFeated/piTrove?style=flat-square&logo=github)]()
+[![Forks](https://img.shields.io/github/forks/UnDadFeated/piTrove?style=flat-square&logo=github)]()
+[![Last Commit](https://img.shields.io/github/last-commit/UnDadFeated/piTrove?style=flat-square)]()
+[![Repo Size](https://img.shields.io/github/repo-size/UnDadFeated/piTrove?style=flat-square)]()
 
 ## 🚀 Quick Start
 
@@ -68,6 +72,10 @@ Once the installation completes, the picture frame runs automatically in the bac
   - **Professional Transitions**: High-quality crossfades, wipes, pixelate, and dissolve effects.
   - **Dynamic Ambient Lighting**: Photo-aware edge glow and bias lighting that blends the frame into the room.
   - **CRT Aesthetic**: Optional vignette and scanline overlays for a retro-digital look.
+  - **Bias Lighting** (5 styles): Edge glow, aura, pulsing, radiating, and absorbing photo-aware bias lighting with configurable strength and shadow depth.
+  - **Pattern Backgrounds**: Animated background patterns for photos that don't fill the screen (configurable pattern selection).
+  - **Transition Progress Bar**: Optional 4px progress bar rendered during crossfade transitions (configurable toggle).
+  - **Splash-to-First-Photo Fade**: Smooth 500ms black overlay fade-out on application startup, replacing an abrupt first-frame flash.
 - **Video Integration**: Seamless interleaving of H.264/H.265 videos using an accelerated `mpv` subprocess rendering directly via native DRM/KMS.
 - **Dynamic CPU Core Scaling**: Dynamically detects available hardware cores and allocates `max_cores - 1` decoding threads to play videos, maximizing hardware efficiency while keeping a core free for background system integrity.
 
@@ -80,6 +88,8 @@ Once the installation completes, the picture frame runs automatically in the bac
   - **Auto-Filter Clutter**: Automatically identifies and filters out screenshots, scanned documents, receipts, spreadsheets, text graphics, and system icons by default.
   - **TUI Integration**: Toggle filters on the fly via the TUI config wizard (`Keep People` and `Keep Animals` options) or within `config.toml`.
 - **Temporal Filtering**: A "Seasonal Window" filter shows photos from the current time of year across any year (e.g., show only "December" photos every December).
+- **On-This-Day Date Range**: Configurable ±N day tolerance (0–31) for anniversary matching — catches photos taken a few days before or after today's date across any year.
+- **Startup Directory Validation**: Automatically warns if any configured media, cache, or log directories are missing or inaccessible at startup.
 - **Intelligent Cooldown**: Ensures the same photo isn't shown too frequently (default 330-day cooldown).
 - **Robust Skip Pipeline**: Gracefully intercepts deleted, missing, or corrupt assets, dynamically marking them bad in the cache database and removing them from the queue to prevent application interruptions.
 
@@ -108,9 +118,14 @@ Once the installation completes, the picture frame runs automatically in the bac
 - **Glassmorphic HTTP HUD & Settings Control Panel**: Built-in glassmorphic web dashboard featuring interactive player controls, dynamic slideshow diagnostics telemetry (temp, cache DB size, queue size), complete configuration settings editing (with toggles for touchscreen mode, playlist shuffle, Ken Burns transitions, background blur, color-matched matte options, and video volume), live system logs stream (with scroll-preservation control), active MQTT broker connection cards, screen switches, and simulated motion triggers. Protected by optional API key authentication — set `[remote] api_key` in config.toml to require Bearer token auth for all settings changes.
 
 - **PIN Protected Dashboard**: Dashboard is locked with a 4-digit PIN by default (0000). Change via the `pitrove config` command.
-- **TUI Hardware & Config Wizard**: A robust, 10-tab terminal-based configurator menu over SSH featuring dedicated `"Hardware Settings"` and `"MQTT Integration"` menus to dynamically configure all frame variables.
+- **TUI Hardware & Config Wizard**: A robust, 11-category terminal-based configurator menu over SSH featuring dedicated `"Hardware Settings"`, `"MQTT Integration"`, `"Weather"`, and `"GPhotos"` menus to dynamically configure all frame variables.
 - **Interactive Touchscreen Control**: When touchscreen mode is enabled, touching the screen displays floating navigation overlays (Previous, Settings, Next) to easily advance or go back. The configuration menu features +/- buttons, volume sliders, and a full numerical keyboard modal for on-screen adjustments.
-- **Config Clamping Safety**: Implements 10 strict boundary checks and clamp safety validation logic inside the TOML configuration loader to guarantee system resilience.
+- **Config Clamping Safety**: Implements comprehensive boundary checks and clamp safety validation logic inside the TOML configuration loader to guarantee system resilience.
+- **Diagnostics HUD**: Phosphor-styled on-screen telemetry overlay showing real-time FPS, SoC temperature, queue depth, and active item count (configurable via TUI).
+- **Clock Overlay**: Configurable 12h/24h clock display with timezone support, rendered as part of the OSD overlay stack.
+- **Adaptive Text**: Auto-contrasting text rendering that dynamically adjusts stroke color based on the underlying image content for optimal readability.
+- **TUI Restore Defaults**: Press `R` in any TUI category to instantly factory-reset all settings in that category, with a flash confirmation.
+- **Sleep/Wake Timer**: Scheduled display power-on/off times — automatically blanks the screen at night and wakes it in the morning.
 
 ### 🛡️ Concurrency, Reliability & Security Safeguards
 - **Active Software Watchdog**: Background watchdog monitoring thread that automatically triggers an immediate container restart if the main slideshow loop stalls or freezes for more than 45 seconds.
@@ -128,6 +143,9 @@ Once the installation completes, the picture frame runs automatically in the bac
 - **DNS Resolution Monitoring (`E105`)**: Domain resolution checks on sync failures to distinguish name server/DNS lookup faults from bad credentials.
 - **Cache Filesystem Read-Only Auditing (`E405`)**: Directory writability checks on startup to detect permission restrictions.
 - **SQLite Concurrency & Timeout Tracking (`E402` / `E408`)**: Database transaction checking to report write timeouts or structural storage failures.
+- **Graceful Offline Mode**: Detects network/directory mount failures and displays a friendly "no network connection" message instead of generic internal error warnings.
+- **Deprecated Config Key Warnings**: Scans raw config at startup for legacy keys (e.g., `rotation`) and logs clear deprecation notices with migration guidance.
+- **OLED Burn-In Prevention**: Periodic pixel shifting and display content offset rotation to prevent static image retention on OLED panels.
 
 ## ⚙️  Technical Architecture
 
@@ -166,7 +184,7 @@ src/
 ├── scanner.cpp/h     — Recursive media scanning (getdents64)
 ├── cache.cpp/h       — SQLite3 WAL-mode metadata persistence
 ├── config.cpp/h      — TOML config parser & boundary validation
-├── tui.cpp/h         — Terminal-based setup & configuration wizard (10 categories)
+├── tui.cpp/h         — Terminal-based setup & configuration wizard (11 categories)
 ├── preload.cpp/h     — Two-phase async preload (surface → texture upload)
 ├── renderer.cpp/h    — SDL_Renderer primitives, EXIF rotation, bias lighting, CRT vignette
 ├── overlay.cpp/h     — OSD widgets (date, filename, count, timer, clock)
