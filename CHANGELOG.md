@@ -1,4 +1,17 @@
 # Changelog
+## v14.2.0 â Installer Experience Overhaul (Jun 24, 2026)
+
+### Added
+- **QR code for dashboard URL** â The post-install success card now displays a scannable QR code linking to the web dashboard (requires `qrencode`).
+- **Post-install media library check** â Scans the media directory after installation and reports how many photos/videos were found.
+- **What to Do Next checklist** â Ordered 5-step quick-start guide printed after the install success card.
+- **First-time config wizard prompt** â Asks if the user wants to launch `pitrove config` immediately after installation.
+- **CLI wrapper version bump** â Updated stale `pitrove config` help text from "8-tab" to "11-category".
+
+### Fixed
+- **CodeQL format specifier warning** â Fixed two `%s`/`std::string` type mismatches in directory validation logging.
+
+
 
 ## v14.1.0 - Quality of Life Improvements (June 23, 2026)
 
