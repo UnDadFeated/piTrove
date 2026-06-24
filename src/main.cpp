@@ -1262,9 +1262,9 @@ int main(int argc, char** argv) {
             if (dir.empty()) return;
             struct stat st;
             if (stat(dir.c_str(), &st) != 0) {
-                g_logger.warn("Config directory '%s' (%s) does not exist - will create on first access", name, dir.c_str());
+                g_logger.warn("Config directory '%s' (%s) does not exist - will create on first access", name.c_str(), dir.c_str());
             } else if (!S_ISDIR(st.st_mode)) {
-                g_logger.warn("Config '%s' path (%s) is not a directory", name, dir.c_str());
+                g_logger.warn("Config '%s' path (%s) is not a directory", name.c_str(), dir.c_str());
             }
         };
         check_dir("media_dir", g_cfg.media_dir);
