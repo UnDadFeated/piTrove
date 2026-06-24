@@ -1,0 +1,40 @@
+name: Clones Badge
+
+on:
+  schedule:
+    - cron: '0 6 * * 0'   # every Sunday 6 AM UTC
+  workflow_dispatch:        # manual trigger
+
+permissions:
+  contents: write
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fetch clone count from GitHub API
+        id: clones
+        run: |
+          CLONES=$(curl -s -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            "https://api.github.com/repos/${{ github.repository }}/traffic/clones" \
+            | jq '.count // 0')
+          echo "count=$CLONES" >> "$GITHUB_OUTPUT"
+
+      - name: Update badge JSON
+        run: |
+          mkdir -p .github
+          echo "{\"clones\":${{ steps.clones.outputs.count }}}" > .github/clones.json
+
+      - name: Commit if changed
+        run: |
+          git config user.name "piTrove Bot"
+          git config user.email "bot@pitrove.app"
+          git add .github/clones.json
+          if ! git diff --cached --quiet; then
+            git commit -m "Update clones badge: ${{ steps.clones.outputs.count }} total clones"
+            git push
+          else
+            echo "No change — count is still ${{ steps.clones.outputs.count }}"
+          fi
