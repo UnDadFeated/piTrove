@@ -11,7 +11,7 @@ A professional-grade, **containerized** digital picture & video frame applicatio
 [![Graphics](https://img.shields.io/badge/graphics-SDL3-red?style=flat-square)](https://www.libsdl.org/)
 [![Version](https://img.shields.io/badge/version-14.1.0-blue?style=flat-square)]()
 [![Stars](https://img.shields.io/github/stars/UnDadFeated/piTrove?style=flat-square&logo=github)]()
-[![Forks](https://img.shields.io/github/forks/UnDadFeated/piTrove?style=flat-square&logo=github)]()
+[![Clones](https://img.shields.io/badge/clones-3869-blue?style=flat-square)]()
 [![Last Commit](https://img.shields.io/github/last-commit/UnDadFeated/piTrove?style=flat-square)]()
 [![Repo Size](https://img.shields.io/github/repo-size/UnDadFeated/piTrove?style=flat-square)]()
 
