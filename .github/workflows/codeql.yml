@@ -1,0 +1,44 @@
+name: CodeQL
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: '0 3 * * 0'
+
+jobs:
+  analyze:
+    name: Analyze (cpp)
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: github/codeql-action/init@v3
+        with:
+          languages: cpp
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake build-essential pkg-config \
+            libsdl3-dev libsdl3-image-dev libsdl3-ttf-dev \
+            libsqlite3-dev libexif-dev libjpeg-dev libpng-dev \
+            libmpv-dev libcurl4-openssl-dev \
+            libdrm-dev libgbm-dev libegl1-mesa-dev libgles2-mesa-dev
+
+      - name: Build
+        run: |
+          mkdir -p build && cd build
+          cmake ../src -DCMAKE_BUILD_TYPE=Release
+          make -j$(nproc)
+
+      - uses: github/codeql-action/analyze@v3
+        with:
+          category: /language:cpp
