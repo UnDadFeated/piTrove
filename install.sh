@@ -64,6 +64,9 @@ fail()  {
     exit 1
 }
 
+# Track non-fatal warnings (QR, media, config wizard)
+G_EXIT_CODE=0
+
 # ── Safe Read Function for Piped Execution ────────────────────────────────────
 safe_read() {
     if [[ -t 0 ]]; then
@@ -1468,7 +1471,7 @@ show_help() {
 
 case "$1" in
     config)
-        docker exec -it piTrove /app/piTrove --config-wizard /app/config/config.toml
+        docker exec -it piTrove /app/piTrove --config-wizard /app/config/config.toml || G_EXIT_CODE=2
         ;;
     restart)
         echo -e "${YELLOW}[▸] Restarting piTrove service...${NC}"
@@ -1502,6 +1505,7 @@ check_media_directory() {
     local media_root="${PRIMARY_HOME}/piTrove/media"
     if [[ ! -d "$media_root" ]]; then
         echo -e "${YELLOW}  ⚠  Media directory not found at: $media_root${NC}"
+        G_EXIT_CODE=2
         echo -e "${YELLOW}     Photos will not display until media is added.${NC}"
         return
     fi
@@ -1511,6 +1515,7 @@ check_media_directory() {
         echo -e "${GREEN}  ✓  Media directory contains ${BOLD}${count}${NC}${GREEN} photos/videos${NC}"
     else
         echo -e "${YELLOW}  ⚠  No media files found in the media directory${NC}"
+        G_EXIT_CODE=2
         echo -e "${YELLOW}     Add photos to your NAS mount or local media folder.${NC}"
     fi
 }
@@ -1537,7 +1542,7 @@ print_success_card() {
     fi
     local url="http://${IP_ADDR}:9000/"
     local has_qr=false
-    command -v qrencode &>/dev/null && has_qr=true
+    command -v qrencode &>/dev/null && has_qr=true || G_EXIT_CODE=2
     local text="   • URL: $url"
     local pad=$(( 64 - ${#text} ))
     local spaces=""
@@ -1669,4 +1674,4 @@ if [[ "$launch_config" =~ ^[Yy]$ ]]; then
     docker exec -it piTrove /app/piTrove --config-wizard /app/config/config.toml
 fi
 
-echo
+exit $G_EXIT_CODE
