@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# install.sh — piTrove v13.2.1 Premium Graphical Installer
+# install.sh — piTrove v14.2.0 Premium Graphical Installer
 # Target: Debian Trixie (13) 64-bit on Raspberry Pi 4/5
 
 set -eo pipefail
@@ -266,6 +266,8 @@ ok "Debian Trixie 64-bit validated successfully"
 # 2. Bootstrap packages (git, lsb_release, pkg-config, curl needed below)
 run_with_spinner "Updating system package repositories" apt-get update -qq
 run_with_spinner "Installing bootstrap tools" apt-get install -y -qq git curl lsb-release pkg-config
+# Install QR code generator for terminal dashboard URL
+run_with_spinner "Installing QR encoder" apt-get install -y -qq qrencode 2>/dev/null || true
 
 # Bootstrap Docker
 if ! command -v docker &>/dev/null; then
@@ -1457,7 +1459,7 @@ show_help() {
     echo -e "Usage: ${BLUE}pitrove [command]${NC}"
     echo ""
     echo "Commands:"
-    echo -e "  ${GREEN}config${NC}   - Launch the 8-tab interactive terminal settings wizard"
+    echo -e "  ${GREEN}config${NC}   - Launch the 11-category interactive terminal settings wizard"
     echo -e "  ${GREEN}restart${NC}  - Safely restart the piTrove background slideshow daemon"
     echo -e "  ${GREEN}logs${NC}     - View/tail live application rendering & load logs"
     echo -e "  ${GREEN}status${NC}   - View current status of the background container service"
@@ -1494,6 +1496,25 @@ if [[ -f "$BOOTSTRAP" ]]; then
     info "Removed temporary bootstrap copy"
 fi
 
+
+# ── Post-Install Media Check ────────────────────────────────────────────────────
+check_media_directory() {
+    local media_root="${PRIMARY_HOME}/piTrove/media"
+    if [[ ! -d "$media_root" ]]; then
+        echo -e "${YELLOW}  ⚠  Media directory not found at: $media_root${NC}"
+        echo -e "${YELLOW}     Photos will not display until media is added.${NC}"
+        return
+    fi
+    local count
+    count=$(find "$media_root" -type f \( -iname "*.jpg" -o -iname "*.jpeg" -o -iname "*.png" -o -iname "*.webp" -o -iname "*.mp4" -o -iname "*.heic" -o -iname "*.mov" \) 2>/dev/null | wc -l)
+    if [[ "$count" -gt 0 ]]; then
+        echo -e "${GREEN}  ✓  Media directory contains ${BOLD}${count}${NC}${GREEN} photos/videos${NC}"
+    else
+        echo -e "${YELLOW}  ⚠  No media files found in the media directory${NC}"
+        echo -e "${YELLOW}     Add photos to your NAS mount or local media folder.${NC}"
+    fi
+}
+
 # ── Successful Completion Dashboard ───────────────────────────────────────────
 clear 2>/dev/null || true
 banner
@@ -1515,6 +1536,8 @@ print_success_card() {
         IP_ADDR="127.0.0.1"
     fi
     local url="http://${IP_ADDR}:9000/"
+    local has_qr=false
+    command -v qrencode &>/dev/null && has_qr=true
     local text="   • URL: $url"
     local pad=$(( 64 - ${#text} ))
     local spaces=""
@@ -1527,6 +1550,25 @@ print_success_card() {
     echo -e "${GREEN}║${NC}${BOLD}${CYAN}${text}${NC}${spaces}${GREEN}║${NC}"
     echo -e "${GREEN}║${NC}     Click to view MQTT telemetry, control the screen physically,   ${GREEN}║${NC}"
     echo -e "${GREEN}║${NC}     and trigger motion simulation sweeps remotely.                 ${GREEN}║${NC}"
+    if $has_qr; then
+        local qr_tmp
+        qr_tmp=$(mktemp)
+        qrencode -t ANSIUTF8 "$url" 2>/dev/null > "$qr_tmp"
+        if [[ -s "$qr_tmp" ]]; then
+            echo -e "${GREEN}║${NC}  ${BOLD}${WHITE}Scan QR Code to Open Dashboard:${NC}                                 ${GREEN}║${NC}"
+            while IFS= read -r qr_line; do
+                local qr_text="   $qr_line"
+                local qr_pad=$(( 64 - ${#qr_text} ))
+                local qr_spaces=""
+                if [[ $qr_pad -gt 0 ]]; then
+                    qr_spaces=$(printf '%*s' "$qr_pad" "")
+                fi
+                echo -e "${GREEN}║${NC}${DARK_GRAY}${qr_text}${NC}${qr_spaces}${GREEN}║${NC}"
+            done < "$qr_tmp"
+            rm -f "$qr_tmp"
+        fi
+        echo -e "${GREEN}║${NC}                                                                ${GREEN}║${NC}"
+    fi
     echo -e "${GREEN}║${NC}                                                                ${GREEN}║${NC}"
     echo -e "${GREEN}║${NC}  ${BOLD}${WHITE}How to Manage & Control (New CLI Wrapper):${NC}                    ${GREEN}║${NC}"
     echo -e "${GREEN}║${NC}   • ${BOLD}${YELLOW}pitrove config${NC}   Runs the interactive settings wizard.    ${GREEN}║${NC}"
@@ -1576,4 +1618,55 @@ print_success_card() {
 }
 
 print_success_card
+
+# ── Post-Install Media Check ────────────────────────────────────────────────────
+echo
+echo -e "${CYAN}╔════════════════════════════════════════════════════════════════╗${NC}"
+echo -e "${CYAN}║${NC}  ${BOLD}${WHITE}                    Media Library Check                       ${NC}  ${CYAN}║${NC}"
+echo -e "${CYAN}╚════════════════════════════════════════════════════════════════╝${NC}"
+check_media_directory
+
+# ── Ordered Next-Steps Checklist ────────────────────────────────────────────────
+echo
+echo -e "${MAGENTA}╔════════════════════════════════════════════════════════════════╗${NC}"
+echo -e "${MAGENTA}║${NC}  ${BOLD}${WHITE}                  What to Do Next (Quick Start)              ${NC}  ${MAGENTA}║${NC}"
+echo -e "${MAGENTA}╚════════════════════════════════════════════════════════════════╝${NC}"
+echo
+echo -e "  ${BOLD}${YELLOW}1.${NC} ${BOLD}Open the Dashboard${NC}  —  ${CYAN}$url${NC}"
+echo -e "     Browse your library, control playback, and adjust settings."
+echo
+echo -e "  ${BOLD}${YELLOW}2.${NC} ${BOLD}Configure the Frame${NC}  —  ${CYAN}pitrove config${NC}"
+echo -e "     Tweak transitions, overlays, WiFi setup, MQTT, and more."
+echo
+echo -e "  ${BOLD}${YELLOW}3.${NC} ${BOLD}Add Photos & Videos${NC}"
+echo -e "     Place media in your NAS mount or ${CYAN}${PRIMARY_HOME}/piTrove/media/${NC}"
+echo -e "     Supported: JPG, PNG, WebP, HEIC, MP4 (H.264/H.265)"
+echo
+echo -e "  ${BOLD}${YELLOW}4.${NC} ${BOLD}Check Status${NC}  —  ${CYAN}pitrove status${NC}  or  ${CYAN}pitrove logs${NC}"
+echo -e "     View live rendering logs and container health."
+echo
+echo -e "  ${BOLD}${YELLOW}5.${NC} ${BOLD}Join the Community${NC}  —  ${CYAN}https://reddit.com/r/piTrove${NC}"
+echo -e "     Share your setup, ask questions, and suggest features."
+echo
+
+# ── Launch Config Wizard Prompt ─────────────────────────────────────────────────
+echo -e "${CYAN}╔════════════════════════════════════════════════════════════════╗${NC}"
+echo -e "${CYAN}║${NC}  ${BOLD}${WHITE}              First-Time Configuration Wizard               ${NC}  ${CYAN}║${NC}"
+echo -e "${CYAN}╚════════════════════════════════════════════════════════════════╝${NC}"
+echo
+echo -e "  ${WHITE}Would you like to launch the interactive settings wizard now?${NC}"
+echo -e "  ${GRAY}You can always run it later with: ${CYAN}pitrove config${NC}${NC}"
+echo
+echo -e "  ${BOLD}${GREEN}[Y]${NC} Yes, launch the config wizard now"
+echo -e "  ${BOLD}${GRAY}[N]${NC} No, skip (frame is already running with defaults)"
+echo
+read -r -p "  ▸ Choice [Y/n]: " launch_config
+launch_config="${launch_config:-Y}"
+if [[ "$launch_config" =~ ^[Yy]$ ]]; then
+    echo
+    echo -e "  ${GREEN}Launching configuration wizard...${NC}"
+    echo
+    docker exec -it piTrove /app/piTrove --config-wizard /app/config/config.toml
+fi
+
 echo
