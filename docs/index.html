@@ -307,8 +307,22 @@
         }
         .feature-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+            grid-template-columns: repeat(3, 1fr);
             gap: 12px;
+            max-width: 900px;
+            margin: 0 auto;
+        }
+
+        @media (max-width: 768px) {
+            .feature-grid {
+                grid-template-columns: repeat(2, 1fr);
+            }
+        }
+
+        @media (max-width: 480px) {
+            .feature-grid {
+                grid-template-columns: 1fr;
+            }
         }
         .feature-card {
             background: var(--tblr-card-bg);
@@ -1163,6 +1177,51 @@
                     <div class="feature-icon"><span class="ti ti-dashboard"></span></div>
                     <h3>Web Dashboard</h3>
                     <p>Remote control with live telemetry, playback controls, settings, and log streaming.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon"><span class="ti ti-arrows-shuffle"></span></div>
+                    <h3>GPU Transition Effects</h3>
+                    <p>Pixelate and dissolve transitions between photos rendered on the GPU. Configurable duration and effect per profile.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon"><span class="ti ti-lamp"></span></div>
+                    <h3>Bias Lighting Controls</h3>
+                    <p>Five bias lighting modes with adjustable color, brightness, and zone width for ambient LED strips behind the frame.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon"><span class="ti ti-calendar-time"></span></div>
+                    <h3>On This Day</h3>
+                    <p>Automatically surfaces photos from the same date in past years. Configurable day range to broaden matching.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon"><span class="ti ti-hand-three-fingers"></span></div>
+                    <h3>Touchscreen Input</h3>
+                    <p>Native touch input via evdev. Swipe between photos, tap for overlay controls, long press for dashboard PIN.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon"><span class="ti ti-clock-play"></span></div>
+                    <h3>Scheduled Sleep/Wake</h3>
+                    <p>Set daily on/off times for the display. Screen blanks automatically at night, wakes in the morning.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon"><span class="ti ti-heartbeat"></span></div>
+                    <h3>Auto-Recovery Watchdog</h3>
+                    <p>Three-layer resilience: internal heartbeat, container restart policy, and host-level WiFi watchdog with automatic reboot.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon"><span class="ti ti-player-play"></span></div>
+                    <h3>Video Playback</h3>
+                    <p>H.264/H.265 MP4 playback via mpv integrated into the slideshow loop. Photo/video ratio and subtitle support included.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon"><span class="ti ti-moon"></span></div>
+                    <h3>OLED Burn-In Prevention</h3>
+                    <p>Pixel shifting and periodic content rotation to prevent burn-in on OLED displays. Configurable shift interval and pattern.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon"><span class="ti ti-palette"></span></div>
+                    <h3>Color Palette System</h3>
+                    <p>Multiple color themes (Emerald, Sapphire, Zinc) for the web dashboard and TUI. Switch live without restarting.</p>
                 </div>
             </div>
         </section>
