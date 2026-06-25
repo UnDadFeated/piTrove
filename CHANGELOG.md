@@ -1,4 +1,14 @@
 # Changelog
+
+## v14.3.0 - System-Level Network Watchdog (Jun 25, 2026)
+
+### Added
+- **External network watchdog** - New systemd service (`pitrove-watchdog.service`) that runs outside the Docker container at the host level. Monitors WiFi connectivity every 15 seconds and performs a soft WiFi reset (wpa_cli reconfigure + interface bounce) if the network drops for 30+ seconds. Falls back to a clean `reboot` if the reset does not restore connectivity - properly shuts down WiFi firmware (vs the old dirty SysRq inside the container).
+- **install.sh integration** - The watchdog script and systemd unit are automatically deployed during installation. No manual setup required.
+
+### Changed
+- **install.sh exit code handling** - Watchdog installation failures are non-fatal (continue install), tracked via `G_EXIT_CODE=2`.
+
 ## v14.2.0  -  Installer Experience Overhaul (Jun 24, 2026)
 
 ### Added

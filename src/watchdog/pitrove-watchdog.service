@@ -1,0 +1,16 @@
+[Unit]
+Description=piTrove Network Watchdog
+Documentation=https://github.com/UnDadFeated/piTrove
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/pitrove-watchdog.sh
+Restart=always
+RestartSec=10
+StandardOutput=null
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

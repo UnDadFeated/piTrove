@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# install.sh — piTrove v14.2.0 Premium Graphical Installer
+# install.sh — piTrove v14.3.0 Premium Graphical Installer
 # Target: Debian Trixie (13) 64-bit on Raspberry Pi 4/5
 
 set -eo pipefail
@@ -1402,6 +1402,9 @@ ok "Default production config.toml generated"
 # Final ownership pass to catch any root-created files during build
 chown -R $PRIMARY_USER:$PRIMARY_USER "$PRIMARY_HOME/piTrove"
 
+# Ensure watchdog directory exists
+mkdir -p "$PRIMARY_HOME/piTrove/src/watchdog"
+
 # ── systemd Service Deployment ─────────────────────────────────────────────────
 info "Installing daemon background service..."
 info "Systemd: Using probed DRM GPU device /dev/dri/$PROBED_CARD (index $PROBED_INDEX)"
@@ -1491,6 +1494,22 @@ esac
 EOF
 chmod +x /usr/local/bin/pitrove
 ok "'pitrove' CLI command wrapper successfully installed at /usr/local/bin/pitrove"
+# ── Network Watchdog Service (External to Docker) ──────────────────────────────
+info "Installing piTrove network watchdog service..."
+mkdir -p /etc/pitrove
+
+# Copy watchdog script
+cp "$PRIMARY_HOME/piTrove/src/watchdog/pitrove-watchdog.sh" /usr/local/bin/pitrove-watchdog.sh
+chmod +x /usr/local/bin/pitrove-watchdog.sh
+
+# Install systemd service unit
+cp "$PRIMARY_HOME/piTrove/src/watchdog/pitrove-watchdog.service" /etc/systemd/system/pitrove-watchdog.service
+
+systemctl daemon-reload
+systemctl enable pitrove-watchdog.service &>/dev/null
+systemctl start pitrove-watchdog.service &>/dev/null || true
+ok "pitrove-watchdog.service successfully registered, enabled & started"
+
 
 # ── Cleanup Bootstrap File ─────────────────────────────────────────────────────
 BOOTSTRAP="$PRIMARY_HOME/install.sh"
