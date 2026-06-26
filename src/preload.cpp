@@ -57,6 +57,7 @@ void PreloadQueue::start() {
         threads.emplace_back(&PreloadQueue::worker_thread, state, i);
     }
     g_logger.info("PreloadQueue started with %d worker threads (capacity=%d)", num_threads, state->max_size);
+    g_logger.info("Health check caching enabled (TTL=5s, NAS monitor=10s)");
 }
 
 void PreloadQueue::shutdown() {
@@ -308,6 +309,8 @@ static void compute_edge_data(const RawImage& raw,
 }
 
 void PreloadQueue::worker_thread(std::shared_ptr<PreloadState> state, int thread_id) {
+    g_logger.info("Preload worker %d: I/O throttle enabled (50ms between reads, capacity=%d)", thread_id, state->max_size);
+    g_logger.info("  Throttle ACTIVE: I/O spread to protect CIFS session");
     g_logger.debug("Preload worker thread %d starting", thread_id);
     while (state->running.load()) {
         std::string path;
@@ -433,6 +436,9 @@ void PreloadQueue::worker_thread(std::shared_ptr<PreloadState> state, int thread
             state->loaded_count.store((int)state->loaded_items.size());
         }
         state->queue_cv.notify_one();
+
+        // I/O throttle: spread out file reads to protect CIFS session
+        std::this_thread::sleep_for(std::chrono::microseconds(50000));  // 50ms between reads
     }
     g_logger.debug("Preload worker thread %d exiting", thread_id);
 }

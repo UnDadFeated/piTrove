@@ -984,6 +984,21 @@ std::vector<ErrorSeed> get_all_error_seeds() {
             "DASHBOARD_AUTH_MISMATCH",
             "The API key sent with the request does not match the configured value.",
             "Verify the Bearer token matches the api_key defined in [remote] of config.toml."
+        },
+
+        // --- I/O & Health Monitoring (E909-E910) ---
+        {
+            "E909",
+            "HEALTHCHECK_DEBOUNCE",
+            "Media directory health checks are cached (5s TTL) to reduce CIFS session load.",
+            "No action required. This indicates the I/O throttle is active."
+        },
+
+        {
+            "E910",
+            "IO_BURST_WARNING",
+            "Detected rapid successive health check failures within the cache window.",
+            "CIFS mount may be unstable. Check network connectivity to NAS."
         }
     };
 }
