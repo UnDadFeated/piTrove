@@ -690,17 +690,44 @@ std::string sanitize_alphanumeric(std::string_view input) {
     return output;
 }
 
+// Health check cache state
+static std::string g_last_health_check_path;
+static std::atomic<time_t> g_last_health_check_time{0};
+static bool g_last_health_check_result{false};
+static bool g_last_known_healthy{true};  // Track previous health state for E910
+static constexpr int HEALTH_CHECK_CACHE_TTL = 5;  // 5-second TTL
+
 bool is_media_dir_healthy(const std::string& media_dir) {
     if (media_dir.empty()) return false;
+
+    // Check cache -- same TTL pattern as is_nas_online()
+    time_t now = std::time(nullptr);
+    if (media_dir == g_last_health_check_path &&
+        now - g_last_health_check_time.load() <= HEALTH_CHECK_CACHE_TTL) {
+        return g_last_health_check_result;  // Return STATIC cached result
+    }
+
+    // Original health check logic (filesystem::exists, directory_iterator)
     std::error_code ec;
-    if (!std::filesystem::exists(media_dir, ec) || !std::filesystem::is_directory(media_dir, ec)) {
-        return false;
+    bool healthy = std::filesystem::exists(media_dir, ec) &&
+                   std::filesystem::is_directory(media_dir, ec);
+    if (healthy) {
+        auto it = std::filesystem::directory_iterator(media_dir, ec);
+        healthy = !(ec || it == std::filesystem::directory_iterator());
     }
-    auto it = std::filesystem::directory_iterator(media_dir, ec);
-    if (ec || it == std::filesystem::directory_iterator()) {
-        return false;
+
+    // Store cache result (statics -- survives across calls)
+    g_last_health_check_path = media_dir;
+    g_last_health_check_time.store(now);
+    g_last_health_check_result = healthy;
+
+    // Burst detection: if health state changed (healthy -> unhealthy)
+    if (!healthy && g_last_known_healthy) {
+        g_logger.warn("IO_BURST: Media dir went unhealthy -- check NAS connectivity");
     }
-    return true;
+    g_last_known_healthy = healthy;
+
+    return healthy;
 }
 
 #include <sys/socket.h>

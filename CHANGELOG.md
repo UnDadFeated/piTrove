@@ -1,5 +1,16 @@
 # Changelog
 
+## v14.4.0 — I/O Rate Limiting to Prevent NAS Mount Drops (Jun 26, 2026)
+
+### Added
+- **I/O throttle for background preloading** — Preload workers now spread file reads across 50ms intervals to reduce concurrent disk access and protect the CIFS network mount from overload.
+- **Cached media directory health checks** — Health check results are cached for 5 seconds, reducing repeated filesystem directory iterator calls that can overwhelm the NAS connection.
+- **Scanner thread cap removed** — Scanner thread count restored to hardware_concurrency() - 1 (3 threads on a 4-core Pi 5), using full available cores instead of a fixed cap of 4.
+- **Diagnostic monitoring codes** — New error codes E900 (I/O throttle active), E909 (health check caching engaged), and E910 (I/O burst warning) provide visibility into background I/O activity without triggering offline mode.
+
+### Fixed
+- **ERROR 101 (NAS mount drops) under heavy preloading** — Eliminated rapid concurrent disk I/O from preload workers and media scanner that exceeded CIFS session capacity and caused the NAS mount to drop.
+
 ## v14.3.0 - System-Level Network Watchdog (Jun 25, 2026)
 
 ### Added

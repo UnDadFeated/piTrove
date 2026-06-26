@@ -289,6 +289,8 @@ std::vector<MediaItem> MediaScanner::scan(const std::string& directory,
     int num_threads = std::min(hw_cores - 1, (int)subdirs.size());
     if (num_threads < 1) num_threads = 1;
 
+    g_logger.info("Media scanner starting with %d threads (hardware=%d)", num_threads, hw_cores);
+
     int chunk = std::max(1, (int)subdirs.size() / num_threads);
     std::vector<std::thread> threads;
     for (int t = 0; t < num_threads; t++) {
