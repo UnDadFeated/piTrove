@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# install.sh — piTrove v14.3.0 Premium Graphical Installer
+# install.sh — piTrove v14.4.1 Premium Graphical Installer
 # Target: Debian Trixie (13) 64-bit on Raspberry Pi 4/5
 
 set -eo pipefail
@@ -293,7 +293,9 @@ get_config_val() {
     fi
     local val
     val=$(awk -v sec="[$sec]" -v key="$key" '
-        $0 ~ "^\\[.*\\]" { in_sec = ($0 == sec) }
+        gsub(/^[[:space:]]+|[[:space:]]+$/, "", $0);
+        tsec = sec; gsub(/^[[:space:]]+|[[:space:]]+$/, "", tsec);
+        in_sec = ($0 == tsec)
         in_sec && $0 ~ "^[[:space:]]*"key"[[:space:]]*=" {
             sub(/^[^=]*=[[:space:]]*/, "");
             sub(/[[:space:]]*$/, "");
@@ -1424,7 +1426,7 @@ User=$PRIMARY_USER
 Group=$PRIMARY_USER
 WorkingDirectory=$PRIMARY_HOME/piTrove
 ExecStartPre=-/usr/bin/docker compose down
-ExecStart=/usr/bin/docker compose up --force-recreate
+ExecStart=/usr/bin/docker compose up -d
 ExecStop=/usr/bin/docker compose down
 Restart=always
 RestartSec=15
@@ -1524,7 +1526,7 @@ check_media_directory() {
     local media_root="${PRIMARY_HOME}/piTrove/media"
     if [[ ! -d "$media_root" ]]; then
         echo -e "${YELLOW}  ⚠  Media directory not found at: $media_root${NC}"
-        G_EXIT_CODE=2
+
         echo -e "${YELLOW}     Photos will not display until media is added.${NC}"
         return
     fi
@@ -1534,7 +1536,7 @@ check_media_directory() {
         echo -e "${GREEN}  ✓  Media directory contains ${BOLD}${count}${NC}${GREEN} photos/videos${NC}"
     else
         echo -e "${YELLOW}  ⚠  No media files found in the media directory${NC}"
-        G_EXIT_CODE=2
+
         echo -e "${YELLOW}     Add photos to your NAS mount or local media folder.${NC}"
     fi
 }
@@ -1561,7 +1563,7 @@ print_success_card() {
     fi
     local url="http://${IP_ADDR}:9000/"
     local has_qr=false
-    command -v qrencode &>/dev/null && has_qr=true || G_EXIT_CODE=2
+    command -v qrencode &>/dev/null && has_qr=true || true
     local text="   • URL: $url"
     local pad=$(( 64 - ${#text} ))
     local spaces=""
