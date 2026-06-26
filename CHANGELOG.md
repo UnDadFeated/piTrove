@@ -1,5 +1,13 @@
 # Changelog
 
+## v14.4.1 — Installer Stability Fixes (Jun 26, 2026)
+
+### Fixed
+- **Network mount no longer drops on service start** — Fixed container startup that previously broke the NAS connection during boot, ensuring reliable operation on fresh installs.
+- **QR code and media availability no longer cause install failures** — Cosmetic and informational warnings no longer set an error exit code.
+- **Settings parser handles formatted config files** — Config file merging now works correctly even if section headers contain extra whitespace.
+
+
 ## v14.4.0 — I/O Rate Limiting to Prevent NAS Mount Drops (Jun 26, 2026)
 
 ### Added
