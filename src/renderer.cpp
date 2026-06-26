@@ -993,6 +993,16 @@ void Renderer::draw_bias_lighting(const SDL_Rect& fit_rect, Uint8 avg_r, Uint8 a
 
     bool shadow_mode;
     { std::shared_lock lk(g_config_mtx); shadow_mode = g_cfg.edge_glow_shadow; }
+        // Shadow color = 50% of background brightness (guarantees darker than bg)
+    float bg_factor = 0.35f;
+    { std::shared_lock lk(g_config_mtx);
+        float vignette_str = g_cfg.vignette_strength;
+        bg_factor = (g_cfg.bg_style == "plain") ? 0.7f : 0.35f;
+        bg_factor *= vignette_str * 0.5f;
+    }
+    int shadow_r = (int)(avg_r * bg_factor);
+    int shadow_g = (int)(avg_g * bg_factor);
+    int shadow_b = (int)(avg_b * bg_factor);
     if (shadow_mode) {
         // 3D Shadow Look: only right and bottom glows, and bottom-right corner glow
         auto glow_down_shadow = [&](int gx, int gy, int gw, int max_depth) {
@@ -1005,7 +1015,7 @@ void Renderer::draw_bias_lighting(const SDL_Rect& fit_rect, Uint8 avg_r, Uint8 a
                     float alpha_f = std::expf(-2.5f * t2 * t2) * sf * pulse;
                     if (alpha_f < 0.01f) continue;
                     Uint8 aa = (Uint8)(alpha_f * 255.0f);
-                    SDL_SetRenderDrawColor(sdl_renderer, avg_r, avg_g, avg_b, aa);
+                    SDL_SetRenderDrawColor(sdl_renderer, shadow_r, shadow_g, shadow_b, aa);
                     SDL_FRect r = {(float)(gx + i), (float)(gy + s), 1.0f, 1.0f};
                     SDL_RenderFillRect(sdl_renderer, &r);
                 }
@@ -1015,7 +1025,7 @@ void Renderer::draw_bias_lighting(const SDL_Rect& fit_rect, Uint8 avg_r, Uint8 a
                     float alpha_f = std::expf(-2.5f * t2 * t2) * sf * pulse;
                     if (alpha_f >= 0.01f) {
                         Uint8 aa = (Uint8)(alpha_f * 255.0f);
-                        SDL_SetRenderDrawColor(sdl_renderer, avg_r, avg_g, avg_b, aa);
+                        SDL_SetRenderDrawColor(sdl_renderer, shadow_r, shadow_g, shadow_b, aa);
                         SDL_FRect r = {(float)(gx + glow_steps), (float)(gy + s), (float)(gw - glow_steps), 1.0f};
                         SDL_RenderFillRect(sdl_renderer, &r);
                     }
@@ -1033,7 +1043,7 @@ void Renderer::draw_bias_lighting(const SDL_Rect& fit_rect, Uint8 avg_r, Uint8 a
                     float alpha_f = std::expf(-2.5f * t2 * t2) * sf * pulse;
                     if (alpha_f < 0.01f) continue;
                     Uint8 aa = (Uint8)(alpha_f * 255.0f);
-                    SDL_SetRenderDrawColor(sdl_renderer, avg_r, avg_g, avg_b, aa);
+                    SDL_SetRenderDrawColor(sdl_renderer, shadow_r, shadow_g, shadow_b, aa);
                     SDL_FRect r = {(float)(gx + s), (float)(gy + j), 1.0f, 1.0f};
                     SDL_RenderFillRect(sdl_renderer, &r);
                 }
@@ -1043,7 +1053,7 @@ void Renderer::draw_bias_lighting(const SDL_Rect& fit_rect, Uint8 avg_r, Uint8 a
                     float alpha_f = std::expf(-2.5f * t2 * t2) * sf * pulse;
                     if (alpha_f >= 0.01f) {
                         Uint8 aa = (Uint8)(alpha_f * 255.0f);
-                        SDL_SetRenderDrawColor(sdl_renderer, avg_r, avg_g, avg_b, aa);
+                        SDL_SetRenderDrawColor(sdl_renderer, shadow_r, shadow_g, shadow_b, aa);
                         SDL_FRect r = {(float)(gx + s), (float)(gy + glow_steps), 1.0f, (float)(gh - glow_steps)};
                         SDL_RenderFillRect(sdl_renderer, &r);
                     }
@@ -1062,7 +1072,7 @@ void Renderer::draw_bias_lighting(const SDL_Rect& fit_rect, Uint8 avg_r, Uint8 a
                     float alpha_f = std::expf(-2.5f * t2 * t2) * sf * pulse;
                     if (alpha_f < 0.01f) continue;
                     Uint8 aa = (Uint8)(alpha_f * 255.0f);
-                    SDL_SetRenderDrawColor(sdl_renderer, avg_r, avg_g, avg_b, aa);
+                    SDL_SetRenderDrawColor(sdl_renderer, shadow_r, shadow_g, shadow_b, aa);
                     SDL_FRect r = {(float)(px + i * dx), (float)(py + j * dy), 1.0f, 1.0f};
                     SDL_RenderFillRect(sdl_renderer, &r);
                 }

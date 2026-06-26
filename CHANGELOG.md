@@ -1,5 +1,10 @@
 # Changelog
 
+## v14.4.2 — Shadow Effect Darkening (June 26, 2026)
+
+### Added
+- **Darker shadow rendering** — Shadow effect now uses a color 50% darker than the background, ensuring it reads as a natural shadow beneath the photo rather than a bright glow. Shadow adapts to background style and vignette settings.
+
 ## v14.4.1 — Installer Stability Fixes (Jun 26, 2026)
 
 ### Fixed
