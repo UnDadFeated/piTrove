@@ -998,7 +998,7 @@ void Renderer::draw_bias_lighting(const SDL_Rect& fit_rect, Uint8 avg_r, Uint8 a
     { std::shared_lock lk(g_config_mtx);
         float vignette_str = g_cfg.vignette_strength;
         bg_factor = (g_cfg.bg_style == "plain") ? 0.7f : 0.35f;
-        bg_factor *= vignette_str * 0.5f;
+        bg_factor *= vignette_str * 0.65f;
     }
     int shadow_r = (int)(avg_r * bg_factor);
     int shadow_g = (int)(avg_g * bg_factor);
@@ -1012,7 +1012,7 @@ void Renderer::draw_bias_lighting(const SDL_Rect& fit_rect, Uint8 avg_r, Uint8 a
                     int dx = glow_steps - i;
                     float dist = std::sqrtf((float)(s * s + dx * dx));
                     float t2 = dist / glow_steps;
-                    float alpha_f = std::expf(-2.5f * t2 * t2) * sf * pulse;
+                    float alpha_f = std::expf(-2.5f * t2 * t2) * sf;
                     if (alpha_f < 0.01f) continue;
                     Uint8 aa = (Uint8)(alpha_f * 255.0f);
                     SDL_SetRenderDrawColor(sdl_renderer, shadow_r, shadow_g, shadow_b, aa);
@@ -1022,7 +1022,7 @@ void Renderer::draw_bias_lighting(const SDL_Rect& fit_rect, Uint8 avg_r, Uint8 a
                 // Draw the remaining straight part: x from gx + glow_steps to gx + gw
                 if (gw > glow_steps) {
                     float t2 = (float)s / glow_steps;
-                    float alpha_f = std::expf(-2.5f * t2 * t2) * sf * pulse;
+                    float alpha_f = std::expf(-2.5f * t2 * t2) * sf;
                     if (alpha_f >= 0.01f) {
                         Uint8 aa = (Uint8)(alpha_f * 255.0f);
                         SDL_SetRenderDrawColor(sdl_renderer, shadow_r, shadow_g, shadow_b, aa);
@@ -1040,7 +1040,7 @@ void Renderer::draw_bias_lighting(const SDL_Rect& fit_rect, Uint8 avg_r, Uint8 a
                     int dy = glow_steps - j;
                     float dist = std::sqrtf((float)(s * s + dy * dy));
                     float t2 = dist / glow_steps;
-                    float alpha_f = std::expf(-2.5f * t2 * t2) * sf * pulse;
+                    float alpha_f = std::expf(-2.5f * t2 * t2) * sf;
                     if (alpha_f < 0.01f) continue;
                     Uint8 aa = (Uint8)(alpha_f * 255.0f);
                     SDL_SetRenderDrawColor(sdl_renderer, shadow_r, shadow_g, shadow_b, aa);
@@ -1050,7 +1050,7 @@ void Renderer::draw_bias_lighting(const SDL_Rect& fit_rect, Uint8 avg_r, Uint8 a
                 // Draw the remaining straight part: y from gy + glow_steps to gy + gh
                 if (gh > glow_steps) {
                     float t2 = (float)s / glow_steps;
-                    float alpha_f = std::expf(-2.5f * t2 * t2) * sf * pulse;
+                    float alpha_f = std::expf(-2.5f * t2 * t2) * sf;
                     if (alpha_f >= 0.01f) {
                         Uint8 aa = (Uint8)(alpha_f * 255.0f);
                         SDL_SetRenderDrawColor(sdl_renderer, shadow_r, shadow_g, shadow_b, aa);
@@ -1069,7 +1069,7 @@ void Renderer::draw_bias_lighting(const SDL_Rect& fit_rect, Uint8 avg_r, Uint8 a
                 for (int j = 1; j <= region_h; j++) {
                     float dist = std::sqrtf((float)(i * i + j * j));
                     float t2 = dist / glow_steps;
-                    float alpha_f = std::expf(-2.5f * t2 * t2) * sf * pulse;
+                    float alpha_f = std::expf(-2.5f * t2 * t2) * sf;
                     if (alpha_f < 0.01f) continue;
                     Uint8 aa = (Uint8)(alpha_f * 255.0f);
                     SDL_SetRenderDrawColor(sdl_renderer, shadow_r, shadow_g, shadow_b, aa);
