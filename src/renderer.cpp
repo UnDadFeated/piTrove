@@ -998,7 +998,7 @@ void Renderer::draw_bias_lighting(const SDL_Rect& fit_rect, Uint8 avg_r, Uint8 a
     { std::shared_lock lk(g_config_mtx);
         float vignette_str = g_cfg.vignette_strength;
         bg_factor = (g_cfg.bg_style == "plain") ? 0.7f : 0.35f;
-        bg_factor *= vignette_str * 0.65f;
+        bg_factor *= vignette_str * 0.80f;
     }
     int shadow_r = (int)(avg_r * bg_factor);
     int shadow_g = (int)(avg_g * bg_factor);
