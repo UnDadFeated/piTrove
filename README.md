@@ -10,7 +10,7 @@ A professional-grade, **containerized** digital picture & video frame applicatio
 <a href="https://en.wikipedia.org/wiki/AArch64"><img src="https://img.shields.io/badge/arch-aarch64-orange?style=flat-square" alt="Architecture" /></a>
 <a href="https://www.docker.com/"><img src="https://img.shields.io/badge/container-Docker%20%7C%20Compose-blueviolet?style=flat-square&logo=docker" alt="Docker" /></a>
 <a href="https://www.libsdl.org/"><img src="https://img.shields.io/badge/graphics-SDL3-red?style=flat-square" alt="Graphics" /></a>
-<img src="https://img.shields.io/badge/version-14.3.0-blue?style=flat-square" alt="Version" />
+<img src="https://img.shields.io/badge/version-14.4.2-blue?style=flat-square" alt="Version" />
 <img src="https://img.shields.io/github/stars/UnDadFeated/piTrove?style=flat-square&logo=github" alt="Stars" />
 <img src="https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fraw.githubusercontent.com%2FUnDadFeated%2FpiTrove%2Fmain%2F.github%2Fclones.json&query=clones&label=clones&color=blue&style=flat-square" alt="Clones" />
 </p>
@@ -179,6 +179,7 @@ src/
 ├── main.cpp          — Entry point, event loop, DRM master flow, motion cooldown
 ├── mqtt.cpp/h        — Background MQTT subprocess subscriber & HA discovery [NEW]
 ├── google_photos.cpp/h — Google Photos cloud synchronization and album manager [NEW]
+├── organizer.cpp/h   — Media archive chronological in-place organizer (--organize flag)
 ├── error_db.cpp/h    — Diagnostic error catalog definitions & metadata [NEW]
 ├── blur.cpp/h        — Separable box blur filter & matte color computation [NEW]
 ├── scanner.cpp/h     — Recursive media scanning (getdents64)
@@ -186,6 +187,7 @@ src/
 ├── config.cpp/h      — TOML config parser & boundary validation
 ├── tui.cpp/h         — Terminal-based setup & configuration wizard (11 categories)
 ├── preload.cpp/h     — Two-phase async preload (surface → texture upload)
+├── preprocess.cpp/h  — Background EXIF rotation, crop, and metadata preprocessing queue
 ├── renderer.cpp/h    — SDL_Renderer primitives, EXIF rotation, bias lighting, CRT vignette
 ├── overlay.cpp/h     — OSD widgets (date, filename, count, timer, clock)
 ├── transition.cpp/h  — High-performance SDL3 transitions (crossfade, wipe, pixelate, dissolve)
