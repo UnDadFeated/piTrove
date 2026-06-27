@@ -1718,11 +1718,11 @@ if [[ "$launch_config" =~ ^[Yy]$ ]]; then
     echo -e "  ${GREEN}Launching configuration wizard...${NC}"
     echo
     docker exec -it piTrove /app/piTrove --config-wizard /app/config/config.toml
-else
-    echo
-    echo -e "  ${YELLOW}Note: If you plan to run 'docker' commands directly without sudo,${NC}"
-    echo -e "        please log out and log back in (or run 'newgrp docker') for the group membership to take effect.${NC}"
-    echo
 fi
+
+echo
+echo -e "  ${YELLOW}Note: If you plan to run 'docker' commands directly without sudo,${NC}"
+echo -e "        please log out and log back in (or run 'newgrp docker') for the group membership to take effect.${NC}"
+echo
 
 exit $G_EXIT_CODE
