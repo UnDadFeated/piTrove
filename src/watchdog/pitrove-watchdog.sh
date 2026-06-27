@@ -12,9 +12,10 @@ DOCKER_CONTAINER="${DOCKER_CONTAINER:-piTrove}"
 CIFS_REMOUNT_COOLDOWN="${CIFS_REMOUNT_COOLDOWN:-60}"
 
 FAIL_COUNT=0
-MAX_FAIL=2          # 2 checks * 15 seconds = 30s offline trigger
+MAX_FAIL=12          # 12 checks * 15 seconds = 180s (3 minutes) offline trigger
 WIFI_RESET_DONE=false
 WAS_OFFLINE=false
+LAST_REMOUNT=0
 
 # Source optional config override (installed by install.sh)
 CONF_FILE="/etc/pitrove/wdog.conf"
@@ -81,12 +82,29 @@ log "Watchdog started. Monitoring gateway $GATEWAY on $INTERFACE every 15s."
 while true; do
     if network_is_ok; then
         if [ "$WAS_OFFLINE" = true ]; then
-            log "Network connection recovered. Restoring stale CIFS mount and restarting container..."
-            umount -f -l "$CIFS_MOUNT" 2>/dev/null || true
-            sleep 1
-            mount "$CIFS_MOUNT" 2>/dev/null || true
-            sleep 1
-            docker restart "$DOCKER_CONTAINER" 2>/dev/null || true
+            current_time=$(date +%s)
+            
+            # Check cooldown throttle
+            if [ $((current_time - LAST_REMOUNT)) -ge "$CIFS_REMOUNT_COOLDOWN" ]; then
+                LAST_REMOUNT=$current_time
+                log "Network connection recovered. Performing recovery sequence..."
+                
+                # Check if mount is actually a CIFS mount
+                if grep -qs " $CIFS_MOUNT " /proc/mounts && grep -qs "cifs" /proc/mounts; then
+                    log "CIFS mount active at $CIFS_MOUNT — unmounting and remounting..."
+                    umount -f -l "$CIFS_MOUNT" 2>/dev/null || true
+                    sleep 1
+                    mount "$CIFS_MOUNT" 2>/dev/null || true
+                    sleep 1
+                else
+                    log "CIFS mount not active at $CIFS_MOUNT — skipping remount."
+                fi
+                
+                log "Restarting application container..."
+                docker restart "$DOCKER_CONTAINER" 2>/dev/null || true
+            else
+                log "Network recovered, but remount/restart is throttled (cooldown active)."
+            fi
             WAS_OFFLINE=false
         fi
         FAIL_COUNT=0
@@ -98,7 +116,7 @@ while true; do
 
         if [ "$FAIL_COUNT" -ge "$MAX_FAIL" ]; then
             if [ "$WIFI_RESET_DONE" = false ]; then
-                log "Network down for 30s. Attempting one WiFi reset before reboot..."
+                log "Network down for ~3 minutes. Attempting one WiFi reset before reboot..."
                 WIFI_RESET_DONE=true
                 FAIL_COUNT=0
                 reset_wifi

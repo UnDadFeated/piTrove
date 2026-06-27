@@ -12,6 +12,7 @@
 - **Auto-update stability** — Changed `--update` branch git mechanism to use `git reset --hard` instead of `--rebase` to prevent failures when local modifications exist.
 - **Config write safety** — Config merging now writes to a temporary file and renames atomically to prevent file truncation on write errors.
 - **Wizard read TTY compatibility** — Final config prompt now uses `safe_read` to properly handle piped execution.
+- **Watchdog trigger threshold** — Increased `MAX_FAIL` from 2 checks (30s) to 12 checks (3m) to align with the application keepalive timeout and prevent reboots on transient connection drops.
 
 ## v14.5.1 — Dynamic Network Recovery Config (June 27, 2026)
 
