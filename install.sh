@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# install.sh — piTrove v14.5.1 Premium Graphical Installer
+# install.sh — piTrove v14.5.2 Premium Graphical Installer
 # Target: Debian Trixie (13) 64-bit on Raspberry Pi 4/5
 
 set -eo pipefail
@@ -227,11 +227,15 @@ run_compilation_with_progress() {
 banner
 
 # 1. Detect primary user (fallback if UID 1000 is modified or in non-interactive/cron contexts)
-SCRIPT_OWNER=$(stat -c '%U' "$0" 2>/dev/null || true)
-if [[ -n "$SCRIPT_OWNER" && "$SCRIPT_OWNER" != "root" ]]; then
-    PRIMARY_USER="$SCRIPT_OWNER"
+if [[ -n "${SUDO_USER:-}" && "$SUDO_USER" != "root" ]]; then
+    PRIMARY_USER="$SUDO_USER"
 else
-    PRIMARY_USER=$(getent passwd 1000 | cut -d: -f1 || true)
+    SCRIPT_OWNER=$(stat -c '%U' "$0" 2>/dev/null || true)
+    if [[ -n "$SCRIPT_OWNER" && "$SCRIPT_OWNER" != "root" ]]; then
+        PRIMARY_USER="$SCRIPT_OWNER"
+    else
+        PRIMARY_USER=$(getent passwd 1000 | cut -d: -f1 || true)
+    fi
 fi
 
 if [[ -z "$PRIMARY_USER" ]]; then
@@ -483,8 +487,8 @@ if [[ "$1" == "--update" ]]; then
     
     info "Updates discovered! Upgrading repository from commit ${CYAN}${LOCAL_COMMIT:0:7}${NC} to ${GREEN}${REMOTE_COMMIT:0:7}${NC}..."
     
-    # Pull latest changes as primary user
-    run_with_spinner "Pulling latest changes from remote branch" sudo -u "$PRIMARY_USER" git pull --rebase
+    # Reset latest changes to match remote branch cleanly
+    run_with_spinner "Pulling latest changes from remote branch" sudo -u "$PRIMARY_USER" git reset --hard "origin/$CONFIG_BRANCH"
     
     # Rebuild docker compose container image
     run_with_spinner "Rebuilding container image" docker compose build
@@ -1268,6 +1272,7 @@ if [[ -f "$CONFIG_FILE" ]]; then
     cp "$CONFIG_FILE" "$CONFIG_FILE.bak.$(date +%Y%m%d%H%M%S)"
     info "Merging updates into existing config.toml..."
     python3 "$PRIMARY_HOME/piTrove/scripts/merge_config.py" "$PRIMARY_HOME/piTrove/src/config.toml" "$CONFIG_FILE" 
+    sed -i "s/^window_days = .*/window_days = $SCAN_WINDOW_DAYS/" "$CONFIG_FILE"
 
     # Apply interactive changes if Google Photos was configured
     if [[ "$GOOGLE_PHOTOS_ENABLED" -eq 1 ]]; then
@@ -1514,6 +1519,9 @@ mkdir -p /etc/pitrove
 cat << EOF > /etc/pitrove/wdog.conf
 GATEWAY="$PROBED_GATEWAY"
 INTERFACE="$PROBED_INTERFACE"
+CIFS_MOUNT="$SHARE_MOUNT"
+DOCKER_CONTAINER="piTrove"
+CIFS_REMOUNT_COOLDOWN=60
 EOF
 
 # Copy watchdog script
@@ -1702,13 +1710,19 @@ echo
 echo -e "  ${BOLD}${GREEN}[Y]${NC} Yes, launch the config wizard now"
 echo -e "  ${BOLD}${GRAY}[N]${NC} No, skip (frame is already running with defaults)"
 echo
-read -r -p "  ▸ Choice [Y/n]: " launch_config
+echo -n -e "  ▸ Choice [Y/n]: "
+safe_read -r launch_config
 launch_config="${launch_config:-Y}"
 if [[ "$launch_config" =~ ^[Yy]$ ]]; then
     echo
     echo -e "  ${GREEN}Launching configuration wizard...${NC}"
     echo
     docker exec -it piTrove /app/piTrove --config-wizard /app/config/config.toml
+else
+    echo
+    echo -e "  ${YELLOW}Note: If you plan to run 'docker' commands directly without sudo,${NC}"
+    echo -e "        please log out and log back in (or run 'newgrp docker') for the group membership to take effect.${NC}"
+    echo
 fi
 
 exit $G_EXIT_CODE

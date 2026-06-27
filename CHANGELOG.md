@@ -1,5 +1,18 @@
 # Changelog
 
+## v14.5.2 — Network Watchdog Recovery & Installer Fixes (June 27, 2026)
+
+### Added
+- **Stale mount recovery on watchdog** — The network watchdog now automatically performs a lazy unmount and remount of the CIFS share (`$CIFS_MOUNT`) and restarts the container when connection is restored.
+- **Robustness in wdog.conf** — `install.sh` now writes `CIFS_MOUNT`, `DOCKER_CONTAINER`, and `CIFS_REMOUNT_COOLDOWN` to the host watchdog configuration to ensure correct parameters are used for recovery.
+
+### Fixed
+- **Primary user detection** — Resolved detection when installing via `curl` pipes by checking `$SUDO_USER` first.
+- **Config merge preservation** — Fixed bug where `$SCAN_WINDOW_DAYS` entered during install was silently ignored when updating an existing config.
+- **Auto-update stability** — Changed `--update` branch git mechanism to use `git reset --hard` instead of `--rebase` to prevent failures when local modifications exist.
+- **Config write safety** — Config merging now writes to a temporary file and renames atomically to prevent file truncation on write errors.
+- **Wizard read TTY compatibility** — Final config prompt now uses `safe_read` to properly handle piped execution.
+
 ## v14.5.1 — Dynamic Network Recovery Config (June 27, 2026)
 
 ### Added

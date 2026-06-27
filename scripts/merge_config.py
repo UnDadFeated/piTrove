@@ -56,8 +56,16 @@ def merge_configs(template_path, user_path, output_path):
             
             merged_lines.append(line)
             
-    with open(output_path, 'w') as f:
-        f.writelines(merged_lines)
+    tmp_path = output_path + ".tmp"
+    try:
+        with open(tmp_path, 'w') as f:
+            f.writelines(merged_lines)
+        os.replace(tmp_path, output_path)
+    except Exception as e:
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
+        print(f"Error: Failed to write merged config atomically: {e}")
+        return False
     print(f"[✓] Config merge completed: {user_path} updated with latest options.")
     return True
 
