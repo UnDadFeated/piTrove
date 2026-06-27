@@ -65,36 +65,34 @@ COPY raspi.sources /etc/apt/sources.list.d/raspi.sources
 
 # Install only the runtime libraries, fonts, and utilities
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    libsdl3-dev \
-    libsdl3-image-dev \
-    libsdl3-ttf-dev \
-    libsqlite3-dev \
-    libexif-dev \
-    libjpeg-dev \
-    libpng-dev \
-    libtiff-dev \
-    libheif-dev \
-    libwebp-dev \
-    libasound2-dev \
-    libfreetype6-dev \
-    libfontconfig1-dev \
-    libdrm-dev \
-    libgbm-dev \
-    libegl1-mesa-dev \
-    libgles2-mesa-dev \
+    libsdl3-0 \
+    libsdl3-image0 \
+    libsdl3-ttf0 \
+    libsqlite3-0 \
+    libexif12 \
+    libjpeg62-turbo \
+    libpng16-16t64 \
+    libtiff6 \
+    libheif1 \
+    libwebp7 \
+    libasound2t64 \
+    libfreetype6 \
+    libfontconfig1 \
+    libdrm2 \
+    libgbm1 \
+    libegl1 \
+    libgles2 \
     imagemagick \
     exiftool \
     dav1d \
     ffmpeg \
     mpv \
-    libmpv-dev \
-    libstb-dev \
+    libmpv2 \
+    libstb0t64 \
     mosquitto-clients \
     ca-certificates \
     curl \
     iputils-ping \
-    network-manager \
-    systemd \
     && rm -rf /var/lib/apt/lists/*
 
 # Establish runtime directory tree
@@ -107,7 +105,7 @@ COPY --from=builder /build-src/src/piTrove /app/piTrove
 # Deploy static default fonts, assets, and configs
 COPY src/fonts/ /app/src/fonts/
 COPY src/splash.png /app/src/splash.png
-COPY src/config.toml /app/src/config/config.toml
+COPY src/config.toml /app/config/config.toml
 
 # Expose HTTP control interface dashboard
 EXPOSE 9000

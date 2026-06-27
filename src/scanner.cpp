@@ -52,10 +52,28 @@ std::vector<std::string> read_dir(const std::string& path) {
     return entries;
 }
 
-std::vector<std::string> read_dir_timeout(const std::string& path, [[maybe_unused]] int timeout_ms) {
-    // Timeout parameter is currently unused because directory listing
-    // should not block indefinitely on a standard local/mounted FS.
-    return read_dir(path);
+std::vector<std::string> read_dir_timeout(const std::string& path, int timeout_ms) {
+    struct SharedResult {
+        std::atomic<bool> done{false};
+        std::vector<std::string> data;
+    };
+    auto sr = std::make_shared<SharedResult>();
+
+    std::string p(path);
+    std::thread([p, sr]() {
+        sr->data = read_dir(p);
+        sr->done.store(true);
+    }).detach();
+
+    auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeout_ms);
+    while (!sr->done.load() && std::chrono::steady_clock::now() < deadline) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    if (!sr->done.load()) {
+        g_logger.warn("read_dir_timeout: timed out listing '%s'", path.c_str());
+        return {};
+    }
+    return sr->data;
 }
 
 struct StatResult {
@@ -77,7 +95,10 @@ bool stat_timeout(const std::string& path, struct stat& st, int timeout_ms) {
     while (!sr->done.load() && std::chrono::steady_clock::now() < deadline) {
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
-    if (!sr->done.load()) return false;
+    if (!sr->done.load()) {
+        g_logger.warn("stat_timeout: timed out on '%s'", path.c_str());
+        return false;
+    }
     st = sr->data;
     return true;
 }
