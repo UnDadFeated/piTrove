@@ -3,13 +3,18 @@
 # Installed by install.sh to /usr/local/bin/pitrove-watchdog.sh
 # Runs as a systemd service independent of Docker.
 # Checks network health every 15s, attempts WiFi reset, then clean reboot if needed.
-set -euo pipefail
+set -uo pipefail
 
 GATEWAY="${GATEWAY:-192.168.4.1}"
 INTERFACE="${INTERFACE:-wlan0}"
+CIFS_MOUNT="${CIFS_MOUNT:-/mnt/nas}"
+DOCKER_CONTAINER="${DOCKER_CONTAINER:-piTrove}"
+CIFS_REMOUNT_COOLDOWN="${CIFS_REMOUNT_COOLDOWN:-60}"
+
 FAIL_COUNT=0
 MAX_FAIL=2          # 2 checks * 15 seconds = 30s offline trigger
 WIFI_RESET_DONE=false
+WAS_OFFLINE=false
 
 # Source optional config override (installed by install.sh)
 CONF_FILE="/etc/pitrove/wdog.conf"
@@ -24,11 +29,15 @@ if [ -f /etc/pitrove/wdog-disable ]; then
 fi
 
 log() {
-    logger -t "pitrove-watchdog" "$@"
+    if command -v logger >/dev/null 2>&1; then
+        logger -t "pitrove-watchdog" "$@"
+    else
+        echo "$(date '+%b %d %H:%M:%S') pitrove-watchdog: $*" >> /var/log/pitrove-watchdog.log || true
+    fi
 }
 
 network_is_ok() {
-    # Check 1: Does wlan0 exist and have carrier?
+    # Check 1: Does interface exist and have carrier?
     if ip link show "$INTERFACE" 2>/dev/null | grep -q "state UP"; then
         # Check 2: Default route exists
         if ip route | grep -q "^default"; then
@@ -71,9 +80,19 @@ log "Watchdog started. Monitoring gateway $GATEWAY on $INTERFACE every 15s."
 
 while true; do
     if network_is_ok; then
+        if [ "$WAS_OFFLINE" = true ]; then
+            log "Network connection recovered. Restoring stale CIFS mount and restarting container..."
+            umount -f -l "$CIFS_MOUNT" 2>/dev/null || true
+            sleep 1
+            mount "$CIFS_MOUNT" 2>/dev/null || true
+            sleep 1
+            docker restart "$DOCKER_CONTAINER" 2>/dev/null || true
+            WAS_OFFLINE=false
+        fi
         FAIL_COUNT=0
         WIFI_RESET_DONE=false
     else
+        WAS_OFFLINE=true
         FAIL_COUNT=$((FAIL_COUNT + 1))
         log "Network check failed ($FAIL_COUNT/$MAX_FAIL)"
 
