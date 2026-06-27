@@ -1511,6 +1511,10 @@ ok "'pitrove' CLI command wrapper successfully installed at /usr/local/bin/pitro
 # ── Network Watchdog Service (External to Docker) ──────────────────────────────
 info "Installing piTrove network watchdog service..."
 mkdir -p /etc/pitrove
+cat << EOF > /etc/pitrove/wdog.conf
+GATEWAY="$PROBED_GATEWAY"
+INTERFACE="$PROBED_INTERFACE"
+EOF
 
 # Copy watchdog script
 cp "$PRIMARY_HOME/piTrove/src/watchdog/pitrove-watchdog.sh" /usr/local/bin/pitrove-watchdog.sh
