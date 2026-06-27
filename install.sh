@@ -1,8 +1,13 @@
 #!/usr/bin/env bash
-# install.sh — piTrove v14.4.1 Premium Graphical Installer
+# install.sh — piTrove v14.5.0 Premium Graphical Installer
 # Target: Debian Trixie (13) 64-bit on Raspberry Pi 4/5
 
 set -eo pipefail
+
+# Root check - must be first operational check
+if [[ "$(id -u)" -ne 0 ]]; then
+    fail "This script must be run as root (sudo)"
+fi
 
 # ── Graphical & Color Palette (256-color and modern ANSI) ──────────────────────
 RED='\033[38;5;203m'
@@ -108,7 +113,7 @@ show_spinner() {
 run_with_spinner() {
     local label="$1"
     shift
-    local log_file="/tmp/pitrove_cmd_$((100 + RANDOM % 900)).log"
+    local log_file=$(mktemp /tmp/pitrove_cmd.XXXXXX.log)
     
     if [[ "${IS_CRON:-0}" -eq 1 ]] || [[ ! -t 1 ]]; then
         # Running under cron or non-interactive context, run directly without spinner
@@ -238,12 +243,6 @@ if [[ "$PRIMARY_USER" == "root" ]]; then
 fi
 PRIMARY_HOME="/home/$PRIMARY_USER"
 info "Primary user: ${BOLD}${WHITE}$PRIMARY_USER${NC} (${CYAN}$PRIMARY_HOME${NC})"
-
-
-# Root check
-if [[ "$(id -u)" -ne 0 ]]; then
-    fail "This script must be run as root (sudo)"
-fi
 
 # OS check
 OS_OK=0
@@ -389,9 +388,14 @@ if [[ "$1" == "--organize" ]]; then
     if findmnt -n -o OPTIONS "$MOUNT_POINT" | grep -q "ro"; then
         IS_RO=1
         info "Remounting $MOUNT_POINT as Read-Write (rw)..."
-        mount -o remount,rw "$MOUNT_POINT"
-        if [[ $? -ne 0 ]]; then
-            fail "Failed to remount $MOUNT_POINT as read-write."
+        # Only remount if it's a cifs or nfs mount
+        if mountpoint -q "$MOUNT_POINT" 2>/dev/null && (findmnt -n -o FSTYPE "$MOUNT_POINT" | grep -qiE "cifs|nfs"); then
+            mount -o remount,rw "$MOUNT_POINT"
+            if [[ $? -ne 0 ]]; then
+                fail "Failed to remount $MOUNT_POINT as read-write."
+            fi
+        else
+            warn "Mount point $MOUNT_POINT is not a cifs/nfs mount, skipping remount."
         fi
     fi
     
@@ -536,15 +540,12 @@ fi
 
 if [[ -f "/etc/ssh/sshd_config" ]]; then
     info "Configuring SSH server-side keep-alives to prevent client/rclone idle dropouts..."
-    sed -i 's/#ClientAliveInterval 0/ClientAliveInterval 60/' /etc/ssh/sshd_config
-    sed -i 's/#ClientAliveCountMax 3/ClientAliveCountMax 3/' /etc/ssh/sshd_config
-    # Force configurations if they don't exist
-    if ! grep -q "^ClientAliveInterval" /etc/ssh/sshd_config; then
-        echo "ClientAliveInterval 60" >> /etc/ssh/sshd_config
-    fi
-    if ! grep -q "^ClientAliveCountMax" /etc/ssh/sshd_config; then
-        echo "ClientAliveCountMax 3" >> /etc/ssh/sshd_config
-    fi
+    # Remove any existing ClientAliveInterval/ClientAliveCountMax lines to avoid duplicates
+    sed -i '/^ClientAliveInterval/d' /etc/ssh/sshd_config
+    sed -i '/^ClientAliveCountMax/d' /etc/ssh/sshd_config
+    # Add the keep-alive settings
+    echo "ClientAliveInterval 60" >> /etc/ssh/sshd_config
+    echo "ClientAliveCountMax 3" >> /etc/ssh/sshd_config
     systemctl restart ssh 2>/dev/null || true
     ok "SSH keep-alives configured persistently (60s interval)"
 fi
@@ -949,7 +950,7 @@ while true; do
         generate_fstab_line() {
             if [[ "$SHARE_PROTOCOL" == "cifs" ]]; then
                 FSTAB_LINE="# piTrove Network Share
-//$SHARE_IP/${SHARE_PATH#/} $SHARE_MOUNT cifs credentials=$PRIMARY_HOME/nas.cred,ro,uid=1000,gid=1000,vers=3.0,_netdev,nofail,x-systemd.automount,x-systemd.mount-timeout=10,soft,echo_interval=6 0 0"
+//$SHARE_IP/${SHARE_PATH#/} $SHARE_MOUNT cifs credentials=$PRIMARY_HOME/nas.cred,ro,uid=1000,gid=1000,vers=3.0,_netdev,nofail,x-systemd.automount,x-systemd.mount-timeout=10,soft,echo_interval=6,actimeo=0 0 0"
             elif [[ "$SHARE_PROTOCOL" == "nfs" ]]; then
                 FSTAB_LINE="# piTrove Network Share
 $SHARE_IP:$SHARE_PATH $SHARE_MOUNT $SHARE_PROTOCOL defaults,_netdev,timeo=10,retrans=3,nofail,x-systemd.automount,x-systemd.mount-timeout=10,soft 0 0"
@@ -1426,7 +1427,7 @@ User=$PRIMARY_USER
 Group=$PRIMARY_USER
 WorkingDirectory=$PRIMARY_HOME/piTrove
 ExecStartPre=-/usr/bin/docker compose down
-ExecStart=/usr/bin/docker compose up -d
+ExecStart=/usr/bin/docker compose up
 ExecStop=/usr/bin/docker compose down
 Restart=always
 RestartSec=15
@@ -1523,7 +1524,7 @@ fi
 
 # ── Post-Install Media Check ────────────────────────────────────────────────────
 check_media_directory() {
-    local media_root="${PRIMARY_HOME}/piTrove/media"
+    local media_root="$SHARE_MOUNT"
     if [[ ! -d "$media_root" ]]; then
         echo -e "${YELLOW}  ⚠  Media directory not found at: $media_root${NC}"
 
@@ -1605,7 +1606,7 @@ print_success_card() {
     echo -e "${GREEN}║${NC}  ${BOLD}${WHITE}Service Status:${NC}                                               ${GREEN}║${NC}"
     echo -e "${GREEN}║${NC}   • Systemd unit is installed and set to launch on boot.       ${GREEN}║${NC}"
     
-    if [[ "$storage_choice" -eq 2 ]]; then
+    if [[ "$storage_choice" == "2" ]]; then
         echo -e "${GREEN}║${NC}   • Storage: ${CYAN}Local drive mode enabled.${NC}                        ${GREEN}║${NC}"
     elif [[ "$USE_NAS" -eq 1 || "$storage_choice" == "3" ]]; then
         if [[ "$NAS_MOUNT_SUCCESS" -eq 1 ]]; then
