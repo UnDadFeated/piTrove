@@ -7,7 +7,7 @@
 - **Obsolete host directories cleanup** — Removed legacy local build caches (`build/`, `.cache/`, `tmp/`, and setup scripts) from the host to free space.
 
 ### Fixed
-- **Infinite reboot/restart loop** — Corrected default gateway IP settings to match local subnet (`192.168.4.1` instead of `192.168.1.1`), preventing keepalive check failures from dropping network connections and rebooting the device.
+- **Infinite reboot/restart loop** — Corrected default gateway IP settings to auto-detect the correct gateway IP instead of using a hardcoded placeholder (`192.168.1.1`), preventing keepalive check failures from dropping network connections and rebooting the device.
 
 ## v14.4.2 — Shadow Effect Darkening (June 26, 2026)
 
