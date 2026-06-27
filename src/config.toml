@@ -176,5 +176,5 @@ auto_update_branch = "main"
 [keepalive]
 enabled = 1
 interval_secs = 120
-gateway_ip = "192.168.1.1"
+gateway_ip = "192.168.4.1"
 wifi_interface = "wlan0"
