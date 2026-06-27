@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# install.sh — piTrove v14.5.0 Premium Graphical Installer
+# install.sh — piTrove v14.5.1 Premium Graphical Installer
 # Target: Debian Trixie (13) 64-bit on Raspberry Pi 4/5
 
 set -eo pipefail
@@ -1250,6 +1250,17 @@ fi
 
 # ── Configuration TOML ─────────────────────────────────────────────────────────
 info "Writing configuration options..."
+
+# Probing network gateway for default route
+PROBED_GATEWAY=$(ip route | grep '^default' | awk '{print $3}' | head -n1 || true)
+PROBED_INTERFACE=$(ip route | grep '^default' | awk '{print $5}' | head -n1 || true)
+if [[ -z "$PROBED_GATEWAY" ]]; then
+    PROBED_GATEWAY="192.168.4.1" # Fallback
+fi
+if [[ -z "$PROBED_INTERFACE" ]]; then
+    PROBED_INTERFACE="wlan0" # Fallback
+fi
+
 CONFIG_FILE="$PRIMARY_HOME/piTrove/config/config.toml"
 
 if [[ -f "$CONFIG_FILE" ]]; then
@@ -1394,8 +1405,8 @@ auto_update_branch = "main"
 [keepalive]
 enabled = 1
 interval_secs = 120
-gateway_ip = "192.168.4.1"
-wifi_interface = "wlan0"
+gateway_ip = "$PROBED_GATEWAY"
+wifi_interface = "$PROBED_INTERFACE"
 EOF
 fi
 

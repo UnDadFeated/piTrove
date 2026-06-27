@@ -653,6 +653,18 @@ std::vector<ErrorSeed> get_all_error_seeds() {
             "The system has been disconnected from the network for over 3 minutes and is initiating an automatic recovery reboot.",
             "Check your router, Wi-Fi adapter, and network cables. Ensure the device is within range of the access point."
         },
+        {
+            "E520",
+            "NETWORK_RECOVERY_FAILED",
+            "The system was unable to re-associate with the access point or reset the network interface during recovery.",
+            "Inspect systemd-networkd, NetworkManager, or wpa_supplicant configurations and logs on the host."
+        },
+        {
+            "E521",
+            "INTERFACE_UP_FAILED",
+            "The network interface could not be set to UP state after a reset.",
+            "Check physical hardware connection of your Wi-Fi interface or RFkill block status."
+        },
 
         // --- Graphic Pipeline & Framebuffer Layers (E600s) ---
         {

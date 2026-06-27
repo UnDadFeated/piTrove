@@ -47,7 +47,7 @@ std::vector<std::string> read_dir(const std::string& path) {
             entries.push_back(std::move(name));
         }
     } catch (...) {
-        // Safe catch-all fallback
+        g_logger.error("Scanner: Exception in read_dir for path %s", path.c_str());
     }
     return entries;
 }

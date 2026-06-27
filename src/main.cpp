@@ -1084,7 +1084,13 @@ static void keepalive_loop() {
                         std::this_thread::sleep_for(std::chrono::seconds(2));
                         if (set_interface_status(interface, true)) {
                             g_logger.info("Keepalive: Interface %s set UP.", interface.c_str());
+                        } else {
+                            g_logger.error("Keepalive: ERROR: Failed to set interface %s UP during network recovery cycle!", interface.c_str());
+                            trigger_error(521); // E521: INTERFACE_UP_FAILED
                         }
+                    } else {
+                        g_logger.error("Keepalive: ERROR: Failed to set interface %s DOWN during network recovery cycle!", interface.c_str());
+                        trigger_error(520); // E520: NETWORK_RECOVERY_FAILED
                     }
                 } else {
                     g_logger.info("Keepalive: Re-associated to access point via %s.", interface.c_str());

@@ -62,8 +62,8 @@ reset_wifi() {
 do_reboot() {
     log "CRITICAL: Network offline for 30+ seconds (after WiFi reset if attempted). Rebooting..."
     sync
-    # Use clean reboot (systemd) — properly shuts down WiFi firmware vs dirty SysRq
-    reboot
+    # Use clean systemd reboot — ensures proper service shutdown and network initialization on boot
+    shutdown -r now
 }
 
 # ── Main Loop ───────────────────────────────────────────────────────────────

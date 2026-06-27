@@ -334,7 +334,11 @@ bool MpvPlayer::check_status(bool reclaim_drm_on_eof) {
 
         g_logger.info("VIDEO_EOF: mpv (pid=%d) finished playback (status=%d)", result, exit_code);
 
-        if (exit_code > 0 || (is_signaled && term_sig != 15 && term_sig != 9)) {
+        if (exit_code == 1) {
+            g_logger.error("VIDEO_EOF: mpv failed to launch or execute properly (exit code 1). Check if mpv is installed.");
+            trigger_error(226); // E226: VIDEO_PLAYER_LAUNCH_FAILURE
+        } else if (exit_code > 0 || (is_signaled && term_sig != 15 && term_sig != 9)) {
+            g_logger.error("VIDEO_EOF: mpv crashed unexpectedly (exit_code=%d, signal=%d)", exit_code, term_sig);
             trigger_error(202); // E202: VIDEO_PLAYER_CRASH
         } else {
             // Success or expected termination, clear E202
