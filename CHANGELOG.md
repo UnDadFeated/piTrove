@@ -3,7 +3,7 @@
 ## v14.5.1 — Dynamic Network Recovery Config & Cleanup (June 27, 2026)
 
 ### Added
-- **Dynamic network gateway probing** — `install.sh` now automatically detects the default gateway IP and interface at creation time to configure keepalive monitoring.
+- **Dynamic network gateway probing** — `install.sh` now automatically detects the default gateway IP and interface at creation time to configure both keepalive monitoring in `config.toml` and the host-level watchdog service in `/etc/pitrove/wdog.conf`.
 - **Obsolete host directories cleanup** — Removed legacy local build caches (`build/`, `.cache/`, `tmp/`, and setup scripts) from the host to free space.
 
 ### Fixed
