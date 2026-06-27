@@ -10,7 +10,7 @@ A professional-grade, **containerized** digital picture & video frame applicatio
 <a href="https://en.wikipedia.org/wiki/AArch64"><img src="https://img.shields.io/badge/arch-aarch64-orange?style=flat-square" alt="Architecture" /></a>
 <a href="https://www.docker.com/"><img src="https://img.shields.io/badge/container-Docker%20%7C%20Compose-blueviolet?style=flat-square&logo=docker" alt="Docker" /></a>
 <a href="https://www.libsdl.org/"><img src="https://img.shields.io/badge/graphics-SDL3-red?style=flat-square" alt="Graphics" /></a>
-<img src="https://img.shields.io/badge/version-14.4.2-blue?style=flat-square" alt="Version" />
+<img src="https://img.shields.io/badge/version-14.5.0-blue?style=flat-square" alt="Version" />
 <img src="https://img.shields.io/github/stars/UnDadFeated/piTrove?style=flat-square&logo=github" alt="Stars" />
 <img src="https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fraw.githubusercontent.com%2FUnDadFeated%2FpiTrove%2Fmain%2F.github%2Fclones.json&query=clones&label=clones&color=blue&style=flat-square" alt="Clones" />
 </p>
