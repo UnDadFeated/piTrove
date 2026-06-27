@@ -1,5 +1,20 @@
 # Changelog
 
+## v14.5.3 — Container Security & Watchdog Hardening (June 27, 2026)
+
+### Added
+- **Security Gating on endpoints** — The `/api/logs` and `/api/settings` endpoints are now fully gated behind API key verification when an HTTP API key is configured.
+- **Bearer Auth Header support** — Settings page dashboard now transmits the API key securely using the standard `Authorization: Bearer <key>` header (cached locally via localStorage) rather than leaking it in the URL query string.
+
+### Fixed
+- **Dockerfile bloat reduction** — Removed all unnecessary `-dev` packages, `systemd`, and `network-manager` from the stage-2 runtime Docker image to reduce container size and eliminate potential network interface conflicts, while retaining only the required runtime libraries (including `libstb0t64`).
+- **Path alignment** — Standardized default configuration copy path to `/app/config/config.toml` in the Dockerfile.
+- **Scanner hang resolution** — Implemented thread-based timeout in `read_dir_timeout` to prevent the scanner from blocking indefinitely on stale network mount directory listings.
+- **Security escaping** — Escaped the interface parameter using `escape_shell_arg` during NetworkManager `nmcli` device reconnect calls in `main.cpp` to prevent injection.
+- **Data race prevention** — Guarded cached media directory health statics with a mutex inside `is_media_dir_healthy` to guarantee thread safety.
+- **Duplicate logs** — Removed duplicate midnight shift temporal window log statement.
+- **Watchdog speed restore** — Reverted the watchdog `MAX_FAIL` trigger threshold back to 30 seconds (`MAX_FAIL=2`) for immediate rebooting and recovery under offline conditions when utilizing network media sources.
+
 ## v14.5.2 — Network Watchdog Recovery & Installer Fixes (June 27, 2026)
 
 ### Added

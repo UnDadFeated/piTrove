@@ -1332,7 +1332,18 @@ static std::string get_dashboard_html() {
 
         async function loadSettings() {
             try {
-                const res = await fetch('/api/settings');
+                const apiKey = localStorage.getItem('api_key') || '';
+                const headers = {};
+                if (apiKey) headers['Authorization'] = 'Bearer ' + apiKey;
+                const res = await fetch('/api/settings', { headers });
+                if (res.status === 401) {
+                    const entered = prompt("Enter API Key to load settings:");
+                    if (entered) {
+                        localStorage.setItem('api_key', entered);
+                        loadSettings();
+                    }
+                    return;
+                }
                 if (res.ok) {
                     const settings = await res.json();
                     document.getElementById('set-transition-delay').value = settings.transition_delay;
@@ -1345,6 +1356,9 @@ static std::string get_dashboard_html() {
                     document.getElementById('set-color-matched-matte').checked = settings.color_matched_matte;
                     document.getElementById('set-touch-enabled').checked = settings.touch_enabled;
                     document.getElementById('api-key-status').textContent = settings.api_key_set ? '(configured)' : '(not set)';
+                    if (settings.api_key_set && apiKey) {
+                        document.getElementById('set-api-key').value = apiKey;
+                    }
                 }
             } catch (err) {
                 console.error("Failed to load settings:", err);
@@ -1362,9 +1376,18 @@ static std::string get_dashboard_html() {
             
             try {
                 const apiKey = document.getElementById('set-api-key').value;
-                const url = `/api/settings/update?transition_delay=${delay}&video_volume=${volume}&shuffle=${shuffle}&ken_burns=${kenBurns}&blurred_background=${blurredBg}&color_matched_matte=${matte}&touch_enabled=${touch}${apiKey ? '&api_key=' + encodeURIComponent(apiKey) : ''}`;
-                const res = await fetch(url);
+                const url = `/api/settings/update?transition_delay=${delay}&video_volume=${volume}&shuffle=${shuffle}&ken_burns=${kenBurns}&blurred_background=${blurredBg}&color_matched_matte=${matte}&touch_enabled=${touch}`;
+                const headers = {};
+                if (apiKey) {
+                    headers['Authorization'] = 'Bearer ' + apiKey;
+                }
+                const res = await fetch(url, { headers });
                 if (res.ok) {
+                    if (apiKey) {
+                        localStorage.setItem('api_key', apiKey);
+                    } else {
+                        localStorage.removeItem('api_key');
+                    }
                     showToast("Configuration Saved Successfully!");
                 } else {
                     showToast("Failed to save configuration.");
@@ -1376,7 +1399,10 @@ static std::string get_dashboard_html() {
 
         async function fetchLogs() {
             try {
-                const res = await fetch('/api/logs');
+                const apiKey = localStorage.getItem('api_key') || '';
+                const headers = {};
+                if (apiKey) headers['Authorization'] = 'Bearer ' + apiKey;
+                const res = await fetch('/api/logs', { headers });
                 if (res.ok) {
                     const data = await res.json();
                     const consoleEl = document.getElementById('log-console');
@@ -1838,7 +1864,40 @@ static void handle_client(int client_fd) {
     }
 
     if (!request.empty()) {
-        
+        auto is_authorized = [](const std::string& req, int fd) -> bool {
+            std::string api_key;
+            {
+                std::shared_lock<std::shared_mutex> lk(g_config_mtx);
+                api_key = g_cfg.http_api_key;
+            }
+            if (api_key.empty()) return true;
+
+            size_t auth_pos = req.find("Authorization: ");
+            if (auth_pos == std::string::npos) {
+                auth_pos = req.find("authorization: ");
+            }
+            if (auth_pos == std::string::npos) {
+                std::string body = "HTTP/1.1 401 Unauthorized\r\nContent-Type: text/plain\r\nConnection: close\r\n\r\nAPI key required";
+                (void)write(fd, body.c_str(), body.size());
+                g_logger.warn("HTTP: Unauthorized request - no auth header");
+                return false;
+            }
+            auth_pos += 15;
+            size_t auth_end = req.find("\r\n", auth_pos);
+            if (auth_end == std::string::npos) auth_end = req.size();
+            std::string auth_value = req.substr(auth_pos, auth_end - auth_pos);
+            if (auth_value.rfind("Bearer ", 0) == 0) {
+                auth_value = auth_value.substr(7);
+            }
+            if (auth_value != api_key) {
+                std::string body = "HTTP/1.1 401 Unauthorized\r\nContent-Type: text/plain\r\nConnection: close\r\n\r\nInvalid API key";
+                (void)write(fd, body.c_str(), body.size());
+                g_logger.warn("HTTP: Unauthorized request - invalid key");
+                return false;
+            }
+            return true;
+        };
+
         size_t first_line_end = request.find("\r\n");
         if (first_line_end != std::string::npos) {
             g_logger.info("HTTP: Request: %s", request.substr(0, first_line_end).c_str());
@@ -1948,34 +2007,7 @@ static void handle_client(int client_fd) {
             }
         } 
         else if (request.rfind("GET /api/settings/update", 0) == 0) {
-            // API key authentication check
-            std::string api_key;
-            { std::shared_lock<std::shared_mutex> lk(g_config_mtx); api_key = g_cfg.http_api_key; }
-            if (!api_key.empty()) {
-                size_t auth_pos = request.find("Authorization: ");
-                if (auth_pos == std::string::npos) {
-                    auth_pos = request.find("authorization: ");
-                }
-                if (auth_pos == std::string::npos) {
-                    std::string body = "HTTP/1.1 401 Unauthorized\r\nContent-Type: text/plain\r\nConnection: close\r\n\r\nAPI key required";
-                    (void)write(client_fd, body.c_str(), body.size());
-                    g_logger.warn("HTTP: /api/settings/update rejected - no auth header");
-                    return;
-                }
-                auth_pos += 15;
-                size_t auth_end = request.find("\r\n", auth_pos);
-                if (auth_end == std::string::npos) auth_end = request.size();
-                std::string auth_value = request.substr(auth_pos, auth_end - auth_pos);
-                if (auth_value.rfind("Bearer ", 0) == 0) {
-                    auth_value = auth_value.substr(7);
-                }
-                if (auth_value != api_key) {
-                    std::string body = "HTTP/1.1 401 Unauthorized\r\nContent-Type: text/plain\r\nConnection: close\r\n\r\nInvalid API key";
-                    (void)write(client_fd, body.c_str(), body.size());
-                    g_logger.warn("HTTP: /api/settings/update rejected - invalid key");
-                    return;
-                }
-            }
+            if (!is_authorized(request, client_fd)) return;
             bool changed = false;
             bool validation_failed = false;
             std::string err_msg = "";
@@ -2174,9 +2206,12 @@ static void handle_client(int client_fd) {
             }
         }
         else if (request.rfind("GET /api/settings", 0) == 0) {
-            send_response(client_fd, "HTTP/1.1 200 OK", "application/json", get_api_settings());
+            if (is_authorized(request, client_fd)) {
+                send_response(client_fd, "HTTP/1.1 200 OK", "application/json", get_api_settings());
+            }
         }
         else if (request.rfind("GET /api/logs", 0) == 0) {
+            if (is_authorized(request, client_fd)) {
             std::string log_content = "";
             std::string path = g_logger.log_file_path;
             bool read_success = false;
@@ -2214,6 +2249,7 @@ static void handle_client(int client_fd) {
                      << "  \"logs\": \"" << escape_json(log_content) << "\"\n"
                      << "}";
             send_response(client_fd, "HTTP/1.1 200 OK", "application/json", json_oss.str());
+                    }
         }
         else if (request.rfind("GET /api/status", 0) == 0) {
             send_response(client_fd, "HTTP/1.1 200 OK", "application/json", get_api_status());

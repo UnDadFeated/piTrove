@@ -784,8 +784,6 @@ static void watchman_loop() {
             }
 
             last_yday = curr_tm.tm_yday;
-            
-            g_logger.info("Watchman: Midnight detected! Shifting temporal window. Old day=%d, New day=%d", last_yday, curr_tm.tm_yday);
             g_logger.info("Watchman: Starting background media scan for shifted seasonal window...");
             
             std::vector<MediaItem> scanned;
@@ -1075,7 +1073,7 @@ static void keepalive_loop() {
                 // Step 1: Re-associate with access point via NetworkManager (gentle — no radio hardware kill)
                 // This is safe because nmcli device connect triggers re-association without power-cycling the radio,
                 // which would sever CIFS mounts mid-flight and leave them in a permanently stale state.
-                [[maybe_unused]] int nm_res = ::system(("nmcli device connect " + interface + " >/dev/null 2>&1").c_str());
+                [[maybe_unused]] int nm_res = ::system(("nmcli device connect " + escape_shell_arg(interface) + " >/dev/null 2>&1").c_str());
                 if (nm_res != 0) {
                     // Step 2: Interface cycle via raw socket ioctl (still does NOT touch radio hardware)
                     g_logger.warn("Keepalive: nmcli reconnect failed, cycling interface %s.", interface.c_str());
