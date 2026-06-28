@@ -4,6 +4,7 @@
 #include "config.h"
 #include "media_item.h"
 #include "image_loader.h"
+#include "scanner.h"
 #include <stb_image.h>
 #include <unistd.h>
 #include <sys/stat.h>
@@ -99,8 +100,8 @@ static void preprocess_loop() {
             if (!g_preprocess_running.load() || !g_running.load()) break;
 
             struct stat st;
-            if (stat(path.c_str(), &st) != 0) {
-                g_logger.warn("Preprocess: File '%s' not found or inaccessible. Marking bad.", path.c_str());
+            if (!stat_timeout(path, st, 5000)) {
+                g_logger.warn("Preprocess: File '%s' not found or inaccessible (stat timeout). Marking bad.", path.c_str());
                 if (g_cache) g_cache->mark_bad(path);
                 continue;
             }
@@ -113,36 +114,55 @@ static void preprocess_loop() {
             mi.file_size = st.st_size;
             mi.modified_time = st.st_mtime;
 
-            bool success = false;
-            if (type == "image") {
-                int w = 0, h = 0, exif = 1, is_camera = 0;
-                int64_t creation = 0;
-                if (get_image_metadata_fast(path, w, h, exif, is_camera, creation)) {
-                    mi.width = w;
-                    mi.height = h;
-                    mi.exif_rotation = exif;
-                    mi.is_camera = is_camera;
-                    mi.creation_time = creation;
-                    success = true;
+            struct PreprocessResult {
+                std::atomic<bool> done{false};
+                bool success{false};
+                MediaItem item;
+            };
+            auto pr = std::make_shared<PreprocessResult>();
+            pr->item = mi;
+
+            std::thread([pr, path, type]() {
+                if (type == "image") {
+                    int w = 0, h = 0, exif = 1, is_camera = 0;
+                    int64_t creation = 0;
+                    if (get_image_metadata_fast(path, w, h, exif, is_camera, creation)) {
+                        pr->item.width = w;
+                        pr->item.height = h;
+                        pr->item.exif_rotation = exif;
+                        pr->item.is_camera = is_camera;
+                        pr->item.creation_time = creation;
+                        pr->success = true;
+                    }
+                } else if (type == "video") {
+                    int w = 0, h = 0;
+                    double dur = 0.0;
+                    if (get_video_metadata_ffprobe(path, w, h, dur)) {
+                        pr->item.width = w;
+                        pr->item.height = h;
+                        pr->item.duration = dur;
+                        pr->success = true;
+                    }
                 }
-            } else if (type == "video") {
-                int w = 0, h = 0;
-                double dur = 0.0;
-                if (get_video_metadata_ffprobe(path, w, h, dur)) {
-                    mi.width = w;
-                    mi.height = h;
-                    mi.duration = dur;
-                    success = true;
-                }
+                pr->done.store(true);
+            }).detach();
+
+            auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(10000); // 10s timeout
+            while (!pr->done.load() && std::chrono::steady_clock::now() < deadline && g_preprocess_running.load() && g_running.load()) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(10));
             }
 
-            if (success) {
-                if (g_cache) {
-                    g_cache->upsert(mi, 0, 1);
+            if (pr->done.load()) {
+                if (pr->success) {
+                    if (g_cache) {
+                        g_cache->upsert(pr->item, 0, 1);
+                    }
+                } else {
+                    g_logger.warn("Preprocess: Failed to extract metadata for '%s'. Marking bad.", path.c_str());
+                    if (g_cache) g_cache->mark_bad(path);
                 }
             } else {
-                g_logger.warn("Preprocess: Failed to extract metadata for '%s'. Marking bad.", path.c_str());
-                if (g_cache) g_cache->mark_bad(path);
+                g_logger.warn("Preprocess: Timeout (10s) extracting metadata for '%s' -- skipping.", path.c_str());
             }
 
             std::this_thread::sleep_for(std::chrono::milliseconds(100));

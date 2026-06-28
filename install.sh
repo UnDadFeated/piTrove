@@ -772,15 +772,25 @@ def merge_configs(template_path, user_path, output_path):
             
             merged_lines.append(line)
             
-    with open(output_path, 'w') as f:
-        f.writelines(merged_lines)
+    tmp_path = output_path + ".tmp"
+    try:
+        with open(tmp_path, 'w') as f:
+            f.writelines(merged_lines)
+        os.replace(tmp_path, output_path)
+    except Exception as e:
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
+        print(f"Error: Failed to write merged config atomically: {e}")
+        return False
     print(f"[✓] Config merge completed: {user_path} updated with latest options.")
     return True
 
 if __name__ == "__main__":
     if len(sys.argv) < 3:
         sys.exit(1)
-    merge_configs(sys.argv[1], sys.argv[2], sys.argv[3] if len(sys.argv) > 3 else sys.argv[2])
+    success = merge_configs(sys.argv[1], sys.argv[2], sys.argv[3] if len(sys.argv) > 3 else sys.argv[2])
+    if not success:
+        sys.exit(1)
 EOF
 chmod +x "$PRIMARY_HOME/piTrove/scripts/merge_config.py"
 chown $PRIMARY_USER:$PRIMARY_USER "$PRIMARY_HOME/piTrove/scripts/merge_config.py"
@@ -1269,20 +1279,31 @@ CONFIG_FILE="$PRIMARY_HOME/piTrove/config/config.toml"
 
 if [[ -f "$CONFIG_FILE" ]]; then
     warn "Existing config.toml detected. Preserving custom user settings..."
-    cp "$CONFIG_FILE" "$CONFIG_FILE.bak.$(date +%Y%m%d%H%M%S)"
+    BACKUP_FILE="$CONFIG_FILE.bak.$(date +%Y%m%d%H%M%S)"
+    cp "$CONFIG_FILE" "$BACKUP_FILE"
     info "Merging updates into existing config.toml..."
-    python3 "$PRIMARY_HOME/piTrove/scripts/merge_config.py" "$PRIMARY_HOME/piTrove/src/config.toml" "$CONFIG_FILE" 
-    sed -i "s/^window_days = .*/window_days = $SCAN_WINDOW_DAYS/" "$CONFIG_FILE"
+    
+    # Run configuration updates. If any fail, restore backup and exit.
+    (
+        set -e
+        python3 "$PRIMARY_HOME/piTrove/scripts/merge_config.py" "$PRIMARY_HOME/piTrove/src/config.toml" "$CONFIG_FILE" 
+        sed -i "s/^window_days = .*/window_days = $SCAN_WINDOW_DAYS/" "$CONFIG_FILE"
 
-    # Apply interactive changes if Google Photos was configured
-    if [[ "$GOOGLE_PHOTOS_ENABLED" -eq 1 ]]; then
-        sed -i "/\[google_photos\]/,/^\[/ s/^enabled = .*/enabled = $GOOGLE_PHOTOS_ENABLED/" "$CONFIG_FILE"
-        sed -i "/\[google_photos\]/,/^\[/ s/^client_id = .*/client_id = \"$GP_CLIENT_ID\"/" "$CONFIG_FILE"
-        sed -i "/\[google_photos\]/,/^\[/ s/^client_secret = .*/client_secret = \"$GP_CLIENT_SECRET\"/" "$CONFIG_FILE"
-        sed -i "/\[google_photos\]/,/^\[/ s/^album_id = .*/album_id = \"$GP_ALBUM_ID\"/" "$CONFIG_FILE"
-        sed -i "/\[google_photos\]/,/^\[/ s/^sync_interval_mins = .*/sync_interval_mins = $GP_SYNC_INTERVAL/" "$CONFIG_FILE"
-        # Ensure HTTP remote control is enabled to receive callback redirects
-        sed -i "/\[remote\]/,/^\[/ s/^http_enabled = .*/http_enabled = 1/" "$CONFIG_FILE"
+        # Apply interactive changes if Google Photos was configured
+        if [[ "$GOOGLE_PHOTOS_ENABLED" -eq 1 ]]; then
+            sed -i "/\[google_photos\]/,/^\[/ s/^enabled = .*/enabled = $GOOGLE_PHOTOS_ENABLED/" "$CONFIG_FILE"
+            sed -i "/\[google_photos\]/,/^\[/ s/^client_id = .*/client_id = \"$GP_CLIENT_ID\"/" "$CONFIG_FILE"
+            sed -i "/\[google_photos\]/,/^\[/ s/^client_secret = .*/client_secret = \"$GP_CLIENT_SECRET\"/" "$CONFIG_FILE"
+            sed -i "/\[google_photos\]/,/^\[/ s/^album_id = .*/album_id = \"$GP_ALBUM_ID\"/" "$CONFIG_FILE"
+            sed -i "/\[google_photos\]/,/^\[/ s/^sync_interval_mins = .*/sync_interval_mins = $GP_SYNC_INTERVAL/" "$CONFIG_FILE"
+            # Ensure HTTP remote control is enabled to receive callback redirects
+            sed -i "/\[remote\]/,/^\[/ s/^http_enabled = .*/http_enabled = 1/" "$CONFIG_FILE"
+        fi
+    )
+    if [[ $? -ne 0 ]]; then
+        error "Config updates failed! Restoring backup config from $BACKUP_FILE"
+        cp "$BACKUP_FILE" "$CONFIG_FILE"
+        exit 1
     fi
 else
     cat > "$CONFIG_FILE" <<EOF
