@@ -1,5 +1,11 @@
 # Changelog
 
+## v14.5.6 — Preprocessor Hang Protection & Config Merger Robustness (June 28, 2026)
+
+### Fixed
+- **Preprocessor Hang Protection** — Swapped synchronous `stat` call with `stat_timeout`, and wrapped metadata extraction logic in `preprocess.cpp` in a thread-backed 10-second timeout to prevent background preprocessing threads from hanging indefinitely on dead CIFS mounts.
+- **Config Merger Robustness** — Propagated merge failure exit codes in `merge_config.py` and updated `install.sh` to perform atomic config merging with a transaction-like rollback to restore backup configurations on failure.
+
 ## v14.5.5 — Docker Debloat, Scanner Timeout, and Data Race Fixes (June 28, 2026)
 
 ### Fixed
