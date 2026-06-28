@@ -65,36 +65,28 @@ COPY raspi.sources /etc/apt/sources.list.d/raspi.sources
 
 # Install only the runtime libraries, fonts, and utilities
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    libsdl3-dev \
-    libsdl3-image-dev \
-    libsdl3-ttf-dev \
-    libsqlite3-dev \
-    libexif-dev \
-    libjpeg-dev \
-    libpng-dev \
-    libtiff-dev \
-    libheif-dev \
-    libwebp-dev \
-    libasound2-dev \
-    libfreetype6-dev \
-    libfontconfig1-dev \
-    libdrm-dev \
-    libgbm-dev \
-    libegl1-mesa-dev \
-    libgles2-mesa-dev \
+    libsdl3-0 \
+    libsdl3-image0 \
+    libsdl3-ttf0 \
+    libsqlite3-0 \
+    libexif12 \
+    libasound2t64 \
+    libfreetype6 \
+    libfontconfig1 \
+    libdrm2 \
+    libgbm1 \
+    libegl1 \
+    libgles2 \
     imagemagick \
     exiftool \
     dav1d \
     ffmpeg \
     mpv \
-    libmpv-dev \
-    libstb-dev \
+    libmpv2 \
     mosquitto-clients \
     ca-certificates \
     curl \
     iputils-ping \
-    network-manager \
-    systemd \
     && rm -rf /var/lib/apt/lists/*
 
 # Establish runtime directory tree
