@@ -1,5 +1,12 @@
 # Changelog
 
+## v14.5.5 — Docker Debloat, Scanner Timeout, and Data Race Fixes (June 28, 2026)
+
+### Fixed
+- **Dockerfile bloat reduction** — Updated runtime stage to remove development packages (`-dev`), `systemd`, and `network-manager`, replacing them with their corresponding runtime libraries (`libsdl3-0`, `libsdl3-image0`, `libsdl3-ttf0`, `libdrm2`, `libgbm1`, `libegl1`, `libgles2`, `libmpv2`) to reduce container image size.
+- **Scanner hang resolution** — Implemented a thread-based timeout in `read_dir_timeout` to prevent scanner threads from hanging indefinitely on stale CIFS mounts.
+- **Data race prevention** — Guarded cached media directory health statics with a mutex inside `is_media_dir_healthy` to ensure thread safety under concurrent access.
+
 ## v14.5.4 — Force Next Video Playback (June 28, 2026)
 
 ### Added
