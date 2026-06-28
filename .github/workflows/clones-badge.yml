@@ -17,7 +17,7 @@ jobs:
       - name: Fetch clone count from GitHub API
         id: clones
         run: |
-          CLONES=$(curl -s -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+          CLONES=$(curl -s -H "Authorization: Bearer ${{ secrets.REPO_TRAFFIC_TOKEN }}" \
             "https://api.github.com/repos/${{ github.repository }}/traffic/clones" \
             | jq '.count // 0')
           echo "count=$CLONES" >> "$GITHUB_OUTPUT"
