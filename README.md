@@ -9,6 +9,7 @@ A professional-grade, **containerized** digital picture & video frame applicatio
 <a href="https://www.debian.org/"><img src="https://img.shields.io/badge/OS-Trixie%20Lite%20%28Debian%2013%29-lightgreen?style=flat-square" alt="OS" /></a>
 <a href="https://en.wikipedia.org/wiki/AArch64"><img src="https://img.shields.io/badge/arch-aarch64-orange?style=flat-square" alt="Architecture" /></a>
 <a href="https://www.libsdl.org/"><img src="https://img.shields.io/badge/graphics-SDL3-red?style=flat-square" alt="Graphics" /></a>
+<br />
 <img src="https://img.shields.io/github/stars/UnDadFeated/piTrove?style=flat-square&logo=github" alt="Stars" />
 <img src="https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fraw.githubusercontent.com%2FUnDadFeated%2FpiTrove%2Fmain%2F.github%2Fclones.json&query=clones&label=clones&color=blue&style=flat-square" alt="Clones" />
 </p>
