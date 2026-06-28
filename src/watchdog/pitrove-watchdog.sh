@@ -12,7 +12,7 @@ DOCKER_CONTAINER="${DOCKER_CONTAINER:-piTrove}"
 CIFS_REMOUNT_COOLDOWN="${CIFS_REMOUNT_COOLDOWN:-60}"
 
 FAIL_COUNT=0
-MAX_FAIL=2          # 2 checks * 15 seconds = 30s offline trigger
+MAX_FAIL=12          # 12 checks * 15 seconds = 180s (3 minutes) offline trigger
 WIFI_RESET_DONE=false
 WAS_OFFLINE=false
 LAST_REMOUNT=0
@@ -116,7 +116,7 @@ while true; do
 
         if [ "$FAIL_COUNT" -ge "$MAX_FAIL" ]; then
             if [ "$WIFI_RESET_DONE" = false ]; then
-                log "Network down for 30s. Attempting one WiFi reset before reboot..."
+                log "Network down for ~3 minutes. Attempting one WiFi reset before reboot..."
                 WIFI_RESET_DONE=true
                 FAIL_COUNT=0
                 reset_wifi

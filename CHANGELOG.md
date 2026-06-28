@@ -1,5 +1,10 @@
 # Changelog
 
+## v14.5.4 — Force Next Video Playback (June 28, 2026)
+
+### Added
+- **Force Play Next Video** — Added a button (`🎬 Force Video`) to the Web Remote Dashboard and a corresponding `/api/force_video_next` endpoint to allow users to force-insert the next eligible video in the playlist as the very next item to play.
+
 ## v14.5.3 — Container Security & Watchdog Hardening (June 27, 2026)
 
 ### Added

@@ -696,12 +696,10 @@ static std::atomic<time_t> g_last_health_check_time{0};
 static bool g_last_health_check_result{false};
 static bool g_last_known_healthy{true};  // Track previous health state for E910
 static constexpr int HEALTH_CHECK_CACHE_TTL = 5;  // 5-second TTL
-static std::mutex g_health_check_mtx;
 
 bool is_media_dir_healthy(const std::string& media_dir) {
     if (media_dir.empty()) return false;
 
-    std::lock_guard<std::mutex> lock(g_health_check_mtx);
     // Check cache -- same TTL pattern as is_nas_online()
     time_t now = std::time(nullptr);
     if (media_dir == g_last_health_check_path &&
