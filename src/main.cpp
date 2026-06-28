@@ -2286,6 +2286,27 @@ int main(int argc, char** argv) {
             continue;
         }
 
+        // Handle Force Video Next command
+        if (cmd == 5) {
+            int n = (int)g_eligible.size();
+            int video_idx = -1;
+            for (int i = 1; i < n; i++) {
+                int idx = (current_idx + i) % n;
+                if (g_eligible[idx].type == "video") {
+                    video_idx = idx;
+                    break;
+                }
+            }
+            if (video_idx != -1) {
+                int next_idx = (current_idx + 1) % n;
+                std::swap(g_eligible[next_idx], g_eligible[video_idx]);
+                g_logger.info("FORCE VIDEO: Swapped video from index %d to next index %d: %s", video_idx, next_idx, g_eligible[next_idx].path.c_str());
+            } else {
+                g_logger.warn("FORCE VIDEO: No video found in the playlist to force next.");
+            }
+            cmd = 1;
+        }
+
         // Apply Skip Arrow commands
         if (cmd == 1 || cmd == 2) {
             item_timer = 0.0;
