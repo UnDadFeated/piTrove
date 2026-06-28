@@ -213,5 +213,5 @@ src/
 </a>
 
 ---
-MIT License
+GNU GPLv3 (or later) License
 
