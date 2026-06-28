@@ -16,6 +16,7 @@
 #include <cctype>
 #include <sys/ioctl.h>
 #include <net/if.h>
+#include <mutex>
 
 
 
@@ -692,22 +693,27 @@ std::string sanitize_alphanumeric(std::string_view input) {
 
 // Health check cache state
 static std::string g_last_health_check_path;
-static std::atomic<time_t> g_last_health_check_time{0};
+static time_t g_last_health_check_time{0};
 static bool g_last_health_check_result{false};
 static bool g_last_known_healthy{true};  // Track previous health state for E910
 static constexpr int HEALTH_CHECK_CACHE_TTL = 5;  // 5-second TTL
+static std::mutex g_health_check_mutex;
 
 bool is_media_dir_healthy(const std::string& media_dir) {
     if (media_dir.empty()) return false;
 
     // Check cache -- same TTL pattern as is_nas_online()
     time_t now = std::time(nullptr);
-    if (media_dir == g_last_health_check_path &&
-        now - g_last_health_check_time.load() <= HEALTH_CHECK_CACHE_TTL) {
-        return g_last_health_check_result;  // Return STATIC cached result
+    {
+        std::lock_guard<std::mutex> lock(g_health_check_mutex);
+        if (media_dir == g_last_health_check_path &&
+            now - g_last_health_check_time <= HEALTH_CHECK_CACHE_TTL) {
+            return g_last_health_check_result;  // Return STATIC cached result
+        }
     }
 
     // Original health check logic (filesystem::exists, directory_iterator)
+    // Run outside the lock to prevent blocking callers during slow filesystem operations
     std::error_code ec;
     bool healthy = std::filesystem::exists(media_dir, ec) &&
                    std::filesystem::is_directory(media_dir, ec);
@@ -717,15 +723,18 @@ bool is_media_dir_healthy(const std::string& media_dir) {
     }
 
     // Store cache result (statics -- survives across calls)
-    g_last_health_check_path = media_dir;
-    g_last_health_check_time.store(now);
-    g_last_health_check_result = healthy;
+    {
+        std::lock_guard<std::mutex> lock(g_health_check_mutex);
+        g_last_health_check_path = media_dir;
+        g_last_health_check_time = now;
+        g_last_health_check_result = healthy;
 
-    // Burst detection: if health state changed (healthy -> unhealthy)
-    if (!healthy && g_last_known_healthy) {
-        g_logger.warn("IO_BURST: Media dir went unhealthy -- check NAS connectivity");
+        // Burst detection: if health state changed (healthy -> unhealthy)
+        if (!healthy && g_last_known_healthy) {
+            g_logger.warn("IO_BURST: Media dir went unhealthy -- check NAS connectivity");
+        }
+        g_last_known_healthy = healthy;
     }
-    g_last_known_healthy = healthy;
 
     return healthy;
 }
