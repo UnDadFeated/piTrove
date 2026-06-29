@@ -1,5 +1,15 @@
 # Changelog
 
+## v14.5.8 — Polaroid Border Styles, TUI Alignment, and Watchdog Logging (June 29, 2026)
+
+### Added
+- **Polaroid and Custom Border Modes** — Expanded picture borders from a binary toggle to a multi-choice `border_mode` configuration, supporting `"off"`, `"3d"`, `"white"`, and `"polaroid"`. Polaroid mode renders asymmetric margins and prints the base filename centered in black text at the bottom.
+- **Watchdog Dedicated File Logging** — Patched the independent system watchdog script to output status updates to `/home/pi/piTrove/logs/pitrove-watchdog.log`.
+
+### Fixed
+- **TUI Wizard Index Shift** — Removed hijacked config checks and index drift inside the config wizard (`tui.cpp`), restoring access to the Slideshow settings category.
+- **Docker libstb Runtime Dependency** — Installed `libstb0t64` in the Dockerfile runtime stage to prevent container startup crashes (exit code 127) due to missing `libstb.so.0`.
+
 ## v14.5.7 — Preload CIFS Safety, MQTT Shutdown, and Google Photos Pagination (June 28, 2026)
 
 ### Fixed

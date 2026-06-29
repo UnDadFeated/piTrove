@@ -81,6 +81,8 @@ int ImageLoader::read_exif_rotation_from_memory(const uint8_t* buffer, unsigned 
 
 std::shared_ptr<ImageData> ImageLoader::load(const std::string& path) {
     auto result = std::make_shared<ImageData>();
+    size_t last_slash = path.find_last_of("/\\");
+    result->filename = (last_slash == std::string::npos) ? path : path.substr(last_slash + 1);
     result->valid = false;
     result->transient_error = false;
 

@@ -87,6 +87,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     curl \
     iputils-ping \
+    libstb0t64 \
     && rm -rf /var/lib/apt/lists/*
 
 # Establish runtime directory tree
