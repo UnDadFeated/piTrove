@@ -237,38 +237,30 @@ static void calculate_fit_rect_in_area(int img_w, int img_h, int area_x, int are
     }
 
     bool has_matting = false;
-    bool has_border = false;
+    std::string border_mode = "off";
     int mat_size = 0;
     int border_w = 0;
     {
         std::lock_guard lock(g_config_mtx);
         has_matting = g_cfg.matting;
-        has_border = g_cfg.border_enabled;
+        border_mode = g_cfg.border_mode;
         mat_size = g_renderer.scale_px(g_cfg.matting_size);
         border_w = g_renderer.scale_px(g_cfg.border_width);
     }
 
-    int effective_x = area_x;
-    int effective_y = area_y;
-    int effective_w = area_w;
-    int effective_h = area_h;
+    int left_margin = (has_matting ? mat_size : 0) + ((border_mode != "off") ? border_w : 0);
+    int right_margin = (has_matting ? mat_size : 0) + ((border_mode != "off") ? border_w : 0);
+    int top_margin = (has_matting ? mat_size : 0) + ((border_mode != "off") ? border_w : 0);
+    int bottom_margin = (has_matting ? mat_size : 0) + ((border_mode != "off") ? ((border_mode == "polaroid") ? (border_w * 4) : border_w) : 0);
 
-    int mat = 0;
-    if (has_matting) {
-        mat += mat_size;
-    }
-    if (has_border) {
-        mat += border_w;
-    }
+    int effective_x = area_x + left_margin;
+    int effective_y = area_y + top_margin;
+    int effective_w = area_w - (left_margin + right_margin);
+    int effective_h = area_h - (top_margin + bottom_margin);
 
-    if (mat > 0) {
-        effective_x += mat;
-        effective_y += mat;
-        effective_w -= mat * 2;
-        effective_h -= mat * 2;
-        if (effective_w < 1) effective_w = 1;
-        if (effective_h < 1) effective_h = 1;
-    }
+    if (effective_w < 1) effective_w = 1;
+    if (effective_h < 1) effective_h = 1;
+
     float scale = std::min((float)effective_w / img_w, (float)effective_h / img_h);
     out_rect.w = (int)(img_w * scale);
     out_rect.h = (int)(img_h * scale);
@@ -312,6 +304,7 @@ static SDL_Texture* render_state_to_texture(
         bool has_bias = false;
         bool has_matting = false;
         bool has_border = false;
+        std::string snap_border_mode = "off";
         int bias_strength = 110;
         float anim_speed = 0.5f;
         std::string style = "edge_glow";
@@ -323,7 +316,8 @@ static SDL_Texture* render_state_to_texture(
             std::lock_guard lock(g_config_mtx);
             has_bias = g_cfg.bias_lighting;
             has_matting = g_cfg.matting;
-            has_border = g_cfg.border_enabled;
+            snap_border_mode = g_cfg.border_mode;
+            has_border = (snap_border_mode != "off");
             bias_strength = g_cfg.bias_strength;
             anim_speed = g_cfg.bias_anim_speed;
             style = g_cfg.bias_anim_style;
@@ -366,10 +360,10 @@ static SDL_Texture* render_state_to_texture(
                 bias_strength, (float)item_timer, anim_speed, style, bw_r, snap_glow_depth);
         }
 
-        // 5. Draw 3D miter borders if enabled
+        // 5. Draw borders if enabled
         if (has_border) {
-            g_renderer.draw_3d_border(rect_l, primary->avg_r, primary->avg_g, primary->avg_b, border_w);
-            g_renderer.draw_3d_border(rect_r, twin->avg_r, twin->avg_g, twin->avg_b, border_w);
+            g_renderer.draw_border(rect_l, snap_border_mode, primary->avg_r, primary->avg_g, primary->avg_b, border_w, primary->filename);
+            g_renderer.draw_border(rect_r, snap_border_mode, twin->avg_r, twin->avg_g, twin->avg_b, border_w, twin->filename);
         }
 
         // 6. Draw texture
@@ -386,6 +380,7 @@ static SDL_Texture* render_state_to_texture(
         bool has_bias = false;
         bool has_matting = false;
         bool has_border = false;
+        std::string snap_border_mode = "off";
         int bias_strength = 110;
         float anim_speed = 0.5f;
         std::string style = "edge_glow";
@@ -397,7 +392,8 @@ static SDL_Texture* render_state_to_texture(
             std::lock_guard lock(g_config_mtx);
             has_bias = g_cfg.bias_lighting;
             has_matting = g_cfg.matting;
-            has_border = g_cfg.border_enabled;
+            snap_border_mode = g_cfg.border_mode;
+            has_border = (snap_border_mode != "off");
             bias_strength = g_cfg.bias_strength;
             anim_speed = g_cfg.bias_anim_speed;
             style = g_cfg.bias_anim_style;
@@ -434,9 +430,9 @@ static SDL_Texture* render_state_to_texture(
                 bias_strength, (float)item_timer, anim_speed, style, bw_param, snap_glow_depth);
         }
 
-        // 5. Draw 3D miter border if enabled
+        // 5. Draw border if enabled
         if (has_border) {
-            g_renderer.draw_3d_border(rect, primary->avg_r, primary->avg_g, primary->avg_b, border_w);
+            g_renderer.draw_border(rect, snap_border_mode, primary->avg_r, primary->avg_g, primary->avg_b, border_w, primary->filename);
         }
 
         // 6. Draw texture
@@ -2709,6 +2705,7 @@ int main(int argc, char** argv) {
                 bool has_bias = false;
                 bool has_matting = false;
                 bool has_border = false;
+                std::string snap_border_mode = "off";
                 int bias_strength = 110;
                 float anim_speed = 0.5f;
                 std::string style = "edge_glow";
@@ -2720,7 +2717,8 @@ int main(int argc, char** argv) {
                     std::lock_guard lock(g_config_mtx);
                     has_bias = g_cfg.bias_lighting;
                     has_matting = g_cfg.matting;
-                    has_border = g_cfg.border_enabled;
+                    snap_border_mode = g_cfg.border_mode;
+                    has_border = (snap_border_mode != "off");
                     bias_strength = g_cfg.bias_strength;
                     anim_speed = g_cfg.bias_anim_speed;
                     style = g_cfg.bias_anim_style;
@@ -2777,10 +2775,10 @@ int main(int argc, char** argv) {
                         bias_strength, (float)item_timer, anim_speed, style, bw_r, glow);
                 }
 
-                // 5. Draw 3D miter borders if enabled
+                // 5. Draw borders if enabled
                 if (has_border) {
-                    g_renderer.draw_3d_border(rect_l, current_data->avg_r, current_data->avg_g, current_data->avg_b, border_w);
-                    g_renderer.draw_3d_border(rect_r, current_twin_data->avg_r, current_twin_data->avg_g, current_twin_data->avg_b, border_w);
+                    g_renderer.draw_border(rect_l, snap_border_mode, current_data->avg_r, current_data->avg_g, current_data->avg_b, border_w, current_data->filename);
+                    g_renderer.draw_border(rect_r, snap_border_mode, current_twin_data->avg_r, current_twin_data->avg_g, current_twin_data->avg_b, border_w, current_twin_data->filename);
                 }
 
                 // 6. Draw texture
@@ -2793,6 +2791,7 @@ int main(int argc, char** argv) {
             } else if (current_tex) {
                 // Snapshot config for render frame to avoid data race
                 bool snap_bias, snap_matting, snap_border;
+                std::string snap_border_mode = "off";
                 int snap_bias_strength, snap_border_width, snap_glow_depth;
                 float snap_anim_speed;
                 std::string snap_anim_style;
@@ -2802,7 +2801,8 @@ int main(int argc, char** argv) {
                     std::lock_guard lk(g_config_mtx);
                     snap_bias = g_cfg.bias_lighting;
                     snap_matting = g_cfg.matting;
-                    snap_border = g_cfg.border_enabled;
+                    snap_border_mode = g_cfg.border_mode;
+                    snap_border = (snap_border_mode != "off");
                     snap_bias_strength = g_cfg.bias_strength;
                     snap_border_width = g_renderer.scale_px(g_cfg.border_width);
                     snap_anim_speed = g_cfg.bias_anim_speed;
@@ -2846,10 +2846,10 @@ int main(int argc, char** argv) {
                         snap_bias_strength, (float)item_timer, snap_anim_speed, snap_anim_style, bw_param, snap_glow_depth);
                 }
 
-                // 5. Draw 3D miter border if enabled
+                // 5. Draw border if enabled
                 if (snap_border && current_data) {
-                    g_renderer.draw_3d_border(fit_rect,
-                        current_data->avg_r, current_data->avg_g, current_data->avg_b, snap_border_width);
+                    g_renderer.draw_border(fit_rect, snap_border_mode,
+                        current_data->avg_r, current_data->avg_g, current_data->avg_b, snap_border_width, current_data->filename);
                 }
 
                 // 6. Draw texture

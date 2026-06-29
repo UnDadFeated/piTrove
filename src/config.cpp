@@ -145,7 +145,14 @@ bool Config::load(const std::string& path) {
         else if (key == "brightness_auto") this->brightness_auto = (val == "1" || val == "true");
         else if (key == "brightness_auto_min") this->brightness_auto_min = std::clamp(safe_stoi(val, this->brightness_auto_min), 0, 100);
         else if (key == "brightness_auto_max") this->brightness_auto_max = std::clamp(safe_stoi(val, this->brightness_auto_max), 0, 100);
-        else if (key == "border_enabled")    this->border_enabled = (val == "1" || val == "true");
+        else if (key == "border_mode")       this->border_mode = val;
+        else if (key == "border_enabled") {
+            if (val == "0" || val == "false") {
+                this->border_mode = "off";
+            } else if (val == "1" || val == "true") {
+                this->border_mode = "3d";
+            }
+        }
         else if (key == "border_width")      this->border_width = std::clamp(safe_stoi(val, this->border_width), 0, 250);
         else if (key == "vignette_enabled")  this->vignette_enabled = (val == "1" || val == "true");
         else if (key == "blurred_background") this->blurred_background = !(val == "0" || val == "false");
@@ -282,7 +289,7 @@ bool Config::save(const std::string& path) {
     f << "slideshow_fps = " << this->slideshow_fps << "\n";
     f << "splash_overlay_y = " << this->splash_overlay_y << "\n";
     f << "auto_display_rotation = " << (this->auto_display_rotation ? "1" : "0") << "\n";
-    f << "border_enabled = " << (this->border_enabled ? "1" : "0") << "\n";
+    f << "border_mode = \"" << this->border_mode << "\"\n";
     f << "border_width = " << this->border_width << "\n";
     f << "vignette_enabled = " << (this->vignette_enabled ? "1" : "0") << "\n";
     f << "bg_style = \"" << this->bg_style << "\"\n";

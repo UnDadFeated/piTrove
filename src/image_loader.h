@@ -89,7 +89,8 @@ struct ImageData {
     uint8_t matte_r = 0, matte_g = 0, matte_b = 0;
     bool is_camera = false;
     int64_t creation_time = 0;
- 
+    std::string filename;
+
     ImageData() = default;
  
     // Destructor to safely release SDL surface and textures
