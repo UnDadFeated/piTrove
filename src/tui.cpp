@@ -120,7 +120,7 @@ void config_wizard(const std::string& config_path) {
         {"Min Brightness", INT, "Floor for auto-brightness (0-100)"},
         {"Max Brightness", INT, "Ceiling for auto-brightness (0-100)"},
         {"Border Mode", ENM, "Border style option (off, 3d, white, polaroid)"},
-        {"3D Border Width", INT, "Thickness of the 3D border in pixels"},
+        {"Border Width", INT, "Thickness of the border in pixels"},
         {"Background Style", ENM, "Background style option (photo, plain, pattern)"},
         {"Pattern Brightness", INT, "Contrast offset for animated pattern style (0 to 150)"},
         {"Pattern Style", ENM, "Design pattern type (combined, grid, waves, dots)"},
