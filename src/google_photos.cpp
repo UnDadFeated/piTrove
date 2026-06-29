@@ -178,141 +178,167 @@ void GooglePhotosManager::download_media(const std::string &access_token) {
     cache_dir = g_cfg.google_photos_cache_dir;
   }
 
-  std::string cmd;
-  if (!album_id.empty()) {
-    // Query specific album
-    cmd = "curl -s -X POST "
-          "https://photoslibrary.googleapis.com/v1/mediaItems:search "
-          "-H 'Authorization: Bearer " + escape_shell_arg(access_token) + "' "
-          "-H 'Content-type: application/json' "
-          "-d '{\"albumId\": \"" + sanitize_alphanumeric(album_id) + "\", \"pageSize\": 100}'";
-  } else {
-    // Query all media items
-    cmd = "curl -s -X GET "
-          "'https://photoslibrary.googleapis.com/v1/mediaItems?pageSize=100' "
-          "-H 'Authorization: Bearer " + escape_shell_arg(access_token) + "'";
-  }
-
-  std::string json = execute_curl(cmd);
-
-  // Check for API errors in the json response
-  if (json.find("\"error\"") != std::string::npos) {
-    std::string err_msg = parse_json_value(json, "message");
-    if (json.find("RESOURCE_EXHAUSTED") != std::string::npos ||
-        json.find("429") != std::string::npos) {
-      trigger_error(302); // E302: GOOGLE_PHOTOS_RATE_LIMITED
-      return;
-    } else if (json.find("ALBUM_NOT_FOUND") != std::string::npos ||
-               err_msg.find("album") != std::string::npos) {
-      trigger_error(305); // E305: GOOGLE_PHOTOS_ALBUM_NOT_FOUND
-      return;
-    } else {
-      trigger_error(301); // E301: GOOGLE_PHOTOS_SYNC_FAILED
-      return;
-    }
-  }
-
-  // Tiny, super-robust JSON list parser
-  size_t pos = 0;
   int items_downloaded = 0;
   int items_skipped = 0;
+  std::string page_token = "";
 
-  while (true) {
-    // Find next mediaItem block
-    size_t id_pos = json.find("\"id\"", pos);
-    if (id_pos == std::string::npos)
+  do {
+    if (!running.load()) {
       break;
-
-    std::string id = parse_json_value(json.substr(id_pos), "id");
-    if (id.empty()) {
-      pos = id_pos + 4;
-      continue;
     }
 
-    size_t url_pos = json.find("\"baseUrl\"", id_pos);
-    if (url_pos == std::string::npos)
-      break;
-
-    std::string baseUrl = parse_json_value(json.substr(url_pos), "baseUrl");
-
-    size_t mime_pos = json.find("\"mimeType\"", id_pos);
-    std::string mime = "image/jpeg";
-    if (mime_pos != std::string::npos) {
-      mime = parse_json_value(json.substr(mime_pos), "mimeType");
-    }
-
-    size_t fn_pos = json.find("\"filename\"", id_pos);
-    std::string original_filename = "photo.jpg";
-    if (fn_pos != std::string::npos) {
-      original_filename = parse_json_value(json.substr(fn_pos), "filename");
-    }
-
-    // Determine local extension
-    std::string ext = "jpg";
-    bool is_video = (mime.find("video") != std::string::npos);
-    if (is_video) {
-      ext = "mp4";
+    std::string cmd;
+    if (!album_id.empty()) {
+      // Query specific album
+      std::string post_data = "{\"albumId\": \"" + sanitize_alphanumeric(album_id) + "\", \"pageSize\": 100";
+      if (!page_token.empty()) {
+        post_data += ", \"pageToken\": \"" + page_token + "\"";
+      }
+      post_data += "}";
+      cmd = "curl -s -X POST "
+            "https://photoslibrary.googleapis.com/v1/mediaItems:search "
+            "-H 'Authorization: Bearer " + escape_shell_arg(access_token) + "' "
+            "-H 'Content-type: application/json' "
+            "-d '" + escape_shell_arg(post_data) + "'";
     } else {
-      size_t dot = original_filename.rfind('.');
-      if (dot != std::string::npos) {
-        ext = original_filename.substr(dot + 1);
+      // Query all media items
+      std::string url = "https://photoslibrary.googleapis.com/v1/mediaItems?pageSize=100";
+      if (!page_token.empty()) {
+        url += "&pageToken=" + page_token;
       }
+      cmd = "curl -s -X GET "
+            "'" + escape_shell_arg(url) + "' "
+            "-H 'Authorization: Bearer " + escape_shell_arg(access_token) + "'";
     }
 
-    std::string filename = "gphoto_" + sanitize_alphanumeric(id) + "." + sanitize_alphanumeric(ext);
-    std::string local_path = cache_dir + "/" + filename;
+    std::string json = execute_curl(cmd);
 
-    if (!std::filesystem::exists(local_path)) {
-      std::string download_url = baseUrl + (is_video ? "=dv" : "=d");
-
-      // Validate URL to prevent SSRF/unauthorized requests
-      if (download_url.rfind("https://", 0) != 0) {
-        g_logger.error("GooglePhotos: Invalid URL protocol for download: %s", download_url.c_str());
-        continue;
-      }
-      size_t host_start = 8; // length of "https://"
-      size_t host_end = download_url.find('/', host_start);
-      std::string host = (host_end == std::string::npos) ? download_url.substr(host_start) : download_url.substr(host_start, host_end - host_start);
-      size_t colon = host.find(':');
-      if (colon != std::string::npos) {
-        host = host.substr(0, colon);
-      }
-      bool domain_valid = false;
-      if (host == "googleusercontent.com" || 
-          (host.length() > 22 && host.compare(host.length() - 22, 22, ".googleusercontent.com") == 0) ||
-          host == "ggpht.com" ||
-          (host.length() > 10 && host.compare(host.length() - 10, 10, ".ggpht.com") == 0)) {
-        domain_valid = true;
-      }
-      if (!domain_valid) {
-        g_logger.error("GooglePhotos: Security warning: download URL host '%s' is not a Google Photos domain. Skipping download.", host.c_str());
-        continue;
-      }
-
-      g_logger.info("GooglePhotos: Downloading new %s: %s",
-                    (is_video ? "video" : "photo"), original_filename.c_str());
-
-      // Build the curl download command with -- to prevent option injection
-      std::string dl_cmd =
-          "curl -s -o '" + escape_shell_arg(local_path) + "' -- '" + escape_shell_arg(download_url) + "'";
-      std::string dl_res = execute_curl(dl_cmd);
-
-      // Double check that file is non-empty and valid
-      if (std::filesystem::exists(local_path) &&
-          std::filesystem::file_size(local_path) >= 1024) {
-        items_downloaded++;
+    // Check for API errors in the json response
+    if (json.find("\"error\"") != std::string::npos) {
+      std::string err_msg = parse_json_value(json, "message");
+      if (json.find("RESOURCE_EXHAUSTED") != std::string::npos ||
+          json.find("429") != std::string::npos) {
+        trigger_error(302); // E302: GOOGLE_PHOTOS_RATE_LIMITED
+        return;
+      } else if (json.find("ALBUM_NOT_FOUND") != std::string::npos ||
+                 err_msg.find("album") != std::string::npos) {
+        trigger_error(305); // E305: GOOGLE_PHOTOS_ALBUM_NOT_FOUND
+        return;
       } else {
-        g_logger.error("GooglePhotos: Failed to download item: %s",
-                       original_filename.c_str());
-        std::filesystem::remove(local_path);
+        trigger_error(301); // E301: GOOGLE_PHOTOS_SYNC_FAILED
+        return;
       }
-    } else {
-      items_skipped++;
     }
 
-    // Advance cursor past this item block
-    pos = url_pos + 10;
-  }
+    if (json.find("\"id\"") == std::string::npos) {
+      break;
+    }
+
+    // Tiny, super-robust JSON list parser
+    size_t pos = 0;
+
+    while (true) {
+      if (!running.load()) {
+        break;
+      }
+      // Find next mediaItem block
+      size_t id_pos = json.find("\"id\"", pos);
+      if (id_pos == std::string::npos)
+        break;
+
+      std::string id = parse_json_value(json.substr(id_pos), "id");
+      if (id.empty()) {
+        pos = id_pos + 4;
+        continue;
+      }
+
+      size_t url_pos = json.find("\"baseUrl\"", id_pos);
+      if (url_pos == std::string::npos)
+        break;
+
+      std::string baseUrl = parse_json_value(json.substr(url_pos), "baseUrl");
+
+      size_t mime_pos = json.find("\"mimeType\"", id_pos);
+      std::string mime = "image/jpeg";
+      if (mime_pos != std::string::npos) {
+        mime = parse_json_value(json.substr(mime_pos), "mimeType");
+      }
+
+      size_t fn_pos = json.find("\"filename\"", id_pos);
+      std::string original_filename = "photo.jpg";
+      if (fn_pos != std::string::npos) {
+        original_filename = parse_json_value(json.substr(fn_pos), "filename");
+      }
+
+      // Determine local extension
+      std::string ext = "jpg";
+      bool is_video = (mime.find("video") != std::string::npos);
+      if (is_video) {
+        ext = "mp4";
+      } else {
+        size_t dot = original_filename.rfind('.');
+        if (dot != std::string::npos) {
+          ext = original_filename.substr(dot + 1);
+        }
+      }
+
+      std::string filename = "gphoto_" + sanitize_alphanumeric(id) + "." + sanitize_alphanumeric(ext);
+      std::string local_path = cache_dir + "/" + filename;
+
+      if (!std::filesystem::exists(local_path)) {
+        std::string download_url = baseUrl + (is_video ? "=dv" : "=d");
+
+        // Validate URL to prevent SSRF/unauthorized requests
+        if (download_url.rfind("https://", 0) != 0) {
+          g_logger.error("GooglePhotos: Invalid URL protocol for download: %s", download_url.c_str());
+          continue;
+        }
+        size_t host_start = 8; // length of "https://"
+        size_t host_end = download_url.find('/', host_start);
+        std::string host = (host_end == std::string::npos) ? download_url.substr(host_start) : download_url.substr(host_start, host_end - host_start);
+        size_t colon = host.find(':');
+        if (colon != std::string::npos) {
+          host = host.substr(0, colon);
+        }
+        bool domain_valid = false;
+        if (host == "googleusercontent.com" || 
+            (host.length() > 22 && host.compare(host.length() - 22, 22, ".googleusercontent.com") == 0) ||
+            host == "ggpht.com" ||
+            (host.length() > 10 && host.compare(host.length() - 10, 10, ".ggpht.com") == 0)) {
+          domain_valid = true;
+        }
+        if (!domain_valid) {
+          g_logger.error("GooglePhotos: Security warning: download URL host '%s' is not a Google Photos domain. Skipping download.", host.c_str());
+          continue;
+        }
+
+        g_logger.info("GooglePhotos: Downloading new %s: %s",
+                      (is_video ? "video" : "photo"), original_filename.c_str());
+
+        // Build the curl download command with -- to prevent option injection
+        std::string dl_cmd =
+            "curl -s -o '" + escape_shell_arg(local_path) + "' -- '" + escape_shell_arg(download_url) + "'";
+        std::string dl_res = execute_curl(dl_cmd);
+
+        // Double check that file is non-empty and valid
+        if (std::filesystem::exists(local_path) &&
+            std::filesystem::file_size(local_path) >= 1024) {
+          items_downloaded++;
+        } else {
+          g_logger.error("GooglePhotos: Failed to download item: %s",
+                         original_filename.c_str());
+          std::filesystem::remove(local_path);
+        }
+      } else {
+        items_skipped++;
+      }
+
+      // Advance cursor past this item block
+      pos = url_pos + 10;
+    }
+
+    page_token = parse_json_value(json, "nextPageToken");
+  } while (!page_token.empty());
 
   g_logger.info("GooglePhotos: Sync complete. Downloaded=%d, Skipped=%d",
                 items_downloaded, items_skipped);

@@ -4,6 +4,8 @@
 #include "image_loader.h"
 #include "blur.h"
 #include "config.h"
+#include "scanner.h"
+#include <sys/stat.h>
 #include <shared_mutex>
 #include <future>
 #include <stb_image.h>
@@ -332,6 +334,16 @@ void PreloadQueue::worker_thread(std::shared_ptr<PreloadState> state, int thread
         }
 
         g_logger.debug("[Worker %d] preloading: %s", thread_id, path.c_str());
+
+        struct stat st;
+        if (!stat_timeout(path, st, 5000)) {
+            g_logger.warn("[Worker %d] stat_timeout: '%s' inaccessible, skipping.", thread_id, path.c_str());
+            {
+                std::lock_guard<std::mutex> lock(state->work_mutex);
+                state->active_preloads.erase(path);
+            }
+            continue;
+        }
 
         std::vector<uint8_t> buffer = ImageLoader::read_file_to_buffer(path);
         if (buffer.empty()) {
