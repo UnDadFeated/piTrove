@@ -32,8 +32,13 @@ fi
 log() {
     if command -v logger >/dev/null 2>&1; then
         logger -t "pitrove-watchdog" "$@"
-    else
-        echo "$(date '+%b %d %H:%M:%S') pitrove-watchdog: $*" >> /var/log/pitrove-watchdog.log || true
+    fi
+    
+    # Also write to local log file in logs/ folder if directory exists
+    LOG_FILE="${LOG_FILE:-/home/pi/piTrove/logs/pitrove-watchdog.log}"
+    LOG_DIR=$(dirname "$LOG_FILE")
+    if [ -d "$LOG_DIR" ]; then
+        echo "$(date '+%Y-%m-%d %H:%M:%S') pitrove-watchdog: $*" >> "$LOG_FILE" || true
     fi
 }
 

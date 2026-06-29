@@ -119,7 +119,7 @@ void config_wizard(const std::string& config_path) {
         {"Brightness Auto", TGL, "Auto backlight dimming based on time of day"},
         {"Min Brightness", INT, "Floor for auto-brightness (0-100)"},
         {"Max Brightness", INT, "Ceiling for auto-brightness (0-100)"},
-        {"3D Border", TGL, "Enable 3D miter border around photos"},
+        {"Border Mode", ENM, "Border style option (off, 3d, white, polaroid)"},
         {"3D Border Width", INT, "Thickness of the 3D border in pixels"},
         {"Background Style", ENM, "Background style option (photo, plain, pattern)"},
         {"Pattern Brightness", INT, "Contrast offset for animated pattern style (0 to 150)"},
@@ -266,24 +266,14 @@ void config_wizard(const std::string& config_path) {
             case 4: return g_cfg.brightness_auto?"[ON]":"[OFF]";
             case 5: return std::to_string(g_cfg.brightness_auto_min);
             case 6: return std::to_string(g_cfg.brightness_auto_max);
-            case 7: return g_cfg.border_enabled?"[ON]":"[OFF]";
+            case 7: return g_cfg.border_mode;
             case 8: return std::to_string(g_cfg.border_width);
             case 9: return g_cfg.bg_style;
             case 10: return std::to_string(g_cfg.pattern_offset);
             case 11: return g_cfg.pattern_style;
             case 12: return std::to_string(g_cfg.pattern_blend_count);
         }
-        if (c == 1) switch(i) {
-            case 0: return g_cfg.media_dir; case 1: return g_cfg.cache_dir; case 2: return g_cfg.log_dir;
-            case 3: return g_cfg.sleep_time; case 4: return g_cfg.wake_time;
-            case 5: return g_cfg.http_enabled?"[ON]":"[OFF]";
-            case 6: return g_cfg.web_dashboard_enabled?"[ON]":"[OFF]";
-            case 7: return std::to_string(g_cfg.http_port);
-            case 8: return std::to_string(g_cfg.splash_overlay_y);
-            case 9: return g_cfg.auto_update?"[ON]":"[OFF]";
-            case 10: return g_cfg.auto_update_branch;
-            case 11: return g_cfg.touch_enabled?"[ON]":"[OFF]";
-        }
+        
         if (c == 2) switch(i) {
             case 0: return g_cfg.timer_enabled?"[ON]":"[OFF]";
             case 1: return std::to_string(g_cfg.timer_x);
@@ -413,24 +403,19 @@ void config_wizard(const std::string& config_path) {
                 case 4:g_cfg.brightness_auto=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
                 case 5:{ try { int val = std::stoi(v); g_cfg.brightness_auto_min=std::clamp(val, 0, 100); } catch(...) {} break; }
                 case 6:{ try { int val = std::stoi(v); g_cfg.brightness_auto_max=std::clamp(val, 0, 100); } catch(...) {} break; }
-                case 7:g_cfg.border_enabled=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
+                case 7: {
+                    if (v == "3d" || v == "white" || v == "polaroid" || v == "off") {
+                        g_cfg.border_mode = v;
+                    }
+                    break;
+                }
                 case 8:{ try { int val = std::stoi(v); g_cfg.border_width=std::clamp(val, 0, 250); } catch(...) {} break; }
                 case 9:g_cfg.bg_style=v;break;
                 case 10:{ try { int val = std::stoi(v); g_cfg.pattern_offset=std::clamp(val, 0, 150); } catch(...) {} break; }
                 case 11:g_cfg.pattern_style=v;break;
                 case 12:{ try { int val = std::stoi(v); g_cfg.pattern_blend_count=std::clamp(val, 1, 3); } catch(...) {} break; }
             }
-            else if(c==1) switch(i){
-                case 0:g_cfg.media_dir=v;break; case 1:g_cfg.cache_dir=v;break; case 2:g_cfg.log_dir=v;break;
-                case 3:g_cfg.sleep_time=v;break; case 4:g_cfg.wake_time=v;break;
-                case 5:g_cfg.http_enabled=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
-                case 6:g_cfg.web_dashboard_enabled=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
-                case 7:{ try { int val = std::stoi(v); if(val>=1&&val<=65535) g_cfg.http_port=val; } catch(...) {} break; }
-                case 8:{ try { g_cfg.splash_overlay_y=std::stof(v); } catch(...) {} break; }
-                case 9:g_cfg.auto_update=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
-                case 10:g_cfg.auto_update_branch=v;break;
-                case 11:g_cfg.touch_enabled=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
-            }
+            
             else if(c==2) switch(i){
                 case 0:g_cfg.timer_enabled=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
                 case 1:{ try { g_cfg.timer_x=std::stof(v); } catch(...) {} break; } case 2:{ try { g_cfg.timer_y=std::stof(v); } catch(...) {} break; }
@@ -556,12 +541,13 @@ void config_wizard(const std::string& config_path) {
 
     auto enums = [&](int c, int i) -> std::vector<std::string> {
         if(c==0&&i==0) return {"1080p", "1440p", "2160p"};
-        if(c==0&&i==7) return {"photo","plain","pattern"};
-        if(c==0&&i==9) return {"random_animated", "random_static", "animated_combined", "animated_grid", "animated_waves", "animated_dots", "animated_circles", "animated_crosses", "animated_triangles", "animated_squares", "animated_hexagons", "animated_fractals", "animated_polygons", "animated_rectangles", "animated_mix", "static_grid", "static_waves", "static_dots", "static_circles", "static_crosses", "static_triangles", "static_squares", "static_hexagons", "static_fractals", "static_polygons", "static_rectangles", "static_mix"};
-        if(c==1&&i==9) return {"main","develop"};
-        if(c==4&&i==2) return {"crossfade","wipe","pixelate","dissolve","ken_burns"};
-        if(c==4&&i==7) return {"pulsing","radiating","absorbing","edge_glow","aura"};
-        if(c==4&&i==8) return {"auto","rainbow"};
+        if(c==0&&i==7) return {"off", "3d", "white", "polaroid"};
+        if(c==0&&i==9) return {"photo","plain","pattern"};
+        if(c==0&&i==11) return {"random_animated", "random_static", "animated_combined", "animated_grid", "animated_waves", "animated_dots", "animated_circles", "animated_crosses", "animated_triangles", "animated_squares", "animated_hexagons", "animated_fractals", "animated_polygons", "animated_rectangles", "animated_mix", "static_grid", "static_waves", "static_dots", "static_circles", "static_crosses", "static_triangles", "static_squares", "static_hexagons", "static_fractals", "static_polygons", "static_rectangles", "static_mix"};
+        if(c==6&&i==3) return {"main","develop"};
+        if(c==1&&i==2) return {"crossfade","wipe","pixelate","dissolve","ken_burns"};
+        if(c==1&&i==7) return {"pulsing","radiating","absorbing","edge_glow","aura"};
+        if(c==1&&i==8) return {"auto","rainbow"};
         if(c==2&&i==4) return {"yellow","white","cyan","red"};
         if(c==2&&i==9) return {"yellow","white","cyan","red"};
         if(c==8&&i==0) return {"debug","info","warn","error"};
@@ -915,7 +901,7 @@ void config_wizard(const std::string& config_path) {
                             g_cfg.rotation = 0; g_cfg.ken_burns_zoom = 0.15f;
                             g_cfg.auto_display_rotation = true; g_cfg.brightness_auto = true;
                             g_cfg.brightness_auto_min = 30; g_cfg.brightness_auto_max = 100;
-                            g_cfg.border_enabled = true; g_cfg.border_width = 25;
+                            g_cfg.border_mode = "white"; g_cfg.border_width = 25;
                             g_cfg.bg_style = "pattern"; g_cfg.pattern_offset = 75;
                             g_cfg.pattern_style = "animated_combined"; g_cfg.pattern_blend_count = 2;
                         } else if (sel == 1) { // Slideshow

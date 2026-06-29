@@ -69,6 +69,7 @@ public:
     void draw_color_matched_matte(const SDL_Rect& fit_rect, Uint8 matte_r, Uint8 matte_g, Uint8 matte_b, float matte_opacity);
     void draw_bias_lighting(const SDL_Rect& fit_rect, Uint8 avg_r, Uint8 avg_g, Uint8 avg_b,
         int bias_strength, float item_timer, float anim_speed, const std::string& style, int border_width, int glow_depth = 0);
+    void draw_border(const SDL_Rect& fit_rect, const std::string& border_mode, Uint8 avg_r, Uint8 avg_g, Uint8 avg_b, int border_width, const std::string& filename);
     void draw_3d_border(const SDL_Rect& fit_rect, Uint8 avg_r, Uint8 avg_g, Uint8 avg_b, int border_width);
 
 

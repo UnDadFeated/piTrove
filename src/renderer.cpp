@@ -266,39 +266,34 @@ void Renderer::calculate_fit_rect(int img_w, int img_h, SDL_Rect& out_rect) {
         return;
     }
 
-    int area_w = screen_w, area_h = screen_h;
-    
     bool has_matting = false;
-    bool has_border = false;
+    std::string border_mode = "off";
     int mat_size = 0;
     int border_w = 0;
     {
         std::shared_lock lock(g_config_mtx);
         has_matting = g_cfg.matting;
-        has_border = g_cfg.border_enabled;
-        mat_size = g_renderer.scale_px(g_cfg.matting_size);
-        border_w = g_renderer.scale_px(g_cfg.border_width);
+        border_mode = g_cfg.border_mode;
+        mat_size = scale_px(g_cfg.matting_size);
+        border_w = scale_px(g_cfg.border_width);
     }
 
-    int mat = 0;
-    if (has_matting) {
-        mat += mat_size;
-    }
-    if (has_border) {
-        mat += border_w;
-    }
+    int left_margin = (has_matting ? mat_size : 0) + ((border_mode != "off") ? border_w : 0);
+    int right_margin = (has_matting ? mat_size : 0) + ((border_mode != "off") ? border_w : 0);
+    int top_margin = (has_matting ? mat_size : 0) + ((border_mode != "off") ? border_w : 0);
+    int bottom_margin = (has_matting ? mat_size : 0) + ((border_mode != "off") ? ((border_mode == "polaroid") ? (border_w * 4) : border_w) : 0);
 
-    if (mat > 0) {
-        area_w = screen_w - mat * 2;
-        area_h = screen_h - mat * 2;
-        if (area_w < 1) area_w = 1;
-        if (area_h < 1) area_h = 1;
-    }
+    int area_w = screen_w - (left_margin + right_margin);
+    int area_h = screen_h - (top_margin + bottom_margin);
+
+    if (area_w < 1) area_w = 1;
+    if (area_h < 1) area_h = 1;
+
     float scale = std::min((float)area_w / img_w, (float)area_h / img_h);
     out_rect.w = (int)(img_w * scale);
     out_rect.h = (int)(img_h * scale);
-    out_rect.x = (screen_w - out_rect.w) / 2;
-    out_rect.y = (screen_h - out_rect.h) / 2;
+    out_rect.x = left_margin + (area_w - out_rect.w) / 2;
+    out_rect.y = top_margin + (area_h - out_rect.h) / 2;
 }
 
 void Renderer::clear(uint8_t r, uint8_t g, uint8_t b, uint8_t a) {
@@ -932,7 +927,19 @@ void Renderer::draw_bias_lighting(const SDL_Rect& fit_rect, Uint8 avg_r, Uint8 a
         int bias_strength, float item_timer, float anim_speed, const std::string& style, int border_width, int glow_depth) {
     if (!sdl_renderer) return;
     int sw = screen_w, sh = screen_h;
-    int bw = border_width; // use config border_width (default 10)
+    int bw = border_width;
+    int bw_top = border_width;
+    int bw_left = border_width;
+    int bw_right = border_width;
+    int bw_bottom = border_width;
+    std::string border_mode = "off";
+    {
+        std::shared_lock lk(g_config_mtx);
+        border_mode = g_cfg.border_mode;
+    }
+    if (border_mode == "polaroid" && border_width > 0) {
+        bw_bottom = border_width * 4;
+    } // use config border_width (default 10)
     int glow_steps = glow_depth > 0 ? glow_depth : 16; // configurable glow fade depth
     float sf = (float)std::max(0, std::min(bias_strength, 200)) / 150.0f;
     float pulse = 1.0f;
@@ -1061,8 +1068,8 @@ void Renderer::draw_bias_lighting(const SDL_Rect& fit_rect, Uint8 avg_r, Uint8 a
             }
         };
 
-        { int depth = sh - (fit_rect.y + fit_rect.h + bw); if (depth > 0) glow_down_shadow(fit_rect.x - bw, fit_rect.y + fit_rect.h + bw, fit_rect.w + 2*bw + 1, depth); }
-        { int depth = sw - (fit_rect.x + fit_rect.w + bw); if (depth > 0) glow_right_shadow(fit_rect.x + fit_rect.w + bw, fit_rect.y - bw, depth, fit_rect.h + 2*bw + 1); }
+        { int depth = sh - (fit_rect.y + fit_rect.h + bw_bottom); if (depth > 0) glow_down_shadow(fit_rect.x - bw_left, fit_rect.y + fit_rect.h + bw_bottom, fit_rect.w + bw_left + bw_right + 1, depth); }
+        { int depth = sw - (fit_rect.x + fit_rect.w + bw_right); if (depth > 0) glow_right_shadow(fit_rect.x + fit_rect.w + bw_right, fit_rect.y - bw_top, depth, fit_rect.h + bw_top + bw_bottom + 1); }
 
         auto glow_corner = [&](int px, int py, int dx, int dy, int region_w, int region_h) {
             for (int i = 1; i <= region_w; i++) {
@@ -1079,13 +1086,13 @@ void Renderer::draw_bias_lighting(const SDL_Rect& fit_rect, Uint8 avg_r, Uint8 a
             }
         };
 
-        { int rw = sw - (fit_rect.x + fit_rect.w + bw), rh = sh - (fit_rect.y + fit_rect.h + bw); if (rw > 0 && rh > 0) glow_corner(fit_rect.x + fit_rect.w + bw, fit_rect.y + fit_rect.h + bw, 1, 1, rw + 1, rh + 1); }
+        { int rw = sw - (fit_rect.x + fit_rect.w + bw_right), rh = sh - (fit_rect.y + fit_rect.h + bw_bottom); if (rw > 0 && rh > 0) glow_corner(fit_rect.x + fit_rect.w + bw_right, fit_rect.y + fit_rect.h + bw_bottom, 1, 1, rw + 1, rh + 1); }
     } else {
         // Normal 4-sided edge glow and all corners
-        { int depth = fit_rect.y - bw; if (depth > 0) glow_up(fit_rect.x - bw, fit_rect.y - bw, fit_rect.w + 2*bw + 1, depth); }
-        { int depth = sh - (fit_rect.y + fit_rect.h + bw); if (depth > 0) glow_down(fit_rect.x - bw, fit_rect.y + fit_rect.h + bw, fit_rect.w + 2*bw + 1, depth); }
-        { int depth = fit_rect.x - bw; if (depth > 0) glow_left(fit_rect.x - bw, fit_rect.y - bw, depth, fit_rect.h + 2*bw + 1); }
-        { int depth = sw - (fit_rect.x + fit_rect.w + bw); if (depth > 0) glow_right(fit_rect.x + fit_rect.w + bw, fit_rect.y - bw, depth, fit_rect.h + 2*bw + 1); }
+        { int depth = fit_rect.y - bw_top; if (depth > 0) glow_up(fit_rect.x - bw_left, fit_rect.y - bw_top, fit_rect.w + bw_left + bw_right + 1, depth); }
+        { int depth = sh - (fit_rect.y + fit_rect.h + bw_bottom); if (depth > 0) glow_down(fit_rect.x - bw_left, fit_rect.y + fit_rect.h + bw_bottom, fit_rect.w + bw_left + bw_right + 1, depth); }
+        { int depth = fit_rect.x - bw_left; if (depth > 0) glow_left(fit_rect.x - bw_left, fit_rect.y - bw_top, depth, fit_rect.h + bw_top + bw_bottom + 1); }
+        { int depth = sw - (fit_rect.x + fit_rect.w + bw_right); if (depth > 0) glow_right(fit_rect.x + fit_rect.w + bw_right, fit_rect.y - bw_top, depth, fit_rect.h + bw_top + bw_bottom + 1); }
 
         auto glow_corner = [&](int px, int py, int dx, int dy, int region_w, int region_h) {
             for (int i = 1; i <= region_w; i++) {
@@ -1102,10 +1109,78 @@ void Renderer::draw_bias_lighting(const SDL_Rect& fit_rect, Uint8 avg_r, Uint8 a
             }
         };
 
-        { int rw = fit_rect.x - bw, rh = fit_rect.y - bw; if (rw > 0 && rh > 0) glow_corner(fit_rect.x - bw, fit_rect.y - bw, -1, -1, rw, rh); }
-        { int rw = sw - (fit_rect.x + fit_rect.w + bw), rh = fit_rect.y - bw; if (rw > 0 && rh > 0) glow_corner(fit_rect.x + fit_rect.w + bw, fit_rect.y - bw, 1, -1, rw + 1, rh); }
-        { int rw = fit_rect.x - bw, rh = sh - (fit_rect.y + fit_rect.h + bw); if (rw > 0 && rh > 0) glow_corner(fit_rect.x - bw, fit_rect.y + fit_rect.h + bw, -1, 1, rw, rh + 1); }
-        { int rw = sw - (fit_rect.x + fit_rect.w + bw), rh = sh - (fit_rect.y + fit_rect.h + bw); if (rw > 0 && rh > 0) glow_corner(fit_rect.x + fit_rect.w + bw, fit_rect.y + fit_rect.h + bw, 1, 1, rw + 1, rh + 1); }
+        { int rw = fit_rect.x - bw_left, rh = fit_rect.y - bw_top; if (rw > 0 && rh > 0) glow_corner(fit_rect.x - bw_left, fit_rect.y - bw_top, -1, -1, rw, rh); }
+        { int rw = sw - (fit_rect.x + fit_rect.w + bw_right), rh = fit_rect.y - bw_top; if (rw > 0 && rh > 0) glow_corner(fit_rect.x + fit_rect.w + bw_right, fit_rect.y - bw_top, 1, -1, rw + 1, rh); }
+        { int rw = fit_rect.x - bw_left, rh = sh - (fit_rect.y + fit_rect.h + bw_bottom); if (rw > 0 && rh > 0) glow_corner(fit_rect.x - bw_left, fit_rect.y + fit_rect.h + bw_bottom, -1, 1, rw, rh + 1); }
+        { int rw = sw - (fit_rect.x + fit_rect.w + bw_right), rh = sh - (fit_rect.y + fit_rect.h + bw_bottom); if (rw > 0 && rh > 0) glow_corner(fit_rect.x + fit_rect.w + bw_right, fit_rect.y + fit_rect.h + bw_bottom, 1, 1, rw + 1, rh + 1); }
+    }
+}
+
+void Renderer::draw_border(const SDL_Rect& fit_rect, const std::string& border_mode, Uint8 avg_r, Uint8 avg_g, Uint8 avg_b, int border_width, const std::string& filename) {
+    if (!sdl_renderer) return;
+    int sw = screen_w, sh = screen_h;
+    int bw = border_width;
+
+    if (border_mode == "3d") {
+        draw_3d_border(fit_rect, avg_r, avg_g, avg_b, border_width);
+        return;
+    }
+
+    int ix1 = fit_rect.x, iy1 = fit_rect.y;
+    int ix2 = fit_rect.x + fit_rect.w, iy2 = fit_rect.y + fit_rect.h;
+
+    if (border_mode == "white") {
+        SDL_SetRenderDrawColor(sdl_renderer, 255, 255, 255, 255);
+        if (iy1 > 0) {
+            SDL_FRect r = {(float)(ix1 - bw), (float)(iy1 - bw), (float)(fit_rect.w + bw * 2), (float)bw};
+            SDL_RenderFillRect(sdl_renderer, &r);
+        }
+        if (iy2 + bw <= sh) {
+            SDL_FRect r = {(float)(ix1 - bw), (float)iy2, (float)(fit_rect.w + bw * 2), (float)bw};
+            SDL_RenderFillRect(sdl_renderer, &r);
+        }
+        if (ix1 > 0) {
+            SDL_FRect r = {(float)(ix1 - bw), (float)iy1, (float)bw, (float)fit_rect.h};
+            SDL_RenderFillRect(sdl_renderer, &r);
+        }
+        if (ix2 + bw <= sw) {
+            SDL_FRect r = {(float)ix2, (float)iy1, (float)bw, (float)fit_rect.h};
+            SDL_RenderFillRect(sdl_renderer, &r);
+        }
+    }
+    else if (border_mode == "polaroid") {
+        SDL_SetRenderDrawColor(sdl_renderer, 255, 255, 255, 255);
+        if (iy1 > 0) {
+            SDL_FRect r = {(float)(ix1 - bw), (float)(iy1 - bw), (float)(fit_rect.w + bw * 2), (float)bw};
+            SDL_RenderFillRect(sdl_renderer, &r);
+        }
+        if (ix1 > 0) {
+            SDL_FRect r = {(float)(ix1 - bw), (float)iy1, (float)bw, (float)fit_rect.h};
+            SDL_RenderFillRect(sdl_renderer, &r);
+        }
+        if (ix2 + bw <= sw) {
+            SDL_FRect r = {(float)ix2, (float)iy1, (float)bw, (float)fit_rect.h};
+            SDL_RenderFillRect(sdl_renderer, &r);
+        }
+
+        int bottom_bw = bw * 4;
+        if (iy2 + bottom_bw <= sh) {
+            SDL_FRect r = {(float)(ix1 - bw), (float)iy2, (float)(fit_rect.w + bw * 2), (float)bottom_bw};
+            SDL_RenderFillRect(sdl_renderer, &r);
+        }
+
+        if (font_renderer && crt_font && font_loaded && !filename.empty()) {
+            int font_size = std::clamp(bw * 2, 10, 24);
+            FontHandle& font = font_renderer->load_font(crt_font->path, font_size);
+            
+            int text_w = 0, text_h = 0;
+            font_renderer->measure(font, filename, text_w, text_h);
+            
+            int text_x = ix1 + (fit_rect.w - text_w) / 2;
+            int text_y = iy2 + (bottom_bw - text_h) / 2;
+            
+            font_renderer->draw_text(text_x, text_y, font, filename, 0, 0, 0, 255);
+        }
     }
 }
 

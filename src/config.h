@@ -121,7 +121,7 @@ struct Config {
     bool    auto_display_rotation{false}; // Deprecated/Ignored in Modesetting DRM pipeline
 
     // [display] border
-    bool    border_enabled{true};
+    std::string border_mode{"white"};
     int     border_width{10};
     bool    vignette_enabled{true};
 
