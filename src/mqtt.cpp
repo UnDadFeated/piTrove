@@ -4,6 +4,7 @@
 #include <thread>
 #include <mutex>
 #include <shared_mutex>
+#include <chrono>
 #include <cstdlib>
 #include <ctime>
 #include <algorithm>
@@ -421,6 +422,11 @@ void stop_mqtt_client() {
     if (pid_to_kill > 0) {
         kill(pid_to_kill, SIGTERM);
         int status;
+        for (int i = 0; i < 30; i++) {   // 3 second grace
+            if (waitpid(pid_to_kill, &status, WNOHANG) > 0) break;
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        }
+        kill(pid_to_kill, SIGKILL);       // ensure dead
         waitpid(pid_to_kill, &status, 0);
     }
     if (g_mqtt_thread.joinable()) {

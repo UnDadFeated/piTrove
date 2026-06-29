@@ -1,5 +1,12 @@
 # Changelog
 
+## v14.5.7 — Preload CIFS Safety, MQTT Shutdown, and Google Photos Pagination (June 28, 2026)
+
+### Fixed
+- **Preload Safety** — Swapped synchronous file reading with `stat_timeout` checks in `preload.cpp` worker threads to avoid infinite blocking during stale CIFS/network mount glitches.
+- **MQTT Shutdown Robustness** — Implemented non-blocking `waitpid` checks with a 3-second grace period and SIGKILL fallback in `stop_mqtt_client` to prevent app shutdown hangs on dead network/DNS brokers.
+- **Google Photos Sync Pagination** — Integrated `pageToken` / `nextPageToken` query flow into `download_media` in `google_photos.cpp` to correctly fetch all media items beyond the initial 100-item page limit.
+
 ## v14.5.6 — Preprocessor Hang Protection & Config Merger Robustness (June 28, 2026)
 
 ### Fixed
