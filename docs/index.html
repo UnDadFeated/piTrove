@@ -5,6 +5,59 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>piTrove &mdash; Digital Picture &amp; Video Frame for Raspberry Pi</title>
     <meta name="description" content="A professional-grade, containerized digital picture and video frame for Raspberry Pi. DRM/KMS rendering, NAS storage, smart home integration.">
+    <meta name="keywords" content="piTrove, Raspberry Pi, digital picture frame, video frame, C++, DRM/KMS, SDL3, smart home, MQTT, Google Photos sync, Home Assistant, Docker">
+    
+    <!-- Open Graph Metadata -->
+    <meta property="og:title" content="piTrove &mdash; Digital Picture &amp; Video Frame for Raspberry Pi">
+    <meta property="og:description" content="Professional-grade, containerized C++ digital picture and video frame for Raspberry Pi. DRM/KMS rendering, NAS storage, Google Photos sync, and smart home integration.">
+    <meta property="og:type" content="website">
+    <meta property="og:url" content="https://undadfeated.github.io/piTrove/">
+
+    <!-- Google Structured Data (JSON-LD) -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "SoftwareApplication",
+      "name": "piTrove",
+      "description": "Professional-grade digital picture and video frame for Raspberry Pi with C++ DRM/KMS rendering, NAS storage, Google Photos sync, and smart home integration.",
+      "operatingSystem": "Raspberry Pi OS Lite (64-bit)",
+      "applicationCategory": "MultimediaApplication",
+      "offers": {
+        "@type": "Offer",
+        "price": "0",
+        "priceCurrency": "USD"
+      },
+      "featureList": [
+        "DRM/KMS GPU Framebuffer Rendering via SDL3",
+        "Docker Containerized Isolation (Raspberry Pi 4 & 5)",
+        "H.264/H.265 MP4 Video Playback via integrated MPV",
+        "GPU Transition Effects (Pixelate, Dissolve)",
+        "NAS-Optimized I/O with CIFS Hang Prevention & Recovery",
+        "Seasonal Smart Scanning (Month-based matching)",
+        "Multi-threaded background image preloading",
+        "On This Day history filter",
+        "Graceful Offline Mode with Cached media fallback",
+        "Photo Overlay Engine (Filename, date, twin-portrait, drop shadows)",
+        "Bias Lighting controls with adjustable modes",
+        "OLED Burn-in prevention pixel shifting",
+        "Customizable splash boot screen",
+        "Transition progress bar",
+        "Web dashboard remote control with live telemetry",
+        "PIN-protected dashboard access lock",
+        "Home Assistant MQTT auto-discovery",
+        "MQTT TLS encryption support",
+        "Native Touchscreen input via evdev",
+        "Scheduled Sleep/Wake power saving",
+        "Terminal UI (TUI) configuration wizard",
+        "CLI management command-line utility",
+        "Web Dashboard Color palette themes",
+        "Real-time diagnostics telemetry HUD",
+        "Google Photos background synchronization",
+        "Daily cron-based auto-update system",
+        "Three-layer auto-recovery watchdog"
+      ]
+    }
+    </script>
 
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -326,55 +379,95 @@
             margin-left: auto;
             margin-right: auto;
         }
-        .feature-grid {
+        .features-container {
             display: grid;
-            grid-template-columns: repeat(3, 1fr);
-            gap: 12px;
-            max-width: 900px;
+            grid-template-columns: 1fr 1fr;
+            gap: 32px;
+            max-width: 1000px;
             margin: 0 auto;
         }
-
-        @media (max-width: 768px) {
-            .feature-grid {
-                grid-template-columns: repeat(2, 1fr);
-            }
+        .feature-column {
+            display: flex;
+            flex-direction: column;
+            gap: 28px;
         }
-
-        @media (max-width: 480px) {
-            .feature-grid {
-                grid-template-columns: 1fr;
-            }
-        }
-        .feature-card {
+        .feature-category {
             background: var(--tblr-card-bg);
             border: 1px solid var(--tblr-border);
-            border-radius: 8px;
-            padding: 14px;
-            transition: border-color 0.2s;
+            border-radius: 12px;
+            padding: 20px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+            transition: border-color 0.2s ease, box-shadow 0.2s ease;
         }
-        .feature-card:hover { border-color: var(--tblr-border-hover); }
-        .feature-icon {
-            width: 32px;
-            height: 32px;
-            border-radius: 6px;
+        .feature-category:hover {
+            border-color: var(--tblr-border-hover);
+            box-shadow: 0 6px 24px rgba(0, 0, 0, 0.12);
+        }
+        .category-header {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 18px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid var(--tblr-border);
+        }
+        .category-header h3 {
+            font-size: 14px;
+            font-weight: 700;
+            color: var(--tblr-body-color);
+            letter-spacing: 0.5px;
+            text-transform: uppercase;
+            margin: 0;
+        }
+        .category-header .category-icon {
+            font-size: 18px;
+            color: var(--tblr-primary);
+            display: flex;
+            align-items: center;
+        }
+        .feature-list {
+            display: flex;
+            flex-direction: column;
+            gap: 14px;
+        }
+        .feature-item {
+            display: flex;
+            gap: 12px;
+            align-items: flex-start;
+            transition: transform 0.2s ease;
+        }
+        .feature-item:hover {
+            transform: translateX(4px);
+        }
+        .feature-item-icon {
+            width: 22px;
+            height: 22px;
+            border-radius: 50%;
+            background: rgba(var(--tblr-primary-rgb), 0.15);
+            color: var(--tblr-primary);
             display: flex;
             align-items: center;
             justify-content: center;
-            margin-bottom: 8px;
-            background: var(--tblr-hover-bg);
-            color: var(--tblr-primary);
+            font-size: 11px;
+            margin-top: 2px;
+            flex-shrink: 0;
         }
-        .feature-icon .ti { font-size: 18px; }
-        .feature-card h3 {
+        .feature-item-content h4 {
             font-size: 13px;
             font-weight: 600;
-            margin-bottom: 3px;
             color: var(--tblr-body-color);
+            margin-bottom: 3px;
         }
-        .feature-card p {
+        .feature-item-content p {
             font-size: 12px;
             color: var(--tblr-muted);
             line-height: 1.45;
+        }
+        @media (max-width: 768px) {
+            .features-container {
+                grid-template-columns: 1fr;
+                gap: 24px;
+            }
         }
 
         /* Dashboard Preview */
@@ -1174,141 +1267,250 @@
         <section class="features" id="features">
             <h2>Built for reliability</h2>
             <p class="features-sub">Every component designed to run unattended for months without intervention.</p>
-                        <div class="feature-grid">
-                <div class="feature-card">
-                    <div class="feature-icon"><span class="ti ti-device-tv-old"></span></div>
-                    <h3>DRM/KMS Rendering</h3>
-                    <p>Direct GPU framebuffer rendering via SDL3. No desktop environment, X11, or Wayland required.</p>
+            <div class="features-container">
+                <!-- Column 1 -->
+                <div class="feature-column">
+                    <!-- Category 1: Media Engine & Visuals -->
+                    <div class="feature-category">
+                        <div class="category-header">
+                            <span class="category-icon"><span class="ti ti-device-tv-old"></span></span>
+                            <h3>Media Engine &amp; Visuals</h3>
+                        </div>
+                        <div class="feature-list">
+                            <div class="feature-item">
+                                <div class="feature-item-icon"><span class="ti ti-device-tv-old"></span></div>
+                                <div class="feature-item-content">
+                                    <h4>DRM/KMS Rendering</h4>
+                                    <p>Direct GPU framebuffer rendering via SDL3. No desktop environment, X11, or Wayland required.</p>
+                                </div>
+                            </div>
+                            <div class="feature-item">
+                                <div class="feature-item-icon"><span class="ti ti-player-play"></span></div>
+                                <div class="feature-item-content">
+                                    <h4>Video Playback</h4>
+                                    <p>H.264/H.265 MP4 playback via mpv integrated into the slideshow loop. Photo/video ratio and subtitle support included.</p>
+                                </div>
+                            </div>
+                            <div class="feature-item">
+                                <div class="feature-item-icon"><span class="ti ti-arrows-shuffle"></span></div>
+                                <div class="feature-item-content">
+                                    <h4>GPU Transition Effects</h4>
+                                    <p>Pixelate and dissolve transitions between photos rendered on the GPU. Configurable duration and effect per profile.</p>
+                                </div>
+                            </div>
+                            <div class="feature-item">
+                                <div class="feature-item-icon"><span class="ti ti-photo"></span></div>
+                                <div class="feature-item-content">
+                                    <h4>Photo Overlay Engine</h4>
+                                    <p>Configurable filename, date, and twin-portrait overlays. Adaptive text sizing with drop shadows for readability on any background.</p>
+                                </div>
+                            </div>
+                            <div class="feature-item">
+                                <div class="feature-item-icon"><span class="ti ti-lamp"></span></div>
+                                <div class="feature-item-content">
+                                    <h4>Bias Lighting Controls</h4>
+                                    <p>Five bias lighting modes with adjustable color, brightness, and zone width for ambient LED strips behind the frame.</p>
+                                </div>
+                            </div>
+                            <div class="feature-item">
+                                <div class="feature-item-icon"><span class="ti ti-frame"></span></div>
+                                <div class="feature-item-content">
+                                    <h4>Splash Boot Screen</h4>
+                                    <p>Customizable splash image displayed during startup and watchdog recovery. Fades seamlessly into the first photo.</p>
+                                </div>
+                            </div>
+                            <div class="feature-item">
+                                <div class="feature-item-icon"><span class="ti ti-progress-check"></span></div>
+                                <div class="feature-item-content">
+                                    <h4>Transition Progress Bar</h4>
+                                    <p>Optional progress indicator at the bottom of the screen showing remaining display time. Configurable style, position, and visibility.</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Category 2: Smart Scanning & Storage -->
+                    <div class="feature-category">
+                        <div class="category-header">
+                            <span class="category-icon"><span class="ti ti-server"></span></span>
+                            <h3>Smart Scanning &amp; Storage</h3>
+                        </div>
+                        <div class="feature-list">
+                            <div class="feature-item">
+                                <div class="feature-item-icon"><span class="ti ti-server"></span></div>
+                                <div class="feature-item-content">
+                                    <h4>NAS-Optimized I/O</h4>
+                                    <p>Custom filesystem scanner with CIFS hang prevention, readlink-based fd leak protection, and stale mount recovery for network storage.</p>
+                                </div>
+                            </div>
+                            <div class="feature-item">
+                                <div class="feature-item-icon"><span class="ti ti-calendar-stats"></span></div>
+                                <div class="feature-item-content">
+                                    <h4>Seasonal Smart Scanning</h4>
+                                    <p>Year-agnostic month-based scanning with configurable temporal window. Only surfaces photos matching the current season.</p>
+                                </div>
+                            </div>
+                            <div class="feature-item">
+                                <div class="feature-item-icon"><span class="ti ti-refresh"></span></div>
+                                <div class="feature-item-content">
+                                    <h4>Background Preloading</h4>
+                                    <p>Multi-threaded image preloader with intelligent queue. Next photos are decoded while current one is displayed for zero-lag transitions.</p>
+                                </div>
+                            </div>
+                            <div class="feature-item">
+                                <div class="feature-item-icon"><span class="ti ti-calendar-time"></span></div>
+                                <div class="feature-item-content">
+                                    <h4>On This Day</h4>
+                                    <p>Automatically surfaces photos from the same date in past years. Configurable day range to broaden matching window.</p>
+                                </div>
+                            </div>
+                            <div class="feature-item">
+                                <div class="feature-item-icon"><span class="ti ti-wifi-off"></span></div>
+                                <div class="feature-item-content">
+                                    <h4>Graceful Offline Mode</h4>
+                                    <p>When NAS or network drops, the frame continues playing cached photos. Auto-recovers when connectivity returns without user intervention.</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Category 3: Integrations & Cloud -->
+                    <div class="feature-category">
+                        <div class="category-header">
+                            <span class="category-icon"><span class="ti ti-cloud"></span></span>
+                            <h3>Integrations &amp; Cloud</h3>
+                        </div>
+                        <div class="feature-list">
+                            <div class="feature-item">
+                                <div class="feature-item-icon"><span class="ti ti-home"></span></div>
+                                <div class="feature-item-content">
+                                    <h4>Home Assistant MQTT</h4>
+                                    <p>Auto-discovers as a smart home device in Home Assistant. Control screen, skip photos, and trigger motion simulation via MQTT.</p>
+                                </div>
+                            </div>
+                            <div class="feature-item">
+                                <div class="feature-item-icon"><span class="ti ti-shield-lock"></span></div>
+                                <div class="feature-item-content">
+                                    <h4>MQTT TLS Encryption</h4>
+                                    <p>Secure Home Assistant integration with TLS client certificates. All smart home commands encrypted end-to-end.</p>
+                                </div>
+                            </div>
+                            <div class="feature-item">
+                                <div class="feature-item-icon"><span class="ti ti-cloud"></span></div>
+                                <div class="feature-item-content">
+                                    <h4>Google Photos Sync</h4>
+                                    <p>Background OAuth2 sync from your Google Photos albums with configurable sync interval. Selective album and media type filtering.</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
-                <div class="feature-card">
-                    <div class="feature-icon"><span class="ti ti-brand-docker"></span></div>
-                    <h3>Docker Containerized</h3>
-                    <p>All dependencies isolated in a single container. Build once, run on Raspberry Pi 4 or 5.</p>
-                </div>
-                <div class="feature-card">
-                    <div class="feature-icon"><span class="ti ti-player-play"></span></div>
-                    <h3>Video Playback</h3>
-                    <p>H.264/H.265 MP4 playback via mpv integrated into the slideshow loop. Photo/video ratio and subtitle support included.</p>
-                </div>
-                <div class="feature-card">
-                    <div class="feature-icon"><span class="ti ti-arrows-shuffle"></span></div>
-                    <h3>GPU Transition Effects</h3>
-                    <p>Pixelate and dissolve transitions between photos rendered on the GPU. Configurable duration and effect per profile.</p>
-                </div>
-                <div class="feature-card">
-                    <div class="feature-icon"><span class="ti ti-server"></span></div>
-                    <h3>NAS-Optimized I/O</h3>
-                    <p>Custom filesystem scanner with CIFS hang prevention, readlink-based fd leak protection, and stale mount recovery for network storage.</p>
-                </div>
-                <div class="feature-card">
-                    <div class="feature-icon"><span class="ti ti-calendar-stats"></span></div>
-                    <h3>Seasonal Smart Scanning</h3>
-                    <p>Year-agnostic month-based scanning with configurable temporal window. Only surfaces photos matching the current season.</p>
-                </div>
-                <div class="feature-card">
-                    <div class="feature-icon"><span class="ti ti-refresh"></span></div>
-                    <h3>Background Preloading</h3>
-                    <p>Multi-threaded image preloader with intelligent queue. Next photos are decoded while current one is displayed for zero-lag transitions.</p>
-                </div>
-                <div class="feature-card">
-                    <div class="feature-icon"><span class="ti ti-calendar-time"></span></div>
-                    <h3>On This Day</h3>
-                    <p>Automatically surfaces photos from the same date in past years. Configurable day range to broaden matching window.</p>
-                </div>
-                <div class="feature-card">
-                    <div class="feature-icon"><span class="ti ti-wifi-off"></span></div>
-                    <h3>Graceful Offline Mode</h3>
-                    <p>When NAS or network drops, the frame continues playing cached photos. Auto-recovers when connectivity returns without user intervention.</p>
-                </div>
-                <div class="feature-card">
-                    <div class="feature-icon"><span class="ti ti-photo"></span></div>
-                    <h3>Photo Overlay Engine</h3>
-                    <p>Configurable filename, date, and twin-portrait overlays. Adaptive text sizing with drop shadows for readability on any background.</p>
-                </div>
-                <div class="feature-card">
-                    <div class="feature-icon"><span class="ti ti-lamp"></span></div>
-                    <h3>Bias Lighting Controls</h3>
-                    <p>Five bias lighting modes with adjustable color, brightness, and zone width for ambient LED strips behind the frame.</p>
-                </div>
-                <div class="feature-card">
-                    <div class="feature-icon"><span class="ti ti-moon"></span></div>
-                    <h3>OLED Burn-In Prevention</h3>
-                    <p>Pixel shifting and periodic content rotation to prevent burn-in on OLED displays. Configurable shift interval and pattern.</p>
-                </div>
-                <div class="feature-card">
-                    <div class="feature-icon"><span class="ti ti-frame"></span></div>
-                    <h3>Splash Boot Screen</h3>
-                    <p>Customizable splash image displayed during startup and watchdog recovery. Fades seamlessly into the first photo.</p>
-                </div>
-                <div class="feature-card">
-                    <div class="feature-icon"><span class="ti ti-progress-check"></span></div>
-                    <h3>Transition Progress Bar</h3>
-                    <p>Optional progress indicator at the bottom of the screen showing remaining display time. Configurable style, position, and visibility.</p>
-                </div>
-                <div class="feature-card">
-                    <div class="feature-icon"><span class="ti ti-dashboard"></span></div>
-                    <h3>Web Dashboard</h3>
-                    <p>Remote control with live telemetry, playback controls, settings, and log streaming. Access from any browser on your network.</p>
-                </div>
-                <div class="feature-card">
-                    <div class="feature-icon"><span class="ti ti-lock"></span></div>
-                    <h3>Dashboard PIN Lock</h3>
-                    <p>PIN-protected access to the web dashboard. Configurable passcode with lockout delay prevents unauthorized changes.</p>
-                </div>
-                <div class="feature-card">
-                    <div class="feature-icon"><span class="ti ti-home"></span></div>
-                    <h3>Home Assistant MQTT</h3>
-                    <p>Auto-discovers as a smart home device in Home Assistant. Control screen, skip photos, and trigger motion simulation via MQTT.</p>
-                </div>
-                <div class="feature-card">
-                    <div class="feature-icon"><span class="ti ti-shield-lock"></span></div>
-                    <h3>MQTT TLS Encryption</h3>
-                    <p>Secure Home Assistant integration with TLS client certificates. All smart home commands encrypted end-to-end.</p>
-                </div>
-                <div class="feature-card">
-                    <div class="feature-icon"><span class="ti ti-hand-three-fingers"></span></div>
-                    <h3>Touchscreen Input</h3>
-                    <p>Native touch input via evdev. Swipe between photos, tap for overlay controls, long press for dashboard PIN.</p>
-                </div>
-                <div class="feature-card">
-                    <div class="feature-icon"><span class="ti ti-clock-play"></span></div>
-                    <h3>Scheduled Sleep/Wake</h3>
-                    <p>Set daily on/off times for the display. Screen blanks automatically at night, wakes in the morning. Saves power and panel life.</p>
-                </div>
-                <div class="feature-card">
-                    <div class="feature-icon"><span class="ti ti-terminal-2"></span></div>
-                    <h3>TUI Configuration Wizard</h3>
-                    <p>Full 11-category terminal user interface for configuring every setting. Keyboard-driven with live preview and restore defaults.</p>
-                </div>
-                <div class="feature-card">
-                    <div class="feature-icon"><span class="ti ti-command"></span></div>
-                    <h3>CLI Management Tool</h3>
-                    <p>The pitrove command gives you restart, logs, status, and config access from any SSH session. No web browser needed.</p>
-                </div>
-                <div class="feature-card">
-                    <div class="feature-icon"><span class="ti ti-palette"></span></div>
-                    <h3>Color Palette System</h3>
-                    <p>Multiple color themes (Emerald, Sapphire, Zinc) for the web dashboard and TUI. Switch live without restarting.</p>
-                </div>
-                <div class="feature-card">
-                    <div class="feature-icon"><span class="ti ti-report-analytics"></span></div>
-                    <h3>Diagnostics Telemetry HUD</h3>
-                    <p>On-screen overlay showing real-time FPS, memory usage, cache stats, and WiFi signal strength. Toggle via config or touch shortcut.</p>
-                </div>
-                <div class="feature-card">
-                    <div class="feature-icon"><span class="ti ti-cloud"></span></div>
-                    <h3>Google Photos Sync</h3>
-                    <p>Background OAuth2 sync from your Google Photos albums with configurable sync interval. Selective album and media type filtering.</p>
-                </div>
-                <div class="feature-card">
-                    <div class="feature-icon"><span class="ti ti-cloud-up"></span></div>
-                    <h3>Auto-Update System</h3>
-                    <p>Daily cron-based updates pulled from GitHub. Zero-touch deployment with automatic Docker image rebuilds on new releases.</p>
-                </div>
-                <div class="feature-card">
-                    <div class="feature-icon"><span class="ti ti-heartbeat"></span></div>
-                    <h3>Auto-Recovery Watchdog</h3>
-                    <p>Three-layer resilience: in-app heartbeat monitor, Docker restart policy, and host-level WiFi watchdog. Self-heals without manual intervention.</p>
+
+                <!-- Column 2 -->
+                <div class="feature-column">
+                    <!-- Category 4: System & Controls -->
+                    <div class="feature-category">
+                        <div class="category-header">
+                            <span class="category-icon"><span class="ti ti-settings"></span></span>
+                            <h3>System &amp; Controls</h3>
+                        </div>
+                        <div class="feature-list">
+                            <div class="feature-item">
+                                <div class="feature-item-icon"><span class="ti ti-dashboard"></span></div>
+                                <div class="feature-item-content">
+                                    <h4>Web Dashboard</h4>
+                                    <p>Remote control with live telemetry, playback controls, settings, and log streaming. Access from any browser on your network.</p>
+                                </div>
+                            </div>
+                            <div class="feature-item">
+                                <div class="feature-item-icon"><span class="ti ti-lock"></span></div>
+                                <div class="feature-item-content">
+                                    <h4>Dashboard PIN Lock</h4>
+                                    <p>PIN-protected access to the web dashboard. Configurable passcode with lockout delay prevents unauthorized changes.</p>
+                                </div>
+                            </div>
+                            <div class="feature-item">
+                                <div class="feature-item-icon"><span class="ti ti-terminal-2"></span></div>
+                                <div class="feature-item-content">
+                                    <h4>TUI Configuration Wizard</h4>
+                                    <p>Full 11-category terminal user interface for configuring every setting. Keyboard-driven with live preview and restore defaults.</p>
+                                </div>
+                            </div>
+                            <div class="feature-item">
+                                <div class="feature-item-icon"><span class="ti ti-command"></span></div>
+                                <div class="feature-item-content">
+                                    <h4>CLI Management Tool</h4>
+                                    <p>The pitrove command gives you restart, logs, status, and config access from any SSH session. No web browser needed.</p>
+                                </div>
+                            </div>
+                            <div class="feature-item">
+                                <div class="feature-item-icon"><span class="ti ti-palette"></span></div>
+                                <div class="feature-item-content">
+                                    <h4>Color Palette System</h4>
+                                    <p>Multiple color themes (Emerald, Sapphire, Zinc) for the web dashboard and TUI. Switch live without restarting.</p>
+                                </div>
+                            </div>
+                            <div class="feature-item">
+                                <div class="feature-item-icon"><span class="ti ti-report-analytics"></span></div>
+                                <div class="feature-item-content">
+                                    <h4>Diagnostics Telemetry HUD</h4>
+                                    <p>On-screen overlay showing real-time FPS, memory usage, cache stats, and WiFi signal strength. Toggle via config or touch shortcut.</p>
+                                </div>
+                            </div>
+                            <div class="feature-item">
+                                <div class="feature-item-icon"><span class="ti ti-hand-three-fingers"></span></div>
+                                <div class="feature-item-content">
+                                    <h4>Touchscreen Input</h4>
+                                    <p>Native touch input via evdev. Swipe between photos, tap for overlay controls, long press for dashboard PIN.</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Category 5: Reliability & Efficiency -->
+                    <div class="feature-category">
+                        <div class="category-header">
+                            <span class="category-icon"><span class="ti ti-heartbeat"></span></span>
+                            <h3>Reliability &amp; Efficiency</h3>
+                        </div>
+                        <div class="feature-list">
+                            <div class="feature-item">
+                                <div class="feature-item-icon"><span class="ti ti-brand-docker"></span></div>
+                                <div class="feature-item-content">
+                                    <h4>Docker Containerized</h4>
+                                    <p>All dependencies isolated in a single container. Build once, run on Raspberry Pi 4 or 5.</p>
+                                </div>
+                            </div>
+                            <div class="feature-item">
+                                <div class="feature-item-icon"><span class="ti ti-moon"></span></div>
+                                <div class="feature-item-content">
+                                    <h4>OLED Burn-In Prevention</h4>
+                                    <p>Pixel shifting and periodic content rotation to prevent burn-in on OLED displays. Configurable shift interval and pattern.</p>
+                                </div>
+                            </div>
+                            <div class="feature-item">
+                                <div class="feature-item-icon"><span class="ti ti-clock-play"></span></div>
+                                <div class="feature-item-content">
+                                    <h4>Scheduled Sleep/Wake</h4>
+                                    <p>Set daily on/off times for the display. Screen blanks automatically at night, wakes in the morning. Saves power and panel life.</p>
+                                </div>
+                            </div>
+                            <div class="feature-item">
+                                <div class="feature-item-icon"><span class="ti ti-cloud-up"></span></div>
+                                <div class="feature-item-content">
+                                    <h4>Auto-Update System</h4>
+                                    <p>Daily cron-based updates pulled from GitHub. Zero-touch deployment with automatic Docker image rebuilds on new releases.</p>
+                                </div>
+                            </div>
+                            <div class="feature-item">
+                                <div class="feature-item-icon"><span class="ti ti-heartbeat"></span></div>
+                                <div class="feature-item-content">
+                                    <h4>Auto-Recovery Watchdog</h4>
+                                    <p>Three-layer resilience: in-app heartbeat monitor, Docker restart policy, and host-level WiFi watchdog. Self-heals without manual intervention.</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
         </section>
