@@ -1,5 +1,13 @@
 # Changelog
 
+## v14.5.9 — Watchdog Auto-Recovery and Systemd Mount Integration (July 5, 2026)
+
+### Added
+- **Systemd Mount Integration on Watchdog** — Watchdog dynamically escapes the storage mount path using `systemd-escape` and restarts the systemd mount unit (`systemctl restart mnt-nas.mount`) if inactive upon network recovery, preventing container startup failures due to unavailable bind mounts.
+
+### Fixed
+- **Watchdog Auto-Recovery Lockouts** — Watchdog now resets systemd failure states and restarts the application via its systemd service (`systemctl restart piTrove.service`) instead of restarting the Docker container directly, resolving permanent start-limit-hit locks.
+
 ## v14.5.8 — Polaroid Border Styles, TUI Alignment, and Watchdog Logging (June 29, 2026)
 
 ### Added
