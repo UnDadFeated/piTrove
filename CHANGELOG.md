@@ -1,5 +1,11 @@
 # Changelog
 
+
+## v14.6.0 — Video Ratio Update (July 6, 2026)
+
+### Changed
+- **Adjusted video-to-photo ratio** — Changed ideos_per_photos from 10 to 3, resulting in approximately 3 videos per 10 photos (1 video every 3.33 photos) for more frequent video playback.
+
 ## v14.5.9 — Watchdog Auto-Recovery and Systemd Mount Integration (July 5, 2026)
 
 ### Added
