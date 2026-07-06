@@ -94,19 +94,14 @@ while true; do
                 LAST_REMOUNT=$current_time
                 log "Network connection recovered. Performing recovery sequence..."
                 
-                # Check if mount is actually a CIFS mount
-                if grep -qs " $CIFS_MOUNT " /proc/mounts && grep -qs "cifs" /proc/mounts; then
-                    log "CIFS mount active at $CIFS_MOUNT — unmounting and remounting..."
-                    umount -f -l "$CIFS_MOUNT" 2>/dev/null || true
-                    sleep 1
-                    mount "$CIFS_MOUNT" 2>/dev/null || true
-                    sleep 1
-                else
-                    log "CIFS mount not active at $CIFS_MOUNT — skipping remount."
-                fi
+                log "Refreshing network storage mount at $CIFS_MOUNT..."
+                SYSTEMD_MOUNT=$(systemd-escape -p --suffix=mount "$CIFS_MOUNT")
+                systemctl restart "$SYSTEMD_MOUNT" 2>/dev/null || true
+                sleep 1
                 
-                log "Restarting application container..."
-                docker restart "$DOCKER_CONTAINER" 2>/dev/null || true
+                log "Restarting application systemd service..."
+                systemctl reset-failed piTrove.service 2>/dev/null || true
+                systemctl restart piTrove.service 2>/dev/null || true
             else
                 log "Network recovered, but remount/restart is throttled (cooldown active)."
             fi
