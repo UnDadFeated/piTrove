@@ -123,6 +123,18 @@ void VideoDecoder::stop() {
 
 bool VideoDecoder::is_running() const { return m_running.load(); }
 
+double VideoDecoder::get_frame_duration() const {
+    return m_frame_duration;
+}
+
+double VideoDecoder::get_video_remaining() const {
+    double total = m_video_total_duration.load(std::memory_order_relaxed);
+    if (total <= 0.0 || decode_start_time <= 0.0) return 0.0;
+    double elapsed = (av_gettime_relative() / 1000000.0) - decode_start_time;
+    return std::max(0.0, total - elapsed);
+}
+
+
 bool VideoDecoder::get_frame(VideoFrame& out) {
     std::lock_guard lk(m_queue_mtx);
     if (m_frame_queue.empty()) return false;
@@ -168,6 +180,22 @@ void VideoDecoder::decode_loop() {
     }
 
     DEBUG_LOG("VIDEO_DEC: Video stream=%d, Audio stream=%d", video_stream_idx, audio_stream_idx);
+
+    // Extract video frame rate from stream metadata
+    AVRational avg_frame_rate = fmt_ctx->streams[video_stream_idx]->avg_frame_rate;
+    if (avg_frame_rate.num > 0 && avg_frame_rate.den > 0) {
+        double fps = (double)avg_frame_rate.num / (double)avg_frame_rate.den;
+        m_frame_duration = 1.0 / fps;
+        DEBUG_LOG("VIDEO_DEC: Detected FPS=%.2f, frame_duration=%.3fs", fps, m_frame_duration);
+    } else {
+        m_frame_duration = 0.04; // fallback 25fps
+        DEBUG_LOG("VIDEO_DEC: Could not detect FPS, using default 25fps");
+    }
+    // Extract video duration
+    if (fmt_ctx->duration > 0) {
+        m_video_total_duration.store(fmt_ctx->duration / 1000000.0);
+    }
+
 
     // Video codec
     AVCodecParameters* vp = fmt_ctx->streams[video_stream_idx]->codecpar;
@@ -234,10 +262,22 @@ void VideoDecoder::decode_loop() {
             }
         }
     }
-
+    // Compute scaled target dimensions maintaining video aspect ratio
+    int dst_w = vcc->width, dst_h = vcc->height;
+    if (m_target_width > 0 && m_target_height > 0) {
+        float video_ar = (float)vcc->width / (float)vcc->height;
+        float screen_ar = (float)m_target_width / (float)m_target_height;
+        if (video_ar >= screen_ar) {
+            dst_w = m_target_width;
+            dst_h = (int)(m_target_width / video_ar);
+        } else {
+            dst_h = m_target_height;
+            dst_w = (int)(m_target_height * video_ar);
+        }
+    }
     // Scaler
     SwsContext* sws = sws_getContext(vcc->width, vcc->height, vcc->pix_fmt,
-                                     vcc->width, vcc->height, AV_PIX_FMT_RGBA,
+                                     dst_w, dst_h, AV_PIX_FMT_RGBA,
                                      SWS_BILINEAR, nullptr, nullptr, nullptr);
     if (!sws) {
         g_logger.error("VIDEO_DEC: Failed to create scaler for %s", m_path.c_str());
@@ -247,15 +287,13 @@ void VideoDecoder::decode_loop() {
         m_running.store(false);
         return;
     }
-
-    g_logger.info("VIDEO_DEC: Decoding %s (%dx%d)", m_path.c_str(), vcc->width, vcc->height);
-
+    g_logger.info("VIDEO_DEC: Decoding %s (%dx%d -> %dx%d)", m_path.c_str(), vcc->width, vcc->height, dst_w, dst_h);
     AVPacket* pkt = av_packet_alloc();
     AVFrame* frame = av_frame_alloc();
     AVFrame* rgba = av_frame_alloc();
-    int nbytes = av_image_get_buffer_size(AV_PIX_FMT_RGBA, vcc->width, vcc->height, 1);
+    int nbytes = av_image_get_buffer_size(AV_PIX_FMT_RGBA, dst_w, dst_h, 1);
     uint8_t* buf = (uint8_t*)av_malloc(nbytes);
-    av_image_fill_arrays(rgba->data, rgba->linesize, buf, AV_PIX_FMT_RGBA, vcc->width, vcc->height, 1);
+    av_image_fill_arrays(rgba->data, rgba->linesize, buf, AV_PIX_FMT_RGBA, dst_w, dst_h, 1);
 
     AVFrame* aframe = nullptr;
     if (acc) aframe = av_frame_alloc();
@@ -303,8 +341,8 @@ void VideoDecoder::decode_loop() {
                       rgba->data, rgba->linesize);
 
             VideoFrame vf;
-            vf.width = vcc->width;
-            vf.height = vcc->height;
+            vf.width = dst_w;
+            vf.height = dst_h;
             vf.data = new uint8_t[nbytes];
             memcpy(vf.data, buf, nbytes);
             vf.pts = av_q2d(fmt_ctx->streams[video_stream_idx]->time_base) * frame->pts;
@@ -312,22 +350,7 @@ void VideoDecoder::decode_loop() {
             std::lock_guard lk(m_queue_mtx);
             while (!m_frame_queue.empty()) m_frame_queue.pop();
             m_frame_queue.push(std::move(vf));
-            // PTS-based frame rate throttling for audio sync
-            double now = av_gettime_relative() / 1000000.0;
-            double frame_dur = 0.04; // default 25fps
-            if (vf.pts > 0 && last_frame_time > 0) {
-                frame_dur = vf.pts - prev_pts;
-                if (frame_dur <= 0 || frame_dur > 0.5) frame_dur = 0.04;
-            }
-            if (last_frame_time > 0) {
-                int64_t elapsed = (int64_t)((now - last_frame_time) * 1000);
-                int64_t needed = (int64_t)(frame_dur * 1000);
-                if (needed > elapsed && needed < 500) {
-                    SDL_Delay((int)(needed - elapsed));
-                }
-            }
-            last_frame_time = now;
-            prev_pts = vf.pts;
+            // Decode as fast as possible; pacing is handled by the render loop
 
         } else if (pkt->stream_index == audio_stream_idx && acc && aframe) {
             ret = avcodec_send_packet(acc, pkt);
@@ -351,6 +374,7 @@ void VideoDecoder::decode_loop() {
     }
 
     g_logger.info("VIDEO_DEC: Done %s (%d vf, %d af)", m_path.c_str(), vf_count, af_count);
+    // Decoder finished - mark as stopped so render loop can drain remaining queued frames
 
     try {
     av_frame_free(&rgba);
