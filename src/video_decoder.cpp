@@ -1,5 +1,7 @@
 #include "video_decoder.h"
+#include <SDL3/SDL_timer.h>
 #include "util.h"
+#include "config.h"
 
 extern Logger g_logger;
 
@@ -7,27 +9,91 @@ extern "C" {
 #include <libavformat/avformat.h>
 #include <libavcodec/avcodec.h>
 #include <libswscale/swscale.h>
-#include <libavutil/imgutils.h>
+#include <libswresample/swresample.h>
 #include <libavutil/opt.h>
+#include <libavutil/imgutils.h>
+#include <libavutil/time.h>
 }
+
+#define DEBUG_LOG(fmt, ...) \
+    do { g_logger.debug(fmt, ##__VA_ARGS__); } while (0)
 
 VideoDecoder::VideoDecoder() : m_thread(0) {}
 
 void* VideoDecoder::decode_thread_entry(void* arg) {
     VideoDecoder* self = static_cast<VideoDecoder*>(arg);
     try { self->decode_loop(); }
-    catch (...) { /* swallow all */ }
+    catch (...) {}
     return nullptr;
 }
 
-VideoDecoder::~VideoDecoder() {
-    stop();
+VideoDecoder::~VideoDecoder() { stop(); }
+
+void VideoDecoder::init_audio() {
+    std::lock_guard lk(m_audio_mtx);
+    if (m_audio_initialized) return;
+
+    DEBUG_LOG("AUDIO: Initializing SDL audio device");
+
+    SDL_AudioSpec spec;
+    SDL_zero(spec);
+    spec.freq = 48000;
+    spec.format = SDL_AUDIO_S16LE;
+    spec.channels = 2;
+
+    m_audio_device = SDL_OpenAudioDevice(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, &spec);
+    if (m_audio_device < 0) {
+        DEBUG_LOG("AUDIO: SDL_OpenAudioDevice failed: %s", SDL_GetError());
+        return;
+    }
+
+    m_audio_stream = SDL_CreateAudioStream(&spec, &spec);
+    if (!m_audio_stream) {
+        DEBUG_LOG("AUDIO: SDL_CreateAudioStream failed: %s", SDL_GetError());
+        SDL_CloseAudioDevice(m_audio_device);
+        m_audio_device = -1;
+        return;
+    }
+
+    SDL_BindAudioStream(m_audio_device, m_audio_stream);
+    m_audio_initialized = true;
+    DEBUG_LOG("AUDIO: Device opened id=%d", m_audio_device);
+}
+
+void VideoDecoder::shutdown_audio() {
+    std::lock_guard lk(m_audio_mtx);
+    if (!m_audio_initialized) return;
+
+    DEBUG_LOG("AUDIO: Shutting down audio device");
+    if (m_audio_stream) {
+        SDL_DestroyAudioStream(m_audio_stream);
+        m_audio_stream = nullptr;
+    }
+    if (m_audio_device >= 0) {
+        SDL_CloseAudioDevice(m_audio_device);
+        m_audio_device = -1;
+    }
+    m_audio_initialized = false;
+}
+
+void VideoDecoder::push_audio_samples(const int16_t* samples, int num_frames) {
+    std::lock_guard lk(m_audio_mtx);
+    if (!m_audio_initialized || !m_audio_stream) return;
+
+    int bytes = num_frames * 2 * 2;
+    SDL_PutAudioStreamData(m_audio_stream, samples, bytes);
+
+    int volume = 0;
+    {
+        std::lock_guard lk(g_config_mtx);
+        volume = g_cfg.video_volume;
+    }
+    float gain = volume / 100.0f;
+    SDL_SetAudioStreamGain(m_audio_stream, gain);
 }
 
 bool VideoDecoder::start(const std::string& path, int target_width, int target_height) {
-    if (is_running()) {
-        stop();
-    }
+    if (is_running()) stop();
     m_path = path;
     m_target_width = target_width;
     m_target_height = target_height;
@@ -48,24 +114,18 @@ void VideoDecoder::stop() {
         pthread_join(m_thread, nullptr);
         m_thread = 0;
     }
-    {
-        std::lock_guard lk(m_queue_mtx);
-        while (!m_frame_queue.empty()) {
-            m_frame_queue.front().~VideoFrame();
-            m_frame_queue.pop();
-        }
+    shutdown_audio();
+    std::lock_guard lk(m_queue_mtx);
+    while (!m_frame_queue.empty()) {
+        m_frame_queue.pop();
     }
 }
 
-bool VideoDecoder::is_running() const {
-    return m_running.load();
-}
+bool VideoDecoder::is_running() const { return m_running.load(); }
 
 bool VideoDecoder::get_frame(VideoFrame& out) {
     std::lock_guard lk(m_queue_mtx);
-    if (m_frame_queue.empty()) {
-        return false;
-    }
+    if (m_frame_queue.empty()) return false;
     out = std::move(m_frame_queue.front());
     m_frame_queue.pop();
     return true;
@@ -73,7 +133,7 @@ bool VideoDecoder::get_frame(VideoFrame& out) {
 
 void VideoDecoder::decode_loop() {
     try {
-    g_logger.info("VIDEO_DEC: Starting decode thread for %s", m_path.c_str());
+    DEBUG_LOG("VIDEO_DEC: Starting decode thread for %s", m_path.c_str());
 
     avformat_network_init();
 
@@ -91,12 +151,13 @@ void VideoDecoder::decode_loop() {
         return;
     }
 
-    int video_stream_idx = -1;
+    int video_stream_idx = -1, audio_stream_idx = -1;
     for (unsigned int i = 0; i < fmt_ctx->nb_streams; i++) {
-        if (fmt_ctx->streams[i]->codecpar->codec_type == AVMEDIA_TYPE_VIDEO) {
+        if (video_stream_idx == -1 && fmt_ctx->streams[i]->codecpar->codec_type == AVMEDIA_TYPE_VIDEO)
             video_stream_idx = (int)i;
-            break;
-        }
+        if (audio_stream_idx == -1 && fmt_ctx->streams[i]->codecpar->codec_type == AVMEDIA_TYPE_AUDIO)
+            audio_stream_idx = (int)i;
+        if (video_stream_idx >= 0 && audio_stream_idx >= 0) break;
     }
 
     if (video_stream_idx == -1) {
@@ -106,117 +167,208 @@ void VideoDecoder::decode_loop() {
         return;
     }
 
-    AVCodecParameters* codec_params = fmt_ctx->streams[video_stream_idx]->codecpar;
-    const AVCodec* codec = avcodec_find_decoder(codec_params->codec_id);
-    if (!codec) {
-        g_logger.error("VIDEO_DEC: Unsupported codec for %s", m_path.c_str());
+    DEBUG_LOG("VIDEO_DEC: Video stream=%d, Audio stream=%d", video_stream_idx, audio_stream_idx);
+
+    // Video codec
+    AVCodecParameters* vp = fmt_ctx->streams[video_stream_idx]->codecpar;
+    const AVCodec* vc = avcodec_find_decoder(vp->codec_id);
+    if (!vc) {
+        g_logger.error("VIDEO_DEC: Unsupported video codec for %s", m_path.c_str());
+        avformat_close_input(&fmt_ctx);
+        m_running.store(false);
+        return;
+    }
+    AVCodecContext* vcc = avcodec_alloc_context3(vc);
+    avcodec_parameters_to_context(vcc, vp);
+    if (avcodec_open2(vcc, vc, nullptr) < 0) {
+        g_logger.error("VIDEO_DEC: Failed to open video codec for %s", m_path.c_str());
+        avcodec_free_context(&vcc);
         avformat_close_input(&fmt_ctx);
         m_running.store(false);
         return;
     }
 
-    AVCodecContext* codec_ctx = avcodec_alloc_context3(codec);
-    avcodec_parameters_to_context(codec_ctx, codec_params);
-    if (avcodec_open2(codec_ctx, codec, nullptr) < 0) {
-        g_logger.error("VIDEO_DEC: Failed to open codec for %s", m_path.c_str());
-        avcodec_free_context(&codec_ctx);
-        avformat_close_input(&fmt_ctx);
-        m_running.store(false);
-        return;
+    // Audio codec
+    AVCodecContext* acc = nullptr;
+    int audio_channels = 2;
+    int audio_sample_rate = 48000;
+    if (audio_stream_idx >= 0) {
+        AVCodecParameters* ap = fmt_ctx->streams[audio_stream_idx]->codecpar;
+        const AVCodec* ac = avcodec_find_decoder(ap->codec_id);
+        if (ac) {
+            acc = avcodec_alloc_context3(ac);
+            avcodec_parameters_to_context(acc, ap);
+            if (avcodec_open2(acc, ac, nullptr) >= 0) {
+                audio_channels = acc->ch_layout.nb_channels;
+                audio_sample_rate = acc->sample_rate;
+                DEBUG_LOG("AUDIO: Codec=%s sr=%d ch=%d fmt=%d",
+                          ac->name, audio_sample_rate, audio_channels, acc->sample_fmt);
+            } else {
+                DEBUG_LOG("AUDIO: Failed to open audio codec");
+                avcodec_free_context(&acc);
+                acc = nullptr;
+            }
+        }
     }
 
-    // Setup swscale context
-    SwsContext* sws_ctx = sws_getContext(
-        codec_ctx->width, codec_ctx->height, codec_ctx->pix_fmt,
-        codec_ctx->width, codec_ctx->height, AV_PIX_FMT_RGBA,
-        SWS_BILINEAR, nullptr, nullptr, nullptr);
+    if (acc) init_audio();
 
-    if (!sws_ctx) {
+    // Swresample — FFmpeg 6 uses swr_alloc_set_opts2
+    SwrContext* swr = nullptr;
+    if (acc) {
+        AVChannelLayout src_ch, dst_ch;
+        av_channel_layout_copy(&src_ch, &acc->ch_layout);
+        av_channel_layout_from_mask(&dst_ch, AV_CH_LAYOUT_STEREO);
+
+        int ret = swr_alloc_set_opts2(&swr,
+            &dst_ch, AV_SAMPLE_FMT_S16, 48000,
+            &src_ch, (AVSampleFormat)acc->sample_fmt, audio_sample_rate,
+            0, nullptr);
+        if (ret < 0) {
+            DEBUG_LOG("AUDIO: swr_alloc_set_opts2 failed: %d", ret);
+        } else {
+            ret = swr_init(swr);
+            if (ret < 0) {
+                DEBUG_LOG("AUDIO: swr_init failed: %d", ret);
+                swr_free(&swr);
+            }
+        }
+    }
+
+    // Scaler
+    SwsContext* sws = sws_getContext(vcc->width, vcc->height, vcc->pix_fmt,
+                                     vcc->width, vcc->height, AV_PIX_FMT_RGBA,
+                                     SWS_BILINEAR, nullptr, nullptr, nullptr);
+    if (!sws) {
         g_logger.error("VIDEO_DEC: Failed to create scaler for %s", m_path.c_str());
-        avcodec_free_context(&codec_ctx);
+        if (acc) avcodec_free_context(&acc);
+        avcodec_free_context(&vcc);
         avformat_close_input(&fmt_ctx);
         m_running.store(false);
         return;
     }
 
-    g_logger.info("VIDEO_DEC: Decoding %s (%dx%d)", m_path.c_str(), codec_ctx->width, codec_ctx->height);
+    g_logger.info("VIDEO_DEC: Decoding %s (%dx%d)", m_path.c_str(), vcc->width, vcc->height);
 
-    AVPacket* packet = av_packet_alloc();
+    AVPacket* pkt = av_packet_alloc();
     AVFrame* frame = av_frame_alloc();
-    AVFrame* rgba_frame = av_frame_alloc();
-    int num_bytes = av_image_get_buffer_size(AV_PIX_FMT_RGBA, codec_ctx->width, codec_ctx->height, 1);
-    uint8_t* rgba_buffer = (uint8_t*)av_malloc(num_bytes);
-    av_image_fill_arrays(rgba_frame->data, rgba_frame->linesize, rgba_buffer,
-                         AV_PIX_FMT_RGBA, codec_ctx->width, codec_ctx->height, 1);
+    AVFrame* rgba = av_frame_alloc();
+    int nbytes = av_image_get_buffer_size(AV_PIX_FMT_RGBA, vcc->width, vcc->height, 1);
+    uint8_t* buf = (uint8_t*)av_malloc(nbytes);
+    av_image_fill_arrays(rgba->data, rgba->linesize, buf, AV_PIX_FMT_RGBA, vcc->width, vcc->height, 1);
+
+    AVFrame* aframe = nullptr;
+    if (acc) aframe = av_frame_alloc();
 
     bool eof = false;
+    int vf_count = 0, af_count = 0;
+    double last_frame_time = 0.0; // wall-clock seconds
+    double prev_pts = 0.0;
     while (is_running() && !eof) {
-        int ret = av_read_frame(fmt_ctx, packet);
+        int ret = av_read_frame(fmt_ctx, pkt);
         if (ret == AVERROR_EOF) {
             eof = true;
+            // Flush audio decoder
+            if (acc && aframe) {
+                ret = avcodec_send_packet(acc, nullptr);
+                if (ret >= 0) {
+                    while (ret >= 0) {
+                        ret = avcodec_receive_frame(acc, aframe);
+                        if (ret != 0) break;
+                        if (swr) {
+                            int max_s = av_rescale_rnd(aframe->nb_samples, 48000, audio_sample_rate, AV_ROUND_UP);
+                            int16_t* ob = new int16_t[max_s * 2];
+                            int os = swr_convert(swr, (uint8_t**)&ob, max_s,
+                                                 (const uint8_t**)aframe->data, aframe->nb_samples);
+                            if (os > 0) { push_audio_samples(ob, os); af_count += os; }
+                            delete[] ob;
+                        }
+                    }
+                }
+            }
             break;
         }
-        if (ret < 0) {
-            g_logger.error("VIDEO_DEC: Read error on %s", m_path.c_str());
-            break;
-        }
+        if (ret < 0) break;
 
-        if (packet->stream_index != video_stream_idx) {
-            av_packet_unref(packet);
-            continue;
-        }
+        if (pkt->stream_index == video_stream_idx) {
+            ret = avcodec_send_packet(vcc, pkt);
+            av_packet_unref(pkt);
+            if (ret < 0) continue;
+            ret = avcodec_receive_frame(vcc, frame);
+            if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF) continue;
+            if (ret < 0) break;
 
-        ret = avcodec_send_packet(codec_ctx, packet);
-        av_packet_unref(packet);
-        if (ret < 0) {
-            continue;
-        }
+            vf_count++;
+            sws_scale(sws, frame->data, frame->linesize, 0, vcc->height,
+                      rgba->data, rgba->linesize);
 
-        ret = avcodec_receive_frame(codec_ctx, frame);
-        if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF) {
-            continue;
-        }
-        if (ret < 0) {
-            g_logger.error("VIDEO_DEC: Decode error");
-            break;
-        }
+            VideoFrame vf;
+            vf.width = vcc->width;
+            vf.height = vcc->height;
+            vf.data = new uint8_t[nbytes];
+            memcpy(vf.data, buf, nbytes);
+            vf.pts = av_q2d(fmt_ctx->streams[video_stream_idx]->time_base) * frame->pts;
 
-        // Convert to RGBA
-        sws_scale(sws_ctx, frame->data, frame->linesize, 0, codec_ctx->height,
-                  rgba_frame->data, rgba_frame->linesize);
+            std::lock_guard lk(m_queue_mtx);
+            while (!m_frame_queue.empty()) m_frame_queue.pop();
+            m_frame_queue.push(std::move(vf));
+            // PTS-based frame rate throttling for audio sync
+            double now = av_gettime_relative() / 1000000.0;
+            double frame_dur = 0.04; // default 25fps
+            if (vf.pts > 0 && last_frame_time > 0) {
+                frame_dur = vf.pts - prev_pts;
+                if (frame_dur <= 0 || frame_dur > 0.5) frame_dur = 0.04;
+            }
+            if (last_frame_time > 0) {
+                int64_t elapsed = (int64_t)((now - last_frame_time) * 1000);
+                int64_t needed = (int64_t)(frame_dur * 1000);
+                if (needed > elapsed && needed < 500) {
+                    SDL_Delay((int)(needed - elapsed));
+                }
+            }
+            last_frame_time = now;
+            prev_pts = vf.pts;
 
-        // Create VideoFrame and push to queue
-        VideoFrame vf;
-        vf.width = codec_ctx->width;
-        vf.height = codec_ctx->height;
-        vf.data = new uint8_t[num_bytes];
-        memcpy(vf.data, rgba_buffer, num_bytes);
-
-        std::lock_guard lk(m_queue_mtx);
-        // Keep only the latest frame to avoid memory buildup during rendering lag
-        while (!m_frame_queue.empty()) {
-            m_frame_queue.pop();
+        } else if (pkt->stream_index == audio_stream_idx && acc && aframe) {
+            ret = avcodec_send_packet(acc, pkt);
+            av_packet_unref(pkt);
+            if (ret < 0) continue;
+            while (ret >= 0) {
+                ret = avcodec_receive_frame(acc, aframe);
+                if (ret != 0) break;
+                if (swr) {
+                    int max_s = av_rescale_rnd(aframe->nb_samples, 48000, audio_sample_rate, AV_ROUND_UP);
+                    int16_t* ob = new int16_t[max_s * 2];
+                    int os = swr_convert(swr, (uint8_t**)&ob, max_s,
+                                         (const uint8_t**)aframe->data, aframe->nb_samples);
+                    if (os > 0) { push_audio_samples(ob, os); af_count += os; }
+                    delete[] ob;
+                }
+            }
+        } else {
+            av_packet_unref(pkt);
         }
-        m_frame_queue.push(std::move(vf));
     }
 
-    g_logger.info("VIDEO_DEC: Decode finished for %s", m_path.c_str());
+    g_logger.info("VIDEO_DEC: Done %s (%d vf, %d af)", m_path.c_str(), vf_count, af_count);
 
-    // Cleanup - protect from exceptions
     try {
-    av_frame_free(&rgba_frame);
+    av_frame_free(&rgba);
     av_frame_free(&frame);
-    av_packet_free(&packet);
-    av_free(rgba_buffer);
-    sws_freeContext(sws_ctx);
-    avcodec_free_context(&codec_ctx);
+    if (aframe) av_frame_free(&aframe);
+    av_packet_free(&pkt);
+    av_free(buf);
+    sws_freeContext(sws);
+    swr_free(&swr);
+    if (acc) avcodec_free_context(&acc);
+    avcodec_free_context(&vcc);
     avformat_close_input(&fmt_ctx);
-    } catch (...) { /* swallow cleanup errors */ }
+    } catch (...) {}
 
     } catch (const std::exception& e) {
-        g_logger.error("VIDEO_DEC: Exception in decode_loop: %s", e.what());
+        g_logger.error("VIDEO_DEC: Exception: %s", e.what());
     } catch (...) {
-        g_logger.error("VIDEO_DEC: Unknown exception in decode_loop");
+        g_logger.error("VIDEO_DEC: Unknown exception");
     }
     m_running.store(false);
 }
