@@ -17,6 +17,8 @@
 #include <sys/ioctl.h>
 #include <net/if.h>
 #include <mutex>
+#include <execinfo.h>
+#include <dlfcn.h>
 
 
 
@@ -106,7 +108,21 @@ static void crash_display_restore(void) {
 
 void crash_handler(int sig) {
     const char* msg = "\n[CRITICAL ERROR] piTrove intercepted a terminal fault / crash signal.\n";
-    (void)write(STDERR_FILENO, msg, strlen(msg));
+    // Print backtrace for debugging
+    void* bt[32];
+    int nptrs = backtrace(bt, 32);
+    char** symbols = backtrace_symbols(bt, nptrs);
+    if (symbols) {
+        char bt_msg[4096] = {};
+        int offset = 0;
+        offset += std::snprintf(bt_msg + offset, sizeof(bt_msg) - (size_t)offset,
+            "[CRITICAL] Backtrace (%d frames):\n", nptrs);
+        for (int i = 1; i < nptrs && (size_t)offset < (int)sizeof(bt_msg) - 256; i++) {
+            offset += std::snprintf(bt_msg + offset, sizeof(bt_msg) - (size_t)offset, "  #%d %s\n", i-1, symbols[i]);
+        }
+        (void)write(STDERR_FILENO, bt_msg, (size_t)offset);
+        free(symbols);
+    }
 
     // Fail-safe: Restore physical display power (uses only async-signal-safe syscalls)
     crash_display_restore();
