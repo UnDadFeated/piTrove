@@ -5,11 +5,15 @@
 #include <mutex>
 #include <queue>
 #include <condition_variable>
+#include <vector>
+#include <SDL3/SDL_audio.h>
 
 struct VideoFrame {
     int width = 0;
     int height = 0;
     uint8_t* data = nullptr;
+    // Presentation timestamp in seconds
+    double pts = 0.0;
     VideoFrame() = default;
     ~VideoFrame() {
         if (data) {
@@ -20,10 +24,11 @@ struct VideoFrame {
     VideoFrame(const VideoFrame&) = delete;
     VideoFrame& operator=(const VideoFrame&) = delete;
     VideoFrame(VideoFrame&& other) noexcept
-        : width(other.width), height(other.height), data(other.data) {
+        : width(other.width), height(other.height), data(other.data), pts(other.pts) {
         other.width = 0;
         other.height = 0;
         other.data = nullptr;
+        other.pts = 0.0;
     }
     VideoFrame& operator=(VideoFrame&& other) noexcept {
         if (this != &other) {
@@ -31,9 +36,11 @@ struct VideoFrame {
             width = other.width;
             height = other.height;
             data = other.data;
+            pts = other.pts;
             other.width = 0;
             other.height = 0;
             other.data = nullptr;
+            other.pts = 0.0;
         }
         return *this;
     }
@@ -70,4 +77,14 @@ private:
     int m_target_width = 0;
     int m_target_height = 0;
     std::string m_path;
+
+    // Audio
+    SDL_AudioDeviceSpec* m_audio_spec{nullptr};
+    SDL_AudioStream* m_audio_stream{nullptr};
+    SDL_AudioSpec m_output_spec{};
+    std::mutex m_audio_mtx;
+    bool m_audio_initialized{false};
+    void init_audio();
+    void shutdown_audio();
+    void push_audio_samples(const int16_t* samples, int num_frames);
 };
