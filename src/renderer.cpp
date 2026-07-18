@@ -146,7 +146,7 @@ Renderer::~Renderer() {
 
 bool Renderer::init(int w, int h, bool fullscreen) {
     g_logger.info("[TRACE] Renderer::init w=%d h=%d fullscreen=%d", w, h, fullscreen);
-    if (!SDL_Init(SDL_INIT_VIDEO)) {
+    if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO)) {
         g_logger.error("SDL_Init failed: %s", SDL_GetError());
         return false;
     }

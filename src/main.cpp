@@ -1434,7 +1434,7 @@ int main(int argc, char** argv) {
             }
             sqlite3_stmt* stmt = nullptr;
             int load_rc = sqlite3_prepare_v2(fast_cache->db,
-                "SELECT path, type, w, h, duration, exif, last_shown, is_camera FROM cache WHERE bad = 0;",
+                "SELECT path, type, w, h, duration, fps, exif, last_shown, is_camera FROM cache WHERE bad = 0;",
                 -1, &stmt, nullptr);
             if (load_rc == SQLITE_OK) {
                 while (sqlite3_step(stmt) == SQLITE_ROW) {
@@ -1447,6 +1447,7 @@ int main(int argc, char** argv) {
                     mi.width = sqlite3_column_int(stmt, 2);
                     mi.height = sqlite3_column_int(stmt, 3);
                     mi.duration = sqlite3_column_double(stmt, 4);
+                mi.fps = sqlite3_column_double(stmt, 5);
                     mi.exif_rotation = sqlite3_column_int(stmt, 5);
                     mi.last_shown = sqlite3_column_int64(stmt, 6);
                     mi.is_camera = sqlite3_column_int(stmt, 7);
@@ -2367,13 +2368,39 @@ int main(int argc, char** argv) {
                     if (current_tex) {
                         SDL_UpdateTexture(current_tex, nullptr, frame.data, frame.width * 4);
                         g_renderer.clear(0, 0, 0, 255);
-                        SDL_RenderTexture(g_renderer.sdl_renderer, current_tex, nullptr, nullptr);
+                        // Scale video to fill screen while maintaining aspect ratio
+                        SDL_FRect dst_rect;
+                        dst_rect.w = g_renderer.screen_w;
+                        dst_rect.h = g_renderer.screen_h;
+                        dst_rect.x = 0;
+                        dst_rect.y = 0;
+                        SDL_RenderTexture(g_renderer.sdl_renderer, current_tex, nullptr, &dst_rect);
                         g_renderer.present();
                     }
+                    // Frame pacing: track when next frame should display
+                    static uint64_t video_frame_target = 0;
+                    static double video_last_frame_dur = -1;
+                    double frame_dur_ms = 0;
+                    { double cfps = g_eligible[current_idx].fps; if (cfps > 0) frame_dur_ms = 1000.0 / cfps; else frame_dur_ms = g_video_decoder.get_frame_duration() * 1000.0; }
+                    uint64_t now = SDL_GetTicks();
+                    // Reset pacing on new video (frame duration changes)
+                    if (std::abs(video_last_frame_dur - frame_dur_ms) > 0.1) {
+                        video_frame_target = now;
+                        video_last_frame_dur = frame_dur_ms;
+                    }
+                    if (now < video_frame_target) {
+                        uint32_t sleep = (uint32_t)(video_frame_target - now);
+                        if (sleep > 2) SDL_Delay(sleep);
+                    }
+                    video_frame_target += (uint32_t)frame_dur_ms;
                 }
 
+                // DEBUG: trace decoder state when queue empties
+                g_logger.debug("VIDEO_DEC: Queue empty, checking is_running: %d", g_video_decoder.is_running() ? 1 : 0);
                 if (!g_video_decoder.is_running()) {
                     g_logger.info("Video decoder finished, advancing playlist.");
+                    // Add video to cooldown so it does not replay
+                    mark_item_shown(g_eligible[current_idx].path, true);
                     current_data = nullptr;
                     current_twin_data = nullptr;
                     if (current_tex) { SDL_DestroyTexture(current_tex); current_tex = nullptr; }
@@ -2382,6 +2409,20 @@ int main(int argc, char** argv) {
                     playlist_lock.unlock();
                     SDL_Delay(50);
                     continue;
+                }
+                // Render video overlay: filename + time remaining
+                if (g_overlay) {
+                    double remaining = g_video_decoder.get_video_remaining();
+                    std::string remaining_str = "";
+                    if (remaining > 0.0) {
+                        int mins = (int)(remaining / 60.0);
+                        int secs = (int)(remaining - mins * 60.0);
+                        remaining_str = std::to_string(mins) + ":" + (secs < 10 ? "0" : "") + std::to_string(secs);
+                    }
+                    g_overlay->draw_all(current_idx, (int)g_eligible.size(),
+                        &g_eligible[current_idx],
+                        &g_eligible[(current_idx + 1) % (int)g_eligible.size()],
+                        0.0, true, 0.0, nullptr, nullptr, remaining_str);
                 }
                 playlist_lock.unlock();
                 SDL_Delay(5);
@@ -2395,6 +2436,8 @@ int main(int argc, char** argv) {
                 if (g_transition) g_transition->reset();
                 if (transition_prev_target) { SDL_DestroyTexture(transition_prev_target); transition_prev_target = nullptr; }
                 if (transition_next_target) { SDL_DestroyTexture(transition_next_target); transition_next_target = nullptr; }
+                playlist_lock.unlock();
+                continue;
             } else {
                 std::string video_path = g_eligible[current_idx].path;
                 g_logger.info("Playing video: %s", video_path.c_str());
@@ -2402,6 +2445,9 @@ int main(int argc, char** argv) {
                 int width, height;
                 { std::lock_guard lock(g_config_mtx); width = g_cfg.screen_w; height = g_cfg.screen_h; }
 
+                // Reset video frame pacing for new video
+                { static uint64_t vft = 0; vft = 0; }
+                { static bool vpi = false; vpi = false; }
                 if (!g_video_decoder.start(video_path, width, height)) {
                     g_logger.error("Failed to start video decoder, skipping.");
                     current_data = nullptr;
@@ -2412,6 +2458,15 @@ int main(int argc, char** argv) {
                     playlist_lock.unlock();
                     SDL_Delay(50);
                     continue;
+                }
+                // Cache FPS from decoder to SQLite
+                double video_fps = g_video_decoder.get_fps();
+                if (video_fps > 0) {
+                    g_logger.info("Caching FPS=%.2f for video: %s", video_fps, g_eligible[current_idx].path.c_str());
+                    g_eligible[current_idx].fps = video_fps;
+                    if (g_cache) {
+                        g_cache->upsert(g_eligible[current_idx], 0);
+                    }
                 }
                 playlist_lock.unlock();
                 SDL_Delay(100);

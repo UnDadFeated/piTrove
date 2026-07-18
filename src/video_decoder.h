@@ -5,86 +5,66 @@
 #include <mutex>
 #include <queue>
 #include <condition_variable>
-#include <vector>
 #include <SDL3/SDL_audio.h>
 
 struct VideoFrame {
-    int width = 0;
-    int height = 0;
-    uint8_t* data = nullptr;
-    // Presentation timestamp in seconds
-    double pts = 0.0;
-    VideoFrame() = default;
-    ~VideoFrame() {
-        if (data) {
-            delete[] data;
-            data = nullptr;
-        }
-    }
-    VideoFrame(const VideoFrame&) = delete;
-    VideoFrame& operator=(const VideoFrame&) = delete;
-    VideoFrame(VideoFrame&& other) noexcept
-        : width(other.width), height(other.height), data(other.data), pts(other.pts) {
-        other.width = 0;
-        other.height = 0;
-        other.data = nullptr;
-        other.pts = 0.0;
-    }
-    VideoFrame& operator=(VideoFrame&& other) noexcept {
-        if (this != &other) {
-            if (data) delete[] data;
-            width = other.width;
-            height = other.height;
-            data = other.data;
-            pts = other.pts;
-            other.width = 0;
-            other.height = 0;
-            other.data = nullptr;
-            other.pts = 0.0;
-        }
-        return *this;
-    }
+ int width = 0;
+ int height = 0;
+ uint8_t* data = nullptr;
+ double pts = 0.0;
+ VideoFrame() = default;
+ ~VideoFrame() { delete[] data; }
+ VideoFrame(const VideoFrame&) = delete;
+ VideoFrame& operator=(const VideoFrame&) = delete;
+ VideoFrame(VideoFrame&& o) noexcept
+  : width(o.width), height(o.height), data(o.data), pts(o.pts) { o.data = nullptr; }
+ VideoFrame& operator=(VideoFrame&& o) noexcept {
+  delete[] data;
+  width = o.width; height = o.height; data = o.data; pts = o.pts;
+  o.data = nullptr;
+  return *this;
+ }
 };
 
 class VideoDecoder {
 public:
-    VideoDecoder();
-    ~VideoDecoder();
+ VideoDecoder();
+ ~VideoDecoder();
 
-    // Start decoding the video file in a background thread
-    bool start(const std::string& path, int target_width, int target_height);
-    // Stop decoding and clean up
-    void stop();
-    // Check if decoder thread is still running
-    bool is_running() const;
-    // Poll for the next decoded frame (non-blocking)
-    bool get_frame(VideoFrame& out);
-
-    VideoDecoder(const VideoDecoder&) = delete;
-    VideoDecoder& operator=(const VideoDecoder&) = delete;
+ bool start(const std::string& path, int target_width, int target_height);
+ void stop();
+ bool is_running() const;
+ bool get_frame(VideoFrame& out);
+ double get_frame_duration() const;
+ double get_video_remaining() const;
+ double get_fps() const { return m_frame_duration > 0 ? 1.0 / m_frame_duration : 0; }
 
 private:
-    static void* decode_thread_entry(void* arg);
-    void decode_loop();
+ std::string m_path;
+ int m_target_width;
+ int m_target_height;
+ pthread_t m_thread;
+ std::atomic<bool> m_running;
 
-    pthread_t m_thread;
-    std::atomic<bool> m_running{false};
+ std::queue<VideoFrame> m_frame_queue;
+ std::mutex m_queue_mtx;
+ std::condition_variable m_queue_cv;
 
-    std::mutex m_queue_mtx;
-    std::queue<VideoFrame> m_frame_queue;
-    std::condition_variable m_queue_cv;
+ double m_frame_duration{0.04}; // seconds per frame from stream metadata
+ std::atomic<double> m_video_start_pts{0.0};
+ std::atomic<double> m_video_total_duration{0.0};
+ double decode_start_time{0.0}; // wall-clock at first frame
 
-    int m_target_width = 0;
-    int m_target_height = 0;
-    std::string m_path;
+ // Audio
+ SDL_AudioStream* m_audio_stream{nullptr};
+ int m_audio_device{-1};
+ bool m_audio_initialized{false};
+ std::mutex m_audio_mtx;
 
-    // Audio
-    SDL_AudioDeviceSpec* m_audio_spec{nullptr};
-    SDL_AudioStream* m_audio_stream{nullptr};
-    SDL_AudioSpec m_output_spec{};
-    std::mutex m_audio_mtx;
-    bool m_audio_initialized{false};
-    void init_audio();
-    void shutdown_audio();
-    void push_audio_samples(const int16_t* samples, int num_frames);
+ void init_audio();
+ void shutdown_audio();
+ void push_audio_samples(const int16_t* samples, int num_frames);
+
+ void decode_loop();
+ static void* decode_thread_entry(void* arg);
 };

@@ -1,5 +1,7 @@
 #include "video_decoder.h"
+#include <SDL3/SDL_timer.h>
 #include "util.h"
+#include "config.h"
 
 extern Logger g_logger;
 
@@ -10,26 +12,22 @@ extern "C" {
 #include <libswresample/swresample.h>
 #include <libavutil/opt.h>
 #include <libavutil/imgutils.h>
+#include <libavutil/time.h>
 }
 
-// Debug logging macro — compiles out when logger level > DEBUG
 #define DEBUG_LOG(fmt, ...) \
-    do { \
-        g_logger.debug(fmt, ##__VA_ARGS__); \
-    } while (0)
+    do { g_logger.debug(fmt, ##__VA_ARGS__); } while (0)
 
 VideoDecoder::VideoDecoder() : m_thread(0) {}
 
 void* VideoDecoder::decode_thread_entry(void* arg) {
     VideoDecoder* self = static_cast<VideoDecoder*>(arg);
     try { self->decode_loop(); }
-    catch (...) { /* swallow all */ }
+    catch (...) {}
     return nullptr;
 }
 
-VideoDecoder::~VideoDecoder() {
-    stop();
-}
+VideoDecoder::~VideoDecoder() { stop(); }
 
 void VideoDecoder::init_audio() {
     std::lock_guard lk(m_audio_mtx);
@@ -37,48 +35,29 @@ void VideoDecoder::init_audio() {
 
     DEBUG_LOG("AUDIO: Initializing SDL audio device");
 
-    SDL_AudioSpec desired;
-    desired.freq = 48000;
-    desired.format = SDL_AUDIO_S16SYS;
-    desired.channels = 2;
-    desired.samples = 1024;
+    SDL_AudioSpec spec;
+    SDL_zero(spec);
+    spec.freq = 48000;
+    spec.format = SDL_AUDIO_S16LE;
+    spec.channels = 2;
 
-    if (!SDL_LoadWAV("audio", &desired, nullptr, nullptr)) {
-        // Just set manually — we don't need a WAV
-        desired.freq = 48000;
-        desired.format = SDL_AUDIO_S16SYS;
-        desired.channels = 2;
-        desired.samples = 1024;
-    }
-
-    m_output_spec = desired;
-    int dev_id = SDL_OpenAudioDevice(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, &desired);
-    if (dev_id <= 0) {
+    m_audio_device = SDL_OpenAudioDevice(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, &spec);
+    if (m_audio_device < 0) {
         DEBUG_LOG("AUDIO: SDL_OpenAudioDevice failed: %s", SDL_GetError());
         return;
     }
 
-    m_audio_spec = new SDL_AudioDeviceSpec;
-    m_audio_spec->spec = desired;
-
-    m_audio_stream = SDL_CreateAudioStream(m_audio_spec->spec.format,
-                                           m_audio_spec->spec.channels,
-                                           m_audio_spec->spec.freq,
-                                           m_audio_spec->spec.format,
-                                           m_audio_spec->spec.channels,
-                                           m_audio_spec->spec.freq);
+    m_audio_stream = SDL_CreateAudioStream(&spec, &spec);
     if (!m_audio_stream) {
         DEBUG_LOG("AUDIO: SDL_CreateAudioStream failed: %s", SDL_GetError());
-        SDL_CloseAudioDevice(dev_id);
-        delete m_audio_spec;
-        m_audio_spec = nullptr;
+        SDL_CloseAudioDevice(m_audio_device);
+        m_audio_device = -1;
         return;
     }
 
-    SDL_PauseAudioDevice(dev_id, false);
+    SDL_BindAudioStream(m_audio_device, m_audio_stream);
     m_audio_initialized = true;
-    DEBUG_LOG("AUDIO: Audio device opened (id=%d, freq=%d, ch=%d)",
-              dev_id, m_audio_spec->spec.freq, m_audio_spec->spec.channels);
+    DEBUG_LOG("AUDIO: Device opened id=%d", m_audio_device);
 }
 
 void VideoDecoder::shutdown_audio() {
@@ -90,10 +69,9 @@ void VideoDecoder::shutdown_audio() {
         SDL_DestroyAudioStream(m_audio_stream);
         m_audio_stream = nullptr;
     }
-    if (m_audio_spec) {
-        SDL_CloseAudioDevice(m_audio_spec->spec.device_id);
-        delete m_audio_spec;
-        m_audio_spec = nullptr;
+    if (m_audio_device >= 0) {
+        SDL_CloseAudioDevice(m_audio_device);
+        m_audio_device = -1;
     }
     m_audio_initialized = false;
 }
@@ -102,10 +80,9 @@ void VideoDecoder::push_audio_samples(const int16_t* samples, int num_frames) {
     std::lock_guard lk(m_audio_mtx);
     if (!m_audio_initialized || !m_audio_stream) return;
 
-    int bytes = num_frames * 2 * 2; // frames * channels * 2 bytes per sample
+    int bytes = num_frames * 2 * 2;
     SDL_PutAudioStreamData(m_audio_stream, samples, bytes);
 
-    // Apply volume from config
     int volume = 0;
     {
         std::lock_guard lk(g_config_mtx);
@@ -113,21 +90,10 @@ void VideoDecoder::push_audio_samples(const int16_t* samples, int num_frames) {
     }
     float gain = volume / 100.0f;
     SDL_SetAudioStreamGain(m_audio_stream, gain);
-
-    // Submit to device
-    SDL_AudioStreamConvert(m_audio_stream, 0);
-    const void* buf;
-    int buf_len;
-    if (SDL_PeekAudioStreamData(m_audio_stream, &buf, &buf_len) >= 0 && buf_len > 0) {
-        SDL_FlushAudioStream(m_audio_stream);
-        SDL_PutAudioStreamData(m_audio_stream, nullptr, 0);
-    }
 }
 
 bool VideoDecoder::start(const std::string& path, int target_width, int target_height) {
-    if (is_running()) {
-        stop();
-    }
+    if (is_running()) stop();
     m_path = path;
     m_target_width = target_width;
     m_target_height = target_height;
@@ -149,24 +115,29 @@ void VideoDecoder::stop() {
         m_thread = 0;
     }
     shutdown_audio();
-    {
-        std::lock_guard lk(m_queue_mtx);
-        while (!m_frame_queue.empty()) {
-            m_frame_queue.front().~VideoFrame();
-            m_frame_queue.pop();
-        }
+    std::lock_guard lk(m_queue_mtx);
+    while (!m_frame_queue.empty()) {
+        m_frame_queue.pop();
     }
 }
 
-bool VideoDecoder::is_running() const {
-    return m_running.load();
+bool VideoDecoder::is_running() const { return m_running.load(); }
+
+double VideoDecoder::get_frame_duration() const {
+    return m_frame_duration;
 }
+
+double VideoDecoder::get_video_remaining() const {
+    double total = m_video_total_duration.load(std::memory_order_relaxed);
+    if (total <= 0.0 || decode_start_time <= 0.0) return 0.0;
+    double elapsed = (av_gettime_relative() / 1000000.0) - decode_start_time;
+    return std::max(0.0, total - elapsed);
+}
+
 
 bool VideoDecoder::get_frame(VideoFrame& out) {
     std::lock_guard lk(m_queue_mtx);
-    if (m_frame_queue.empty()) {
-        return false;
-    }
+    if (m_frame_queue.empty()) return false;
     out = std::move(m_frame_queue.front());
     m_frame_queue.pop();
     return true;
@@ -192,18 +163,12 @@ void VideoDecoder::decode_loop() {
         return;
     }
 
-    // Find video and audio streams
-    int video_stream_idx = -1;
-    int audio_stream_idx = -1;
+    int video_stream_idx = -1, audio_stream_idx = -1;
     for (unsigned int i = 0; i < fmt_ctx->nb_streams; i++) {
-        if (video_stream_idx == -1 &&
-            fmt_ctx->streams[i]->codecpar->codec_type == AVMEDIA_TYPE_VIDEO) {
+        if (video_stream_idx == -1 && fmt_ctx->streams[i]->codecpar->codec_type == AVMEDIA_TYPE_VIDEO)
             video_stream_idx = (int)i;
-        }
-        if (audio_stream_idx == -1 &&
-            fmt_ctx->streams[i]->codecpar->codec_type == AVMEDIA_TYPE_AUDIO) {
+        if (audio_stream_idx == -1 && fmt_ctx->streams[i]->codecpar->codec_type == AVMEDIA_TYPE_AUDIO)
             audio_stream_idx = (int)i;
-        }
         if (video_stream_idx >= 0 && audio_stream_idx >= 0) break;
     }
 
@@ -216,252 +181,218 @@ void VideoDecoder::decode_loop() {
 
     DEBUG_LOG("VIDEO_DEC: Video stream=%d, Audio stream=%d", video_stream_idx, audio_stream_idx);
 
-    // Video codec setup
-    AVCodecParameters* v_codec_params = fmt_ctx->streams[video_stream_idx]->codecpar;
-    const AVCodec* v_codec = avcodec_find_decoder(v_codec_params->codec_id);
-    if (!v_codec) {
+    // Extract video frame rate from stream metadata
+    AVRational avg_frame_rate = fmt_ctx->streams[video_stream_idx]->avg_frame_rate;
+    if (avg_frame_rate.num > 0 && avg_frame_rate.den > 0) {
+        double fps = (double)avg_frame_rate.num / (double)avg_frame_rate.den;
+        m_frame_duration = 1.0 / fps;
+        DEBUG_LOG("VIDEO_DEC: Detected FPS=%.2f, frame_duration=%.3fs", fps, m_frame_duration);
+    } else {
+        m_frame_duration = 0.04; // fallback 25fps
+        DEBUG_LOG("VIDEO_DEC: Could not detect FPS, using default 25fps");
+    }
+    // Extract video duration
+    if (fmt_ctx->duration > 0) {
+        m_video_total_duration.store(fmt_ctx->duration / 1000000.0);
+    }
+
+
+    // Video codec
+    AVCodecParameters* vp = fmt_ctx->streams[video_stream_idx]->codecpar;
+    const AVCodec* vc = avcodec_find_decoder(vp->codec_id);
+    if (!vc) {
         g_logger.error("VIDEO_DEC: Unsupported video codec for %s", m_path.c_str());
         avformat_close_input(&fmt_ctx);
         m_running.store(false);
         return;
     }
-
-    AVCodecContext* v_codec_ctx = avcodec_alloc_context3(v_codec);
-    avcodec_parameters_to_context(v_codec_ctx, v_codec_params);
-    if (avcodec_open2(v_codec_ctx, v_codec, nullptr) < 0) {
+    AVCodecContext* vcc = avcodec_alloc_context3(vc);
+    avcodec_parameters_to_context(vcc, vp);
+    if (avcodec_open2(vcc, vc, nullptr) < 0) {
         g_logger.error("VIDEO_DEC: Failed to open video codec for %s", m_path.c_str());
-        avcodec_free_context(&v_codec_ctx);
+        avcodec_free_context(&vcc);
         avformat_close_input(&fmt_ctx);
         m_running.store(false);
         return;
     }
 
-    // Audio codec setup
-    AVCodecContext* a_codec_ctx = nullptr;
+    // Audio codec
+    AVCodecContext* acc = nullptr;
+    int audio_channels = 2;
+    int audio_sample_rate = 48000;
     if (audio_stream_idx >= 0) {
-        AVCodecParameters* a_codec_params = fmt_ctx->streams[audio_stream_idx]->codecpar;
-        const AVCodec* a_codec = avcodec_find_decoder(a_codec_params->codec_id);
-        if (a_codec) {
-            a_codec_ctx = avcodec_alloc_context3(a_codec);
-            avcodec_parameters_to_context(a_codec_ctx, a_codec_params);
-            if (avcodec_open2(a_codec_ctx, a_codec, nullptr) >= 0) {
-                DEBUG_LOG("AUDIO: Opened audio codec: %s (sample_rate=%d, ch=%d, fmt=%d)",
-                          a_codec->name,
-                          a_codec_ctx->sample_rate,
-                          a_codec_ctx->channels,
-                          a_codec_ctx->sample_fmt);
+        AVCodecParameters* ap = fmt_ctx->streams[audio_stream_idx]->codecpar;
+        const AVCodec* ac = avcodec_find_decoder(ap->codec_id);
+        if (ac) {
+            acc = avcodec_alloc_context3(ac);
+            avcodec_parameters_to_context(acc, ap);
+            if (avcodec_open2(acc, ac, nullptr) >= 0) {
+                audio_channels = acc->ch_layout.nb_channels;
+                audio_sample_rate = acc->sample_rate;
+                DEBUG_LOG("AUDIO: Codec=%s sr=%d ch=%d fmt=%d",
+                          ac->name, audio_sample_rate, audio_channels, acc->sample_fmt);
             } else {
-                DEBUG_LOG("AUDIO: Failed to open audio codec, skipping audio");
-                avcodec_free_context(&a_codec_ctx);
-                a_codec_ctx = nullptr;
+                DEBUG_LOG("AUDIO: Failed to open audio codec");
+                avcodec_free_context(&acc);
+                acc = nullptr;
             }
-        } else {
-            DEBUG_LOG("AUDIO: Audio codec not found, skipping audio");
         }
     }
 
-    // Init SDL audio if we have an audio stream
-    if (a_codec_ctx) {
-        init_audio();
-    }
+    if (acc) init_audio();
 
-    // Swresample context
-    SwrContext* swr_ctx = nullptr;
-    if (a_codec_ctx) {
-        swr_ctx = swr_alloc_set_opts(nullptr,
-            AV_CH_LAYOUT_STEREO, AV_SAMPLE_FMT_S16, 48000,
-            a_codec_ctx->channel_layout ? a_codec_ctx->channel_layout : av_get_default_channel_layout(a_codec_ctx->channels),
-            (AVSampleFormat)a_codec_ctx->sample_fmt, a_codec_ctx->sample_rate,
+    // Swresample — FFmpeg 6 uses swr_alloc_set_opts2
+    SwrContext* swr = nullptr;
+    if (acc) {
+        AVChannelLayout src_ch, dst_ch;
+        av_channel_layout_copy(&src_ch, &acc->ch_layout);
+        av_channel_layout_from_mask(&dst_ch, AV_CH_LAYOUT_STEREO);
+
+        int ret = swr_alloc_set_opts2(&swr,
+            &dst_ch, AV_SAMPLE_FMT_S16, 48000,
+            &src_ch, (AVSampleFormat)acc->sample_fmt, audio_sample_rate,
             0, nullptr);
-        if (swr_ctx && swr_init(swr_ctx) < 0) {
-            DEBUG_LOG("AUDIO: Failed to init swresample");
-            swr_free(&swr_ctx);
+        if (ret < 0) {
+            DEBUG_LOG("AUDIO: swr_alloc_set_opts2 failed: %d", ret);
+        } else {
+            ret = swr_init(swr);
+            if (ret < 0) {
+                DEBUG_LOG("AUDIO: swr_init failed: %d", ret);
+                swr_free(&swr);
+            }
         }
     }
-
-    // Setup swscale context
-    SwsContext* sws_ctx = sws_getContext(
-        v_codec_ctx->width, v_codec_ctx->height, v_codec_ctx->pix_fmt,
-        v_codec_ctx->width, v_codec_ctx->height, AV_PIX_FMT_RGBA,
-        SWS_BILINEAR, nullptr, nullptr, nullptr);
-
-    if (!sws_ctx) {
+    // Compute scaled target dimensions maintaining video aspect ratio
+    int dst_w = vcc->width, dst_h = vcc->height;
+    if (m_target_width > 0 && m_target_height > 0) {
+        float video_ar = (float)vcc->width / (float)vcc->height;
+        float screen_ar = (float)m_target_width / (float)m_target_height;
+        if (video_ar >= screen_ar) {
+            dst_w = m_target_width;
+            dst_h = (int)(m_target_width / video_ar);
+        } else {
+            dst_h = m_target_height;
+            dst_w = (int)(m_target_height * video_ar);
+        }
+    }
+    // Scaler
+    SwsContext* sws = sws_getContext(vcc->width, vcc->height, vcc->pix_fmt,
+                                     dst_w, dst_h, AV_PIX_FMT_RGBA,
+                                     SWS_BILINEAR, nullptr, nullptr, nullptr);
+    if (!sws) {
         g_logger.error("VIDEO_DEC: Failed to create scaler for %s", m_path.c_str());
-        if (a_codec_ctx) avcodec_free_context(&a_codec_ctx);
-        avcodec_free_context(&v_codec_ctx);
+        if (acc) avcodec_free_context(&acc);
+        avcodec_free_context(&vcc);
         avformat_close_input(&fmt_ctx);
         m_running.store(false);
         return;
     }
-
-    g_logger.info("VIDEO_DEC: Decoding %s (%dx%d)", m_path.c_str(), v_codec_ctx->width, v_codec_ctx->height);
-    DEBUG_LOG("VIDEO_DEC: Pixel format=%d, has_audio=%d",
-              v_codec_ctx->pix_fmt, a_codec_ctx ? 1 : 0);
-
-    AVPacket* packet = av_packet_alloc();
+    g_logger.info("VIDEO_DEC: Decoding %s (%dx%d -> %dx%d)", m_path.c_str(), vcc->width, vcc->height, dst_w, dst_h);
+    AVPacket* pkt = av_packet_alloc();
     AVFrame* frame = av_frame_alloc();
-    AVFrame* rgba_frame = av_frame_alloc();
-    int num_bytes = av_image_get_buffer_size(AV_PIX_FMT_RGBA, v_codec_ctx->width, v_codec_ctx->height, 1);
-    uint8_t* rgba_buffer = (uint8_t*)av_malloc(num_bytes);
-    av_image_fill_arrays(rgba_frame->data, rgba_frame->linesize, rgba_buffer,
-                         AV_PIX_FMT_RGBA, v_codec_ctx->width, v_codec_ctx->height, 1);
+    AVFrame* rgba = av_frame_alloc();
+    int nbytes = av_image_get_buffer_size(AV_PIX_FMT_RGBA, dst_w, dst_h, 1);
+    uint8_t* buf = (uint8_t*)av_malloc(nbytes);
+    av_image_fill_arrays(rgba->data, rgba->linesize, buf, AV_PIX_FMT_RGBA, dst_w, dst_h, 1);
 
-    // Audio decode buffers
-    AVFrame* a_frame = nullptr;
-    if (a_codec_ctx) {
-        a_frame = av_frame_alloc();
-    }
-
-    // Timestamp tracking for A/V sync
-    double video_start_pts = 0.0;
-    bool video_start_set = false;
-    double audio_start_pts = 0.0;
-    bool audio_start_set = false;
-    double decode_start_time = av_gettime() / 1000000.0;
+    AVFrame* aframe = nullptr;
+    if (acc) aframe = av_frame_alloc();
 
     bool eof = false;
-    int frame_count = 0;
-    int audio_frame_count = 0;
+    int vf_count = 0, af_count = 0;
+    double last_frame_time = 0.0; // wall-clock seconds
+    double prev_pts = 0.0;
     while (is_running() && !eof) {
-        int ret = av_read_frame(fmt_ctx, packet);
+        int ret = av_read_frame(fmt_ctx, pkt);
         if (ret == AVERROR_EOF) {
             eof = true;
             // Flush audio decoder
-            if (a_codec_ctx && a_frame) {
-                ret = avcodec_send_packet(a_codec_ctx, nullptr);
+            if (acc && aframe) {
+                ret = avcodec_send_packet(acc, nullptr);
                 if (ret >= 0) {
                     while (ret >= 0) {
-                        ret = avcodec_receive_frame(a_codec_ctx, a_frame);
-                        if (ret == AVERROR_EOF || ret == AVERROR(EAGAIN)) break;
-                        if (ret < 0) break;
-
-                        // Resample and push
-                        if (swr_ctx) {
-                            const int max_samples = av_rescale_rnd(
-                                a_frame->nb_samples, 48000, a_codec_ctx->sample_rate, AV_ROUND_UP);
-                            int16_t* out_buf = new int16_t[max_samples * 2];
-                            int out_samples = swr_convert(swr_ctx,
-                                (uint8_t**)&out_buf, max_samples,
-                                (const uint8_t**)a_frame->data, a_frame->nb_samples);
-                            if (out_samples > 0) {
-                                push_audio_samples(out_buf, out_samples);
-                                audio_frame_count += out_samples;
-                            }
-                            delete[] out_buf;
+                        ret = avcodec_receive_frame(acc, aframe);
+                        if (ret != 0) break;
+                        if (swr) {
+                            int max_s = av_rescale_rnd(aframe->nb_samples, 48000, audio_sample_rate, AV_ROUND_UP);
+                            int16_t* ob = new int16_t[max_s * 2];
+                            int os = swr_convert(swr, (uint8_t**)&ob, max_s,
+                                                 (const uint8_t**)aframe->data, aframe->nb_samples);
+                            if (os > 0) { push_audio_samples(ob, os); af_count += os; }
+                            delete[] ob;
                         }
                     }
                 }
             }
             break;
         }
-        if (ret < 0) {
-            g_logger.error("VIDEO_DEC: Read error on %s", m_path.c_str());
-            break;
-        }
+        if (ret < 0) break;
 
-        if (packet->stream_index == video_stream_idx) {
-            // Set video start timestamp
-            if (!video_start_set) {
-                video_start_pts = av_q2d(fmt_ctx->streams[video_stream_idx]->time_base) * packet->pts;
-                video_start_set = true;
-                DEBUG_LOG("VIDEO_DEC: Video start PTS=%.3f", video_start_pts);
-            }
-
-            ret = avcodec_send_packet(v_codec_ctx, packet);
-            av_packet_unref(packet);
+        if (pkt->stream_index == video_stream_idx) {
+            ret = avcodec_send_packet(vcc, pkt);
+            av_packet_unref(pkt);
             if (ret < 0) continue;
-
-            ret = avcodec_receive_frame(v_codec_ctx, frame);
+            ret = avcodec_receive_frame(vcc, frame);
             if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF) continue;
-            if (ret < 0) {
-                g_logger.error("VIDEO_DEC: Decode error");
-                break;
-            }
+            if (ret < 0) break;
 
-            frame_count++;
-            // Convert to RGBA
-            sws_scale(sws_ctx, frame->data, frame->linesize, 0, v_codec_ctx->height,
-                      rgba_frame->data, rgba_frame->linesize);
+            vf_count++;
+            sws_scale(sws, frame->data, frame->linesize, 0, vcc->height,
+                      rgba->data, rgba->linesize);
 
-            // Create VideoFrame and push to queue
             VideoFrame vf;
-            vf.width = v_codec_ctx->width;
-            vf.height = v_codec_ctx->height;
-            vf.data = new uint8_t[num_bytes];
-            memcpy(vf.data, rgba_buffer, num_bytes);
+            vf.width = dst_w;
+            vf.height = dst_h;
+            vf.data = new uint8_t[nbytes];
+            memcpy(vf.data, buf, nbytes);
             vf.pts = av_q2d(fmt_ctx->streams[video_stream_idx]->time_base) * frame->pts;
 
-            DEBUG_LOG("VIDEO_DEC: Frame #%d queued, PTS=%.3f", frame_count, vf.pts);
-
             std::lock_guard lk(m_queue_mtx);
-            // Keep only the latest frame
-            while (!m_frame_queue.empty()) {
-                m_frame_queue.pop();
-            }
+            while (!m_frame_queue.empty()) m_frame_queue.pop();
             m_frame_queue.push(std::move(vf));
+            // Decode as fast as possible; pacing is handled by the render loop
 
-        } else if (packet->stream_index == audio_stream_idx && a_codec_ctx && a_frame) {
-            // Set audio start timestamp
-            if (!audio_start_set) {
-                audio_start_pts = av_q2d(fmt_ctx->streams[audio_stream_idx]->time_base) * packet->pts;
-                audio_start_set = true;
-                DEBUG_LOG("AUDIO: Audio start PTS=%.3f", audio_start_pts);
-            }
-
-            ret = avcodec_send_packet(a_codec_ctx, packet);
-            av_packet_unref(packet);
+        } else if (pkt->stream_index == audio_stream_idx && acc && aframe) {
+            ret = avcodec_send_packet(acc, pkt);
+            av_packet_unref(pkt);
             if (ret < 0) continue;
-
             while (ret >= 0) {
-                ret = avcodec_receive_frame(a_codec_ctx, a_frame);
-                if (ret == AVERROR_EOF || ret == AVERROR(EAGAIN)) break;
-                if (ret < 0) break;
-
-                // Resample to S16 48kHz stereo and push
-                if (swr_ctx) {
-                    const int max_samples = av_rescale_rnd(
-                        a_frame->nb_samples, 48000, a_codec_ctx->sample_rate, AV_ROUND_UP);
-                    int16_t* out_buf = new int16_t[max_samples * 2];
-                    int out_samples = swr_convert(swr_ctx,
-                        (uint8_t**)&out_buf, max_samples,
-                        (const uint8_t**)a_frame->data, a_frame->nb_samples);
-                    if (out_samples > 0) {
-                        push_audio_samples(out_buf, out_samples);
-                        audio_frame_count += out_samples;
-                    }
-                    delete[] out_buf;
+                ret = avcodec_receive_frame(acc, aframe);
+                if (ret != 0) break;
+                if (swr) {
+                    int max_s = av_rescale_rnd(aframe->nb_samples, 48000, audio_sample_rate, AV_ROUND_UP);
+                    int16_t* ob = new int16_t[max_s * 2];
+                    int os = swr_convert(swr, (uint8_t**)&ob, max_s,
+                                         (const uint8_t**)aframe->data, aframe->nb_samples);
+                    if (os > 0) { push_audio_samples(ob, os); af_count += os; }
+                    delete[] ob;
                 }
             }
         } else {
-            av_packet_unref(packet);
+            av_packet_unref(pkt);
         }
     }
 
-    double decode_elapsed = av_gettime() / 1000000.0 - decode_start_time;
-    g_logger.info("VIDEO_DEC: Decode finished for %s (%.1fs, %d video frames, %d audio samples)",
-                  m_path.c_str(), decode_elapsed, frame_count, audio_frame_count);
-    DEBUG_LOG("VIDEO_DEC: Video duration=%.3fs, Audio duration=%.3fs",
-              video_start_pts > 0 ? (frame_count > 0 ? (frame_count * 0.04) : 0) : 0,
-              audio_start_pts > 0 ? (audio_frame_count / 48000.0) : 0);
+    g_logger.info("VIDEO_DEC: Done %s (%d vf, %d af)", m_path.c_str(), vf_count, af_count);
+    // Decoder finished - mark as stopped so render loop can drain remaining queued frames
 
-    // Cleanup
     try {
-    av_frame_free(&rgba_frame);
+    av_frame_free(&rgba);
     av_frame_free(&frame);
-    if (a_frame) av_frame_free(&a_frame);
-    av_packet_free(&packet);
-    av_free(rgba_buffer);
-    sws_freeContext(sws_ctx);
-    swr_free(&swr_ctx);
-    if (a_codec_ctx) avcodec_free_context(&a_codec_ctx);
-    avcodec_free_context(&v_codec_ctx);
+    if (aframe) av_frame_free(&aframe);
+    av_packet_free(&pkt);
+    av_free(buf);
+    sws_freeContext(sws);
+    swr_free(&swr);
+    if (acc) avcodec_free_context(&acc);
+    avcodec_free_context(&vcc);
     avformat_close_input(&fmt_ctx);
-    } catch (...) { /* swallow cleanup errors */ }
+    } catch (...) {}
 
     } catch (const std::exception& e) {
-        g_logger.error("VIDEO_DEC: Exception in decode_loop: %s", e.what());
+        g_logger.error("VIDEO_DEC: Exception: %s", e.what());
     } catch (...) {
-        g_logger.error("VIDEO_DEC: Unknown exception in decode_loop");
+        g_logger.error("VIDEO_DEC: Unknown exception");
     }
     m_running.store(false);
 }

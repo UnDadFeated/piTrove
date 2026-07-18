@@ -12,6 +12,7 @@ struct MediaItem {
     int        width{0};
     int        height{0};
     double      duration{0.0};
+    double      fps{0.0};
     int         exif_rotation{0};
     int64_t     file_size{0};
     int64_t     modified_time{0};
