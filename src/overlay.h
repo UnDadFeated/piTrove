@@ -43,7 +43,7 @@ public:
     void cleanup();
 
     // Render all configured overlays
-    void draw_all(int current_idx, int total_items, const MediaItem* item, const MediaItem* twin_item, double item_timer, bool is_video, int active_fps, const ImageData* current_data, const ImageData* current_twin_data);
+    void draw_all(int current_idx, int total_items, const MediaItem* item, const MediaItem* twin_item, double item_timer, bool is_video, int active_fps, const ImageData* current_data, const ImageData* current_twin_data, const std::string& video_remaining = "");
     void draw_popup_menu();
     void draw_virtual_keyboard();
     void draw_nav_overlay();
