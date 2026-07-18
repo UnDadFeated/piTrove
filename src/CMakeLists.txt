@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(piTrove VERSION 14.7.0 LANGUAGES CXX)
+project(piTrove VERSION 14.7.1 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -44,6 +44,8 @@ pkg_check_modules(AVCODEC REQUIRED libavcodec)
 pkg_check_modules(AVFORMAT REQUIRED libavformat)
 pkg_check_modules(SWSCALE REQUIRED libswscale)
 pkg_check_modules(AVUTIL REQUIRED libavutil)
+# SWResample
+pkg_check_modules(SWRESAMPLE REQUIRED libswresample)
 
 # ============================================================
 # Source files
@@ -90,6 +92,7 @@ target_include_directories(piTrove PRIVATE
     ${AVFORMAT_INCLUDE_DIRS}
     ${SWSCALE_INCLUDE_DIRS}
     ${AVUTIL_INCLUDE_DIRS}
+    ${SWRESAMPLE_INCLUDE_DIRS}
     /usr/include/drm
 )
 
@@ -101,6 +104,7 @@ target_link_libraries(piTrove PRIVATE
     ${AVFORMAT_LIBRARIES}
     ${SWSCALE_LIBRARIES}
     ${AVUTIL_LIBRARIES}
+    ${SWRESAMPLE_LIBRARIES}
     ${DRM_LIBRARY}
     ${GBM_LIBRARY}
     ${EGL_LIBRARY}

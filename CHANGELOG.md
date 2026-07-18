@@ -1,5 +1,11 @@
 # Changelog
 
+
+## v14.7.1 — Video Audio Playback (July 18, 2026)
+
+### Added
+- **Video audio playback** — Integrated FFmpeg audio decoding with SDL3 audio output, including automatic resampling (swresample) to 48kHz stereo. Audio volume is controlled by the existing `video_volume` setting (0-150%) in config/TUI. Audio is synchronized with video using PTS timestamps.
+
 ## v14.7.0 — Video Decoder Thread Crash Fix (July 18, 2026)
 
 ### Fixed
