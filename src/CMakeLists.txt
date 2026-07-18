@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(piTrove VERSION 13.4.0 LANGUAGES CXX)
+project(piTrove VERSION 14.7.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -39,14 +39,11 @@ find_library(EXIF_LIBRARY NAMES exif REQUIRED)
 # STB image
 pkg_check_modules(STB stb)
 
-# MPV (optional — for video)
-option(ENABLE_MPV "Enable mpv video playback" ON)
-if(ENABLE_MPV)
-    find_library(LIBMPV mpv)
-    if(LIBMPV)
-        add_definitions(-DHAVE_MPV)
-    endif()
-endif()
+# FFmpeg (for in-process video decoding)
+pkg_check_modules(AVCODEC REQUIRED libavcodec)
+pkg_check_modules(AVFORMAT REQUIRED libavformat)
+pkg_check_modules(SWSCALE REQUIRED libswscale)
+pkg_check_modules(AVUTIL REQUIRED libavutil)
 
 # ============================================================
 # Source files
@@ -74,10 +71,8 @@ set(PISTROVE_SOURCES
     preprocess.cpp
 )
 
-# Optional: video player
-if(ENABLE_MPV AND LIBMPV)
-    list(APPEND PISTROVE_SOURCES mpv_player.cpp)
-endif()
+# Video decoder (FFmpeg)
+list(APPEND PISTROVE_SOURCES video_decoder.cpp)
 
 # ============================================================
 # Executable
@@ -91,15 +86,21 @@ target_include_directories(piTrove PRIVATE
     ${SDL3_TTF_INCLUDE_DIRS}
     ${SQLITE3_INCLUDE_DIRS}
     ${STB_INCLUDE_DIRS}
+    ${AVCODEC_INCLUDE_DIRS}
+    ${AVFORMAT_INCLUDE_DIRS}
+    ${SWSCALE_INCLUDE_DIRS}
+    ${AVUTIL_INCLUDE_DIRS}
     /usr/include/drm
-    .
 )
 
 target_link_libraries(piTrove PRIVATE
     ${SDL3_LIBRARIES}
     ${SDL3_IMAGE_LIBRARIES}
     ${SDL3_TTF_LIBRARIES}
-    ${LIBMPV}
+    ${AVCODEC_LIBRARIES}
+    ${AVFORMAT_LIBRARIES}
+    ${SWSCALE_LIBRARIES}
+    ${AVUTIL_LIBRARIES}
     ${DRM_LIBRARY}
     ${GBM_LIBRARY}
     ${EGL_LIBRARY}

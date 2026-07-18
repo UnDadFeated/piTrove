@@ -8,7 +8,7 @@
 #include "transition.h"
 #include "overlay.h"
 #include "preload.h"
-#include "mpv_player.h"
+#include "video_decoder.h"
 #include "tui.h"
 #include "http_server.h"
 #include "mqtt.h"
@@ -96,6 +96,8 @@ static std::thread g_watchman_thread;
 static std::atomic<bool> g_watchman_running{false};
 static std::atomic<bool> g_watchman_finished{false};
 static std::chrono::steady_clock::time_point g_watchdog_last_time;
+
+static VideoDecoder g_video_decoder;
 
 static bool is_item_in_seasonal_window(const MediaItem& item, int window_days) {
     if (window_days <= 0) return true;
@@ -2144,9 +2146,9 @@ int main(int argc, char** argv) {
                     }
                     if (event.button.button == SDL_BUTTON_RIGHT) {
                         if (g_overlay) {
-                            if (g_mpv_player.is_active()) {
-                                g_logger.info("Right-click during video: stopping mpv to open config menu.");
-                                g_mpv_player.stop();
+                            if (g_video_decoder.is_running()) {
+                                g_logger.info("Right-click during video: stopping decoder to open config menu.");
+                                g_video_decoder.stop();
                             }
                             g_overlay->menu_active = !g_overlay->menu_active;
                         }
@@ -2170,9 +2172,9 @@ int main(int argc, char** argv) {
                                     g_overlay->pin_active = true;
                                     g_logger.info("TOUCH_INPUT: PIN required before showing navigation overlay.");
                                 } else if (touch_mode) {
-                                    if (g_mpv_player.is_active()) {
-                                        g_logger.info("TOUCH_INPUT: Touch during video: stopping mpv to open touch navigation overlay.");
-                                        g_mpv_player.stop();
+                                    if (g_video_decoder.is_running()) {
+                                        g_logger.info("TOUCH_INPUT: Touch during video: stopping decoder to open navigation overlay.");
+                                        g_video_decoder.stop();
                                     }
                                     g_overlay->nav_overlay_active = true;
                                     g_overlay->nav_overlay_show_time = SDL_GetTicks();
@@ -2211,9 +2213,9 @@ int main(int argc, char** argv) {
                                 g_overlay->pin_active = true;
                                 g_logger.info("TOUCH_INPUT: PIN required before showing navigation overlay (finger).");
                             } else {
-                                if (g_mpv_player.is_active()) {
-                                    g_logger.info("TOUCH_INPUT: Finger touch during video: stopping mpv to open touch navigation overlay.");
-                                    g_mpv_player.stop();
+                                if (g_video_decoder.is_running()) {
+                                    g_logger.info("TOUCH_INPUT: Finger touch during video: stopping decoder to open navigation overlay.");
+                                    g_video_decoder.stop();
                                 }
                                 g_overlay->nav_overlay_active = true;
                                 g_overlay->nav_overlay_show_time = SDL_GetTicks();
@@ -2248,9 +2250,9 @@ int main(int argc, char** argv) {
 
         // Handle screen blanking state
         if (g_screen_blanked.load()) {
-            if (g_mpv_player.is_active()) {
-                g_logger.info("Screen blanked: stopping active video playback.");
-                g_mpv_player.stop();
+            if (g_video_decoder.is_running()) {
+                g_logger.info("Screen blanked: stopping video decoder.");
+                g_video_decoder.stop();
             }
             g_renderer.clear(0, 0, 0, 255);
             g_renderer.present();
@@ -2307,9 +2309,9 @@ int main(int argc, char** argv) {
         if (cmd == 1 || cmd == 2) {
             item_timer = 0.0;
             bool was_video = (g_eligible[current_idx].type == "video");
-            if (g_mpv_player.is_active()) {
-                g_logger.info("Interrupted video playback via skip request: stopping mpv.");
-                g_mpv_player.stop();
+            if (g_video_decoder.is_running()) {
+                g_logger.info("Interrupted video playback via skip request: stopping decoder.");
+                g_video_decoder.stop();
             }
             if (was_video) {
                 current_data = nullptr;
@@ -2345,7 +2347,8 @@ int main(int argc, char** argv) {
             g_transition->start(effect, duration, 0, kb_zoom);
         }
 
-        // --- Video Player Handling ---
+        // --- Video Decoder Handling ---
+        try {
         if (g_eligible.empty()) {
             playlist_lock.unlock();
             SDL_Delay(200);
@@ -2355,69 +2358,76 @@ int main(int argc, char** argv) {
             current_idx = 0;
         }
         if (g_eligible[current_idx].type == "video") {
-            if (g_mpv_player.is_active()) {
-                int next_idx = (current_idx + 1) % (int)g_eligible.size();
-                bool next_is_video = (g_eligible[next_idx].type == "video");
+            if (g_video_decoder.is_running()) {
+                VideoFrame frame;
+                if (g_video_decoder.get_frame(frame)) {
+                    if (current_tex) { SDL_DestroyTexture(current_tex); current_tex = nullptr; }
+                    current_tex = SDL_CreateTexture(g_renderer.sdl_renderer, SDL_PIXELFORMAT_RGBA32,
+                        SDL_TEXTUREACCESS_STREAMING, frame.width, frame.height);
+                    if (current_tex) {
+                        SDL_UpdateTexture(current_tex, nullptr, frame.data, frame.width * 4);
+                        g_renderer.clear(0, 0, 0, 255);
+                        SDL_RenderTexture(g_renderer.sdl_renderer, current_tex, nullptr, nullptr);
+                        g_renderer.present();
+                    }
+                }
 
-                // If the next item is also a video, tell check_status not to reclaim DRM master context
-                if (!g_mpv_player.check_status(!next_is_video)) {
-                    g_logger.info("Video EOF detected: advancing playlist.");
+                if (!g_video_decoder.is_running()) {
+                    g_logger.info("Video decoder finished, advancing playlist.");
                     current_data = nullptr;
                     current_twin_data = nullptr;
-                    current_tex = nullptr;
-                    g_renderer.clear(0, 0, 0, 255);
-                    g_renderer.present();
+                    if (current_tex) { SDL_DestroyTexture(current_tex); current_tex = nullptr; }
                     transitioning = true;
                     advance_playlist(1);
+                    playlist_lock.unlock();
+                    SDL_Delay(50);
+                    continue;
                 }
-                playlist_lock.unlock(); // Unlock before delay sleep
-                SDL_Delay(50); continue;
+                playlist_lock.unlock();
+                SDL_Delay(5);
+                continue;
             }
+
+            // Video decoder not running - start it
+
             if (transitioning) {
                 transitioning = false;
                 if (g_transition) g_transition->reset();
                 if (transition_prev_target) { SDL_DestroyTexture(transition_prev_target); transition_prev_target = nullptr; }
                 if (transition_next_target) { SDL_DestroyTexture(transition_next_target); transition_next_target = nullptr; }
             } else {
-                int volume;
-                { std::lock_guard lock(g_config_mtx); volume = g_cfg.video_volume; }
-                
                 std::string video_path = g_eligible[current_idx].path;
                 g_logger.info("Playing video: %s", video_path.c_str());
-                
-                playlist_lock.unlock(); // Unlock while launching the mpv process
-                if (!g_mpv_player.play(video_path, volume)) {
-                    g_logger.error("Failed to play video, skipping to next.");
-                    playlist_lock.lock(); // Re-lock
+
+                int width, height;
+                { std::lock_guard lock(g_config_mtx); width = g_cfg.screen_w; height = g_cfg.screen_h; }
+
+                if (!g_video_decoder.start(video_path, width, height)) {
+                    g_logger.error("Failed to start video decoder, skipping.");
                     current_data = nullptr;
                     current_twin_data = nullptr;
                     current_tex = nullptr;
-                    g_renderer.clear(0, 0, 0, 255);
-                    g_renderer.present();
                     transitioning = true;
                     advance_playlist(1);
                     playlist_lock.unlock();
+                    SDL_Delay(50);
                     continue;
-                } else {
-                    playlist_lock.lock(); // Re-lock to safely free image texture VRAM during playback
-                    mark_item_shown(video_path, false); // Mark the video as shown for cooldown
-                    if (current_data) {
-                        current_data = nullptr;
-                        current_twin_data = nullptr;
-                        current_tex = nullptr;
-                    }
-                    if (next_data) {
-                        next_data = nullptr;
-                        next_twin_data = nullptr;
-                    }
-                    transitioning = false; // Bypass transitioning during video rendering
-                    if (g_transition) {
-                        g_transition->reset();
-                    }
-                    playlist_lock.unlock();
                 }
-                SDL_Delay(50); continue;
+                playlist_lock.unlock();
+                SDL_Delay(100);
+                continue;
             }
+        }
+        } catch (const std::exception& e) {
+            g_logger.error("VIDEO_DEC: Exception in main loop: %s", e.what());
+            g_video_decoder.stop();
+            playlist_lock.unlock();
+            continue;
+        } catch (...) {
+            g_logger.error("VIDEO_DEC: Unknown exception in main loop");
+            g_video_decoder.stop();
+            playlist_lock.unlock();
+            continue;
         }
 
         // --- Image Rendering Handling ---
@@ -2983,7 +2993,7 @@ int main(int argc, char** argv) {
         }
     }
 
-    if (g_mpv_player.is_active()) g_mpv_player.stop();
+    if (g_video_decoder.is_running()) g_video_decoder.stop();
     if (g_transition) { g_transition->reset(); delete g_transition; }
     if (g_overlay) { g_overlay->cleanup(); delete g_overlay; }
     if (g_preload) {

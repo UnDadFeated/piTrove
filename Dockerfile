@@ -36,8 +36,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libgbm-dev \
     libegl1-mesa-dev \
     libgles2-mesa-dev \
-    mpv \
-    libmpv-dev \
+    libavcodec-dev \
+    libavformat-dev \
+    libswscale-dev \
+    libavutil-dev \
     libstb-dev \
     && rm -rf /var/lib/apt/lists/*
 
@@ -77,12 +79,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libgbm1 \
     libegl1 \
     libgles2 \
+    libavcodec61 \
+    libavformat61 \
+    libswscale8 \
+    libavutil59 \
     imagemagick \
     exiftool \
     dav1d \
     ffmpeg \
-    mpv \
-    libmpv2 \
     mosquitto-clients \
     ca-certificates \
     curl \

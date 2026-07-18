@@ -1,5 +1,9 @@
 # Changelog
 
+## v14.7.0 — Video Decoder Thread Crash Fix (July 18, 2026)
+
+### Fixed
+- **Video decoder thread creation crash** — Replaced `std::thread` with raw `pthread_create`/`pthread_join` in the video decoder to resolve `std::system_error` crashes during thread creation that caused the slideshow to crash on the second video transition.
 
 ## v14.6.0 — Video Ratio Update (July 6, 2026)
 
