@@ -182,7 +182,7 @@ void OverlayManager::get_adaptive_colors(const ImageData* img, int x, int y, Gpu
     }
 }
 
-void OverlayManager::draw_all(int current_idx, int total_items, const MediaItem* item, const MediaItem* twin_item, double item_timer, bool is_video, int active_fps, const ImageData* current_data, [[maybe_unused]] const ImageData* current_twin_data) {
+void OverlayManager::draw_all(int current_idx, int total_items, const MediaItem* item, const MediaItem* twin_item, double item_timer, bool is_video, int active_fps, const ImageData* current_data, [[maybe_unused]] const ImageData* current_twin_data, const std::string& video_remaining) {
     if (!font_loaded || !font_renderer || !overlay_font) return;
 
     int pad = 15;
@@ -317,15 +317,19 @@ void OverlayManager::draw_all(int current_idx, int total_items, const MediaItem*
         draw_contrast_text(cx, cy, font, cntbuf, {200, 200, 200, 220}, current_data);
     }
 
-    // 4. Timer Overlay
-    if (timer_enabled && !is_video) {
+    // 4. Timer Overlay (photo countdown or video remaining)
+    if (timer_enabled) {
         char tbuf[32];
-        int rem = std::max(0, (int)(transition_delay - item_timer));
-        std::snprintf(tbuf, sizeof(tbuf), "%ds", rem);
         int tx = pad + (int)((sw - pad * 2) * timer_x) + 25;
         int ty = pad + (int)((sh - pad * 2) * timer_y) - 10;
         FontHandle& font = font_renderer->load_font(overlay_font->path, timer_size);
-        draw_contrast_text(tx, ty, font, tbuf, timer_col, current_data);
+        if (is_video && !video_remaining.empty()) {
+            draw_contrast_text(tx, ty, font, video_remaining, timer_col, current_data);
+        } else if (!is_video) {
+            int rem = std::max(0, (int)(transition_delay - item_timer));
+            std::snprintf(tbuf, sizeof(tbuf), "%ds", rem);
+            draw_contrast_text(tx, ty, font, tbuf, timer_col, current_data);
+        }
     }
 
     // 5. Clock Overlay

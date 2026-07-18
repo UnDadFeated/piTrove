@@ -1,5 +1,15 @@
 # Changelog
 
+## v14.7.2 — Video FPS Sync, Cooldown & UI Overlays (July 18, 2026)
+### Fixed
+- **Video FPS sync** — Extract video frame rate from FFmpeg stream metadata at startup. Use detected FPS as authoritative frame duration for throttling, with PTS delta as refinement. Fixes videos playing too fast (e.g. 10fps video played at 25fps).
+- **Video cooldown on completion** — Videos are now marked as shown (added to cooldown) when playback finishes, preventing immediate replay.
+
+### Added
+- **Filename overlay for videos** — Videos display the same filename overlay as photos (same position and style).
+- **Video time remaining** — The timer overlay shows remaining video playback time (MM:SS) instead of the photo countdown timer during video playback.
+
+
 
 ## v14.7.1 — Video Audio Playback (July 18, 2026)
 

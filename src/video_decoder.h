@@ -35,6 +35,9 @@ public:
  void stop();
  bool is_running() const;
  bool get_frame(VideoFrame& out);
+ double get_frame_duration() const;
+ double get_video_remaining() const;
+ double get_fps() const { return m_frame_duration > 0 ? 1.0 / m_frame_duration : 0; }
 
 private:
  std::string m_path;
@@ -46,6 +49,11 @@ private:
  std::queue<VideoFrame> m_frame_queue;
  std::mutex m_queue_mtx;
  std::condition_variable m_queue_cv;
+
+ double m_frame_duration{0.04}; // seconds per frame from stream metadata
+ std::atomic<double> m_video_start_pts{0.0};
+ std::atomic<double> m_video_total_duration{0.0};
+ double decode_start_time{0.0}; // wall-clock at first frame
 
  // Audio
  SDL_AudioStream* m_audio_stream{nullptr};
