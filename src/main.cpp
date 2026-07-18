@@ -1400,6 +1400,20 @@ int main(int argc, char** argv) {
     g_logger.info("Initializing EGL page flipping sweeps...");
     for (int i = 0; i < 3; i++) {
         g_renderer.clear(0, 0, 0, 255);
+                        // Draw overlay on video frame BEFORE present
+                        if (g_overlay) {
+                            double remaining = g_video_decoder.get_video_remaining();
+                            std::string remaining_str = "";
+                            if (remaining > 0.0) {
+                                int mins = (int)(remaining / 60.0);
+                                int secs = (int)(remaining - mins * 60.0);
+                                remaining_str = std::to_string(mins) + ":" + (secs < 10 ? "0" : "") + std::to_string(secs);
+                            }
+                            g_overlay->draw_all(current_idx, (int)g_eligible.size(),
+                                &g_eligible[current_idx],
+                                &g_eligible[(current_idx + 1) % (int)g_eligible.size()],
+                                0.0, true, 0.0, nullptr, nullptr, remaining_str);
+                        }
         g_renderer.present();
         SDL_Delay(16);
     }
@@ -2370,18 +2384,58 @@ int main(int argc, char** argv) {
                         g_renderer.clear(0, 0, 0, 255);
                         // Scale video to fill screen while maintaining aspect ratio
                         SDL_FRect dst_rect;
-                        dst_rect.w = g_renderer.screen_w;
-                        dst_rect.h = g_renderer.screen_h;
-                        dst_rect.x = 0;
-                        dst_rect.y = 0;
+                        // FIX: Letterbox/pillarbox - maintain video aspect ratio
+                        int vw = frame.width, vh = frame.height;
+                        int sw = g_renderer.screen_w, sh = g_renderer.screen_h;
+                        double video_ar = (double)vw / (double)vh;
+                        double screen_ar = (double)sw / (double)sh;
+                        if (video_ar > screen_ar) {
+                            // Video is wider: letterbox (black bars top/bottom)
+                            dst_rect.w = sw;
+                            dst_rect.h = (int)(sw / video_ar);
+                            dst_rect.x = 0;
+                            dst_rect.y = (sh - dst_rect.h) / 2;
+                        } else {
+                            // Video is taller: pillarbox (black bars left/right)
+                            dst_rect.h = sh;
+                            dst_rect.w = (int)(sh * video_ar);
+                            dst_rect.x = (sw - dst_rect.w) / 2;
+                            dst_rect.y = 0;
+                        }
                         SDL_RenderTexture(g_renderer.sdl_renderer, current_tex, nullptr, &dst_rect);
+                        // FIX: Overlay rendering + draw overlays BEFORE present()
+                        if (g_overlay) {
+                            double remaining = g_video_decoder.get_video_remaining();
+                            std::string remaining_str = "";
+                            if (remaining > 0.0) {
+                                int mins = (int)(remaining / 60.0);
+                                int secs = (int)(remaining - mins * 60.0);
+                                remaining_str = std::to_string(mins) + ":" + (secs < 10 ? "0" : "") + std::to_string(secs);
+                            }
+                            g_overlay->draw_all(current_idx, (int)g_eligible.size(),
+                                &g_eligible[current_idx],
+                                &g_eligible[(current_idx + 1) % (int)g_eligible.size()],
+                                0.0, true, 0, nullptr, nullptr, remaining_str);
+                        }
                         g_renderer.present();
                     }
-                    // Frame pacing: track when next frame should display
+                }
+
+                    // Frame pacing: runs every iteration to control playback speed
                     static uint64_t video_frame_target = 0;
                     static double video_last_frame_dur = -1;
                     double frame_dur_ms = 0;
-                    { double cfps = g_eligible[current_idx].fps; if (cfps > 0) frame_dur_ms = 1000.0 / cfps; else frame_dur_ms = g_video_decoder.get_frame_duration() * 1000.0; }
+                    { 
+                        double cfps = g_eligible[current_idx].fps;
+                        if (cfps > 0) {
+                            frame_dur_ms = 1000.0 / cfps;
+                        } else {
+                            // Fallback: try decoder FPS, then default to 25fps
+                            double dec_fps = g_video_decoder.get_fps();
+                            if (dec_fps > 0) frame_dur_ms = 1000.0 / dec_fps;
+                            else frame_dur_ms = 40; // 25fps default
+                        }
+                    }
                     uint64_t now = SDL_GetTicks();
                     // Reset pacing on new video (frame duration changes)
                     if (std::abs(video_last_frame_dur - frame_dur_ms) > 0.1) {
@@ -2389,17 +2443,15 @@ int main(int argc, char** argv) {
                         video_last_frame_dur = frame_dur_ms;
                     }
                     if (now < video_frame_target) {
-                        uint32_t sleep = (uint32_t)(video_frame_target - now);
-                        if (sleep > 2) SDL_Delay(sleep);
+                        uint32_t sleep_ms = (uint32_t)(video_frame_target - now);
+                        if (sleep_ms > 2) SDL_Delay(sleep_ms);
                     }
                     video_frame_target += (uint32_t)frame_dur_ms;
-                }
 
                 // DEBUG: trace decoder state when queue empties
-                g_logger.debug("VIDEO_DEC: Queue empty, checking is_running: %d", g_video_decoder.is_running() ? 1 : 0);
+                // Decoder finish check: only advance when decoder is truly done
                 if (!g_video_decoder.is_running()) {
                     g_logger.info("Video decoder finished, advancing playlist.");
-                    // Add video to cooldown so it does not replay
                     mark_item_shown(g_eligible[current_idx].path, true);
                     current_data = nullptr;
                     current_twin_data = nullptr;
@@ -2407,26 +2459,10 @@ int main(int argc, char** argv) {
                     transitioning = true;
                     advance_playlist(1);
                     playlist_lock.unlock();
-                    SDL_Delay(50);
+                    SDL_Delay(5);
                     continue;
                 }
-                // Render video overlay: filename + time remaining
-                if (g_overlay) {
-                    double remaining = g_video_decoder.get_video_remaining();
-                    std::string remaining_str = "";
-                    if (remaining > 0.0) {
-                        int mins = (int)(remaining / 60.0);
-                        int secs = (int)(remaining - mins * 60.0);
-                        remaining_str = std::to_string(mins) + ":" + (secs < 10 ? "0" : "") + std::to_string(secs);
-                    }
-                    g_overlay->draw_all(current_idx, (int)g_eligible.size(),
-                        &g_eligible[current_idx],
-                        &g_eligible[(current_idx + 1) % (int)g_eligible.size()],
-                        0.0, true, 0.0, nullptr, nullptr, remaining_str);
-                }
-                playlist_lock.unlock();
-                SDL_Delay(5);
-                continue;
+                // Keep drawing video + overlay until decoder completes
             }
 
             // Video decoder not running - start it
