@@ -195,14 +195,14 @@ void VideoDecoder::decode_loop() {
     DEBUG_LOG("VIDEO_DEC: Video stream=%d, Audio stream=%d", video_stream_idx, audio_stream_idx);
 
     // Extract video frame rate from stream metadata
-    AVRational avg_frame_rate = fmt_ctx->streams[video_stream_idx]->avg_frame_rate;
-    if (avg_frame_rate.num > 0 && avg_frame_rate.den > 0) {
-        double fps = (double)avg_frame_rate.num / (double)avg_frame_rate.den;
+    AVRational fr = av_guess_frame_rate(fmt_ctx, fmt_ctx->streams[video_stream_idx], nullptr);
+    if (fr.num > 0 && fr.den > 0) {
+        double fps = av_q2d(fr);
         m_frame_duration = 1.0 / fps;
-        DEBUG_LOG("VIDEO_DEC: Detected FPS=%.2f, frame_duration=%.3fs", fps, m_frame_duration);
+        DEBUG_LOG("VIDEO_DEC: Detected FPS=%.2f via av_guess_frame_rate, frame_duration=%.3fs", fps, m_frame_duration);
     } else {
-        m_frame_duration = 0.04; // fallback 25fps
-        DEBUG_LOG("VIDEO_DEC: Could not detect FPS, using default 25fps");
+        m_frame_duration = 0.033333; // fallback 30fps
+        DEBUG_LOG("VIDEO_DEC: Could not detect FPS, using fallback 30fps");
     }
     // Extract video duration with stream fallback
     m_video_total_duration.store(0.0);
@@ -401,7 +401,7 @@ void VideoDecoder::decode_loop() {
                         vf.width = dst_w; vf.height = dst_h;
                         vf.data = new uint8_t[nbytes];
                         memcpy(vf.data, buf, nbytes);
-                        int64_t pts_raw1 = (frame->best_effort_timestamp != AV_NOPTS_VALUE) ? frame->best_effort_timestamp : frame->pts;
+                        int64_t pts_raw1 = (frame->best_effort_timestamp != AV_NOPTS_VALUE) ? frame->best_effort_timestamp : (frame->pts != AV_NOPTS_VALUE ? frame->pts : frame->pkt_dts);
                         if (pts_raw1 != AV_NOPTS_VALUE) {
                             vf.pts = av_q2d(fmt_ctx->streams[video_stream_idx]->time_base) * pts_raw1;
                         }
@@ -451,7 +451,7 @@ void VideoDecoder::decode_loop() {
             vf.height = dst_h;
             vf.data = new uint8_t[nbytes];
             memcpy(vf.data, buf, nbytes);
-            int64_t pts_raw2 = (frame->best_effort_timestamp != AV_NOPTS_VALUE) ? frame->best_effort_timestamp : frame->pts;
+            int64_t pts_raw2 = (frame->best_effort_timestamp != AV_NOPTS_VALUE) ? frame->best_effort_timestamp : (frame->pts != AV_NOPTS_VALUE ? frame->pts : frame->pkt_dts);
             if (pts_raw2 != AV_NOPTS_VALUE) {
                 vf.pts = av_q2d(fmt_ctx->streams[video_stream_idx]->time_base) * pts_raw2;
             }
