@@ -1,8 +1,8 @@
 # Changelog
 
-## v14.7.2 — Video FPS Sync, Cooldown & UI Overlays (July 18, 2026)
+## v14.7.2 — Video framerate Sync, Cooldown & UI Overlays (July 18, 2026)
 ### Fixed
-- **Video FPS sync** — Extract video frame rate from FFmpeg stream metadata at startup. Use detected FPS as authoritative frame duration for throttling, with PTS delta as refinement. Fixes videos playing too fast (e.g. 10fps video played at 25fps).
+- **Video framerate sync** — Extract video frame rate from FFmpeg stream metadata at startup. Use detected framerate as authoritative frame duration for throttling, with PTS delta as refinement. Fixes videos playing too fast (e.g. 10fps video played at 25fps).
 - **Video cooldown on completion** — Videos are now marked as shown (added to cooldown) when playback finishes, preventing immediate replay.
 
 ### Added
@@ -876,7 +876,7 @@
 
 ### Fixed
 
-- **Slideshow Transition Stutter & Fast Swapping**  -  Resolved a timing discrepancy where transitions between photos would occasionally swap instantly without crossfading. The frame-timer is now dynamically reset at the start of active animations, safely discarding the blocking duration spent loading images from disk and ensuring smooth, 60 FPS transitions.
+- **Slideshow Transition Stutter & Fast Swapping**  -  Resolved a timing discrepancy where transitions between photos would occasionally swap instantly without crossfading. The frame-timer is now dynamically reset at the start of active animations, safely discarding the blocking duration spent loading images from disk and ensuring smooth, 60 framerate transitions.
 
 ## v11.5.6  -  Video Overlay Alignment (May 29, 2026)
 
@@ -1083,7 +1083,7 @@
 
 ### Fixed
 
-- **Background Preloader Offloading**  -  Moved all matte color and image-average color analyses from the main rendering loop into the background loading threads. This avoids CPU spikes on image transitions and maintains a rock-solid, fluid 60 FPS visual experience.
+- **Background Preloader Offloading**  -  Moved all matte color and image-average color analyses from the main rendering loop into the background loading threads. This avoids CPU spikes on image transitions and maintains a rock-solid, fluid 60 framerate visual experience.
 - **Improved Dissolve Transition Rendering**  -  Optimized the dissolve visual transition to draw scattered pixels in single batched graphics calls. This completely eliminates rendering lags and stuttering during crossfades on low-power devices.
 - **Hardened Remote Server Concurrency**  -  Upgraded the background web remote controller to use atomic socket handling. This prevents data race conditions and accidental socket sharing during service restarts or connections.
 - **SQL Transaction Integrity**  -  Added automated rollback mechanisms for settings saves and metadata updates. This prevents database transaction lockups on full or restricted filesystems, keeping setting writes highly reliable.
@@ -1111,7 +1111,7 @@
 
 ### Added
 
-- **Dynamic Text Overlay Cache**  -  Implemented an efficient memory-managed texture cache for active screen text overlays (including the clock, file paths, and counters). This completely eliminates high-frequency texture allocation cycles and CPU-to-GPU synchronization stalls, drastically lowering CPU usage and ensuring a lockstep, fluid 60 FPS rendering performance.
+- **Dynamic Text Overlay Cache**  -  Implemented an efficient memory-managed texture cache for active screen text overlays (including the clock, file paths, and counters). This completely eliminates high-frequency texture allocation cycles and CPU-to-GPU synchronization stalls, drastically lowering CPU usage and ensuring a lockstep, fluid 60 framerate rendering performance.
 
 ### Fixed
 
