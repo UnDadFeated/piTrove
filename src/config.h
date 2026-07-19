@@ -184,6 +184,7 @@ struct Config {
     std::string google_photos_cache_dir{"/app/cache/google_photos"};
 
     // [video] decode budgets
+    bool        video_decode_budget_enabled{false};
     int         video_max_width{1920};
     int         video_max_height{1080};
     int64_t     video_max_bitrate{20LL * 1000 * 1000};

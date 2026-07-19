@@ -23,6 +23,9 @@ struct VideoLimits {
 };
 
 static bool video_within_budget(AVFormatContext* fmt, const VideoLimits& limits) {
+    if (!g_cfg.video_decode_budget_enabled) {
+        return true; // Budget enforcement disabled: downscale and play any video using HW decoding
+    }
     for (unsigned int i = 0; i < fmt->nb_streams; ++i) {
         AVStream* stream = fmt->streams[i];
         if (stream->codecpar->codec_type == AVMEDIA_TYPE_VIDEO) {
