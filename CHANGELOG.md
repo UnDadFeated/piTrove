@@ -1,5 +1,11 @@
 # Changelog
 
+## v15.1.0 — Hardware Video Pacing & Cache Isolation Fix (July 19, 2026)
+### Fixed
+- **Hardware Video Framerate Pacing & Clock Sync** — Normalized hardware video decoder frame timestamps (`best_effort_timestamp`) relative to initial video PTS (`rel_pts = vf.pts - video_first_pts`), fixing ~half-framerate slowdowns and eliminating countdown clock desync during hardware decoding.
+- **Queue Underflow Retry Delay** — Reduced render loop queue empty retry delay from 5ms to 1ms to eliminate pacing penalties.
+- **Cache Directory Isolation** — Local and NAS media items now write their cache database strictly to `/app/cache/cache.db` (`~/piTrove/cache/cache.db`), isolating `/app/cache/google_photos/cache.db` exclusively for Google Photos media sources.
+
 ## v15.0.0 — Major Architecture & System Hardening Upgrade (July 19, 2026)
 ### Added
 - **Hardware Video Acceleration Probing** — Integrated automatic `h264_v4l2m2m` and `hevc_v4l2m2m` V4L2 M2M hardware decoder probing for Raspberry Pi 4/5, dramatically reducing CPU load during video playback.
