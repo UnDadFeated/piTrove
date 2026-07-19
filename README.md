@@ -190,7 +190,7 @@ src/
 ├── renderer.cpp/h    — SDL_Renderer primitives, EXIF rotation, bias lighting, CRT vignette
 ├── overlay.cpp/h     — OSD widgets (date, filename, count, timer, clock)
 ├── transition.cpp/h  — High-performance SDL3 transitions (crossfade, wipe, pixelate, dissolve)
-├── mpv_player.cpp/h  — mpv subprocess controller (drmDropMaster/drmSetMaster)
+├── video_decoder.cpp/h — Native in-process FFmpeg video decoder and SDL3 audio stream engine
 ├── image_loader.cpp/h — IMG_Load wrapper (JPEG, PNG, TIFF, WebP, HEIC)
 ├── font_render.cpp/h  — TTF_RenderUTF8_Blended glow text
 ├── media_item.h      — Photo and video data structures
