@@ -245,12 +245,27 @@ void VideoDecoder::decode_loop() {
         vcc->thread_count = std::max(1, threads - 1);
         vcc->thread_type = FF_THREAD_FRAME;
     }
+    bool is_hw = (vc && std::string(vc->name).find("v4l2m2m") != std::string::npos);
     if (avcodec_open2(vcc, vc, nullptr) < 0) {
-        g_logger.error("VIDEO_DEC: Failed to open video codec for %s", m_path.c_str());
-        avcodec_free_context(&vcc);
-        avformat_close_input(&fmt_ctx);
-        m_running.store(false);
-        return;
+        if (is_hw) {
+            g_logger.warn("VIDEO_DEC: Hardware decoder %s failed to configure, falling back to software decoder", vc->name);
+            avcodec_free_context(&vcc);
+            vc = avcodec_find_decoder(vp->codec_id);
+            if (vc) {
+                vcc = avcodec_alloc_context3(vc);
+                avcodec_parameters_to_context(vcc, vp);
+                int threads = std::thread::hardware_concurrency();
+                vcc->thread_count = std::max(1, threads - 1);
+                vcc->thread_type = FF_THREAD_FRAME;
+            }
+        }
+        if (!vc || avcodec_open2(vcc, vc, nullptr) < 0) {
+            g_logger.error("VIDEO_DEC: Failed to open video codec for %s", m_path.c_str());
+            if (vcc) avcodec_free_context(&vcc);
+            avformat_close_input(&fmt_ctx);
+            m_running.store(false);
+            return;
+        }
     }
 
     // Audio codec
@@ -387,8 +402,9 @@ void VideoDecoder::decode_loop() {
                         vf.width = dst_w; vf.height = dst_h;
                         vf.data = new uint8_t[nbytes];
                         memcpy(vf.data, buf, nbytes);
-                        if (frame->pts != AV_NOPTS_VALUE) {
-                            vf.pts = av_q2d(fmt_ctx->streams[video_stream_idx]->time_base) * frame->pts;
+                        int64_t pts_raw1 = (frame->best_effort_timestamp != AV_NOPTS_VALUE) ? frame->best_effort_timestamp : frame->pts;
+                        if (pts_raw1 != AV_NOPTS_VALUE) {
+                            vf.pts = av_q2d(fmt_ctx->streams[video_stream_idx]->time_base) * pts_raw1;
                         }
                         {
                             std::unique_lock<std::mutex> lk(m_queue_mtx);
@@ -436,7 +452,10 @@ void VideoDecoder::decode_loop() {
             vf.height = dst_h;
             vf.data = new uint8_t[nbytes];
             memcpy(vf.data, buf, nbytes);
-            vf.pts = av_q2d(fmt_ctx->streams[video_stream_idx]->time_base) * frame->pts;
+            int64_t pts_raw2 = (frame->best_effort_timestamp != AV_NOPTS_VALUE) ? frame->best_effort_timestamp : frame->pts;
+            if (pts_raw2 != AV_NOPTS_VALUE) {
+                vf.pts = av_q2d(fmt_ctx->streams[video_stream_idx]->time_base) * pts_raw2;
+            }
             // Track last decoded frame PTS for accurate countdown timer
             if (vf.pts > 0) m_last_frame_pts.store(vf.pts + m_frame_duration, std::memory_order_relaxed);
 
