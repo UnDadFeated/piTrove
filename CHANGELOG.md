@@ -5,6 +5,7 @@
 - **Video EOF Transition Spam Fix** — Moved `m_running.store(false)` before FFmpeg resource cleanup in the decoder thread, eliminating ~60 "decoder already running, skipping start" log lines per video EOF by allowing the render loop to detect completion immediately instead of spinning while FFmpeg contexts are freed.
 - **Systemd Restart Rate Limit Removed** — Changed `StartLimitIntervalSec` and `StartLimitBurst` to `0` in the piTrove systemd unit, preventing systemd from locking the service into a permanent failed state after rapid Docker restarts.
 - **Network Watchdog Auto-Revival** — The external network watchdog now actively checks if `piTrove.service` is running every 15 seconds while the network is online, and automatically calls `systemctl reset-failed` + `restart` if the service is found inactive.
+- **Video Countdown Timer Accuracy** — The countdown timer now tracks the last decoded frame's PTS instead of relying solely on container metadata duration. At EOF, the total duration is corrected to the actual last frame timestamp, eliminating the ~2-3 second gap where the timer showed time remaining after the video had already ended.
 - **Stale mpv References Purged** — Replaced all remaining `mpv`/`libmpv` references across the codebase (README, TUI descriptions, error database) with correct SDL3/FFmpeg terminology.
 
 ## v14.7.8 — Video Countdown Timer Overlay, First-Item Video Support & Config Update (July 18, 2026)
