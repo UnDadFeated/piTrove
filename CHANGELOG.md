@@ -1,7 +1,8 @@
 # Changelog
 
-## v14.7.9 — Watchdog Hardening & mpv Cleanup (July 18, 2026)
+## v14.7.9 — Watchdog Hardening, Video EOF Transition Fix & mpv Cleanup (July 18, 2026)
 ### Fixed
+- **Video EOF Transition Spam Fix** — Moved `m_running.store(false)` before FFmpeg resource cleanup in the decoder thread, eliminating ~60 "decoder already running, skipping start" log lines per video EOF by allowing the render loop to detect completion immediately instead of spinning while FFmpeg contexts are freed.
 - **Systemd Restart Rate Limit Removed** — Changed `StartLimitIntervalSec` and `StartLimitBurst` to `0` in the piTrove systemd unit, preventing systemd from locking the service into a permanent failed state after rapid Docker restarts.
 - **Network Watchdog Auto-Revival** — The external network watchdog now actively checks if `piTrove.service` is running every 15 seconds while the network is online, and automatically calls `systemctl reset-failed` + `restart` if the service is found inactive.
 - **Stale mpv References Purged** — Replaced all remaining `mpv`/`libmpv` references across the codebase (README, TUI descriptions, error database) with correct SDL3/FFmpeg terminology.
