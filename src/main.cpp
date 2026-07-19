@@ -892,7 +892,7 @@ static void watchdog_loop() {
             }
         }
 
-        // If playing video, mpv player controls playback, so we skip checking heartbeat
+        // If playing video, SDL3 video decoder controls playback timing, so we skip heartbeat checks
         if (paused || blanked || empty || is_video) {
             // Keep resetting heartbeat while paused/blanked/playing video
             g_watchdog_last_time = std::chrono::steady_clock::now();
