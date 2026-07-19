@@ -548,15 +548,8 @@ static std::vector<MediaItem> filter_playlist(const std::vector<MediaItem>& item
                 if (is_doc) {
                     continue;
                 } else {
-                    bool filter_people = snap_show_people;
-                    bool filter_animals = snap_keep_animals;
-                    
-                    if (filter_people || filter_animals) {
-                        bool keep = false;
-                        if (filter_people && has_people) keep = true;
-                        if (filter_animals && has_animals) keep = true;
-                        if (!keep) continue;
-                    }
+                    if (!snap_show_people && has_people) continue;
+                    if (!snap_keep_animals && has_animals) continue;
                 }
             }
 
