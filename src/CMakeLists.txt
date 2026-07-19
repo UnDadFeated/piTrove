@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.16)
-project(piTrove VERSION 15.2.3 LANGUAGES CXX)
+project(piTrove VERSION 15.3.0 LANGUAGES CXX)
 
-set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
@@ -53,6 +53,10 @@ pkg_check_modules(SWRESAMPLE REQUIRED libswresample)
 
 set(PISTROVE_SOURCES
     main.cpp
+    auth.cpp
+    health.cpp
+    safe_mode.cpp
+    thermal.cpp
     config.cpp
     tui.cpp
     scanner.cpp
@@ -97,6 +101,7 @@ target_include_directories(piTrove PRIVATE
 )
 
 target_link_libraries(piTrove PRIVATE
+    sodium
     ${SDL3_LIBRARIES}
     ${SDL3_IMAGE_LIBRARIES}
     ${SDL3_TTF_LIBRARIES}

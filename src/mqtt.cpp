@@ -282,6 +282,25 @@ void start_mqtt_client() {
                 if (max_fd < 0) max_fd = 1024;
                 for (int i = 3; i < max_fd; ++i) close(i);
 
+                
+                // Add MQTT TLS support
+                if (g_cfg.mqtt_tls_enabled) {
+                    argv.insert(argv.end() - 1, (char*)"--cafile");
+                    argv.insert(argv.end() - 1, (char*)g_cfg.mqtt_ca_cert.c_str());
+                    argv.insert(argv.end() - 1, (char*)"--tls-version");
+                    argv.insert(argv.end() - 1, (char*)"tlsv1.2");
+                }
+
+                // Add MQTT username/password auth
+                if (!g_cfg.mqtt_user.empty()) {
+                    argv.insert(argv.end() - 1, (char*)"-u");
+                    argv.insert(argv.end() - 1, (char*)g_cfg.mqtt_user.c_str());
+                }
+                if (!g_cfg.mqtt_pass.empty()) {
+                    argv.insert(argv.end() - 1, (char*)"-P");
+                    argv.insert(argv.end() - 1, (char*)g_cfg.mqtt_pass.c_str());
+                }
+
                 execvp(argv[0], argv.data());
                 _exit(1);
             }
@@ -321,6 +340,9 @@ void start_mqtt_client() {
 
             // Publish Home Assistant auto-discovery configs
             publish_ha_discovery();
+
+            // Publish birth (online) message
+            mqtt_publish(prefix + "/status", R"({"state":"online"})", true);
             
             // Publish current state
             mqtt_publish(prefix + "/status/screen", g_screen_blanked.load() ? "OFF" : "ON", true);

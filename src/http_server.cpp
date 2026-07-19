@@ -1,4 +1,5 @@
 #include "http_server.h"
+#include "auth.h"
 #include "media_item.h"
 #include "util.h"
 #include "config.h"

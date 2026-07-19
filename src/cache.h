@@ -26,6 +26,8 @@ struct CacheManager {
     void reset_all_cooldowns();
     void seed_error_catalog();
     bool get_error_details(const std::string& code, std::string& title, std::string& desc, std::string& recovery);
+    void mark_corrupt(const std::string& path, const std::string& code, const std::string& message);
+    void clear_quarantine();
     ~CacheManager();
 };
 

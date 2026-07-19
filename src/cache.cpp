@@ -9,7 +9,6 @@
 #include <cstdio>
 #include <climits>
 
-
 bool CacheManager::open(const std::string& dir) {
     g_logger.info("[TRACE] CacheManager::open dir=%s", dir.c_str());
     std::error_code ec;
@@ -166,6 +165,51 @@ void CacheManager::close() {
     if (stmt_load) { sqlite3_finalize(stmt_load); stmt_load = nullptr; }
     if (stmt_mark) { sqlite3_finalize(stmt_mark); stmt_mark = nullptr; }
     if (db) { sqlite3_close_v2(db); db = nullptr; }
+}
+
+
+void CacheManager::mark_corrupt(const std::string& path,
+                                const std::string& code,
+                                const std::string& message) {
+    std::lock_guard<std::mutex> lock(db_mutex);
+    if (!db) return;
+
+    // Create table if not exists
+    sqlite3_exec(db, R"(
+        CREATE TABLE IF NOT EXISTS corrupt_files (
+            path TEXT PRIMARY KEY,
+            error_code TEXT,
+            error_message TEXT,
+            first_seen TEXT,
+            last_seen TEXT,
+            retry_count INTEGER DEFAULT 0
+        );
+    )", nullptr, nullptr, nullptr);
+
+    const char* sql = R"(
+        INSERT INTO corrupt_files(path, error_code, error_message, first_seen, last_seen, retry_count)
+        VALUES(?, ?, ?, datetime('now'), datetime('now'), 0)
+        ON CONFLICT(path) DO UPDATE SET
+            error_code = excluded.error_code,
+            error_message = excluded.error_message,
+            last_seen = datetime('now'),
+            retry_count = retry_count + 1;
+    )";
+
+    sqlite3_stmt* stmt = nullptr;
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) == SQLITE_OK) {
+        sqlite3_bind_text(stmt, 1, path.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(stmt, 2, code.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(stmt, 3, message.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_step(stmt);
+        sqlite3_finalize(stmt);
+    }
+}
+
+void CacheManager::clear_quarantine() {
+    std::lock_guard<std::mutex> lock(db_mutex);
+    if (!db) return;
+    sqlite3_exec(db, "DELETE FROM corrupt_files;", nullptr, nullptr, nullptr);
 }
 
 CacheManager::~CacheManager() {

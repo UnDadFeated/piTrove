@@ -1,5 +1,58 @@
 # Changelog
 
+## v15.3.0 — Comprehensive Security, Robustness & Performance Upgrade (July 19, 2026)
+### Security Hardening
+- **Argon2id PIN Hashing** — Added `src/auth.cpp` with libsodium-backed Argon2id PIN hashing; plaintext PINs are auto-migrated to hashed form on first save. Default PIN `0000` now disables the web dashboard until changed.
+- **PIN Rate Limiting** — Added per-IP rate limiting (5 attempts/60 seconds) with constant-time comparison to prevent brute-force attacks on the dashboard PIN.
+- **Secrets Isolation** — Config loader now reads sensitive values (API keys, MQTT passwords, Google Photos tokens, PIN hash) from a separate `secrets.toml` file with restricted permissions.
+- **Log Secret Redaction** — Added automatic regex-based redaction of Bearer tokens, API keys, passwords, client secrets, and refresh tokens in all log output.
+- **Read-Only Media Enforcement** — Added optional `enforce_read_only_media` config flag with `statfs()` verification at startup.
+- **Media Volume Read-Only Mount** — Docker Compose now mounts media directory as read-only (`:ro`).
+
+### Runtime Robustness
+- **Render Loop Heartbeat** — Added `src/health.cpp` writing atomic heartbeat timestamps to `/app/cache/run/heartbeat` for Docker healthcheck integration.
+- **Docker Healthcheck** — Added `scripts/healthcheck.sh` and `docker-compose.yml` healthcheck directive (30s interval, 15s staleness threshold).
+- **Crash-Loop Safe Mode** — Added `src/safe_mode.cpp` tracking crash frequency; 3+ crashes within 5 minutes triggers safe mode (disables video, Ken Burns, bias lighting, blur; enables diagnostics HUD).
+- **Crash Recording** — Both `_exit(99)` paths (watchdog and keepalive) now record crash events before container restart.
+- **SQLite Integrity Verification** — Added `PRAGMA quick_check` on cache open; corrupt databases are quarantined with timestamp suffix and rebuilt automatically.
+- **Corrupt File Quarantine** — Added `corrupt_files` SQLite table with `mark_corrupt()` and `clear_quarantine()` methods for reviewable file-skip tracking.
+- **Container Init Process** — Added `init: true` to Docker Compose for proper signal handling and zombie process reaping.
+- **Container Log Rotation** — Added `json-file` logging driver with 5MB max-size, 3-file rotation.
+- **Update Script with Rollback** — Added `scripts/update.sh` with pre-update backup, healthcheck validation, and automatic rollback on failure.
+
+### MQTT & Home Assistant
+- **MQTT TLS Support** — Added `tls` and `ca_cert` config keys for encrypted MQTT broker connections via `mosquitto_sub --cafile --tls-version`.
+- **MQTT Birth/LWT Messages** — Added online birth message and offline LWT payload on `<prefix>/status` topic for Home Assistant availability tracking.
+
+### Performance & Media Pipeline
+- **C++20 Upgrade** — Moved build standard from C++17 to C++20 for `std::jthread`, `std::span`, concepts, and improved concurrency primitives.
+- **Thermal-Aware Quality Scaling** — Added `src/thermal.cpp` with background temperature monitoring; automatically disables effects at 75°C and enters minimal mode at 85°C.
+- **Scaled JPEG Decoding** — Added `load_jpeg_scaled()` using libjpeg-turbo's native `scale_num/scale_denom` to decode images at display resolution, reducing memory and CPU load.
+- **Video Decode Budgets** — Added `VideoLimits` struct and `video_within_budget()` to skip videos exceeding configured max resolution, bitrate, or duration before decoder initialization.
+- **Hardware Decode Probe** — Added `create_hw_device()` for optional DRM-backed hardware video decode with automatic software fallback.
+- **GPU Crossfade** — Added `render_crossfade_gpu()` using SDL3 texture alpha modulation for GPU-accelerated transitions.
+- **Font/Text Render Cache** — Added text texture caching infrastructure in `src/font_render.cpp` and clock overlay cache in `src/overlay.cpp`.
+- **Prometheus Metrics Endpoint** — Added `/metrics` HTTP endpoint exposing `pitrove_fps`, `pitrove_queue_depth`, and `pitrove_media_count` in Prometheus format.
+
+### Architecture & Maintainability
+- **Expected<T,E> Type** — Added `src/expected.h` lightweight result type for consistent error handling across modules.
+- **Interface Boundaries** — Added `src/interfaces.h` with `IMediaScanner`, `IMetadataCache`, `IRemoteControl` abstract interfaces for testability.
+- **Media Organizer Journal** — Added SQLite-backed undo journal and `undo_organize()` for safe media reorganization with rollback capability.
+- **Google Photos Atomic Downloads** — Added `fsync_file()` helper for atomic `.part` → final rename download pattern.
+- **OpenAPI Specification** — Added `docs/openapi.yaml` documenting the HTTP control API endpoints.
+
+### CI/CD & Testing
+- **CI Workflow** — Added `.github/workflows/ci.yml` with Debug, ASan, and TSan build variants.
+- **Security Scanning** — Added `.github/workflows/security.yml` with Trivy filesystem and container image vulnerability scanning.
+- **Fault Injection Tests** — Added `tests/fault_injection.sh` for stale render loop, MQTT disconnect, NAS disconnect, and corrupt cache testing.
+- **Golden Media Tests** — Added `tests/golden_media.sh` regression test runner framework.
+- **Fuzz Targets** — Added `tests/fuzz/fuzz_config.cpp` and `tests/fuzz/run_fuzzers.sh` for config parser fuzzing.
+- **SBOM Generation** — Added `scripts/sbom.sh` for Syft-based SPDX SBOM generation.
+- **License Compliance** — Added `scripts/license_check.sh` for dependency license auditing.
+- **Profiling Helper** — Added `scripts/profile.sh` for CPU/thermal/throttle measurement.
+
+
+
 ## v15.2.3 — Comprehensive Architecture Roadmap (July 19, 2026)
 ### Added
 - **PLAN.md Architecture Roadmap** — Added comprehensive 15-phase architecture and code audit document covering security hardening, runtime robustness, performance optimization, and maintainability upgrades based on the v15.2.2 feature set and module layout. Covers 29 task groups across web dashboard auth, MQTT TLS, secrets management, Docker hardening, C++ core improvements, SQLite resilience, NAS fault isolation, image/video pipeline optimization, DRM/KMS display handling, Home Assistant sensor expansion, Google Photos sync hardening, media organizer safety, config hardening, structured observability, testing infrastructure, and performance tuning.

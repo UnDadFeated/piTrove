@@ -13,6 +13,47 @@ extern "C" {
 #include <libavutil/opt.h>
 #include <libavutil/imgutils.h>
 #include <libavutil/time.h>
+
+
+struct VideoLimits {
+    int max_width = 1920;
+    int max_height = 1080;
+    int64_t max_bitrate = 20 * 1000 * 1000;
+    int max_duration_seconds = 300;
+};
+
+static bool video_within_budget(AVFormatContext* fmt, const VideoLimits& limits) {
+    for (unsigned int i = 0; i < fmt->nb_streams; ++i) {
+        AVStream* stream = fmt->streams[i];
+        if (stream->codecpar->codec_type == AVMEDIA_TYPE_VIDEO) {
+            if (stream->codecpar->width > limits.max_width ||
+                stream->codecpar->height > limits.max_height) {
+                return false;
+            }
+            if (stream->codecpar->bit_rate > limits.max_bitrate) {
+                return false;
+            }
+        }
+    }
+    if (fmt->duration > 0) {
+        int seconds = static_cast<int>(fmt->duration / AV_TIME_BASE);
+        if (seconds > limits.max_duration_seconds) {
+            return false;
+        }
+    }
+    return true;
+}
+
+static AVBufferRef* create_hw_device() {
+    AVBufferRef* hw_device_ctx = nullptr;
+    if (av_hwdevice_ctx_create(&hw_device_ctx,
+                               AV_HWDEVICE_TYPE_DRM,
+                               nullptr, nullptr, 0) >= 0) {
+        return hw_device_ctx;
+    }
+    return nullptr;
+}
+
 }
 
 #define DEBUG_LOG(fmt, ...) \
