@@ -2482,7 +2482,7 @@ int main(int argc, char** argv) {
                 continue;
             } else {
                 std::string video_path = g_eligible[current_idx].path;
-                if (g_video_decoder.is_running()) {
+                if (g_video_decoder.is_running() || g_video_decoder.has_frames()) {
                     g_logger.debug("VIDEO_DEC: decoder already running, skipping start");
                     playlist_lock.unlock();
                     continue;
