@@ -4,33 +4,49 @@
 ### Fixed
 - **Video Countdown Timer Overlay** — Added stream-level duration extraction (`AVStream::duration`) and media item metadata fallback (`MediaItem::duration`) so every video displays the remaining playback countdown timer in the top right, even when container headers lack global duration tags.
 - **First-Item Video Support** — Removed the restriction forcing the first slideshow item to be a photo. Videos can now naturally start as the first item upon application launch.
-- **Config Default** — Set `play_just_videos = false` in `config.toml` so both photos and video play in sequence.
+- **Config Default** — Set `play_just_videos = false` in `config.toml` so both photos and videos play in sequence.
 
 ## v14.7.7 — Video Decoder EOF Flush, Framerate Pacing & Transition Fix (July 18, 2026)
 ### Fixed
-- **Video Decoder EOF Infinite Flush Loop & Docker Crash** — Resolved infinite packet sending loop during EOF decoder flush when `avcodec_receive_frame` (returned `AVERROR_EOF` (`-541478725`), preventing log spam and Docker container crashes.
+- **Video Decoder EOF Infinite Flush Loop & Docker Crash** — Resolved infinite packet sending loop during EOF decoder flush when `avcodec_receive_frame` returned `AVERROR_EOF` (`-541478725`), preventing log spam and Docker container crashes.
 - **Video Framerate Pacing** — Synchronized video frame rendering with presentation timestamps (`frame.pts`) relative to wall-clock time (`SDL_GetTicks()`) and ensured pacing variables are reset when switching videos, fixing fast playback.
 - **Frozen Last Frame & Video Lifecycle** — Corrected decoder completion check in `main.cpp` so slideshow transitions immediately when all frames are rendered, and refactored `VideoDecoder` lifecycle (`start`/`stop`) to ensure threads and SDL audio streams are always joined and shut down cleanly.
-## v14.7.2 — Video framerate Sync, Cooldown & UI Overlays (July 18, 2026)
+
+## v14.7.6 — Video Bad Frame Recovery (July 18, 2026)
 ### Fixed
-- **Video framerate sync** — Extract video frame rate from FFmpeg stream metadata at startup. Use detected framerate as authoritative frame duration for throttling, with PTS delta as refinement. Fixes videos playing too fast (e.g. 10fps video played at 25fps).
-- **Video cooldown on completion** — Videos are now marked as shown (added to cooldown) when playback finishes, preventing immediate replay.
+- **Bad Frame Crash Recovery** — Corrupted video frames caused `avcodec_receive_frame` to return error codes (e.g., `AVERROR_INVALIDDATA`), exiting the decode loop on the first bad frame. Implemented decoder buffer flush (`avcodec_flush_buffers`) and `continue` to skip to the next packet instead of aborting playback, preventing system freezes.
+
+## v14.7.5 — Video Pacing Drift Fix, SQL Framerate Schema & Duration Caching (July 18, 2026)
+### Fixed
+- **Pacing Drift** — Corrected video frame pacing by resetting target timestamp on each new video path to prevent cumulative drift across video transitions.
+- **SQL Schema Update** — Renamed `fps` column to `framerate` in the SQLite media cache for clarity and consistency.
+- **Duration Caching** — Added `duration` column to the SQLite cache and populates it during media scans, enabling accurate video countdown timers.
+
+## v14.7.4 — Video Decoder Frame Guard & Start Time (July 18, 2026)
+### Fixed
+- **Decoder Loop Prevention** — Guarded `has_frames()` check to prevent decoder infinite loop during video finish checks.
+- **Video Timer Start Initialization** — Correctly initialized `decode_start_time` when starting video playback for remaining time overlay calculation.
+
+## v14.7.3 — Video Decoder Lifecycle Guard (July 18, 2026)
+### Fixed
+- **Decoder Thread & EOF Recovery** — Restored `m_eof` state management, guarded `start()` and `stop()` calls, and prevented duplicate decoder threads.
+
+## v14.7.2 — Video Framerate Sync, Cooldown & UI Overlays (July 18, 2026)
+### Fixed
+- **Video Framerate Sync** — Extract video frame rate from FFmpeg stream metadata at startup. Use detected framerate as authoritative frame duration for throttling, with PTS delta as refinement. Fixes videos playing too fast (e.g. 10fps video played at 25fps).
+- **Video Cooldown on Completion** — Videos are now marked as shown (added to cooldown) when playback finishes, preventing immediate replay.
 
 ### Added
-- **Filename overlay for videos** — Videos display the same filename overlay as photos (same position and style).
-- **Video time remaining** — The timer overlay shows remaining video playback time (MM:SS) instead of the photo countdown timer during video playback.
-
-
+- **Filename Overlay for Videos** — Videos display the same filename overlay as photos (same position and style).
+- **Video Time Remaining** — The timer overlay shows remaining video playback time (MM:SS) instead of the photo countdown timer during video playback.
 
 ## v14.7.1 — Video Audio Playback (July 18, 2026)
-
 ### Added
-- **Video audio playback** — Integrated FFmpeg audio decoding with SDL3 audio output, including automatic resampling (swresample) to 48kHz stereo. Audio volume is controlled by the existing `video_volume` setting (0-150%) in config/TUI. Audio is synchronized with video using PTS timestamps.
+- **Video Audio Playback** — Integrated FFmpeg audio decoding with SDL3 audio output, including automatic resampling (`swresample`) to 48kHz stereo. Audio volume is controlled by the existing `video_volume` setting (0-150%) in config/TUI. Audio is synchronized with video using PTS timestamps.
 
 ## v14.7.0 — Video Decoder Thread Crash Fix (July 18, 2026)
-
 ### Fixed
-- **Video decoder thread creation crash** — Replaced `std::thread` with raw `pthread_create`/`pthread_join` in the video decoder to resolve `std::system_error` crashes during thread creation that caused the slideshow to crash on the second video transition.
+- **Video Decoder Thread Creation Crash** — Replaced `std::thread` with raw `pthread_create`/`pthread_join` in the video decoder to resolve `std::system_error` crashes during thread creation that caused the slideshow to crash on the second video transition.
 
 ## v14.6.0 — Video Ratio Update (July 6, 2026)
 
