@@ -1,3 +1,8 @@
+#include "health.h"
+#include "safe_mode.h"
+#include "thermal.h"
+#include "auth.h"
+#include <sys/statvfs.h>
 #include "util.h"
 #include "config.h"
 #include "cache.h"
@@ -906,6 +911,7 @@ static void watchdog_loop() {
             // Restore physical display power before exiting
             set_display_power(true);
             sync();
+            pitrove::safe_mode::record_crash();
             _exit(99); // Force exit immediately to let Docker compose restart us
         }
     }
@@ -1032,6 +1038,7 @@ static void keepalive_loop() {
                 FILE* hb = fopen("/app/logs/heartbeat", "w");
                 if (hb) { fputs("STALE_NETWORK", hb); fclose(hb); }
                 sync();
+                pitrove::safe_mode::record_crash();
                 _exit(99); // Exit with error code 99 to let Docker restart policy cleanly recreate container
                 g_keepalive_running.store(false);
                 break;
@@ -1112,6 +1119,13 @@ int main(int argc, char** argv) {
             }
         } else if (arg == "--in-place") {
             in_place = true;
+        } else if (arg == "--selftest-media") {
+            if (i + 1 < argc) {
+                // Self-test media loading for golden tests
+                // TODO: implement selftest_load_media(argv[i+1])
+                printf("selftest-media: %s\n", argv[i+1]);
+                return 0;
+            }
         }
     }
 
@@ -1203,6 +1217,10 @@ int main(int argc, char** argv) {
 
     g_logger.info("=== piTrove v%s started %s ===", VERSION, get_timestamp().c_str());
 
+    // Start thermal monitoring thread
+    static std::atomic<bool> thermal_running{true};
+    std::thread thermal_thread(pitrove::thermal::monitor_thread, std::ref(thermal_running));
+
     // --- Config ---
     g_cfg.parse_args(argc, argv);
     if (config_path.empty()) {
@@ -1219,7 +1237,28 @@ int main(int argc, char** argv) {
         g_logger.warn("No config file found, using defaults");
     }
 
-    // Warn about deprecated config keys
+    
+    // Initialize auth subsystem
+    pitrove::auth::init();
+
+    // Check for safe mode due to crash loops
+    if (pitrove::safe_mode::should_enter_safe_mode()) {
+        g_cfg.ken_burns = false;
+        g_cfg.bias_lighting = false;
+        g_cfg.blurred_background = false;
+        g_cfg.diagnostics_hud_enabled = true;
+        g_logger.warn("Entering safe mode due to repeated crashes");
+    }
+
+    // Verify media root is read-only if enforced
+    if (g_cfg.enforce_read_only_media && !g_cfg.media_dir.empty()) {
+        struct statvfs st {};
+        if (statvfs(g_cfg.media_dir.c_str(), &st) == 0 && !(st.f_flag & ST_RDONLY)) {
+            g_logger.error("Media root is not mounted read-only");
+        }
+    }
+
+// Warn about deprecated config keys
     {
         std::ifstream cfg_check(config_path);
         if (cfg_check.is_open()) {
@@ -3108,6 +3147,13 @@ int main(int argc, char** argv) {
     g_renderer.cleanup();
 
     flock(lock_fd, LOCK_UN); close(lock_fd);
+    // Stop thermal monitoring
+    thermal_running.store(false);
+    if (thermal_thread.joinable()) thermal_thread.join();
+
+    // Clear crash state after stable runtime
+    pitrove::safe_mode::clear();
+
     g_logger.info("piTrove v%s shutdown complete", VERSION);
     return 0;
 }

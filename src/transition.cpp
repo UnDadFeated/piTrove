@@ -5,6 +5,26 @@
 #include <cmath>
 #include <cstring>
 
+
+void render_crossfade_gpu(SDL_Renderer* renderer,
+                          SDL_Texture* from,
+                          SDL_Texture* to,
+                          float progress) {
+    SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
+    SDL_RenderClear(renderer);
+
+    if (from) {
+        SDL_SetTextureAlphaMod(from, static_cast<Uint8>(255.0f * (1.0f - progress)));
+        SDL_RenderTexture(renderer, from, nullptr, nullptr);
+    }
+
+    if (to) {
+        SDL_SetTextureAlphaMod(to, static_cast<Uint8>(255.0f * progress));
+        SDL_RenderTexture(renderer, to, nullptr, nullptr);
+    }
+}
+
+
 TransitionEngine::TransitionEngine() {}
 
 TransitionEngine::~TransitionEngine() {

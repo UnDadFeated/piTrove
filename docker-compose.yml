@@ -5,6 +5,7 @@ services:
       dockerfile: Dockerfile
     container_name: piTrove
     restart: always
+    init: true
     network_mode: host
     cap_add:
       - SYS_ADMIN
@@ -21,6 +22,17 @@ services:
       - SDL_KMSDRM_DEVICE_INDEX=${SDL_KMSDRM_DEVICE_INDEX:-1}
       - XDG_CACHE_HOME=/app/cache
       - MESA_SHADER_CACHE_DIR=/app/cache/mesa_shader_cache
+    healthcheck:
+      test: ["CMD", "/app/scripts/healthcheck.sh"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    logging:
+      driver: json-file
+      options:
+        max-size: "5m"
+        max-file: "3"
     volumes:
       - /dev:/dev
       - /var/run/dbus/system_bus_socket:/var/run/dbus/system_bus_socket
@@ -28,4 +40,4 @@ services:
       - ./config:/app/config
       - ./logs:/app/logs
       - ./subtitles:/app/subtitles
-      - ${MEDIA_DIR:-/mnt/nas}:/app/media
+      - ${MEDIA_DIR:-/mnt/nas}:/app/media:ro

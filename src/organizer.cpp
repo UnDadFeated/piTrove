@@ -1,4 +1,6 @@
 #include "organizer.h"
+#include <sqlite3.h>
+#include <filesystem>
 #include "util.h"
 #include "image_loader.h"
 #include <filesystem>
@@ -212,4 +214,26 @@ bool organize_media_archive(const std::string& root_dir, bool in_place) {
     std::cout << "    - Errors encountered: " << error_count << "\n";
 
     return error_count == 0;
+}
+
+
+void undo_organize(const std::string& journal_path) {
+    sqlite3* db = nullptr;
+    if (sqlite3_open(journal_path.c_str(), &db) != SQLITE_OK) return;
+
+    const char* sql = "SELECT old_path, new_path FROM moves ORDER BY id DESC;";
+    sqlite3_stmt* stmt = nullptr;
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) == SQLITE_OK) {
+        while (sqlite3_step(stmt) == SQLITE_ROW) {
+            const char* op = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0));
+            const char* np = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1));
+            if (op && np) {
+                std::error_code ec;
+                std::filesystem::rename(np, op, ec);
+            }
+        }
+        sqlite3_finalize(stmt);
+    }
+    sqlite3_exec(db, "DELETE FROM moves;", nullptr, nullptr, nullptr);
+    sqlite3_close(db);
 }

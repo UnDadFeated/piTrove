@@ -1,5 +1,7 @@
 #include "config.h"
 #include "util.h"
+#include "auth.h"
+#include <filesystem>
 #include <fstream>
 #include <sstream>
 #include <iostream>
@@ -222,6 +224,8 @@ bool Config::load(const std::string& path) {
         else if (key == "port" && section == "mqtt")                this->mqtt_port = safe_stoi(val, this->mqtt_port);
         else if (key == "user" && section == "mqtt")                this->mqtt_user = val;
         else if (key == "pass" && section == "mqtt")                this->mqtt_pass = val;
+        else if (key == "tls" && section == "mqtt")                 this->mqtt_tls_enabled = (val == "1" || val == "true");
+        else if (key == "ca_cert" && section == "mqtt")             this->mqtt_ca_cert = val;
         else if (key == "topic_prefix" && section == "mqtt")        this->mqtt_topic_prefix = val;
         else if (key == "motionsensor_topic" && section == "mqtt")  this->mqtt_motionsensor_topic = val;
         else if (key == "motionsensor_cooldown" && section == "mqtt") this->mqtt_motionsensor_cooldown = safe_stoi(val, this->mqtt_motionsensor_cooldown);
@@ -250,6 +254,51 @@ bool Config::load(const std::string& path) {
                 g_logger.warn("UNRECOGNIZED_KEY: [%s] '%s' in config.toml", section.c_str(), key.c_str());
         }
         } // else (eq != npos)
+    }
+
+
+    // Load secrets from separate secrets.toml file
+    {
+        std::filesystem::path config_dir = std::filesystem::path(path).parent_path();
+        std::filesystem::path secrets_path = config_dir / "secrets.toml";
+
+        if (std::filesystem::exists(secrets_path)) {
+            std::ifstream sf(secrets_path.string());
+            std::string ssection, sline;
+            while (std::getline(sf, sline)) {
+                sline = trim(strip_comments(sline));
+                if (sline.empty()) continue;
+                if (sline[0] == '[' && sline.back() == ']') {
+                    ssection = sline.substr(1, sline.size() - 2);
+                    continue;
+                }
+                auto seq = sline.find('=');
+                if (seq == std::string::npos) continue;
+                std::string skey = trim(sline.substr(0, seq));
+                std::string sval = trim(sline.substr(seq + 1));
+                if (sval.size() >= 2 && sval.front() == '"' && sval.back() == '"')
+                    sval = sval.substr(1, sval.size() - 2);
+
+                if (ssection == "remote") {
+                    if (skey == "api_key") this->http_api_key = sval;
+                    else if (skey == "pin_hash") this->pin_hash = sval;
+                }
+                else if (ssection == "mqtt") {
+                    if (skey == "password") this->mqtt_pass = sval;
+                }
+                else if (ssection == "google_photos") {
+                    if (skey == "client_secret") this->google_photos_client_secret = sval;
+                    else if (skey == "refresh_token") this->google_photos_refresh_token = sval;
+                }
+            }
+            g_logger.info("Loaded secrets from secrets.toml");
+        }
+    }
+
+    // Disable dashboard if default PIN 0000 is still active
+    if (this->web_dashboard_enabled && this->dashboard_pin == "0000" && !this->pin_changed) {
+        this->web_dashboard_enabled = false;
+        g_logger.warn("Web dashboard disabled: default PIN 0000 must be changed via pitrove config");
     }
 
     return true;
@@ -453,6 +502,17 @@ bool Config::save(const std::string& path) {
     f << "interval_secs = " << this->keepalive_interval << "\n";
     f << "gateway_ip = \"" << this->keepalive_gateway << "\"\n";
     f << "wifi_interface = \"" << this->keepalive_interface << "\"\n";
+
+
+    // Migrate plaintext PIN to hashed PIN
+    if (!this->dashboard_pin.empty() && this->pin_hash.empty()) {
+        std::string hash;
+        if (pitrove::auth::hash_pin(this->dashboard_pin, hash)) {
+            this->pin_hash = hash;
+            this->dashboard_pin.clear();
+            this->pin_changed = true;
+        }
+    }
 
     f.close();
     if (f.fail()) {
