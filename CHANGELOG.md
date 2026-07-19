@@ -35,7 +35,7 @@
 - **Prometheus Metrics Endpoint** — Added `/metrics` HTTP endpoint exposing `pitrove_fps`, `pitrove_queue_depth`, and `pitrove_media_count` in Prometheus format.
 
 ### Architecture & Maintainability
-- **Expected<T,E> Type** — Added `src/expected.h` lightweight result type for consistent error handling across modules.
+- ** Type** — Added `src/expected.h` lightweight result type for consistent error handling across modules.
 - **Interface Boundaries** — Added `src/interfaces.h` with `IMediaScanner`, `IMetadataCache`, `IRemoteControl` abstract interfaces for testability.
 - **Media Organizer Journal** — Added SQLite-backed undo journal and `undo_organize()` for safe media reorganization with rollback capability.
 - **Google Photos Atomic Downloads** — Added `fsync_file()` helper for atomic `.part` → final rename download pattern.
