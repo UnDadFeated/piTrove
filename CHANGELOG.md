@@ -1,5 +1,9 @@
 # Changelog
 
+## v15.1.5 — Even Video Interleaving & Anti-Clustering (July 19, 2026)
+### Fixed
+- **Anti-Clustering Video Interleaver** — Updated `organize_playlist` in `main.cpp` so videos are evenly distributed throughout the photo sequence based on spacing (`photos.size() / videos.size()`). This maintains the exact configured video ratio (e.g. 3 videos per 10 photos) while ensuring videos do not play back-to-back.
+
 ## v15.1.4 — Dual Filename Overlay Restoration for Twin-Portraits (July 19, 2026)
 ### Fixed
 - **Dual Filename Overlay for Twin-Portraits** — Fixed  overlay draw invocation so  is properly passed to . When two photos are rendered in twin-portrait mode, both filenames are stacked vertically in the overlay. Single photos and videos continue to display one filename.
