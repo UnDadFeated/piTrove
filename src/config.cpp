@@ -50,7 +50,7 @@ bool Config::load(const std::string& path) {
         }
 
         if (key == "media_dir")              this->media_dir = val;
-        else if (key == "cache_dir")         this->cache_dir = val;
+        else if (key == "cache_dir" && (section == "paths" || section.empty())) this->cache_dir = val;
         else if (key == "log_dir")           this->log_dir = val;
         else if (key == "splash_file")       this->splash_file = val;
         else if (key == "fullscreen")        this->fullscreen = (val == "1" || val == "true");
