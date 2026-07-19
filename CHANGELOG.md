@@ -1,5 +1,9 @@
 # Changelog
 
+## v15.1.6 — Photo Classification Filter Inversion Fix (July 19, 2026)
+### Fixed
+- **Photo Classification Filter Inversion** — Fixed an inverted boolean condition in `main.cpp` where `show_people_faces = 1` and `keep_animals = 1` acted as mandatory requirements rather than inclusion toggles. This inadvertently dropped all normal landscape/nature/scenery photos, leaving 0 photos in the playlist.
+
 ## v15.1.5 — Even Video Interleaving & Anti-Clustering (July 19, 2026)
 ### Fixed
 - **Anti-Clustering Video Interleaver** — Updated `organize_playlist` in `main.cpp` so videos are evenly distributed throughout the photo sequence based on spacing (`photos.size() / videos.size()`). This maintains the exact configured video ratio (e.g. 3 videos per 10 photos) while ensuring videos do not play back-to-back.
