@@ -1,18 +1,17 @@
 # Changelog
 
 ## v14.7.8 — Video Countdown Timer Overlay, First-Item Video Support & Config Update (July 18, 2026)
-## Fixed
+### Fixed
 - **Video Countdown Timer Overlay** — Added stream-level duration extraction (`AVStream::duration`) and media item metadata fallback (`MediaItem::duration`) so every video displays the remaining playback countdown timer in the top right, even when container headers lack global duration tags.
 - **First-Item Video Support** — Removed the restriction forcing the first slideshow item to be a photo. Videos can now naturally start as the first item upon application launch.
-- **Config Default** — Set `play_just_videos = false` in `config.toml` so both photos and videos play in sequence.
+- **Config Default** — Set `play_just_videos = false` in `config.toml` so both photos and video play in sequence.
 
-3# v14.7.7 — Video Decoder EOF Flush, Framerate Pacing & Transition Fix (July 18, 2026)
-## Fixed
-- **Video Decoder EOF Infinite Flush Loop & Docker Crash** — Resolved infinite packet sending loop during EOF decoder flush when `avcodec_receive_frame` returned `AVERROR_EOF` (`-541478725`), preventing log spam and Docker container crashes.
+## v14.7.7 — Video Decoder EOF Flush, Framerate Pacing & Transition Fix (July 18, 2026)
+### Fixed
+- **Video Decoder EOF Infinite Flush Loop & Docker Crash** — Resolved infinite packet sending loop during EOF decoder flush when `avcodec_receive_frame` (returned `AVERROR_EOF` (`-541478725`), preventing log spam and Docker container crashes.
 - **Video Framerate Pacing** — Synchronized video frame rendering with presentation timestamps (`frame.pts`) relative to wall-clock time (`SDL_GetTicks()`) and ensured pacing variables are reset when switching videos, fixing fast playback.
-- **Frozen Last Frame & Video Lifecycle** — Corrected decoder completion check in `main.cpp` so slideshow transitions immediately when all frames are rendered, and refactored `VideoDecoder` lifecycle (`start`/`ctop`) to ensure threads and SDL audio streams are always joined and shut down cleanly.
-
-## v14.7.2 — Video framerate Sync, Cooldown & UI Overlays (July 18, 2026)
+- **Frozen Last Frame & Video Lifecycle** — Corrected decoder completion check in `main.cpp` so slideshow transitions immediately when all frames are rendered, and refactored `VideoDecoder` lifecycle (`start`/`stop`) to ensure threads and SDL audio streams are always joined and shut down cleanly.
+## v14.7.2 — Video framerate Sync, Cooldown & UI Overlays (July 18, 2026)
 ### Fixed
 - **Video framerate sync** — Extract video frame rate from FFmpeg stream metadata at startup. Use detected framerate as authoritative frame duration for throttling, with PTS delta as refinement. Fixes videos playing too fast (e.g. 10fps video played at 25fps).
 - **Video cooldown on completion** — Videos are now marked as shown (added to cooldown) when playback finishes, preventing immediate replay.
