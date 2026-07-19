@@ -132,8 +132,9 @@ double VideoDecoder::get_frame_duration() const {
     return m_frame_duration;
 }
 
-double VideoDecoder::get_video_remaining() const {
+double VideoDecoder::get_video_remaining(double fallback_duration) const {
     double total = m_video_total_duration.load(std::memory_order_relaxed);
+    if (total <= 0.0) total = fallback_duration;
     if (total <= 0.0 || decode_start_time <= 0.0) return 0.0;
     double elapsed = (av_gettime_relative() / 1000000.0) - decode_start_time;
     return std::max(0.0, total - elapsed);
@@ -200,9 +201,14 @@ void VideoDecoder::decode_loop() {
         m_frame_duration = 0.04; // fallback 25fps
         DEBUG_LOG("VIDEO_DEC: Could not detect FPS, using default 25fps");
     }
-    // Extract video duration
-    if (fmt_ctx->duration > 0) {
+    // Extract video duration with stream fallback
+    m_video_total_duration.store(0.0);
+    if (fmt_ctx->duration > 0 && (int64_t)fmt_ctx->duration != (int64_t)0x8000000000000000LL) {
         m_video_total_duration.store(fmt_ctx->duration / 1000000.0);
+    }
+    if (m_video_total_duration.load() <= 0.0 && video_stream_idx >= 0 && fmt_ctx->streams[video_stream_idx]->duration > 0 && fmt_ctx->streams[video_stream_idx]->time_base.den > 0) {
+        double dur = fmt_ctx->streams[video_stream_idx]->duration * av_q2d(fmt_ctx->streams[video_stream_idx]->time_base);
+        m_video_total_duration.store(dur);
     }
 
 

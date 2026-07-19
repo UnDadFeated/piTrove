@@ -38,7 +38,7 @@ public:
  bool get_frame(VideoFrame& out);
  bool has_frames() const;
  double get_frame_duration() const;
- double get_video_remaining() const;
+ double get_video_remaining(double fallback_duration = 0.0) const;
  double get_video_duration() const { return m_video_total_duration.load(std::memory_order_relaxed); }
  double get_fps() const { return m_frame_duration > 0 ? 1.0 / m_frame_duration : 0; }
 

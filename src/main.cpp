@@ -1402,7 +1402,8 @@ int main(int argc, char** argv) {
         g_renderer.clear(0, 0, 0, 255);
                         // Draw overlay on video frame BEFORE present
                         if (g_overlay) {
-                            double remaining = g_video_decoder.get_video_remaining();
+                            double fallback_dur = (!g_eligible.empty() && current_idx >= 0 && current_idx < (int)g_eligible.size()) ? g_eligible[current_idx].duration : 0.0;
+                            double remaining = g_video_decoder.get_video_remaining(fallback_dur);
                             std::string remaining_str = "";
                             if (remaining > 0.0) {
                                 int mins = (int)(remaining / 60.0);
@@ -2405,7 +2406,8 @@ int main(int argc, char** argv) {
                         SDL_RenderTexture(g_renderer.sdl_renderer, current_tex, nullptr, &dst_rect);
                         // FIX: Overlay rendering + draw overlays BEFORE present()
                         if (g_overlay) {
-                            double remaining = g_video_decoder.get_video_remaining();
+                            double fallback_dur = (!g_eligible.empty() && current_idx >= 0 && current_idx < (int)g_eligible.size()) ? g_eligible[current_idx].duration : 0.0;
+                            double remaining = g_video_decoder.get_video_remaining(fallback_dur);
                             std::string remaining_str = "";
                             if (remaining > 0.0) {
                                 int mins = (int)(remaining / 60.0);

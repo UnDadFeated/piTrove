@@ -1,3 +1,7 @@
+## [14.7.8] - 2026-07-18
+### Fixed
+- **Video Countdown Timer Overlay**: Added stream-level duration extraction () and media item metadata fallback () so every video displays the remaining playback countdown timer in the top right, even when container headers lack global duration tags.
+
 # Changelog
 
 ## v14.7.7 — Video Decoder EOF Flush, Framerate Pacing & Transition Fix (July 18, 2026)
