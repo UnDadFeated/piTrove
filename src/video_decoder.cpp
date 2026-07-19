@@ -93,7 +93,7 @@ void VideoDecoder::push_audio_samples(const int16_t* samples, int num_frames) {
 }
 
 bool VideoDecoder::start(const std::string& path, int target_width, int target_height) {
-    if (is_running()) stop();
+    if (is_running() && is_eof()) stop();
     m_path = path;
     m_target_width = target_width;
     m_target_height = target_height;
@@ -108,6 +108,11 @@ bool VideoDecoder::start(const std::string& path, int target_width, int target_h
 }
 
 void VideoDecoder::stop() {
+    if (m_eof.load()) {
+        g_logger.info("VIDEO_DEC: stop() called but EOF already reached, skipping.");
+        return;
+    }
+    g_logger.info("VIDEO_DEC: stop() called, m_running=%d", m_running.load());
     m_running.store(false);
     m_queue_cv.notify_all();
     if (m_thread != 0) {
@@ -122,6 +127,7 @@ void VideoDecoder::stop() {
 }
 
 bool VideoDecoder::is_running() const { return m_running.load(); }
+bool VideoDecoder::is_eof() const { return m_eof.load(); }
 
 double VideoDecoder::get_frame_duration() const {
     return m_frame_duration;
@@ -141,6 +147,10 @@ bool VideoDecoder::get_frame(VideoFrame& out) {
     out = std::move(m_frame_queue.front());
     m_frame_queue.pop();
     return true;
+}
+bool VideoDecoder::has_frames() const {
+    std::lock_guard lk(m_queue_mtx);
+    return !m_frame_queue.empty();
 }
 
 void VideoDecoder::decode_loop() {
@@ -208,6 +218,12 @@ void VideoDecoder::decode_loop() {
     }
     AVCodecContext* vcc = avcodec_alloc_context3(vc);
     avcodec_parameters_to_context(vcc, vp);
+    // Enable multi-threaded decoding (maxcores-1)
+    {
+        int threads = std::thread::hardware_concurrency();
+        vcc->thread_count = std::max(1, threads - 1);
+        vcc->thread_type = FF_THREAD_FRAME;
+    }
     if (avcodec_open2(vcc, vc, nullptr) < 0) {
         g_logger.error("VIDEO_DEC: Failed to open video codec for %s", m_path.c_str());
         avcodec_free_context(&vcc);
@@ -299,11 +315,14 @@ void VideoDecoder::decode_loop() {
     if (acc) aframe = av_frame_alloc();
 
     bool eof = false;
-    int vf_count = 0, af_count = 0;
-    double last_frame_time = 0.0; // wall-clock seconds
-    double prev_pts = 0.0;
+    int vf_count = 0, af_count = 0, pkt_count = 0;
     while (is_running() && !eof) {
         int ret = av_read_frame(fmt_ctx, pkt);
+        g_logger.debug("VIDEO_DEC: av_read_frame ret=%d stream=%d pkt_count=%d", ret, (pkt ? pkt->stream_index : -1), pkt_count);
+        pkt_count++;
+        if (ret < 0) {
+            g_logger.info("VIDEO_DEC: av_read_frame error ret=%d (AVERROR_EOF=%d, AVERROR(EAGAIN)=%d)", ret, AVERROR_EOF, AVERROR(EAGAIN));
+        }
         if (ret == AVERROR_EOF) {
             eof = true;
             // Flush audio decoder
@@ -324,16 +343,48 @@ void VideoDecoder::decode_loop() {
                     }
                 }
             }
+            g_logger.info("VIDEO_DEC: Outer loop exited. is_running=%d eof=%d vf_count=%d af_count=%d", is_running(), eof, vf_count, af_count);
+    g_logger.info("VIDEO_DEC: After outer loop. is_running=%d eof=%d vf=%d pkt=%d", is_running(), eof, vf_count, af_count);
+
+    // Flush video decoder to drain remaining buffered frames
+            if (vcc) {
+                int flush_ret;
+                while (is_running()) {
+                    flush_ret = avcodec_send_packet(vcc, nullptr);
+                    g_logger.debug("VIDEO_DEC: flush send ret=%d", flush_ret);
+                    if (flush_ret < 0 && flush_ret != AVERROR(EAGAIN)) break;
+                    while (true) {
+                        flush_ret = avcodec_receive_frame(vcc, frame);
+                        g_logger.debug("VIDEO_DEC: flush receive ret=%d", flush_ret);
+                        if (flush_ret == AVERROR(EAGAIN)) break;
+                        if (flush_ret < 0) break;
+                        sws_scale(sws, frame->data, frame->linesize, 0, vcc->height,
+                                  rgba->data, rgba->linesize);
+                        VideoFrame vf;
+                        vf.width = dst_w; vf.height = dst_h;
+                        vf.data = new uint8_t[nbytes];
+                        memcpy(vf.data, buf, nbytes);
+                        std::lock_guard lk(m_queue_mtx);
+                        m_frame_queue.push(std::move(vf));
+                    }
+                }
+            }
+            // Set EOF flag after flush completes so guards know decoder truly finished
+            if (eof) { m_eof.store(true); g_logger.info("VIDEO_DEC: Natural EOF reached. vf=%d pkt=%d", vf_count, af_count); }
             break;
         }
         if (ret < 0) break;
 
         if (pkt->stream_index == video_stream_idx) {
             ret = avcodec_send_packet(vcc, pkt);
+            g_logger.debug("VIDEO_DEC: send_packet vcc ret=%d", ret);
             av_packet_unref(pkt);
             if (ret < 0) continue;
+            // Drain all frames from decoder after sending packet
+            while (true) {
             ret = avcodec_receive_frame(vcc, frame);
-            if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF) continue;
+            g_logger.info("VIDEO_DEC: receive_frame ret=%d vf_count=%d", ret, vf_count);
+            if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF) break;
             if (ret < 0) break;
 
             vf_count++;
@@ -348,11 +399,11 @@ void VideoDecoder::decode_loop() {
             vf.pts = av_q2d(fmt_ctx->streams[video_stream_idx]->time_base) * frame->pts;
 
             std::lock_guard lk(m_queue_mtx);
-            while (!m_frame_queue.empty()) m_frame_queue.pop();
             m_frame_queue.push(std::move(vf));
-            // Decode as fast as possible; pacing is handled by the render loop
+            } // end while drain
+            }
 
-        } else if (pkt->stream_index == audio_stream_idx && acc && aframe) {
+        else if (pkt->stream_index == audio_stream_idx && acc && aframe) {
             ret = avcodec_send_packet(acc, pkt);
             av_packet_unref(pkt);
             if (ret < 0) continue;

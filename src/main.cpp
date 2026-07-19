@@ -1411,7 +1411,7 @@ int main(int argc, char** argv) {
                             }
                             g_overlay->draw_all(current_idx, (int)g_eligible.size(),
                                 &g_eligible[current_idx],
-                                &g_eligible[(current_idx + 1) % (int)g_eligible.size()],
+                                nullptr,
                                 0.0, true, 0.0, nullptr, nullptr, remaining_str);
                         }
         g_renderer.present();
@@ -2161,7 +2161,7 @@ int main(int argc, char** argv) {
                     }
                     if (event.button.button == SDL_BUTTON_RIGHT) {
                         if (g_overlay) {
-                            if (g_video_decoder.is_running()) {
+                            if ((g_video_decoder.is_running() || g_video_decoder.has_frames()) && g_video_decoder.is_eof()) {
                                 g_logger.info("Right-click during video: stopping decoder to open config menu.");
                                 g_video_decoder.stop();
                             }
@@ -2187,7 +2187,7 @@ int main(int argc, char** argv) {
                                     g_overlay->pin_active = true;
                                     g_logger.info("TOUCH_INPUT: PIN required before showing navigation overlay.");
                                 } else if (touch_mode) {
-                                    if (g_video_decoder.is_running()) {
+                                    if ((g_video_decoder.is_running() || g_video_decoder.has_frames()) && g_video_decoder.is_eof()) {
                                         g_logger.info("TOUCH_INPUT: Touch during video: stopping decoder to open navigation overlay.");
                                         g_video_decoder.stop();
                                     }
@@ -2228,7 +2228,7 @@ int main(int argc, char** argv) {
                                 g_overlay->pin_active = true;
                                 g_logger.info("TOUCH_INPUT: PIN required before showing navigation overlay (finger).");
                             } else {
-                                if (g_video_decoder.is_running()) {
+                                if ((g_video_decoder.is_running() || g_video_decoder.has_frames()) && g_video_decoder.is_eof()) {
                                     g_logger.info("TOUCH_INPUT: Finger touch during video: stopping decoder to open navigation overlay.");
                                     g_video_decoder.stop();
                                 }
@@ -2265,7 +2265,7 @@ int main(int argc, char** argv) {
 
         // Handle screen blanking state
         if (g_screen_blanked.load()) {
-            if (g_video_decoder.is_running()) {
+            if ((g_video_decoder.is_running() || g_video_decoder.has_frames()) && g_video_decoder.is_eof()) {
                 g_logger.info("Screen blanked: stopping video decoder.");
                 g_video_decoder.stop();
             }
@@ -2324,7 +2324,7 @@ int main(int argc, char** argv) {
         if (cmd == 1 || cmd == 2) {
             item_timer = 0.0;
             bool was_video = (g_eligible[current_idx].type == "video");
-            if (g_video_decoder.is_running()) {
+            if ((g_video_decoder.is_running() || g_video_decoder.has_frames()) && g_video_decoder.is_eof()) {
                 g_logger.info("Interrupted video playback via skip request: stopping decoder.");
                 g_video_decoder.stop();
             }
@@ -2373,7 +2373,7 @@ int main(int argc, char** argv) {
             current_idx = 0;
         }
         if (g_eligible[current_idx].type == "video") {
-            if (g_video_decoder.is_running()) {
+            if (g_video_decoder.is_running() || g_video_decoder.has_frames()) {
                 VideoFrame frame;
                 if (g_video_decoder.get_frame(frame)) {
                     if (current_tex) { SDL_DestroyTexture(current_tex); current_tex = nullptr; }
@@ -2414,52 +2414,58 @@ int main(int argc, char** argv) {
                             }
                             g_overlay->draw_all(current_idx, (int)g_eligible.size(),
                                 &g_eligible[current_idx],
-                                &g_eligible[(current_idx + 1) % (int)g_eligible.size()],
+                                nullptr,
                                 0.0, true, 0, nullptr, nullptr, remaining_str);
                         }
                         g_renderer.present();
                     }
-                }
-
                     // Frame pacing: runs every iteration to control playback speed
-                    static uint64_t video_frame_target = 0;
+                    // Use microsecond precision with drift correction
+                    static uint64_t video_frame_target_ns = 0;
                     static double video_last_frame_dur = -1;
                     double frame_dur_ms = 0;
-                    { 
+                    {
                         double cfps = g_eligible[current_idx].fps;
                         if (cfps > 0) {
                             frame_dur_ms = 1000.0 / cfps;
                         } else {
-                            // Fallback: try decoder FPS, then default to 25fps
                             double dec_fps = g_video_decoder.get_fps();
                             if (dec_fps > 0) frame_dur_ms = 1000.0 / dec_fps;
-                            else frame_dur_ms = 40; // 25fps default
+                            else frame_dur_ms = 40;
                         }
                     }
-                    uint64_t now = SDL_GetTicks();
-                    // Reset pacing on new video (frame duration changes)
+                    // Reset pacing on new video
                     if (std::abs(video_last_frame_dur - frame_dur_ms) > 0.1) {
-                        video_frame_target = now;
+                        video_frame_target_ns = SDL_GetTicks() * 1000ULL;
                         video_last_frame_dur = frame_dur_ms;
                     }
-                    if (now < video_frame_target) {
-                        uint32_t sleep_ms = (uint32_t)(video_frame_target - now);
-                        if (sleep_ms > 2) SDL_Delay(sleep_ms);
+                    uint64_t now_ns = SDL_GetTicks() * 1000ULL;
+                    uint64_t frame_budget_ns = (uint64_t)(frame_dur_ms * 1000.0);
+                    // Clamp target to prevent drift when rendering takes too long
+                    if (now_ns > video_frame_target_ns + frame_budget_ns * 2) {
+                        video_frame_target_ns = now_ns;
                     }
-                    video_frame_target += (uint32_t)frame_dur_ms;
+                    if (now_ns < video_frame_target_ns) {
+                        uint32_t sleep_ms = (uint32_t)((video_frame_target_ns - now_ns) / 1000ULL);
+                        if (sleep_ms > 1) SDL_Delay(sleep_ms);
+                    }
+                    video_frame_target_ns += frame_budget_ns;
+                } else if (g_video_decoder.is_running() || g_video_decoder.has_frames()) {
+                    // Queue empty but decoder still running - wait and retry
+                    SDL_Delay(5);
+                    continue;
+                }
 
                 // DEBUG: trace decoder state when queue empties
                 // Decoder finish check: only advance when decoder is truly done
-                if (!g_video_decoder.is_running()) {
-                    g_logger.info("Video decoder finished, advancing playlist.");
-                    mark_item_shown(g_eligible[current_idx].path, true);
-                    current_data = nullptr;
-                    current_twin_data = nullptr;
-                    if (current_tex) { SDL_DestroyTexture(current_tex); current_tex = nullptr; }
+                if (!g_video_decoder.is_running() && !g_video_decoder.has_frames() && g_video_decoder.is_eof()) {
+                    g_logger.info("Video decoder finished (EOF), advancing playlist.");
+                    mark_item_shown(g_eligible[current_idx].path, false);
                     transitioning = true;
-                    advance_playlist(1);
                     playlist_lock.unlock();
-                    SDL_Delay(5);
+                    SDL_Delay(10);
+                    advance_playlist(1);
+                    playlist_lock.lock();
                     continue;
                 }
                 // Keep drawing video + overlay until decoder completes
@@ -2476,6 +2482,11 @@ int main(int argc, char** argv) {
                 continue;
             } else {
                 std::string video_path = g_eligible[current_idx].path;
+                if (g_video_decoder.is_running()) {
+                    g_logger.debug("VIDEO_DEC: decoder already running, skipping start");
+                    playlist_lock.unlock();
+                    continue;
+                }
                 g_logger.info("Playing video: %s", video_path.c_str());
 
                 int width, height;
@@ -2640,7 +2651,7 @@ int main(int argc, char** argv) {
                         bool cur_is_video = (!g_eligible.empty() && current_idx >= 0 && current_idx < (int)g_eligible.size() && g_eligible[current_idx].type == "video");
                         g_overlay->draw_all(current_idx, (int)g_eligible.size(),
                             &g_eligible[current_idx],
-                            next_twin_data ? &g_eligible[(current_idx + 1) % (int)g_eligible.size()] : nullptr,
+                            nullptr,
                             0.0, cur_is_video, active_fps, next_data ? next_data.get() : nullptr, next_twin_data ? next_twin_data.get() : nullptr);
                     }
                     g_renderer.present();
@@ -2964,7 +2975,7 @@ int main(int argc, char** argv) {
                     bool cur_is_video = (!g_eligible.empty() && current_idx >= 0 && current_idx < (int)g_eligible.size() && g_eligible[current_idx].type == "video");
                     g_overlay->draw_all(current_idx, (int)g_eligible.size(),
                         &g_eligible[current_idx],
-                        current_twin_data ? &g_eligible[(current_idx + 1) % (int)g_eligible.size()] : nullptr,
+                        current_twin_data ? nullptr : nullptr,
                         item_timer, cur_is_video, active_fps, current_data.get(), current_twin_data.get());
                 }
                 g_renderer.present();

@@ -34,7 +34,9 @@ public:
  bool start(const std::string& path, int target_width, int target_height);
  void stop();
  bool is_running() const;
+ bool is_eof() const;
  bool get_frame(VideoFrame& out);
+ bool has_frames() const;
  double get_frame_duration() const;
  double get_video_remaining() const;
  double get_fps() const { return m_frame_duration > 0 ? 1.0 / m_frame_duration : 0; }
@@ -45,9 +47,10 @@ private:
  int m_target_height;
  pthread_t m_thread;
  std::atomic<bool> m_running;
+ std::atomic<bool> m_eof{false};
 
  std::queue<VideoFrame> m_frame_queue;
- std::mutex m_queue_mtx;
+ mutable std::mutex m_queue_mtx;
  std::condition_variable m_queue_cv;
 
  double m_frame_duration{0.04}; // seconds per frame from stream metadata
