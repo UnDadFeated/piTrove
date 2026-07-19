@@ -152,8 +152,8 @@ void config_wizard(const std::string& config_path) {
         {"Play Just Videos", TGL, "Completely exclude photos from playback"},
         {"Closed Captions", TGL, "Enable video closed captions/subtitles by default"},
         {"Subtitles Dir", STR, "Path to folder containing .srt files (matching video basename)"},
-        {"OSD Offset X", INT, "Horizontal offset for mpv OSD overlay (pixels, negative=left)"},
-        {"OSD Offset Y", INT, "Vertical offset for mpv OSD overlay (pixels, negative=down)"},
+        {"OSD Offset X", INT, "Horizontal offset for video OSD overlay (pixels, negative=left)"},
+        {"OSD Offset Y", INT, "Vertical offset for video OSD overlay (pixels, negative=down)"},
         {"Max Tex Dim", INT, "Max texture dimension in pixels (256-8192)"}
     };
     static const CI CE[] = {
@@ -204,7 +204,7 @@ void config_wizard(const std::string& config_path) {
         {"DRM Card", STR, "Parent GPU modesetting card path (e.g. '/dev/dri/card1' or 'auto')"},
         {"DRM Connector", STR, "Active connected display connector port (e.g. 'HDMI-A-1' or 'auto')"},
         {"Font Path", STR, "Custom path to TTF/OTF font file (or 'auto' for default search)"},
-        {"Audio Device", STR, "Custom audio device identifier for mpv video player (or 'auto')"}
+        {"Audio Device", STR, "Custom audio device identifier for SDL3 video player (or 'auto')"}
     };
     static const CI CI2[] = {
         {"Log Level", ENM, "Console verbosity (debug, info, warn, error)"},

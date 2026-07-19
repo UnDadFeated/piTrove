@@ -1,5 +1,11 @@
 # Changelog
 
+## v14.7.9 — Watchdog Hardening & mpv Cleanup (July 18, 2026)
+### Fixed
+- **Systemd Restart Rate Limit Removed** — Changed `StartLimitIntervalSec` and `StartLimitBurst` to `0` in the piTrove systemd unit, preventing systemd from locking the service into a permanent failed state after rapid Docker restarts.
+- **Network Watchdog Auto-Revival** — The external network watchdog now actively checks if `piTrove.service` is running every 15 seconds while the network is online, and automatically calls `systemctl reset-failed` + `restart` if the service is found inactive.
+- **Stale mpv References Purged** — Replaced all remaining `mpv`/`libmpv` references across the codebase (README, TUI descriptions, error database) with correct SDL3/FFmpeg terminology.
+
 ## v14.7.8 — Video Countdown Timer Overlay, First-Item Video Support & Config Update (July 18, 2026)
 ### Fixed
 - **Video Countdown Timer Overlay** — Added stream-level duration extraction (`AVStream::duration`) and media item metadata fallback (`MediaItem::duration`) so every video displays the remaining playback countdown timer in the top right, even when container headers lack global duration tags.
