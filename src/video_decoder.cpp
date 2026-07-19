@@ -134,6 +134,9 @@ double VideoDecoder::get_frame_duration() const {
 
 double VideoDecoder::get_video_remaining(double fallback_duration) const {
     double total = m_video_total_duration.load(std::memory_order_relaxed);
+    // Prefer last decoded frame PTS for more accurate remaining time
+    double last_pts = m_last_frame_pts.load(std::memory_order_relaxed);
+    if (last_pts > 0 && last_pts < total) total = last_pts;
     if (total <= 0.0) total = fallback_duration;
     if (total <= 0.0 || decode_start_time <= 0.0) return 0.0;
     double elapsed = (av_gettime_relative() / 1000000.0) - decode_start_time;
@@ -211,6 +214,8 @@ void VideoDecoder::decode_loop() {
         m_video_total_duration.store(dur);
     }
 
+
+    m_last_frame_pts.store(0.0);
 
     // Video codec
     AVCodecParameters* vp = fmt_ctx->streams[video_stream_idx]->codecpar;
@@ -413,6 +418,8 @@ void VideoDecoder::decode_loop() {
             vf.data = new uint8_t[nbytes];
             memcpy(vf.data, buf, nbytes);
             vf.pts = av_q2d(fmt_ctx->streams[video_stream_idx]->time_base) * frame->pts;
+            // Track last decoded frame PTS for accurate countdown timer
+            if (vf.pts > 0) m_last_frame_pts.store(vf.pts + m_frame_duration, std::memory_order_relaxed);
 
             std::lock_guard lk(m_queue_mtx);
             m_frame_queue.push(std::move(vf));

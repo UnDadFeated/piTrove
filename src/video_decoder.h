@@ -57,6 +57,7 @@ private:
  double m_frame_duration{0.04}; // seconds per frame from stream metadata
  std::atomic<double> m_video_start_pts{0.0};
  std::atomic<double> m_video_total_duration{0.0};
+ std::atomic<double> m_last_frame_pts{0.0}; // PTS of last decoded frame for accurate countdown
  double decode_start_time{0.0}; // wall-clock at first frame
 
  // Audio
