@@ -1448,7 +1448,7 @@ int main(int argc, char** argv) {
             }
             sqlite3_stmt* stmt = nullptr;
             int load_rc = sqlite3_prepare_v2(fast_cache->db,
-                "SELECT path, type, w, h, duration, fps, exif, last_shown, is_camera FROM cache WHERE bad = 0;",
+                "SELECT path, type, w, h, duration, framerate, exif, last_shown, is_camera FROM cache WHERE bad = 0;",
                 -1, &stmt, nullptr);
             if (load_rc == SQLITE_OK) {
                 while (sqlite3_step(stmt) == SQLITE_ROW) {
@@ -1461,7 +1461,7 @@ int main(int argc, char** argv) {
                     mi.width = sqlite3_column_int(stmt, 2);
                     mi.height = sqlite3_column_int(stmt, 3);
                     mi.duration = sqlite3_column_double(stmt, 4);
-                mi.fps = sqlite3_column_double(stmt, 5);
+                mi.framerate = sqlite3_column_double(stmt, 5);
                     mi.exif_rotation = sqlite3_column_int(stmt, 5);
                     mi.last_shown = sqlite3_column_int64(stmt, 6);
                     mi.is_camera = sqlite3_column_int(stmt, 7);
@@ -2425,7 +2425,7 @@ int main(int argc, char** argv) {
                     static double video_last_frame_dur = -1;
                     double frame_dur_ms = 0;
                     {
-                        double cfps = g_eligible[current_idx].fps;
+                        double cfps = g_eligible[current_idx].framerate;
                         if (cfps > 0) {
                             frame_dur_ms = 1000.0 / cfps;
                         } else {
@@ -2434,7 +2434,7 @@ int main(int argc, char** argv) {
                             else frame_dur_ms = 40;
                         }
                     }
-                    // Reset pacing on new video
+                    // Always reset pacing on new video
                     if (std::abs(video_last_frame_dur - frame_dur_ms) > 0.1) {
                         video_frame_target_ns = SDL_GetTicks() * 1000ULL;
                         video_last_frame_dur = frame_dur_ms;
@@ -2508,9 +2508,11 @@ int main(int argc, char** argv) {
                 }
                 // Cache FPS from decoder to SQLite
                 double video_fps = g_video_decoder.get_fps();
-                if (video_fps > 0) {
-                    g_logger.info("Caching FPS=%.2f for video: %s", video_fps, g_eligible[current_idx].path.c_str());
-                    g_eligible[current_idx].fps = video_fps;
+                double video_duration = g_video_decoder.get_video_duration();
+                if (video_fps > 0 || video_duration > 0) {
+                    g_logger.info("Caching FPS=%.2f, duration=%.1fs for video: %s", video_fps, video_duration, g_eligible[current_idx].path.c_str());
+                    g_eligible[current_idx].framerate = video_fps;
+                    g_eligible[current_idx].duration = video_duration;
                     if (g_cache) {
                         g_cache->upsert(g_eligible[current_idx], 0);
                     }

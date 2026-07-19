@@ -91,7 +91,7 @@ bool CacheManager::open(const std::string& dir) {
     if (sqlite3_exec(db,
         "CREATE TABLE IF NOT EXISTS cache ("
         "path TEXT PRIMARY KEY, type TEXT, w INT, h INT, duration REAL, "
-    "fps REAL DEFAULT 0, "
+    "framerate REAL DEFAULT 0, "
         "exif INT, bad INT DEFAULT 0, last_shown INTEGER DEFAULT 0, timestamp INTEGER DEFAULT 0, is_camera INT DEFAULT -1, creation_time INTEGER DEFAULT 0, preprocessed INT DEFAULT 0"
         ")", nullptr, nullptr, &err) != SQLITE_OK) {
         trigger_error(407); // E407: SQLITE_MIGRATION_FAILED
@@ -127,11 +127,11 @@ bool CacheManager::open(const std::string& dir) {
     sqlite3_finalize(stmt_mark); stmt_mark = nullptr;
 
     if (sqlite3_prepare_v2(db,
-        "INSERT INTO cache (path, type, w, h, exif, duration, fps, bad, last_shown, timestamp, is_camera, creation_time, preprocessed) "
+        "INSERT INTO cache (path, type, w, h, exif, duration, framerate, bad, last_shown, timestamp, is_camera, creation_time, preprocessed) "
         "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
         "ON CONFLICT(path) DO UPDATE SET "
         "w=excluded.w, h=excluded.h, exif=excluded.exif, "
-        "duration=excluded.duration, fps=excluded.fps, bad=excluded.bad, "
+        "duration=excluded.duration, framerate=excluded.framerate, bad=excluded.bad, "
         "last_shown=excluded.last_shown, timestamp=excluded.timestamp, is_camera=excluded.is_camera, creation_time=excluded.creation_time, preprocessed=excluded.preprocessed",
         -1, &stmt_upsert, nullptr) != SQLITE_OK) {
         trigger_error(410); // E410: SQLITE_PREPARE_STMT_FAIL
@@ -140,7 +140,7 @@ bool CacheManager::open(const std::string& dir) {
     }
 
     if (sqlite3_prepare_v2(db,
-        "SELECT w, h, duration, fps, exif, bad, last_shown, timestamp, is_camera, creation_time FROM cache WHERE path = ?",
+        "SELECT w, h, duration, framerate, exif, bad, last_shown, timestamp, is_camera, creation_time FROM cache WHERE path = ?",
         -1, &stmt_load, nullptr) != SQLITE_OK) {
         g_logger.error("Failed to prepare load statement.");
         close();
@@ -183,7 +183,7 @@ bool CacheManager::load_cached(MediaItem& mi) {
         mi.width      = (int)std::min(col_w, (int64_t)INT_MAX);
         mi.height     = (int)std::min(col_h, (int64_t)INT_MAX);
         mi.duration   = sqlite3_column_double(stmt_load, 2);
-        mi.fps        = sqlite3_column_double(stmt_load, 3);
+        mi.framerate        = sqlite3_column_double(stmt_load, 3);
         mi.exif_rotation = sqlite3_column_int(stmt_load, 4);
         int bad = sqlite3_column_int(stmt_load, 5);
         mi.last_shown = sqlite3_column_int64(stmt_load, 6);
@@ -240,7 +240,7 @@ void CacheManager::upsert(const MediaItem& mi, int bad, int preprocessed) {
     sqlite3_bind_int64(stmt_upsert, 4, mi.height);
     sqlite3_bind_int(stmt_upsert, 5, mi.exif_rotation);
     sqlite3_bind_double(stmt_upsert, 6, mi.duration);
-    sqlite3_bind_double(stmt_upsert, 7, mi.fps);
+    sqlite3_bind_double(stmt_upsert, 7, mi.framerate);
     sqlite3_bind_int(stmt_upsert, 8, bad);
     sqlite3_bind_int64(stmt_upsert, 9, mi.last_shown);
     sqlite3_bind_int64(stmt_upsert, 10, mi.modified_time);
