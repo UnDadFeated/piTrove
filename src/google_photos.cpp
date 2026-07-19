@@ -51,12 +51,9 @@ void GooglePhotosManager::start() {
         }
       }
 
-      // Sleep for interval minutes, checking running status every second for
-      // rapid exits
-      int total_sleep_sec = interval_mins * 60;
-      for (int i = 0; i < total_sleep_sec && running.load(); i++) {
-        std::this_thread::sleep_for(std::chrono::seconds(1));
-      }
+      // Efficient condition variable sleep with instant wake-up on stop()
+      std::unique_lock<std::mutex> lk(stop_mtx);
+      stop_cv.wait_for(lk, std::chrono::minutes(interval_mins), [this] { return !running.load(); });
     }
 
     g_logger.info("GooglePhotos: Background sync thread exiting.");
@@ -67,6 +64,7 @@ void GooglePhotosManager::stop() {
   if (!running.load())
     return;
   running.store(false);
+  stop_cv.notify_all();
   if (sync_thread.joinable()) {
     sync_thread.join();
   }

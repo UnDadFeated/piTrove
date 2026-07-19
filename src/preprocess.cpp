@@ -184,17 +184,14 @@ void start_preprocess_worker() {
 void stop_preprocess_worker() {
     g_preprocess_running.store(false);
     if (g_preprocess_thread.joinable()) {
-        int timeout_ms = 500;
+        int timeout_ms = 2500;
         while (timeout_ms > 0 && !g_preprocess_finished.load()) {
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
             timeout_ms -= 10;
         }
-        if (g_preprocess_finished.load()) {
+        if (g_preprocess_thread.joinable()) {
             g_preprocess_thread.join();
-            g_logger.info("Preprocess: Background preprocessing thread stopped successfully.");
-        } else {
-            g_preprocess_thread.detach();
-            g_logger.warn("Preprocess: Preprocessor thread did not exit cleanly. Detached.");
+            g_logger.info("Preprocess: Background preprocessing thread joined cleanly.");
         }
     }
 }

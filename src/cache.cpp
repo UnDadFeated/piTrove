@@ -370,6 +370,15 @@ void CacheManager::seed_error_catalog() {
     if (!db) return;
     std::lock_guard<std::mutex> lk(db_mutex);
 
+    sqlite3_stmt* check_stmt = nullptr;
+    if (sqlite3_prepare_v2(db, "SELECT COUNT(*) FROM error_catalog;", -1, &check_stmt, nullptr) == SQLITE_OK) {
+        if (sqlite3_step(check_stmt) == SQLITE_ROW && sqlite3_column_int(check_stmt, 0) > 0) {
+            sqlite3_finalize(check_stmt);
+            return;
+        }
+        sqlite3_finalize(check_stmt);
+    }
+
     char* err = nullptr;
     if (sqlite3_exec(db,
         "CREATE TABLE IF NOT EXISTS error_catalog ("

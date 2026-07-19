@@ -67,3 +67,5 @@ void scan_directory(const std::string& dir, int depth,
 unsigned long long make_entropy_seed();
 
 #endif // PITROVE_SCANNER_H
+
+extern std::atomic<int> g_scanner_detached_threads;

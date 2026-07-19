@@ -1,3 +1,6 @@
+#include <atomic>
+std::atomic<int> g_scanner_detached_threads{0};
+static constexpr int MAX_DETACHED_SCANNER_THREADS = 16;
 #ifndef _GNU_SOURCE
 #define _GNU_SOURCE
 #endif
@@ -53,16 +56,23 @@ std::vector<std::string> read_dir(const std::string& path) {
 }
 
 std::vector<std::string> read_dir_timeout(const std::string& path, int timeout_ms) {
+    if (g_scanner_detached_threads.load() >= MAX_DETACHED_SCANNER_THREADS) {
+        g_logger.warn("Scanner: max detached threads limit reached (%d), skipping read_dir for %s",
+                      g_scanner_detached_threads.load(), path.c_str());
+        return {};
+    }
     struct SharedResult {
         std::atomic<bool> done{false};
         std::vector<std::string> entries;
     };
     auto sr = std::make_shared<SharedResult>();
 
+    g_scanner_detached_threads++;
     std::string p(path);
     std::thread([p, sr]() {
         sr->entries = read_dir(p);
         sr->done.store(true);
+        g_scanner_detached_threads--;
     }).detach();
 
     auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeout_ms);
@@ -82,13 +92,18 @@ struct StatResult {
 };
 
 bool stat_timeout(const std::string& path, struct stat& st, int timeout_ms) {
+    if (g_scanner_detached_threads.load() >= MAX_DETACHED_SCANNER_THREADS) {
+        return false;
+    }
     struct SharedResult { std::atomic<bool> done{false}; struct stat data{}; };
     auto sr = std::make_shared<SharedResult>();
 
+    g_scanner_detached_threads++;
     std::string p(path);
     std::thread([p, sr]() {
         stat(p.c_str(), &sr->data);
         sr->done.store(true);
+        g_scanner_detached_threads--;
     }).detach();
 
     auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeout_ms);
