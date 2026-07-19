@@ -639,30 +639,28 @@ static void organize_playlist(std::vector<MediaItem>& eligible, int videos_per_p
         } else if (photos.empty()) {
             eligible = std::move(videos);
         } else {
-            // Distribute videos mathematically and evenly across photos based on the configured user ratio
-            size_t p_idx = 0, v_idx = 0;
-            double accumulator = 0.0;
-            if (shuffle_enabled && !photos.empty() && !videos.empty()) {
-                double rand_offset = static_cast<double>(make_entropy_seed() % 1000) / 1000.0;
-                accumulator = rand_offset * (photos_per_video + 1.0);
+            // Interleave videos evenly between photos so no two videos are adjacent
+            double spacing = (double)photos.size() / (double)videos.size();
+            if (spacing < 1.0) spacing = 1.0;
+
+            size_t p_idx = 0;
+            size_t v_idx = 0;
+            double rand_start = shuffle_enabled ? (static_cast<double>(make_entropy_seed() % 1000) / 1000.0) : 0.5;
+            double next_video_target = rand_start * spacing;
+
+            while (p_idx < photos.size()) {
+                eligible.push_back(std::move(photos[p_idx]));
+                p_idx++;
+
+                if (v_idx < videos.size() && (double)p_idx >= next_video_target) {
+                    eligible.push_back(std::move(videos[v_idx]));
+                    v_idx++;
+                    next_video_target += spacing;
+                }
             }
 
-            while (p_idx < photos.size() || v_idx < videos.size()) {
-                if (v_idx >= videos.size()) {
-                    // Out of videos: append remaining photos
-                    eligible.push_back(std::move(photos[p_idx++]));
-                } else if (p_idx >= photos.size()) {
-                    // Out of photos: append remaining videos
-                    eligible.push_back(std::move(videos[v_idx++]));
-                } else {
-                    if (accumulator >= photos_per_video) {
-                        eligible.push_back(std::move(videos[v_idx++]));
-                        accumulator -= photos_per_video;
-                    } else {
-                        eligible.push_back(std::move(photos[p_idx++]));
-                        accumulator += 1.0;
-                    }
-                }
+            while (v_idx < videos.size()) {
+                eligible.push_back(std::move(videos[v_idx++]));
             }
         }
 
