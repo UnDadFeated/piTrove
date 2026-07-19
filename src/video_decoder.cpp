@@ -445,7 +445,9 @@ void VideoDecoder::decode_loop() {
     }
 
     g_logger.info("VIDEO_DEC: Done %s (%d vf, %d af)", m_path.c_str(), vf_count, af_count);
-    // Decoder finished - mark as stopped so render loop can drain remaining queued frames
+    // Mark decoder as stopped immediately so the render loop stops spinning
+    // on "decoder already running" while we clean up FFmpeg resources below
+    m_running.store(false);
 
     try {
     av_frame_free(&rgba);
@@ -464,6 +466,6 @@ void VideoDecoder::decode_loop() {
         g_logger.error("VIDEO_DEC: Exception: %s", e.what());
     } catch (...) {
         g_logger.error("VIDEO_DEC: Unknown exception");
+        m_running.store(false);
     }
-    m_running.store(false);
 }
