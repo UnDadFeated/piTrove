@@ -75,7 +75,7 @@ Once the installation completes, the picture frame runs automatically in the bac
   - **Pattern Backgrounds**: Animated background patterns for photos that don't fill the screen (configurable pattern selection).
   - **Transition Progress Bar**: Optional 4px progress bar rendered during crossfade transitions (configurable toggle).
   - **Splash-to-First-Photo Fade**: Smooth 500ms black overlay fade-out on application startup, replacing an abrupt first-frame flash.
-- **Video Integration**: Seamless interleaving of H.264/H.265 videos using an accelerated `mpv` subprocess rendering directly via native DRM/KMS.
+- **Video Integration**: Seamless interleaving of H.264/H.265 videos decoded in-process via FFmpeg and rendered as SDL3 textures through native DRM/KMS.
 - **Dynamic CPU Core Scaling**: Dynamically detects available hardware cores and allocates `max_cores - 1` decoding threads to play videos, maximizing hardware efficiency while keeping a core free for background system integrity.
 
 ### 📂 Enterprise-Grade Scanning & Cache
@@ -169,7 +169,7 @@ graph TD
 ```
 
 - **Language**: C++17
-- **Core Libraries**: SDL3, SDL3_image, SDL3_ttf, libmpv, SQLite3, libexif, libheif, `mosquitto-clients`.
+- **Core Libraries**: SDL3, SDL3_image, SDL3_ttf, FFmpeg (libavcodec/libavformat/libswscale), SQLite3, libexif, libheif, `mosquitto-clients`.
 - **Hardware Accel**: Pi 4/5 VC4 DRM/KMS via SDL3 rendering.
 
 ## 📂 Project Structure

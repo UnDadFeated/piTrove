@@ -170,7 +170,7 @@ std::vector<ErrorSeed> get_all_error_seeds() {
         {
             "E202", 
             "VIDEO_PLAYER_CRASH", 
-            "The mpv video player exited abnormally with a critical playback failure.", 
+            "The video decoder exited abnormally with a critical playback failure.", 
             "Check if the video encoding is supported (HEVC/H.264), or if subtitle files are malformed/incomplete."
         },
         {
@@ -188,7 +188,7 @@ std::vector<ErrorSeed> get_all_error_seeds() {
         {
             "E205", 
             "AUDIO_DEVICE_ERROR", 
-            "The mpv player failed to initialize the configured ALSA audio output device.", 
+            "The SDL3 audio subsystem failed to initialize the configured audio output device.", 
             "Verify your audio output device name in config.toml, or verify your Raspberry Pi headphone jack/HDMI audio routes."
         },
         {
