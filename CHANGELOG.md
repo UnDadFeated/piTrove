@@ -1,5 +1,9 @@
 # Changelog
 
+## v15.1.4 — Dual Filename Overlay Restoration for Twin-Portraits (July 19, 2026)
+### Fixed
+- **Dual Filename Overlay for Twin-Portraits** — Fixed  overlay draw invocation so  is properly passed to . When two photos are rendered in twin-portrait mode, both filenames are stacked vertically in the overlay. Single photos and videos continue to display one filename.
+
 ## v15.1.3 — Cooldown Persistence & DB Fast-Path Index Binding Fix (July 19, 2026)
 ### Fixed
 - **Cooldown Persistence Across Restarts** — Fixed a column index offset bug in `main.cpp` fast-path database loader where `last_shown` was incorrectly read from column index 6 (`exif`) instead of index 7. This caused all items to load with `last_shown = 0` on startup, bypassing the cooldown filter and repeating the same media items on restart.
