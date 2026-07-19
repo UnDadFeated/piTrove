@@ -204,7 +204,6 @@ void VideoDecoder::decode_loop() {
     // Extract video duration
     if (fmt_ctx->duration > 0) {
         m_video_total_duration.store(fmt_ctx->duration / 1000000.0);
-        decode_start_time = av_gettime_relative() / 1000000.0;
     }
 
 
@@ -366,7 +365,9 @@ void VideoDecoder::decode_loop() {
                         vf.data = new uint8_t[nbytes];
                         memcpy(vf.data, buf, nbytes);
                         std::lock_guard lk(m_queue_mtx);
+                        if (decode_start_time == 0.0) decode_start_time = av_gettime_relative() / 1000000.0;
                         m_frame_queue.push(std::move(vf));
+                        if (vf_count % 100 == 0) g_logger.debug("VIDEO_DEC: queue_depth=%zu", m_frame_queue.size());
                     }
                 }
             }
