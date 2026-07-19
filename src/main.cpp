@@ -1471,8 +1471,9 @@ int main(int argc, char** argv) {
                     mi.height = sqlite3_column_int(stmt, 3);
                     mi.duration = sqlite3_column_double(stmt, 4);
                 mi.framerate = sqlite3_column_double(stmt, 5);
-                    mi.exif_rotation = sqlite3_column_int(stmt, 5);
-                    mi.last_shown = sqlite3_column_int64(stmt, 6);
+                    mi.exif_rotation = sqlite3_column_int(stmt, 6);
+                    mi.last_shown = sqlite3_column_int64(stmt, 7);
+                    mi.is_camera = sqlite3_column_int(stmt, 8);
                     mi.is_camera = sqlite3_column_int(stmt, 7);
                     auto slash = mi.path.rfind('/');
                     mi.filename = (slash != std::string::npos) ? mi.path.substr(slash + 1) : mi.path;

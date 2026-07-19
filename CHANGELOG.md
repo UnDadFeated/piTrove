@@ -1,5 +1,9 @@
 # Changelog
 
+## v15.1.3 — Cooldown Persistence & DB Fast-Path Index Binding Fix (July 19, 2026)
+### Fixed
+- **Cooldown Persistence Across Restarts** — Fixed a column index offset bug in `main.cpp` fast-path database loader where `last_shown` was incorrectly read from column index 6 (`exif`) instead of index 7. This caused all items to load with `last_shown = 0` on startup, bypassing the cooldown filter and repeating the same media items on restart.
+
 ## v15.1.2 — Live FFmpeg Stream Framerate & PTS Fallback Cascade (July 19, 2026)
 ### Fixed
 - **FFmpeg Frame Rate Guessing** — Integrated `av_guess_frame_rate` as primary FPS source, automatically resolving variable framerate (VFR) media and stream time base mismatches.
