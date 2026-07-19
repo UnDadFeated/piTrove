@@ -642,6 +642,10 @@ static void organize_playlist(std::vector<MediaItem>& eligible, int videos_per_p
             // Distribute videos mathematically and evenly across photos based on the configured user ratio
             size_t p_idx = 0, v_idx = 0;
             double accumulator = 0.0;
+            if (shuffle_enabled && !photos.empty() && !videos.empty()) {
+                double rand_offset = static_cast<double>(make_entropy_seed() % 1000) / 1000.0;
+                accumulator = rand_offset * (photos_per_video + 1.0);
+            }
 
             while (p_idx < photos.size() || v_idx < videos.size()) {
                 if (v_idx >= videos.size()) {
@@ -2188,9 +2192,8 @@ int main(int argc, char** argv) {
                                     g_overlay->pin_active = true;
                                     g_logger.info("TOUCH_INPUT: PIN required before showing navigation overlay.");
                                 } else if (touch_mode) {
-                                    if ((g_video_decoder.is_running() || g_video_decoder.has_frames()) && g_video_decoder.is_eof()) {
-                                        g_logger.info("TOUCH_INPUT: Touch during video: stopping decoder to open navigation overlay.");
-                                        g_video_decoder.stop();
+                                    if (g_video_decoder.is_running() || g_video_decoder.has_frames()) {
+                                        g_logger.info("TOUCH_INPUT: Touch during video: opening navigation overlay on top of video.");
                                     }
                                     g_overlay->nav_overlay_active = true;
                                     g_overlay->nav_overlay_show_time = SDL_GetTicks();
@@ -2229,9 +2232,8 @@ int main(int argc, char** argv) {
                                 g_overlay->pin_active = true;
                                 g_logger.info("TOUCH_INPUT: PIN required before showing navigation overlay (finger).");
                             } else {
-                                if ((g_video_decoder.is_running() || g_video_decoder.has_frames()) && g_video_decoder.is_eof()) {
-                                    g_logger.info("TOUCH_INPUT: Finger touch during video: stopping decoder to open navigation overlay.");
-                                    g_video_decoder.stop();
+                                if (g_video_decoder.is_running() || g_video_decoder.has_frames()) {
+                                    g_logger.info("TOUCH_INPUT: Finger touch during video: opening navigation overlay on top of video.");
                                 }
                                 g_overlay->nav_overlay_active = true;
                                 g_overlay->nav_overlay_show_time = SDL_GetTicks();
