@@ -2419,47 +2419,53 @@ int main(int argc, char** argv) {
                         }
                         g_renderer.present();
                     }
-                    // Frame pacing: runs every iteration to control playback speed
-                    // Use microsecond precision with drift correction
+                    // Frame pacing: PTS presentation timing with framerate budget fallback
+                    static std::string pacing_video_path = "";
+                    static uint64_t video_start_ticks_ms = 0;
                     static uint64_t video_frame_target_ns = 0;
-                    static double video_last_frame_dur = -1;
-                    double frame_dur_ms = 0;
-                    {
-                        double cfps = g_eligible[current_idx].framerate;
-                        if (cfps > 0) {
-                            frame_dur_ms = 1000.0 / cfps;
-                        } else {
-                            double dec_fps = g_video_decoder.get_fps();
-                            if (dec_fps > 0) frame_dur_ms = 1000.0 / dec_fps;
-                            else frame_dur_ms = 40;
+                    std::string cur_path = g_eligible[current_idx].path;
+                    uint64_t now_ticks_ms = SDL_GetTicks();
+
+                    if (pacing_video_path != cur_path) {
+                        pacing_video_path = cur_path;
+                        video_start_ticks_ms = now_ticks_ms;
+                        video_frame_target_ns = now_ticks_ms * 1000ULL;
+                    }
+
+                    if (frame.pts > 0.0) {
+                        double elapsed_sec = (double)(now_ticks_ms - video_start_ticks_ms) / 1000.0;
+                        double diff_sec = frame.pts - elapsed_sec;
+                        if (diff_sec > 0.001 && diff_sec < 0.5) {
+                            uint32_t sleep_ms = (uint32_t)(diff_sec * 1000.0);
+                            if (sleep_ms > 0) SDL_Delay(sleep_ms);
                         }
+                    } else {
+                        double cfps = g_eligible[current_idx].framerate;
+                        if (cfps <= 0) cfps = g_video_decoder.get_fps();
+                        if (cfps <= 0) cfps = 25.0;
+                        double frame_dur_ms = 1000.0 / cfps;
+                        uint64_t now_ns = SDL_GetTicks() * 1000ULL;
+                        uint64_t frame_budget_ns = (uint64_t)(frame_dur_ms * 1000.0);
+
+                        if (now_ns > video_frame_target_ns + frame_budget_ns * 2) {
+                            video_frame_target_ns = now_ns;
+                        }
+                        if (now_ns < video_frame_target_ns) {
+                            uint32_t sleep_ms = (uint32_t)((video_frame_target_ns - now_ns) / 1000ULL);
+                            if (sleep_ms > 1 && sleep_ms < 500) SDL_Delay(sleep_ms);
+                        }
+                        video_frame_target_ns += frame_budget_ns;
                     }
-                    // Always reset pacing on new video
-                    if (std::abs(video_last_frame_dur - frame_dur_ms) > 0.1) {
-                        video_frame_target_ns = SDL_GetTicks() * 1000ULL;
-                        video_last_frame_dur = frame_dur_ms;
-                    }
-                    uint64_t now_ns = SDL_GetTicks() * 1000ULL;
-                    uint64_t frame_budget_ns = (uint64_t)(frame_dur_ms * 1000.0);
-                    // Clamp target to prevent drift when rendering takes too long
-                    if (now_ns > video_frame_target_ns + frame_budget_ns * 2) {
-                        video_frame_target_ns = now_ns;
-                    }
-                    if (now_ns < video_frame_target_ns) {
-                        uint32_t sleep_ms = (uint32_t)((video_frame_target_ns - now_ns) / 1000ULL);
-                        if (sleep_ms > 1) SDL_Delay(sleep_ms);
-                    }
-                    video_frame_target_ns += frame_budget_ns;
                 } else if (g_video_decoder.is_running() || g_video_decoder.has_frames()) {
                     // Queue empty but decoder still running - wait and retry
                     SDL_Delay(5);
                     continue;
                 }
 
-                // DEBUG: trace decoder state when queue empties
-                // Decoder finish check: only advance when decoder is truly done
-                if (!g_video_decoder.is_running() && !g_video_decoder.has_frames() && g_video_decoder.is_eof()) {
+                // Decoder finish check: advance when frame queue is empty and decoder is done or at EOF
+                if (!g_video_decoder.has_frames() && (!g_video_decoder.is_running() || g_video_decoder.is_eof())) {
                     g_logger.info("Video decoder finished (EOF), advancing playlist.");
+                    g_video_decoder.stop();
                     mark_item_shown(g_eligible[current_idx].path, false);
                     transitioning = true;
                     playlist_lock.unlock();

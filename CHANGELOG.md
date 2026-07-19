@@ -1,5 +1,19 @@
 # Changelog
 
+## v14.7.7 — Video Decoder EOF Flush, Framerate Pacing & Transition Fix (July 18, 2026)
+
+### Fixed
+- **Video Decoder EOF Infinite Flush Loop & Docker Crash** — Resolved infinite packet sending loop during EOF decoder flush when avcodec_receive_frame returned AVERROR_EOF (-541478725), preventing log spam and Docker container crashes.
+- **Video Framerate Pacing** — Synchronized video frame rendering with presentation timestamps (frame.pts) relative to wall-clock time (SDL_GetTicks()) and ensured pacing variables are reset when switching videos, fixing fast playback.
+- **Frozen Last Frame & Video Lifecycle** — Corrected decoder completion check in main.cpp so slideshow transitions immediately when all frames are rendered, and refactored VideoDecoder lifecycle (start/stop) to ensure threads and SDL audio streams are always joined and shut down cleanly.
+
+## v14.7.7 — Video Decoder EOF Flush, Framerate Pacing & Transition Fix (July 18, 2026)
+
+### Fixed
+- **Video Decoder EOF Infinite Flush Loop & Docker Crash** — Resolved infinite packet sending loop during EOF decoder flush when avcodec_receive_frame returned AVERROR_EOF (-541478725), preventing log spam and Docker container crashes.
+- **Video Framerate Pacing** — Synchronized video frame rendering with presentation timestamps (frame.pts) relative to wall-clock time (SDL_GetTicks()) and ensured pacing variables are reset when switching videos, fixing fast playback.
+- **Frozen Last Frame & Video Lifecycle** — Corrected decoder completion check in main.cpp so slideshow transitions immediately when all frames are rendered, and refactored VideoDecoder lifecycle (start/stop) to ensure threads and SDL audio streams are always joined and shut down cleanly.
+
 ## v14.7.2 — Video framerate Sync, Cooldown & UI Overlays (July 18, 2026)
 ### Fixed
 - **Video framerate sync** — Extract video frame rate from FFmpeg stream metadata at startup. Use detected framerate as authoritative frame duration for throttling, with PTS delta as refinement. Fixes videos playing too fast (e.g. 10fps video played at 25fps).
