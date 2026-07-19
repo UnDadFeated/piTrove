@@ -1,5 +1,10 @@
 # Changelog
 
+## v15.1.1 — Master Clock Video Timing & FFmpeg Duration Fix (July 19, 2026)
+### Fixed
+- **Countdown Clock Desync Fix** — Removed `last_pts` total duration truncation in `VideoDecoder::get_video_remaining()`, allowing the OSD timer overlay to accurately display live remaining video playback down to 0:00.
+- **FFmpeg Stream Master Clock & Duration Alignment** — Ensured video duration is derived directly from live FFmpeg stream metadata (`AV_TIME_BASE`) rather than static SQLite DB cache data.
+
 ## v15.1.0 — Hardware Video Pacing & Cache Isolation Fix (July 19, 2026)
 ### Fixed
 - **Hardware Video Framerate Pacing & Clock Sync** — Normalized hardware video decoder frame timestamps (`best_effort_timestamp`) relative to initial video PTS (`rel_pts = vf.pts - video_first_pts`), fixing ~half-framerate slowdowns and eliminating countdown clock desync during hardware decoding.

@@ -135,8 +135,7 @@ double VideoDecoder::get_frame_duration() const {
 double VideoDecoder::get_video_remaining(double fallback_duration) const {
     double total = m_video_total_duration.load(std::memory_order_relaxed);
     double last_pts = m_last_frame_pts.load(std::memory_order_relaxed);
-    if (last_pts > 0 && last_pts < total) total = last_pts;
-    if (total <= 0.0) total = fallback_duration;
+        if (total <= 0.0) total = fallback_duration;
     double start_t = decode_start_time.load(std::memory_order_relaxed);
     if (total <= 0.0 || start_t <= 0.0) return 0.0;
     double elapsed = (av_gettime_relative() / 1000000.0) - start_t;
