@@ -1,5 +1,10 @@
 # Changelog
 
+## v15.1.2 — Live FFmpeg Stream Framerate & PTS Fallback Cascade (July 19, 2026)
+### Fixed
+- **FFmpeg Frame Rate Guessing** — Integrated `av_guess_frame_rate` as primary FPS source, automatically resolving variable framerate (VFR) media and stream time base mismatches.
+- **PTS Fallback Cascade** — Implemented `best_effort_timestamp` -> `pts` -> `pkt_dts` timestamp extraction cascade to ensure hardware decoders (`v4l2m2m`) preserve monotonic frame presentation timestamps.
+
 ## v15.1.1 — Master Clock Video Timing & FFmpeg Duration Fix (July 19, 2026)
 ### Fixed
 - **Countdown Clock Desync Fix** — Removed `last_pts` total duration truncation in `VideoDecoder::get_video_remaining()`, allowing the OSD timer overlay to accurately display live remaining video playback down to 0:00.
