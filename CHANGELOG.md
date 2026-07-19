@@ -1,5 +1,9 @@
 # Changelog
 
+## v15.2.2 — Install Script Ownership Guarantee (July 19, 2026)
+### Fixed
+- **Installer Ownership Verification** — Updated `install.sh` to execute a comprehensive final ownership pass (`chown -R $PRIMARY_USER:$PRIMARY_USER $PRIMARY_HOME/piTrove`) after all directory initialization, ensuring user `pi` owns every file, directory, script, cache, and log file in the repository.
+
 ## v15.2.1 — Cache Path Scope & Non-Root Ownership Fix (July 19, 2026)
 ### Fixed
 - **Cache Path Scoping** — Fixed un-scoped `cache_dir` key in `config.cpp` that previously caused `[google_photos]` section to overwrite `[paths]` `cache_dir`. Default database now cleanly populates in `/app/cache/cache.db` (`~/piTrove/cache/cache.db`).
