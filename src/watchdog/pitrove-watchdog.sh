@@ -107,9 +107,13 @@ while true; do
             fi
             WAS_OFFLINE=false
         fi
-        # Verify piTrove application service is active when network is online
+        # Verify piTrove application service & container health when network is online
         if ! systemctl is-active --quiet piTrove.service 2>/dev/null; then
             log "Service check: piTrove.service is inactive! Auto-reviving service..."
+            systemctl reset-failed piTrove.service 2>/dev/null || true
+            systemctl restart piTrove.service 2>/dev/null || true
+        elif docker inspect --format={{.State.Health.Status}} "" 2>/dev/null | grep -q "unhealthy"; then
+            log "Health check: piTrove container reported UNHEALTHY! Restarting service..."
             systemctl reset-failed piTrove.service 2>/dev/null || true
             systemctl restart piTrove.service 2>/dev/null || true
         fi

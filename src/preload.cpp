@@ -135,44 +135,46 @@ std::shared_ptr<ImageData> PreloadQueue::try_dequeue(const std::string& target_p
                     for (int y = 0; y < item.raw.height; y++) {
                         memcpy(dst + y * data->surface->pitch, src + y * item.raw.width * 4, item.raw.width * 4);
                     }
+                }
+                if (item.raw.pixels) {
                     free(item.raw.pixels);
                     item.raw.pixels = nullptr;
-
-                    if (data->exif_rotation >= 2 && data->exif_rotation <= 8) {
-                        SDL_Surface* rotated = ImageLoader::apply_exif_rotation(data->surface, data->exif_rotation);
-                        if (rotated) {
-                            SDL_DestroySurface(data->surface);
-                            data->surface = rotated;
-                        }
-                    }
-                    if (data->surface) {
-                        data->width = data->surface->w;
-                        data->height = data->surface->h;
-                    }
-
-                    // Extract average color from preloaded background calculations
-                    data->avg_r = item.avg_r;
-                    data->avg_g = item.avg_g;
-                    data->avg_b = item.avg_b;
-
-                    // Copy precomputed matte color from worker thread
-                    data->matte_r = item.matte_r;
-                    data->matte_g = item.matte_g;
-                    data->matte_b = item.matte_b;
-
-                    // Copy precomputed edge colors from worker thread
-                    for (int e = 0; e < 4; e++) {
-                        data->edge_r[e] = item.edge_r[e];
-                        data->edge_g[e] = item.edge_g[e];
-                        data->edge_b[e] = item.edge_b[e];
-                    }
-
-                    // Copy precomputed per-pixel edge strips from worker thread
-                    data->edge_top_rgb = std::move(item.edge_top_rgb);
-                    data->edge_bot_rgb = std::move(item.edge_bot_rgb);
-                    data->edge_lft_rgb = std::move(item.edge_lft_rgb);
-                    data->edge_rgt_rgb = std::move(item.edge_rgt_rgb);
                 }
+
+                if (data->exif_rotation >= 2 && data->exif_rotation <= 8) {
+                    SDL_Surface* rotated = ImageLoader::apply_exif_rotation(data->surface, data->exif_rotation);
+                    if (rotated) {
+                        SDL_DestroySurface(data->surface);
+                        data->surface = rotated;
+                    }
+                }
+                if (data->surface) {
+                    data->width = data->surface->w;
+                    data->height = data->surface->h;
+                }
+
+                // Extract average color from preloaded background calculations
+                data->avg_r = item.avg_r;
+                data->avg_g = item.avg_g;
+                data->avg_b = item.avg_b;
+
+                // Copy precomputed matte color from worker thread
+                data->matte_r = item.matte_r;
+                data->matte_g = item.matte_g;
+                data->matte_b = item.matte_b;
+
+                // Copy precomputed edge colors from worker thread
+                for (int e = 0; e < 4; e++) {
+                    data->edge_r[e] = item.edge_r[e];
+                    data->edge_g[e] = item.edge_g[e];
+                    data->edge_b[e] = item.edge_b[e];
+                }
+
+                // Copy precomputed per-pixel edge strips from worker thread
+                data->edge_top_rgb = std::move(item.edge_top_rgb);
+                data->edge_bot_rgb = std::move(item.edge_bot_rgb);
+                data->edge_lft_rgb = std::move(item.edge_lft_rgb);
+                data->edge_rgt_rgb = std::move(item.edge_rgt_rgb);
 
                 // Move blur_raw to ImageData (no SDL needed — renderer creates texture on demand)
                 if (item.blur_raw.valid && item.blur_raw.pixels) {

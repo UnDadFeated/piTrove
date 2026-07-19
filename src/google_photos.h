@@ -1,3 +1,4 @@
+#include <condition_variable>
 #ifndef PITROVE_GOOGLE_PHOTOS_H
 #define PITROVE_GOOGLE_PHOTOS_H
 
@@ -9,6 +10,8 @@
 class GooglePhotosManager {
 private:
     std::thread sync_thread;
+  std::condition_variable stop_cv;
+  std::mutex stop_mtx;
     std::atomic<bool> running{false};
     std::mutex sync_mtx;
 

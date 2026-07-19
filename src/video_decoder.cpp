@@ -98,7 +98,7 @@ bool VideoDecoder::start(const std::string& path, int target_width, int target_h
     m_target_width = target_width;
     m_target_height = target_height;
     m_eof.store(false);
-    decode_start_time = 0.0;
+    decode_start_time.store(0.0, std::memory_order_relaxed);
     m_running.store(true);
     int rc = pthread_create(&m_thread, nullptr, decode_thread_entry, this);
     if (rc != 0) {
@@ -134,12 +134,12 @@ double VideoDecoder::get_frame_duration() const {
 
 double VideoDecoder::get_video_remaining(double fallback_duration) const {
     double total = m_video_total_duration.load(std::memory_order_relaxed);
-    // Prefer last decoded frame PTS for more accurate remaining time
     double last_pts = m_last_frame_pts.load(std::memory_order_relaxed);
     if (last_pts > 0 && last_pts < total) total = last_pts;
     if (total <= 0.0) total = fallback_duration;
-    if (total <= 0.0 || decode_start_time <= 0.0) return 0.0;
-    double elapsed = (av_gettime_relative() / 1000000.0) - decode_start_time;
+    double start_t = decode_start_time.load(std::memory_order_relaxed);
+    if (total <= 0.0 || start_t <= 0.0) return 0.0;
+    double elapsed = (av_gettime_relative() / 1000000.0) - start_t;
     return std::max(0.0, total - elapsed);
 }
 
@@ -149,6 +149,7 @@ bool VideoDecoder::get_frame(VideoFrame& out) {
     if (m_frame_queue.empty()) return false;
     out = std::move(m_frame_queue.front());
     m_frame_queue.pop();
+    m_queue_cv.notify_one();
     return true;
 }
 bool VideoDecoder::has_frames() const {
@@ -217,9 +218,19 @@ void VideoDecoder::decode_loop() {
 
     m_last_frame_pts.store(0.0);
 
-    // Video codec
+    // Video codec — probe hardware acceleration (V4L2 M2M) first, fallback to software
     AVCodecParameters* vp = fmt_ctx->streams[video_stream_idx]->codecpar;
-    const AVCodec* vc = avcodec_find_decoder(vp->codec_id);
+    const AVCodec* vc = nullptr;
+    if (vp->codec_id == AV_CODEC_ID_H264) {
+        vc = avcodec_find_decoder_by_name("h264_v4l2m2m");
+    } else if (vp->codec_id == AV_CODEC_ID_HEVC) {
+        vc = avcodec_find_decoder_by_name("hevc_v4l2m2m");
+    }
+    if (!vc) {
+        vc = avcodec_find_decoder(vp->codec_id);
+    } else {
+        g_logger.info("VIDEO_DEC: Hardware video acceleration enabled (%s)", vc->name);
+    }
     if (!vc) {
         g_logger.error("VIDEO_DEC: Unsupported video codec for %s", m_path.c_str());
         avformat_close_input(&fmt_ctx);
@@ -379,9 +390,17 @@ void VideoDecoder::decode_loop() {
                         if (frame->pts != AV_NOPTS_VALUE) {
                             vf.pts = av_q2d(fmt_ctx->streams[video_stream_idx]->time_base) * frame->pts;
                         }
-                        std::lock_guard lk(m_queue_mtx);
-                        if (decode_start_time == 0.0) decode_start_time = av_gettime_relative() / 1000000.0;
-                        m_frame_queue.push(std::move(vf));
+                        {
+                            std::unique_lock<std::mutex> lk(m_queue_mtx);
+                            m_queue_cv.wait(lk, [this] {
+                                return m_frame_queue.size() < MAX_QUEUED_FRAMES || !m_running.load();
+                            });
+                            if (!m_running.load()) break;
+                            if (decode_start_time.load(std::memory_order_relaxed) == 0.0) {
+                                decode_start_time.store(av_gettime_relative() / 1000000.0, std::memory_order_relaxed);
+                            }
+                            m_frame_queue.push(std::move(vf));
+                        }
                         if (vf_count % 100 == 0) g_logger.debug("VIDEO_DEC: queue_depth=%zu", m_frame_queue.size());
                     }
                 }
@@ -421,8 +440,14 @@ void VideoDecoder::decode_loop() {
             // Track last decoded frame PTS for accurate countdown timer
             if (vf.pts > 0) m_last_frame_pts.store(vf.pts + m_frame_duration, std::memory_order_relaxed);
 
-            std::lock_guard lk(m_queue_mtx);
-            m_frame_queue.push(std::move(vf));
+            {
+                std::unique_lock<std::mutex> lk(m_queue_mtx);
+                m_queue_cv.wait(lk, [this] {
+                    return m_frame_queue.size() < MAX_QUEUED_FRAMES || !m_running.load();
+                });
+                if (!m_running.load()) break;
+                m_frame_queue.push(std::move(vf));
+            }
             } // end while drain
             if (ret < 0 && ret != AVERROR(EAGAIN) && ret != AVERROR_EOF) {
                 g_logger.warn("VIDEO_DEC: Skipping to next packet after bad frame");

@@ -58,7 +58,12 @@ static float read_cpu_usage() {
     static Sample prev = {};
     if (prev.total == 0) {
         prev = read_sample();
-        return 0.0f;
+        SDL_Delay(5);
+        Sample s2 = read_sample();
+        long long d_t = s2.total - prev.total;
+        long long d_b = d_t - (s2.idle - prev.idle);
+        prev = s2;
+        if (d_t > 0) return ((float)d_b / (float)d_t) * 100.0f;
     }
 
     Sample cur = read_sample();

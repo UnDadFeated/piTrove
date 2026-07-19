@@ -1,5 +1,22 @@
 # Changelog
 
+## v15.0.0 — Major Architecture & System Hardening Upgrade (July 19, 2026)
+### Added
+- **Hardware Video Acceleration Probing** — Integrated automatic `h264_v4l2m2m` and `hevc_v4l2m2m` V4L2 M2M hardware decoder probing for Raspberry Pi 4/5, dramatically reducing CPU load during video playback.
+- **Docker Container Health Check** — Added native `HEALTHCHECK` probing `http://localhost:9000/api/status` with watchdog auto-healing.
+- **Unit Test Infrastructure** — Introduced unit test suite in `tests/test_main.cpp` for core parsing and utility validation.
+
+### Fixed & Hardened
+- **Bounded Video Frame Queue & Backpressure** — Capped `m_frame_queue` depth (`MAX_QUEUED_FRAMES = 8`) with `condition_variable` backpressure to eliminate OOM risks.
+- **Data Race Fix** — Converted `decode_start_time` to `std::atomic<double>` to prevent Undefined Behavior between render and decode threads.
+- **Scanner Thread Safety Cap** — Added `g_scanner_detached_threads` atomic tracking to prevent thread accumulation during CIFS mount hangs.
+- **Memory Leak Fix** — Fixed surface creation error path in `preload.cpp` to ensure preloaded pixel memory is unconditionally freed.
+- **Google Photos Sync Sleep** — Replaced 1s polling sleep loop with efficient `condition_variable::wait_for()`.
+- **Preprocess Worker Shutdown** — Replaced thread detaching with graceful `join()` and extended shutdown timeout.
+- **Error Catalog Seeding** — Added DB record count check to skip redundant table re-seeding on startup.
+- **CPU Telemetry Baseline** — Added 5ms delta initialization to `read_cpu_usage()` to fix startup 0% telemetry readings.
+- **Debug Log Macro Guarding** — Added early return evaluation to `Logger::debug()` to prevent unneeded formatting overhead.
+
 ## v14.7.9 — Watchdog Hardening, Video EOF Transition Fix & mpv Cleanup (July 18, 2026)
 ### Fixed
 - **Video EOF Transition Spam Fix** — Moved `m_running.store(false)` before FFmpeg resource cleanup in the decoder thread, eliminating ~60 "decoder already running, skipping start" log lines per video EOF by allowing the render loop to detect completion immediately instead of spinning while FFmpeg contexts are freed.
