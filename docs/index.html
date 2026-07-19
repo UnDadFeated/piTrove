@@ -30,7 +30,7 @@
       "featureList": [
         "DRM/KMS GPU Framebuffer Rendering via SDL3",
         "Docker Containerized Isolation (Raspberry Pi 4 & 5)",
-        "H.264/H.265 MP4 Video Playback via integrated MPV",
+        "Native In-Process H.264/H.265 Video Decoding via FFmpeg & SDL3",
         "GPU Transition Effects (Pixelate, Dissolve)",
         "NAS-Optimized I/O with CIFS Hang Prevention & Recovery",
         "Seasonal Smart Scanning (Month-based matching)",
@@ -1288,7 +1288,7 @@
                                 <div class="feature-item-icon"><span class="ti ti-player-play"></span></div>
                                 <div class="feature-item-content">
                                     <h4>Video Playback</h4>
-                                    <p>H.264/H.265 MP4 playback via mpv integrated into the slideshow loop. Photo/video ratio and subtitle support included.</p>
+                                    <p>H.264/H.265/AV1 video decoding baked directly into SDL3 using FFmpeg. Eliminates external process switches for seamless video-to-photo transitions and full frame-level playback control.</p>
                                 </div>
                             </div>
                             <div class="feature-item">
@@ -1768,8 +1768,8 @@ v13.3.5 2026-06-21 10:00:10.901 [INFO] Loading: 2024-07_Sunset.webp
 v13.3.5 2026-06-21 10:00:11.234 [INFO] Render: 1920x1080 | 8ms | EXIF rotation applied
 v13.3.5 2026-06-21 10:00:15.567 [INFO] Transition: Crossfade 1.5s
 v13.3.5 2026-06-21 10:00:17.890 [INFO] Loading: 2025-01_Vacation.mp4
-v13.3.5 2026-06-21 10:00:18.123 [INFO] MPV: Video playback started - H.265/HEVC 4K
-v13.3.5 2026-06-21 10:00:33.456 [INFO] MPV: Video finished (15.3s duration)</div>
+v13.3.5 2026-06-21 10:00:18.123 [INFO] VIDEO_DEC: Video playback started - H.265/HEVC 4K (FFmpeg & SDL3)
+v13.3.5 2026-06-21 10:00:33.456 [INFO] VIDEO_DEC: Video finished (Natural EOF)</div>
                         </div>
                     </div>
                 </div>

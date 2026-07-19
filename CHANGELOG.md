@@ -1,22 +1,15 @@
-## [14.7.8] - 2026-07-18
-### Fixed
-- **Video Countdown Timer Overlay**: Added stream-level duration extraction () and media item metadata fallback () so every video displays the remaining playback countdown timer in the top right, even when container headers lack global duration tags.
-
 # Changelog
 
-## v14.7.7 — Video Decoder EOF Flush, Framerate Pacing & Transition Fix (July 18, 2026)
-
-### Fixed
-- **Video Decoder EOF Infinite Flush Loop & Docker Crash** — Resolved infinite packet sending loop during EOF decoder flush when avcodec_receive_frame returned AVERROR_EOF (-541478725), preventing log spam and Docker container crashes.
-- **Video Framerate Pacing** — Synchronized video frame rendering with presentation timestamps (frame.pts) relative to wall-clock time (SDL_GetTicks()) and ensured pacing variables are reset when switching videos, fixing fast playback.
-- **Frozen Last Frame & Video Lifecycle** — Corrected decoder completion check in main.cpp so slideshow transitions immediately when all frames are rendered, and refactored VideoDecoder lifecycle (start/stop) to ensure threads and SDL audio streams are always joined and shut down cleanly.
+## v14.7.8 — Video Countdown Timer Overlay & Config Update (July 18, 2026)
+## Fixed
+- **Video Countdown Timer Overlay** — Added stream-level duration extraction (`AVStream::duration`) and media item metadata fallback (`MediaItem::duration`) so every video displays the remaining playback countdown timer in the top right, even when container headers lack global duration tags.
+- **Config Default** — Set `play_just_videos = false` in `config.toml` so both photos and videos play in sequence.
 
 ## v14.7.7 — Video Decoder EOF Flush, Framerate Pacing & Transition Fix (July 18, 2026)
-
-### Fixed
-- **Video Decoder EOF Infinite Flush Loop & Docker Crash** — Resolved infinite packet sending loop during EOF decoder flush when avcodec_receive_frame returned AVERROR_EOF (-541478725), preventing log spam and Docker container crashes.
-- **Video Framerate Pacing** — Synchronized video frame rendering with presentation timestamps (frame.pts) relative to wall-clock time (SDL_GetTicks()) and ensured pacing variables are reset when switching videos, fixing fast playback.
-- **Frozen Last Frame & Video Lifecycle** — Corrected decoder completion check in main.cpp so slideshow transitions immediately when all frames are rendered, and refactored VideoDecoder lifecycle (start/stop) to ensure threads and SDL audio streams are always joined and shut down cleanly.
+## Fixed
+- **Video Decoder EOF Infinite Flush Loop & Docker Crash** — Resolved infinite packet sending loop during EOF decoder flush when `avcodec_receive_frame` returned `AVERROR_EOF` (`-541478725`), preventing log spam and Docker container crashes.
+- **Video Framerate Pacing** — Synchronized video frame rendering with presentation timestamps (`frame.pts`) relative to wall-clock time (`SDL_GetTicks()`) and ensured pacing variables are reset when switching videos, fixing fast playback.
+- **Frozen Last Frame & Video Lifecycle** — Corrected decoder completion check in `main.cpp` so slideshow transitions immediately when all frames are rendered, and refactored `VideoDecoder` lifecycle (`start`/`ctop`) to ensure threads and SDL audio streams are always joined and shut down cleanly.
 
 ## v14.7.2 — Video framerate Sync, Cooldown & UI Overlays (July 18, 2026)
 ### Fixed
