@@ -1439,11 +1439,11 @@ fi
 chown -R $PRIMARY_USER:$PRIMARY_USER "$PRIMARY_HOME/piTrove/config"
 ok "Default production config.toml generated"
 
-# Final ownership pass to catch any root-created files during build
-chown -R $PRIMARY_USER:$PRIMARY_USER "$PRIMARY_HOME/piTrove"
-
 # Ensure watchdog directory exists
 mkdir -p "$PRIMARY_HOME/piTrove/src/watchdog"
+
+# Final ownership pass to catch any root-created files during build
+chown -R $PRIMARY_USER:$PRIMARY_USER "$PRIMARY_HOME/piTrove"
 
 # ── systemd Service Deployment ─────────────────────────────────────────────────
 info "Installing daemon background service..."
