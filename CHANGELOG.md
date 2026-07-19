@@ -1,5 +1,10 @@
 # Changelog
 
+## v15.2.3 — Comprehensive Architecture Roadmap (July 19, 2026)
+### Added
+- **PLAN.md Architecture Roadmap** — Added comprehensive 15-phase architecture and code audit document covering security hardening, runtime robustness, performance optimization, and maintainability upgrades based on the v15.2.2 feature set and module layout. Covers 29 task groups across web dashboard auth, MQTT TLS, secrets management, Docker hardening, C++ core improvements, SQLite resilience, NAS fault isolation, image/video pipeline optimization, DRM/KMS display handling, Home Assistant sensor expansion, Google Photos sync hardening, media organizer safety, config hardening, structured observability, testing infrastructure, and performance tuning.
+- **CMakeLists.txt Version Sync** — Synchronized CMake project version from 14.7.1 to 15.2.3.
+
 ## v15.2.2 — Install Script Ownership Guarantee (July 19, 2026)
 ### Fixed
 - **Installer Ownership Verification** — Updated `install.sh` to execute a comprehensive final ownership pass (`chown -R $PRIMARY_USER:$PRIMARY_USER $PRIMARY_HOME/piTrove`) after all directory initialization, ensuring user `pi` owns every file, directory, script, cache, and log file in the repository.
