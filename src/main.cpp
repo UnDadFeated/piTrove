@@ -2994,9 +2994,11 @@ int main(int argc, char** argv) {
             if (rendered) {
                 if (g_overlay) {
                     bool cur_is_video = (!g_eligible.empty() && current_idx >= 0 && current_idx < (int)g_eligible.size() && g_eligible[current_idx].type == "video");
+                    int twin_idx = (current_idx + 1) % (int)g_eligible.size();
+                    const MediaItem* twin_item_ptr = (current_twin_data && !g_eligible.empty()) ? &g_eligible[twin_idx] : nullptr;
                     g_overlay->draw_all(current_idx, (int)g_eligible.size(),
                         &g_eligible[current_idx],
-                        current_twin_data ? nullptr : nullptr,
+                        twin_item_ptr,
                         item_timer, cur_is_video, active_fps, current_data.get(), current_twin_data.get());
                 }
                 g_renderer.present();
