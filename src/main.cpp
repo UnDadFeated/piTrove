@@ -1027,33 +1027,12 @@ static void keepalive_loop() {
                     pclose(dmesg_fp2);
                 }
 
-                // Hard reboot via SysRq — bypasses systemd to fully reset WiFi firmware
-                g_logger.error("Keepalive: Initiating hard kernel reboot via SysRq 'b'...");
+                // Container-safe network recovery restart — touches heartbeat and requests container restart
+                g_logger.error("Keepalive: Network recovery timed out after 3 minutes. Requesting container restart...");
+                FILE* hb = fopen("/app/logs/heartbeat", "w");
+                if (hb) { fputs("STALE_NETWORK", hb); fclose(hb); }
                 sync();
-                bool sysrq_success = false;
-                int fd_rq = open("/proc/sys/kernel/sysrq", O_WRONLY);
-                if (fd_rq >= 0) {
-                    if (write(fd_rq, "1", 1) == 1) {
-                        int fd_trig = open("/proc/sysrq-trigger", O_WRONLY);
-                        if (fd_trig >= 0) {
-                            if (write(fd_trig, "b", 1) == 1) {
-                                sysrq_success = true;
-                            }
-                            close(fd_trig);
-                        }
-                    }
-                    close(fd_rq);
-                }
-
-                if (!sysrq_success) {
-                    g_logger.error("Keepalive: SysRq triggers failed or not accessible (e.g. in container). Falling back to shell reboot...");
-                    [[maybe_unused]] int rc = ::system("reboot");
-                    if (rc != 0) {
-                        rc = ::system("sudo reboot");
-                    }
-                }
-
-                // Allow thread to exit — no infinite loop, let main thread join us
+                _exit(99); // Exit with error code 99 to let Docker restart policy cleanly recreate container
                 g_keepalive_running.store(false);
                 break;
             }

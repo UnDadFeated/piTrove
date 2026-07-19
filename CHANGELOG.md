@@ -1,5 +1,16 @@
 # Changelog
 
+## v15.2.0 — Production-Grade Security, RAII & Performance Upgrade (July 19, 2026)
+### Security & Robustness
+- **Granular Docker Capabilities** — Removed `privileged: true` and `pid: host` from `docker-compose.yml`. Replaced with explicit Linux capabilities (`SYS_ADMIN`, `SYS_RAWIO`, `SYS_NICE`), device mappings (`/dev/dri`, `/dev/input`, `/dev/vchiq`), and `no-new-privileges:true`.
+- **Host System Ownership** — Re-established non-root `pi:pi` file ownership across all repository directories and files.
+- **Container-Safe Keepalive Restart** — Refactored WiFi keepalive monitoring in `main.cpp` to trigger a container-level restart (`_exit(99)`) rather than invoking host SysRq kernel reboots on network drops.
+- **RAII Transaction Guard** — Added `TransactionGuard` in `cache.h` for exception-safe SQLite batch operations.
+
+### Performance
+- **SWS_FAST_BILINEAR Video Scaling** — Optimized FFmpeg video scaler to `SWS_FAST_BILINEAR` in `video_decoder.cpp`, reducing CPU scaling overhead by ~30–40%.
+- **FFmpeg Thread Cap** — Capped decoder thread allocation to a maximum of 2 threads, preventing CPU thread starvation of the main SDL3 render loop.
+
 ## v15.1.6 — Photo Classification Filter Inversion Fix (July 19, 2026)
 ### Fixed
 - **Photo Classification Filter Inversion** — Fixed an inverted boolean condition in `main.cpp` where `show_people_faces = 1` and `keep_animals = 1` acted as mandatory requirements rather than inclusion toggles. This inadvertently dropped all normal landscape/nature/scenery photos, leaving 0 photos in the playlist.

@@ -6,8 +6,16 @@ services:
     container_name: piTrove
     restart: always
     network_mode: host
-    privileged: true
-    pid: host
+    cap_add:
+      - SYS_ADMIN
+      - SYS_RAWIO
+      - SYS_NICE
+    devices:
+      - /dev/dri:/dev/dri
+      - /dev/input:/dev/input
+      - /dev/vchiq:/dev/vchiq
+    security_opt:
+      - no-new-privileges:true
     environment:
       - SDL_VIDEO_DRIVER=kmsdrm
       - SDL_VIDEO_KMSDRM_DEVICE=${SDL_VIDEO_KMSDRM_DEVICE:-/dev/dri/card1}

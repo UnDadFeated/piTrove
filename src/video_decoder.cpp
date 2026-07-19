@@ -241,7 +241,7 @@ void VideoDecoder::decode_loop() {
     // Enable multi-threaded decoding (maxcores-1)
     {
         int threads = std::thread::hardware_concurrency();
-        vcc->thread_count = std::max(1, threads - 1);
+        vcc->thread_count = std::min(2, std::max(1, threads - 1));
         vcc->thread_type = FF_THREAD_FRAME;
     }
     bool is_hw = (vc && std::string(vc->name).find("v4l2m2m") != std::string::npos);
@@ -254,7 +254,7 @@ void VideoDecoder::decode_loop() {
                 vcc = avcodec_alloc_context3(vc);
                 avcodec_parameters_to_context(vcc, vp);
                 int threads = std::thread::hardware_concurrency();
-                vcc->thread_count = std::max(1, threads - 1);
+                vcc->thread_count = std::min(2, std::max(1, threads - 1));
                 vcc->thread_type = FF_THREAD_FRAME;
             }
         }
@@ -329,7 +329,7 @@ void VideoDecoder::decode_loop() {
     // Scaler
     SwsContext* sws = sws_getContext(vcc->width, vcc->height, vcc->pix_fmt,
                                      dst_w, dst_h, AV_PIX_FMT_RGBA,
-                                     SWS_BILINEAR, nullptr, nullptr, nullptr);
+                                     SWS_FAST_BILINEAR, nullptr, nullptr, nullptr);
     if (!sws) {
         g_logger.error("VIDEO_DEC: Failed to create scaler for %s", m_path.c_str());
         if (acc) avcodec_free_context(&acc);
