@@ -1455,8 +1455,8 @@ cat > /etc/systemd/system/piTrove.service <<EOF
 Description=PiTrove Docker Digital Picture Frame
 After=multi-user.target network-online.target docker.service
 Wants=network-online.target docker.service
-StartLimitIntervalSec=300
-StartLimitBurst=5
+StartLimitIntervalSec=0
+StartLimitBurst=0
 
 [Service]
 Type=simple
