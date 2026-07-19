@@ -1,11 +1,12 @@
 # Changelog
 
-## v14.7.8 — Video Countdown Timer Overlay & Config Update (July 18, 2026)
+## v14.7.8 — Video Countdown Timer Overlay, First-Item Video Support & Config Update (July 18, 2026)
 ## Fixed
 - **Video Countdown Timer Overlay** — Added stream-level duration extraction (`AVStream::duration`) and media item metadata fallback (`MediaItem::duration`) so every video displays the remaining playback countdown timer in the top right, even when container headers lack global duration tags.
+- **First-Item Video Support** — Removed the restriction forcing the first slideshow item to be a photo. Videos can now naturally start as the first item upon application launch.
 - **Config Default** — Set `play_just_videos = false` in `config.toml` so both photos and videos play in sequence.
 
-## v14.7.7 — Video Decoder EOF Flush, Framerate Pacing & Transition Fix (July 18, 2026)
+3# v14.7.7 — Video Decoder EOF Flush, Framerate Pacing & Transition Fix (July 18, 2026)
 ## Fixed
 - **Video Decoder EOF Infinite Flush Loop & Docker Crash** — Resolved infinite packet sending loop during EOF decoder flush when `avcodec_receive_frame` returned `AVERROR_EOF` (`-541478725`), preventing log spam and Docker container crashes.
 - **Video Framerate Pacing** — Synchronized video frame rendering with presentation timestamps (`frame.pts`) relative to wall-clock time (`SDL_GetTicks()`) and ensured pacing variables are reset when switching videos, fixing fast playback.
