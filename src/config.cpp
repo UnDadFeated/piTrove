@@ -417,6 +417,7 @@ bool Config::save(const std::string& path) {
     f << "font_path = \"" << (this->font_path.empty() ? "auto" : this->font_path) << "\"\n\n";
 
     f << "[video]\n";
+    f << "decode_budget_enabled = " << (this->video_decode_budget_enabled ? "1" : "0") << "\n";
     f << "volume = " << this->video_volume << "\n";
     f << "probe_timeout = " << this->video_probe_timeout << "\n";
     f << "closed_captions_enabled = " << (this->closed_captions_enabled ? "1" : "0") << "\n";
