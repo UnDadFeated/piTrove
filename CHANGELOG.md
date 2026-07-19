@@ -1,5 +1,10 @@
 # Changelog
 
+## v15.2.1 — Cache Path Scope & Non-Root Ownership Fix (July 19, 2026)
+### Fixed
+- **Cache Path Scoping** — Fixed un-scoped `cache_dir` key in `config.cpp` that previously caused `[google_photos]` section to overwrite `[paths]` `cache_dir`. Default database now cleanly populates in `/app/cache/cache.db` (`~/piTrove/cache/cache.db`).
+- **File Ownership** — Enforced `pi:pi` user ownership across all repository and cache files.
+
 ## v15.2.0 — Production-Grade Security, RAII & Performance Upgrade (July 19, 2026)
 ### Security & Robustness
 - **Granular Docker Capabilities** — Removed `privileged: true` and `pid: host` from `docker-compose.yml`. Replaced with explicit Linux capabilities (`SYS_ADMIN`, `SYS_RAWIO`, `SYS_NICE`), device mappings (`/dev/dri`, `/dev/input`, `/dev/vchiq`), and `no-new-privileges:true`.
