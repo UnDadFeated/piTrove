@@ -357,7 +357,11 @@ void VideoDecoder::decode_loop() {
                         flush_ret = avcodec_receive_frame(vcc, frame);
                         g_logger.debug("VIDEO_DEC: flush receive ret=%d", flush_ret);
                         if (flush_ret == AVERROR(EAGAIN)) break;
-                        if (flush_ret < 0) break;
+                        if (flush_ret < 0) {
+                            g_logger.warn("VIDEO_DEC: Bad frame during flush ret=%d, skipping", flush_ret);
+                            avcodec_flush_buffers(vcc);
+                            break;
+                        }
                         sws_scale(sws, frame->data, frame->linesize, 0, vcc->height,
                                   rgba->data, rgba->linesize);
                         VideoFrame vf;
