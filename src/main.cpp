@@ -1287,7 +1287,11 @@ int main(int argc, char** argv) {
     {
         std::shared_lock<std::shared_mutex> lock(g_config_mtx);
         media_dir = g_cfg.media_dir;
-        cache_dir = g_cfg.cache_dir.empty() ? (get_exe_dir() + "/cache") : g_cfg.cache_dir;
+        if (g_cfg.google_photos_enabled && !g_cfg.google_photos_refresh_token.empty()) {
+            cache_dir = g_cfg.google_photos_cache_dir.empty() ? (get_exe_dir() + "/cache/google_photos") : g_cfg.google_photos_cache_dir;
+        } else {
+            cache_dir = g_cfg.cache_dir.empty() ? (get_exe_dir() + "/cache") : g_cfg.cache_dir;
+        }
         log_dir = g_cfg.log_dir.empty() ? (get_exe_dir() + "/logs") : g_cfg.log_dir;
         keep_count = g_cfg.log_keep_count;
     }
@@ -2430,15 +2434,19 @@ int main(int argc, char** argv) {
                     std::string cur_path = g_eligible[current_idx].path;
                     uint64_t now_ticks_ms = SDL_GetTicks();
 
+                    static double video_first_pts = -1.0;
                     if (pacing_video_path != cur_path) {
                         pacing_video_path = cur_path;
                         video_start_ticks_ms = now_ticks_ms;
                         video_frame_target_ns = now_ticks_ms * 1000ULL;
+                        video_first_pts = -1.0;
                     }
 
-                    if (frame.pts > 0.0) {
+                    if (frame.pts >= 0.0) {
+                        if (video_first_pts < 0.0) video_first_pts = frame.pts;
+                        double rel_pts = frame.pts - video_first_pts;
                         double elapsed_sec = (double)(now_ticks_ms - video_start_ticks_ms) / 1000.0;
-                        double diff_sec = frame.pts - elapsed_sec;
+                        double diff_sec = rel_pts - elapsed_sec;
                         if (diff_sec > 0.001 && diff_sec < 0.5) {
                             uint32_t sleep_ms = (uint32_t)(diff_sec * 1000.0);
                             if (sleep_ms > 0) SDL_Delay(sleep_ms);
@@ -2462,7 +2470,7 @@ int main(int argc, char** argv) {
                     }
                 } else if (g_video_decoder.is_running() || g_video_decoder.has_frames()) {
                     // Queue empty but decoder still running - wait and retry
-                    SDL_Delay(5);
+                    SDL_Delay(1);
                     continue;
                 }
 
