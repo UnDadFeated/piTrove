@@ -2199,6 +2199,7 @@ int main(int argc, char** argv) {
                             if ((g_video_decoder.is_running() || g_video_decoder.has_frames()) && g_video_decoder.is_eof()) {
                                 g_logger.info("Right-click during video: stopping decoder to open config menu.");
                                 g_video_decoder.stop();
+                                if (g_video_tex) { SDL_DestroyTexture(g_video_tex); g_video_tex = nullptr; g_video_tex_w = 0; g_video_tex_h = 0; }
                             }
                             g_overlay->menu_active = !g_overlay->menu_active;
                         }
@@ -2301,6 +2302,7 @@ int main(int argc, char** argv) {
             if ((g_video_decoder.is_running() || g_video_decoder.has_frames()) && g_video_decoder.is_eof()) {
                 g_logger.info("Screen blanked: stopping video decoder.");
                 g_video_decoder.stop();
+                if (g_video_tex) { SDL_DestroyTexture(g_video_tex); g_video_tex = nullptr; g_video_tex_w = 0; g_video_tex_h = 0; }
             }
             g_renderer.clear(0, 0, 0, 255);
             g_renderer.present();
@@ -2360,6 +2362,7 @@ int main(int argc, char** argv) {
             if ((g_video_decoder.is_running() || g_video_decoder.has_frames()) && g_video_decoder.is_eof()) {
                 g_logger.info("Interrupted video playback via skip request: stopping decoder.");
                 g_video_decoder.stop();
+                if (g_video_tex) { SDL_DestroyTexture(g_video_tex); g_video_tex = nullptr; g_video_tex_w = 0; g_video_tex_h = 0; }
             }
             if (was_video) {
                 current_data = nullptr;
@@ -2535,6 +2538,7 @@ int main(int argc, char** argv) {
                         }
                         pitrove::health::heartbeat_tick();
                         g_video_decoder.stop();
+                        if (g_video_tex) { SDL_DestroyTexture(g_video_tex); g_video_tex = nullptr; g_video_tex_w = 0; g_video_tex_h = 0; }
                         transitioning = true;
                         playlist_lock.unlock();
                         SDL_Delay(10);
@@ -2618,11 +2622,13 @@ int main(int argc, char** argv) {
         } catch (const std::exception& e) {
             g_logger.error("VIDEO_DEC: Exception in main loop: %s", e.what());
             g_video_decoder.stop();
+            if (g_video_tex) { SDL_DestroyTexture(g_video_tex); g_video_tex = nullptr; g_video_tex_w = 0; g_video_tex_h = 0; }
             playlist_lock.unlock();
             continue;
         } catch (...) {
             g_logger.error("VIDEO_DEC: Unknown exception in main loop");
             g_video_decoder.stop();
+            if (g_video_tex) { SDL_DestroyTexture(g_video_tex); g_video_tex = nullptr; g_video_tex_w = 0; g_video_tex_h = 0; }
             playlist_lock.unlock();
             continue;
         }
@@ -3200,6 +3206,7 @@ int main(int argc, char** argv) {
     }
 
     if (g_video_decoder.is_running()) g_video_decoder.stop();
+    if (g_video_tex) { SDL_DestroyTexture(g_video_tex); g_video_tex = nullptr; g_video_tex_w = 0; g_video_tex_h = 0; }
     if (g_transition) { g_transition->reset(); delete g_transition; }
     if (g_overlay) { g_overlay->cleanup(); delete g_overlay; }
     if (g_preload) {
