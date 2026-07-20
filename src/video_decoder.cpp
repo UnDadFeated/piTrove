@@ -48,12 +48,19 @@ static bool video_within_budget(AVFormatContext* fmt, const VideoLimits& limits)
     return true;
 }
 
+// Runtime Pi 4/5 detection
+static std::string hwaccel_path = "none";
 static AVBufferRef* create_hw_device() {
     AVBufferRef* hw_device_ctx = nullptr;
     if (av_hwdevice_ctx_create(&hw_device_ctx,
                                AV_HWDEVICE_TYPE_DRM,
                                nullptr, nullptr, 0) >= 0) {
+        hwaccel_path = "drm";
         return hw_device_ctx;
+    }
+    if (avcodec_find_decoder_by_name("hevc_v4l2m2m") ||
+        avcodec_find_decoder_by_name("h264_v4l2m2m")) {
+        hwaccel_path = "v4l2";
     }
     return nullptr;
 }
@@ -185,10 +192,19 @@ double VideoDecoder::get_video_remaining(double fallback_duration) const {
     double total = m_video_total_duration.load(std::memory_order_relaxed);
     if (total <= 0.0) total = fallback_duration;
     double start_t = decode_start_time.load(std::memory_order_relaxed);
-    if (start_t <= 0.0) return 0.0;
+    if (start_t <= 0.0) {
+        // start_time not set yet: return total as remaining
+        return total;
+    }
     double elapsed = (av_gettime_relative() / 1000000.0) - start_t;
     if (total > 0.0) {
         return std::max(0.0, total - elapsed);
+    }
+    // Fallback: estimate duration from decoded frames
+    int frames = m_decoded_frames.load(std::memory_order_relaxed);
+    if (frames > 0 && m_frame_duration > 0) {
+        double est_total = frames * m_frame_duration;
+        return std::max(0.0, est_total - elapsed);
     }
     // Duration unknown: estimate from elapsed + buffered frames
     double frame_dur = m_frame_duration;
@@ -309,12 +325,20 @@ void VideoDecoder::decode_loop() {
 
 
     m_last_frame_pts.store(0.0);
+    m_decoded_frames.store(0, std::memory_order_relaxed);
 
     // Video codec — probe hardware acceleration (V4L2 M2M) first, fallback to software
     AVCodecParameters* vp = fmt_ctx->streams[video_stream_idx]->codecpar;
     // DRM hwaccel for V4L2 stateless decode (Pi 5 HEVC, Pi 4/5 H264)
     AVBufferRef* hw_dev = create_hw_device();
     const AVCodec* vc = avcodec_find_decoder(vp->codec_id);
+    // Pi 4 fallback: use V4L2 M2M codec directly if DRM hwaccel not available
+    if (!hw_dev && hwaccel_path == "v4l2" && vp->codec_id == AV_CODEC_ID_HEVC) {
+        vc = avcodec_find_decoder_by_name("hevc_v4l2m2m");
+    }
+    if (!hw_dev && hwaccel_path == "v4l2" && vp->codec_id == AV_CODEC_ID_H264) {
+        vc = avcodec_find_decoder_by_name("h264_v4l2m2m");
+    }
     if (vc && hw_dev) {
         g_logger.info("VIDEO_DEC: Hardware video acceleration enabled (%s via DRM)", vc->name);
     }
@@ -492,6 +516,7 @@ void VideoDecoder::decode_loop() {
                             break;
                         }
                         vf_count++;
+                        m_decoded_frames.fetch_add(1, std::memory_order_relaxed);
                         // Transfer HW frames during flush
                         AVFrame* sw_frame2 = frame;
                         AVFrame* tmp_sw2 = nullptr;

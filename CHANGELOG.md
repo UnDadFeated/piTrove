@@ -1,4 +1,12 @@
 # Changelog
+## v16.1.4 — Pi 4 Runtime Detection & Video Remaining Fix (July 20, 2026)
+### Pi 4 Compatibility
+- **Runtime HW Acceleration Detection** — Probe V4L2 M2M codecs (hevc_v4l2m2m/h264_v4l2m2m) as fallback when DRM hwaccel unavailable, ensuring Pi 4 hardware decode works
+### Video
+- **Remaining Time Fix** — get_video_remaining() no longer returns 0:00 before first frame; frame-based duration estimation fallback when FFmpeg duration metadata unavailable
+### Code
+- Added m_decoded_frames atomic counter for duration estimation
+- hwaccel_path tracking (drm/v4l2/none) for diagnostics
 ## v16.1.3 — Clear Stale Video Texture on Stop (July 20, 2026)
 ### 🎥 Video
 - **Stale Texture Fix** — Video texture destroyed immediately after stop() to prevent source photo flash during video-to-photo transitions
