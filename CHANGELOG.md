@@ -1,4 +1,21 @@
 # Changelog
+## v16.1.0 — Full Audit Remediation & swr_convert Crash Fix (July 20, 2026)
+### U0001f41e Video
+- **swr_convert Crash Fix** — Replaced unsafe cast of audio resample buffer with proper outbuf array to prevent segfault in libswresample during hwaccel decode
+### U0001f512 Security & Hardening
+- **HTTP Auth** — Enforced is_authorized() on all 8 control endpoints
+- **Rate Limiting** — Added 500ms cooldown with 429 responses
+- **Dockerfile** — Fixed libasound2 package name, added missing libsodium/libswresample
+- **docker-compose** — stop_grace_period: 30s, removed /dev:/dev volume mount
+- **Healthcheck** — Script properly copied into container
+### U0001f9ea Code Quality
+- **cache.h/cpp** — upsert() signature aligned, framerate in verify_database
+- **scanner** — stat() return value checked, zeroed on failure
+- **mqtt** — popen/pclose return codes validated
+- **video_decoder** — NetworkDeinitGuard, IO interrupt callback with 30s timeout
+- **PreloadQueue** — shutdown() fixed to avoid UB on detached threads
+- **Audio Resampler** — Zero Heap Allocation, aligned buffer, strict device mapping
+
 ## v16.0.2 — DRM Hwaccel for V4L2 Stateless HEVC Decode (July 20, 2026)
 ### 🎥 Video
 - **DRM Hwaccel Path** — Replaced Pi 4 stateful V4L2 M2M codec lookup with DRM hwaccel via `av_hwdevice_ctx_create` for V4L2 stateless HEVC decode on Pi 5. FFmpeg now uses `AV_HWDEVICE_TYPE_DRM` which probes the stateless decoder at `/dev/video19` via `/dev/media2`.
