@@ -39,6 +39,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libavcodec-dev \
     libavformat-dev \
     libswscale-dev \
+    libswresample-dev \
     libavutil-dev \
     libstb-dev \
     libsodium-dev \
@@ -83,6 +84,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libavcodec61 \
     libavformat61 \
     libswscale8 \
+    libswresample5 \
     libavutil59 \
     imagemagick \
     exiftool \

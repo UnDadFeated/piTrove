@@ -203,12 +203,30 @@ bool VideoDecoder::has_frames() const {
 }
 
 void VideoDecoder::decode_loop() {
+    static constexpr int MAX_AUDIO_SAMPLES = 8192;
+    std::vector<int16_t> audio_resample_buf(MAX_AUDIO_SAMPLES * 2);
     try {
     DEBUG_LOG("VIDEO_DEC: Starting decode thread for %s", m_path.c_str());
 
     avformat_network_init();
+    struct NetworkDeinitGuard {
+        ~NetworkDeinitGuard() { avformat_network_deinit(); }
+    } network_guard;
 
-    AVFormatContext* fmt_ctx = nullptr;
+    AVFormatContext* fmt_ctx = avformat_alloc_context();
+    if (!fmt_ctx) { m_running.store(false); return; }
+
+    static const int64_t IO_TIMEOUT_US = 30LL * 1000000LL;
+    struct IOInterruptData { int64_t start_time; std::atomic<bool>* running; };
+    IOInterruptData io_data{av_gettime_relative(), &m_running};
+
+    fmt_ctx->interrupt_callback.callback = [](void* opaque) -> int {
+        auto* d = static_cast<IOInterruptData*>(opaque);
+        if (!d->running->load()) return 1;
+        return (av_gettime_relative() - d->start_time > IO_TIMEOUT_US) ? 1 : 0;
+    };
+    fmt_ctx->interrupt_callback.opaque = &io_data;
+
     if (avformat_open_input(&fmt_ctx, m_path.c_str(), nullptr, nullptr) != 0) {
         g_logger.error("VIDEO_DEC: Failed to open %s", m_path.c_str());
         
@@ -423,6 +441,7 @@ void VideoDecoder::decode_loop() {
     bool eof = false;
     int vf_count = 0, af_count = 0, pkt_count = 0;
     while (is_running() && !eof) {
+        io_data.start_time = av_gettime_relative();
         int ret = av_read_frame(fmt_ctx, pkt);
         // hot-path debug log omitted
         pkt_count++;
@@ -440,11 +459,9 @@ void VideoDecoder::decode_loop() {
                         if (ret != 0) break;
                         if (swr) {
                             int max_s = av_rescale_rnd(aframe->nb_samples, 48000, audio_sample_rate, AV_ROUND_UP);
-                            std::vector<int16_t> ob(max_s * 2);
-                            uint8_t* out_buf[1] = { (uint8_t*)ob.data() };
-                            int os = swr_convert(swr, out_buf, max_s,
+                            int os = swr_convert(swr, (uint8_t**)audio_resample_buf.data(), max_s,
                                                  (const uint8_t**)aframe->extended_data, aframe->nb_samples);
-                            if (os > 0) { push_audio_samples(ob.data(), os); af_count += os; }
+                            if (os > 0) { push_audio_samples(audio_resample_buf.data(), os); af_count += os; }
                             
                         }
                     }
@@ -570,9 +587,16 @@ void VideoDecoder::decode_loop() {
             if (!sws || cur_fmt != actual_pix_fmt) {
                 if (sws) sws_freeContext(sws);
                 actual_pix_fmt = cur_fmt;
+                int scale_w = sw_frame->width;
+                int scale_h = sw_frame->height;
+                if (scale_w > 1920 && !is_hw) {
+                    float ar = (float)scale_h / (float)scale_w;
+                    scale_w = 1920;
+                    scale_h = (int)(1920.0f * ar);
+                }
                 sws = sws_getContext(sw_frame->width, sw_frame->height,
                     actual_pix_fmt, dst_w, dst_h, AV_PIX_FMT_RGBA,
-                    SWS_FAST_BILINEAR, nullptr, nullptr, nullptr);
+                    SWS_BILINEAR, nullptr, nullptr, nullptr);
                 if (!sws) {
                     g_logger.error("VIDEO_DEC: Failed to create scaler for fmt=%d", (int)actual_pix_fmt);
                     if (tmp_sw) av_frame_free(&tmp_sw);

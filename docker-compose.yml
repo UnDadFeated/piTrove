@@ -8,7 +8,7 @@ services:
     deploy:
       resources:
         limits:
-          memory: 768M
+          memory: 1024M
     stop_grace_period: 30s
     init: true
     network_mode: host
@@ -19,6 +19,7 @@ services:
     devices:
       - /dev/dri:/dev/dri
       - /dev/input:/dev/input
+      - /dev/vchiq:/dev/vchiq
     security_opt:
       - no-new-privileges:true
     environment:
@@ -39,7 +40,6 @@ services:
         max-size: "5m"
         max-file: "3"
     volumes:
-      - /dev:/dev
       - /var/run/dbus/system_bus_socket:/var/run/dbus/system_bus_socket
       - ./cache:/app/cache
       - ./config:/app/config

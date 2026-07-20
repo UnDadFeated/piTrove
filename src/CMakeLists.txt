@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(piTrove VERSION 15.6.7 LANGUAGES CXX)
+project(piTrove VERSION 15.6.8 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -8,7 +8,7 @@ set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 # ARM64 optimization
 if(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|arm64")
     set(CMAKE_CXX_FLAGS_RELEASE "-O2 -march=armv8-a+crc+simd -mtune=cortex-a72 -fomit-frame-pointer -pipe")
-    # LTO removed in v15.6.7 to prevent FFmpeg SIMD miscompilation
+    # LTO removed in v15.6.8 to prevent FFmpeg SIMD miscompilation
 endif()
 
 # ============================================================
