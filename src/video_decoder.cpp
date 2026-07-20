@@ -413,11 +413,11 @@ void VideoDecoder::decode_loop() {
                         if (ret != 0) break;
                         if (swr) {
                             int max_s = av_rescale_rnd(aframe->nb_samples, 48000, audio_sample_rate, AV_ROUND_UP);
-                            int16_t* ob = new int16_t[max_s * 2];
-                            int os = swr_convert(swr, (uint8_t**)&ob, max_s,
+                            std::vector<int16_t> ob(max_s * 2);
+                            int os = swr_convert(swr, (uint8_t**)ob.data(), max_s,
                                                  (const uint8_t**)aframe->data, aframe->nb_samples);
-                            if (os > 0) { push_audio_samples(ob, os); af_count += os; }
-                            delete[] ob;
+                            if (os > 0) { push_audio_samples(ob.data(), os); af_count += os; }
+                            
                         }
                     }
                 }
@@ -526,11 +526,11 @@ void VideoDecoder::decode_loop() {
                 if (ret != 0) break;
                 if (swr) {
                     int max_s = av_rescale_rnd(aframe->nb_samples, 48000, audio_sample_rate, AV_ROUND_UP);
-                    int16_t* ob = new int16_t[max_s * 2];
-                    int os = swr_convert(swr, (uint8_t**)&ob, max_s,
+                    std::vector<int16_t> ob(max_s * 2);
+                    int os = swr_convert(swr, (uint8_t**)ob.data(), max_s,
                                          (const uint8_t**)aframe->data, aframe->nb_samples);
-                    if (os > 0) { push_audio_samples(ob, os); af_count += os; }
-                    delete[] ob;
+                    if (os > 0) { push_audio_samples(ob.data(), os); af_count += os; }
+                    
                 }
             }
         } else {
