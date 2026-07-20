@@ -1,27 +1,15 @@
-# Changelog
-## v16.0.1 — V4L2 Device Mapping for Pi 5 HW Decode (July 20, 2026)
 ## v16.0.2 — DRM Hwaccel for V4L2 Stateless HEVC Decode (July 20, 2026)
 ### 🎥 Video
 - **DRM Hwaccel Path** — Replaced Pi 4 stateful V4L2 M2M codec lookup with DRM hwaccel via `av_hwdevice_ctx_create` for V4L2 stateless HEVC decode on Pi 5. FFmpeg now uses `AV_HWDEVICE_TYPE_DRM` which probes the stateless decoder at `/dev/video19` via `/dev/media2`.
 - **DMABuf Support** — Added `/dev/dma_heap` device mapping for zero-copy DMABuf allocation during hardware decode.
-### 📦 Version Bump
-- **Version bump to v16.0.2**
-
-### 🎥 Video
-- **V4L2 Device Mapping** — Added /dev/video19 through /dev/video35 to docker-compose.yml devices list for Pi 5 hardware video decoder support
-### 📦 Version Bump
-- **Version bump to v16.0.1**
-
+## v16.0.1 — V4L2 Device Mapping for Pi 5 HW Decode (July 20, 2026)
 ## v16.0.0 — Major Release: Full Audit Remediation, GPU Device Restoration & Security Hardening (July 19, 2026)
+### 🎥 Video
+- **V4L2 Device Mapping** — Added /dev/video19 through /dev/video35 to docker-compose.yml devices list for Pi 5 hardware decode
 ### 🔒 Security & Authorization
 - **Full Audit Remediation** — Verified and confirmed all 13 audit-flagged issues resolved: auth on all 8 HTTP endpoints, rate limiting with 429 responses, NetworkDeinitGuard RAII, I/O interrupt callbacks with 30s timeout, upsert() signature alignment, verify_database() framerate column, stat_timeout() return validation, PreloadQueue::shutdown() thread safety, MQTT popen error handling, audio resample zero-allocation, and /dev:/dev volume removal
 - **GPU Mailbox Device Restoration** — Restored `/dev/vchiq:/dev/vchiq` device mapping required for Pi 4 hardware video decode
 - **stop_grace_period** — 30s graceful shutdown period confirmed
-### 📦 Version Bump
-- **Major version bump to v16.0.0** — Stable release with full audit verification
-
-
-
 ## v15.6.9 — Zero Heap Allocation Audio Resampling & Healthcheck Alignment (July 19, 2026)
 ### 🎵 Audio Resampler Memory Optimization
 - **Zero Vector Heap Allocation (`src/video_decoder.cpp`)** — Replaced `std::vector<int16_t> ob(max_s * 2)` in the second audio decode loop (line 649) with pre-allocated `audio_resample_buf.data()`. Video audio resampling now performs **0 heap allocations per second**.
@@ -2053,18 +2041,18 @@
 - **EGL surface asymmetry**  -  `make_egl_current()` and `release_egl_current()` now map both `EGL_DRAW` and `EGL_READ` surfaces instead of a single surface, preventing context flip draw validation failures.
 - **Countdown timer missing**  -  Replaced synchronous 60fps `mpv_get_property("time-remaining")` polling (which flooded IPC and caused thread locks) with `mpv_observe_property()` async listeners on the event thread. Timer overlay now shows `MM:SS` countdown during video playback.
 
-## v7.8.0  -  Preload thread explosion fix (May 20, 2026)
-
-### Fixed
-
-- **CRITICAL · Preload thread explosion**  -  `preload_running` flag raced between `update()`, `advance()`, and the preload thread, causing ~30 threads/sec spawned for the same image → SIGKILL by systemd in ~30s. Fixed with 4-part atomic lifecycle: (1) `preload_next()` atomically check-and-sets `preload_running=true` under `preload_lifecycle_mtx` before spawning, (2) preload thread keeps `preload_running=true` on success (prevents `update()` from restarting loop), (3) swap path resets `preload_running=false` so guard block can trigger next preload, (4) `advance()` joins in-flight thread then resets flag.
-
 ## v7.8.1  -  EXIF rotation at display time, skip video probing in Phase 2 (May 20, 2026)
 
 ### Fixed
 
 - **EXIF rotation now read at display time**  -  Phase 2 cache only stored placeholder value of 1. Now `preload_next()` and `load_item()` call `read_exif_rotation_timeout()` at preload/load time (3s timeout) so EXIF orientation is applied to every image.
 - **Phase 2 caching skip video probing**  -  `probe_video_meta()` had 8s timeout per video × 905 videos = hours of blocking on CIFS. Phase 2 now skips video probing entirely; duration is probed lazily during preload at display time (3s timeout).
+
+## v7.8.0  -  Preload thread explosion fix (May 20, 2026)
+
+### Fixed
+
+- **CRITICAL · Preload thread explosion**  -  `preload_running` flag raced between `update()`, `advance()`, and the preload thread, causing ~30 threads/sec spawned for the same image → SIGKILL by systemd in ~30s. Fixed with 4-part atomic lifecycle: (1) `preload_next()` atomically check-and-sets `preload_running=true` under `preload_lifecycle_mtx` before spawning, (2) preload thread keeps `preload_running=true` on success (prevents `update()` from restarting loop), (3) swap path resets `preload_running=false` so guard block can trigger next preload, (4) `advance()` joins in-flight thread then resets flag.
 
 ## v7.7.0  -  CacheManager double-close fix, transaction mutex (May 20, 2026)
 
