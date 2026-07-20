@@ -1,5 +1,10 @@
 # Changelog
 
+## v15.6.1 — GPU NV12 Pipeline & Black Screen Resolution (July 19, 2026)
+### ⚡ Video Playback GPU NV12 Pipeline Fix
+- **Native Resolution NV12 GPU Decoder (, )** — Resolved black screen issue by ensuring  outputs NV12 frames at native video resolution, transferring Y and UV planes directly to  streaming textures, and letting VideoCore VII GPU / DRM display controller handle 4K→1080p hardware downscaling and color conversion at 60fps without CPU bottlenecking.
+
+
 ## v15.6.0 — 4K60fps Zero-Copy NV12 GPU Pipeline & Deep Hardening (July 19, 2026)
 ### ⚡ 4K60fps Zero-Copy NV12 GPU Pipeline Optimization
 - **Zero-Copy NV12 GPU Texture Pipeline (`src/video_decoder.h`, `src/video_decoder.cpp`, `src/main.cpp`)** — Eliminated CPU software scaling (`sws_scale()`) and color space conversion for 4K video playback; updated `VideoFrame` to output raw NV12 planes (1.5 bytes/pixel), created `SDL_PIXELFORMAT_NV12` streaming textures, and leveraged VideoCore VII GPU / DRM display hardware to perform color conversion and 4K→1080p downscaling during rendering at zero CPU cost (~186MB/s memory bandwidth, smooth 4K60fps playback).
