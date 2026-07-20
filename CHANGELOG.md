@@ -1,5 +1,13 @@
 # Changelog
 
+## v15.6.9 — Zero Heap Allocation Audio Resampling & Healthcheck Alignment (July 19, 2026)
+### 🎵 Audio Resampler Memory Optimization
+- **Zero Vector Heap Allocation (`src/video_decoder.cpp`)** — Replaced `std::vector<int16_t> ob(max_s * 2)` in the second audio decode loop (line 649) with pre-allocated `audio_resample_buf.data()`. Video audio resampling now performs **0 heap allocations per second**.
+
+### 🐳 Container Healthcheck Alignment & Security
+- **Healthcheck Alignment (`Dockerfile`, `docker-compose.yml`)** — Aligned `Dockerfile`'s `HEALTHCHECK` directive with `/app/scripts/healthcheck.sh` script to ensure container health status consistency.
+- **Strict Device Mapping (`docker-compose.yml`)** — Mapped specific `/dev/dri`, `/dev/input`, `/dev/vchiq` devices with 0 broad `/dev` host volume mounts.
+
 ## v15.6.8 — Comprehensive Hardening & Bug Audit Release (July 19, 2026)
 ### 🔒 Security & HTTP Authorization
 - **HTTP Endpoint Authorization (`src/http_server.cpp`)** — Enforced `is_authorized()` authentication checks across all HTTP control endpoints (`/api/restart`, `/api/next`, `/api/prev`, `/api/pause`, `/api/toggle_shuffle`, `/api/force_video_next`, `/api/toggle_screen`, `/api/trigger_motion`).

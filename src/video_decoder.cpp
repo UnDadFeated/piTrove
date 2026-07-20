@@ -645,12 +645,10 @@ void VideoDecoder::decode_loop() {
                 ret = avcodec_receive_frame(acc, aframe);
                 if (ret != 0) break;
                 if (swr) {
-                    int max_s = av_rescale_rnd(aframe->nb_samples, 48000, audio_sample_rate, AV_ROUND_UP);
-                    std::vector<int16_t> ob(max_s * 2);
-                    uint8_t* out_buf[1] = { (uint8_t*)ob.data() };
-                            int os = swr_convert(swr, out_buf, max_s,
-                                                 (const uint8_t**)aframe->extended_data, aframe->nb_samples);
-                    if (os > 0) { push_audio_samples(ob.data(), os); af_count += os; }
+                    int max_s = std::min((int)av_rescale_rnd(aframe->nb_samples, 48000, audio_sample_rate, AV_ROUND_UP), MAX_AUDIO_SAMPLES);
+                    int os = swr_convert(swr, (uint8_t**)audio_resample_buf.data(), max_s,
+                                         (const uint8_t**)aframe->extended_data, aframe->nb_samples);
+                    if (os > 0) { push_audio_samples(audio_resample_buf.data(), os); af_count += os; }
                     
                 }
             }
