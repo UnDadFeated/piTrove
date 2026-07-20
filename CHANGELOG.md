@@ -1,8 +1,11 @@
+# Changelog
 ## v16.0.2 — DRM Hwaccel for V4L2 Stateless HEVC Decode (July 20, 2026)
 ### 🎥 Video
 - **DRM Hwaccel Path** — Replaced Pi 4 stateful V4L2 M2M codec lookup with DRM hwaccel via `av_hwdevice_ctx_create` for V4L2 stateless HEVC decode on Pi 5. FFmpeg now uses `AV_HWDEVICE_TYPE_DRM` which probes the stateless decoder at `/dev/video19` via `/dev/media2`.
 - **DMABuf Support** — Added `/dev/dma_heap` device mapping for zero-copy DMABuf allocation during hardware decode.
 ## v16.0.1 — V4L2 Device Mapping for Pi 5 HW Decode (July 20, 2026)
+### 🎥 Video
+- **V4L2 Device Mapping** — Added /dev/video19 through /dev/video35 for Pi 5 hardware decode
 ## v16.0.0 — Major Release: Full Audit Remediation, GPU Device Restoration & Security Hardening (July 19, 2026)
 ### 🎥 Video
 - **V4L2 Device Mapping** — Added /dev/video19 through /dev/video35 to docker-compose.yml devices list for Pi 5 hardware decode
