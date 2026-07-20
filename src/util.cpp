@@ -117,6 +117,8 @@ static void crash_display_restore(void) {
 }
 
 void crash_handler(int sig) {
+    FILE* fl = fopen("/app/events.log", "a");
+    if (fl) { fprintf(fl, "CRASH: signal=%d\n", sig); fflush(fl); fclose(fl); }
     const char* msg = "\n[CRITICAL ERROR] piTrove intercepted a terminal fault / crash signal.\n";
     // Print backtrace for debugging
     void* bt[32];

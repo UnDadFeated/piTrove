@@ -60,9 +60,13 @@ services:
         max-size: "5m"
         max-file: "3"
     volumes:
+      - events:/app/events
       - /var/run/dbus/system_bus_socket:/var/run/dbus/system_bus_socket
       - ./cache:/app/cache
       - ./config:/app/config
       - ./logs:/app/logs
       - ./subtitles:/app/subtitles
       - ${MEDIA_DIR:-/mnt/nas}:/app/media:ro
+
+volumes:
+  events:

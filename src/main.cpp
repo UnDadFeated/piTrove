@@ -911,6 +911,10 @@ static void watchdog_loop() {
         int64_t max_silent_time = std::max((int64_t)45, (int64_t)(delay * 3));
         if (elapsed > max_silent_time) {
             g_logger.error("[WATCHDOG] CRITICAL: Slideshow loop frozen! Last heartbeat was %d seconds ago. Forcing restart...", (int)elapsed);
+            if (g_event_log) {
+                fprintf(g_event_log, "WATCHDOG_TRIP: elapsed=%lds item=%d\n", (long)elapsed, current_idx);
+                fflush(g_event_log);
+            }
             trigger_error(809); // E809: WATCHDOG_FORCED_RESTART
             // Restore physical display power before exiting
             set_display_power(true);
@@ -1089,6 +1093,8 @@ static void keepalive_loop() {
 }
 
 
+static FILE* g_event_log = nullptr;
+
 int main(int argc, char** argv) {
     signal(SIGPIPE, SIG_IGN);
     bool run_config = false;
@@ -1208,6 +1214,11 @@ int main(int argc, char** argv) {
     [[maybe_unused]] auto trunc_rc = ftruncate(lock_fd, 0);
     [[maybe_unused]] auto pid_rc = dprintf(lock_fd, "%d\n", getpid());
 
+    g_event_log = fopen("/app/events.log", "a");
+    if (g_event_log) {
+        fprintf(g_event_log, "=== piTrove started ===\n");
+        fflush(g_event_log);
+    }
     signal(SIGSEGV, crash_handler);
     signal(SIGABRT, crash_handler);
     // SIGTERM and SIGINT trigger graceful shutdown — let main loop exit and cleanup
@@ -2514,6 +2525,23 @@ int main(int argc, char** argv) {
                     }
                 } else if (g_video_decoder.is_running() || g_video_decoder.has_frames()) {
                     // Queue empty but decoder still running - wait and retry
+                    static int64_t g_video_stall_ts = 0;
+                    if (g_video_stall_ts == 0) g_video_stall_ts = SDL_GetTicks();
+                    else if (SDL_GetTicks() - g_video_stall_ts > 30000) {
+                        g_logger.error("[VIDEO_STALL] Decoder stuck 30s, forcing recovery");
+                        if (g_event_log) {
+                            fprintf(g_event_log, "VIDEO_STALL: item=%d\n", current_idx);
+                            fflush(g_event_log);
+                        }
+                        g_video_decoder.stop();
+                        transitioning = true;
+                        playlist_lock.unlock();
+                        SDL_Delay(10);
+                        advance_playlist(1);
+                        playlist_lock.lock();
+                        g_video_stall_ts = 0;
+                        continue;
+                    }
                     SDL_Delay(1);
                     continue;
                 }
@@ -3193,6 +3221,12 @@ int main(int argc, char** argv) {
     thermal_running.store(false);
     if (thermal_thread.joinable()) thermal_thread.join();
 
+    if (g_event_log) {
+        fprintf(g_event_log, "=== clean exit ===\n");
+        fflush(g_event_log);
+        fclose(g_event_log);
+        g_event_log = nullptr;
+    }
     // Clear crash state after stable runtime
     pitrove::safe_mode::clear();
 
