@@ -1,3 +1,8 @@
+#include "health.h"
+#include "safe_mode.h"
+#include "thermal.h"
+#include "auth.h"
+#include <sys/statvfs.h>
 #include "util.h"
 #include "config.h"
 #include "cache.h"
@@ -92,6 +97,8 @@ std::mutex g_playlist_mtx;
 std::vector<MediaItem> g_scanned_items;
 std::vector<MediaItem> g_eligible;
 int current_idx = 0;
+SDL_Texture* g_video_tex = nullptr;
+int g_video_tex_w = 0, g_video_tex_h = 0;
 static std::thread g_watchman_thread;
 static std::atomic<bool> g_watchman_running{false};
 static std::atomic<bool> g_watchman_finished{false};
@@ -545,6 +552,8 @@ static std::vector<MediaItem> filter_playlist(const std::vector<MediaItem>& item
                     snap_keep_animals = g_cfg.keep_animals;
                 }
 
+
+
                 if (is_doc) {
                     continue;
                 } else {
@@ -906,6 +915,7 @@ static void watchdog_loop() {
             // Restore physical display power before exiting
             set_display_power(true);
             sync();
+            pitrove::safe_mode::record_crash();
             _exit(99); // Force exit immediately to let Docker compose restart us
         }
     }
@@ -1032,6 +1042,7 @@ static void keepalive_loop() {
                 FILE* hb = fopen("/app/logs/heartbeat", "w");
                 if (hb) { fputs("STALE_NETWORK", hb); fclose(hb); }
                 sync();
+                pitrove::safe_mode::record_crash();
                 _exit(99); // Exit with error code 99 to let Docker restart policy cleanly recreate container
                 g_keepalive_running.store(false);
                 break;
@@ -1112,6 +1123,13 @@ int main(int argc, char** argv) {
             }
         } else if (arg == "--in-place") {
             in_place = true;
+        } else if (arg == "--selftest-media") {
+            if (i + 1 < argc) {
+                // Self-test media loading for golden tests
+                // TODO: implement selftest_load_media(argv[i+1])
+                printf("selftest-media: %s\n", argv[i+1]);
+                return 0;
+            }
         }
     }
 
@@ -1203,6 +1221,10 @@ int main(int argc, char** argv) {
 
     g_logger.info("=== piTrove v%s started %s ===", VERSION, get_timestamp().c_str());
 
+    // Start thermal monitoring thread
+    static std::atomic<bool> thermal_running{true};
+    std::thread thermal_thread(pitrove::thermal::monitor_thread, std::ref(thermal_running));
+
     // --- Config ---
     g_cfg.parse_args(argc, argv);
     if (config_path.empty()) {
@@ -1219,7 +1241,28 @@ int main(int argc, char** argv) {
         g_logger.warn("No config file found, using defaults");
     }
 
-    // Warn about deprecated config keys
+    
+    // Initialize auth subsystem
+    pitrove::auth::init();
+
+    // Check for safe mode due to crash loops
+    if (pitrove::safe_mode::should_enter_safe_mode()) {
+        g_cfg.ken_burns = false;
+        g_cfg.bias_lighting = false;
+        g_cfg.blurred_background = false;
+        g_cfg.diagnostics_hud_enabled = true;
+        g_logger.warn("Entering safe mode due to repeated crashes");
+    }
+
+    // Verify media root is read-only if enforced
+    if (g_cfg.enforce_read_only_media && !g_cfg.media_dir.empty()) {
+        struct statvfs st {};
+        if (statvfs(g_cfg.media_dir.c_str(), &st) == 0 && !(st.f_flag & ST_RDONLY)) {
+            g_logger.error("Media root is not mounted read-only");
+        }
+    }
+
+// Warn about deprecated config keys
     {
         std::ifstream cfg_check(config_path);
         if (cfg_check.is_open()) {
@@ -1444,7 +1487,6 @@ int main(int argc, char** argv) {
                     mi.exif_rotation = sqlite3_column_int(stmt, 6);
                     mi.last_shown = sqlite3_column_int64(stmt, 7);
                     mi.is_camera = sqlite3_column_int(stmt, 8);
-                    mi.is_camera = sqlite3_column_int(stmt, 7);
                     auto slash = mi.path.rfind('/');
                     mi.filename = (slash != std::string::npos) ? mi.path.substr(slash + 1) : mi.path;
                     auto dot = mi.filename.find_last_of('.');
@@ -1763,7 +1805,13 @@ int main(int argc, char** argv) {
     g_preload->start();
 
     g_logger.info("Starting slideshow loop with %zu items", g_eligible.size());
-    current_idx = 0;
+    // Randomize start position so each boot shows different initial photos
+    if (!g_eligible.empty()) {
+        current_idx = (int)(make_entropy_seed() % g_eligible.size());
+    } else {
+        current_idx = 0;
+    }
+    g_logger.info("Randomized start index: %d / %zu", current_idx, g_eligible.size());
     double item_timer = 0.0;
     auto last_frame_time = std::chrono::steady_clock::now();
 
@@ -2351,14 +2399,24 @@ int main(int argc, char** argv) {
             current_idx = 0;
         }
         if (g_eligible[current_idx].type == "video") {
+            if (transitioning) {
+                transitioning = false;
+                if (g_transition) g_transition->reset();
+                if (transition_prev_target) { SDL_DestroyTexture(transition_prev_target); transition_prev_target = nullptr; }
+                if (transition_next_target) { SDL_DestroyTexture(transition_next_target); transition_next_target = nullptr; }
+            }
             if (g_video_decoder.is_running() || g_video_decoder.has_frames()) {
                 VideoFrame frame;
                 if (g_video_decoder.get_frame(frame)) {
-                    if (current_tex) { SDL_DestroyTexture(current_tex); current_tex = nullptr; }
-                    current_tex = SDL_CreateTexture(g_renderer.sdl_renderer, SDL_PIXELFORMAT_RGBA32,
-                        SDL_TEXTUREACCESS_STREAMING, frame.width, frame.height);
-                    if (current_tex) {
-                        SDL_UpdateTexture(current_tex, nullptr, frame.data, frame.width * 4);
+                    if (!g_video_tex || g_video_tex_w != frame.width || g_video_tex_h != frame.height) {
+                        if (g_video_tex) SDL_DestroyTexture(g_video_tex);
+                        g_video_tex = SDL_CreateTexture(g_renderer.sdl_renderer, SDL_PIXELFORMAT_RGBA32,
+                            SDL_TEXTUREACCESS_STREAMING, frame.width, frame.height);
+                        g_video_tex_w = frame.width;
+                        g_video_tex_h = frame.height;
+                    }
+                    if (g_video_tex) {
+                        SDL_UpdateTexture(g_video_tex, nullptr, frame.data, frame.width * 4);
                         g_renderer.clear(0, 0, 0, 255);
                         // Scale video to fill screen while maintaining aspect ratio
                         SDL_FRect dst_rect;
@@ -2380,7 +2438,7 @@ int main(int argc, char** argv) {
                             dst_rect.x = (sw - dst_rect.w) / 2;
                             dst_rect.y = 0;
                         }
-                        SDL_RenderTexture(g_renderer.sdl_renderer, current_tex, nullptr, &dst_rect);
+                        SDL_RenderTexture(g_renderer.sdl_renderer, g_video_tex, nullptr, &dst_rect);
                         // FIX: Overlay rendering + draw overlays BEFORE present()
                         if (g_overlay) {
                             double fallback_dur = (!g_eligible.empty() && current_idx >= 0 && current_idx < (int)g_eligible.size()) ? g_eligible[current_idx].duration : 0.0;
@@ -2449,6 +2507,7 @@ int main(int argc, char** argv) {
                 if (!g_video_decoder.has_frames() && (!g_video_decoder.is_running() || g_video_decoder.is_eof())) {
                     g_logger.info("Video decoder finished (EOF), advancing playlist.");
                     g_video_decoder.stop();
+                    if (g_video_tex) { SDL_DestroyTexture(g_video_tex); g_video_tex = nullptr; g_video_tex_w = 0; g_video_tex_h = 0; }
                     mark_item_shown(g_eligible[current_idx].path, false);
                     transitioning = true;
                     playlist_lock.unlock();
@@ -2472,7 +2531,7 @@ int main(int argc, char** argv) {
             } else {
                 std::string video_path = g_eligible[current_idx].path;
                 if (g_video_decoder.is_running() || g_video_decoder.has_frames()) {
-                    g_logger.debug("VIDEO_DEC: decoder already running, skipping start");
+                    // g_logger.debug("VIDEO_DEC: decoder already running");
                     playlist_lock.unlock();
                     continue;
                 }
@@ -2482,8 +2541,8 @@ int main(int argc, char** argv) {
                 { std::lock_guard lock(g_config_mtx); width = g_cfg.screen_w; height = g_cfg.screen_h; }
 
                 // Reset video frame pacing for new video
-                { static uint64_t vft = 0; vft = 0; }
-                { static bool vpi = false; vpi = false; }
+                
+                
                 if (!g_video_decoder.start(video_path, width, height)) {
                     g_logger.error("Failed to start video decoder, skipping.");
                     current_data = nullptr;
@@ -2563,6 +2622,15 @@ int main(int argc, char** argv) {
                     }
                 }
                 playlist_lock.lock();
+
+                // Validate indices after re-acquiring lock (watchman may have resized playlist)
+                if (g_eligible.empty()) {
+                    next_data = nullptr;
+                    next_twin_data = nullptr;
+                } else {
+                    if (next_idx >= (int)g_eligible.size()) next_idx = next_idx % (int)g_eligible.size();
+                    if (current_idx >= (int)g_eligible.size()) current_idx = current_idx % (int)g_eligible.size();
+                }
 
                 // Update metadata using path-safe lookups (indices may have shifted)
                 auto update_meta_safe = [&](const std::string& expected_path, const std::shared_ptr<ImageData>& data) {
@@ -2926,7 +2994,7 @@ int main(int argc, char** argv) {
                 // 1. Draw background based on style
                 std::string snap_bg_style;
                 { std::lock_guard lk(g_config_mtx); snap_bg_style = g_cfg.bg_style; }
-                if (snap_blurred || snap_bg_style != "photo") {
+                if (current_data && (snap_blurred || snap_bg_style != "photo")) {
                     g_renderer.draw_background(current_data.get(), snap_bg_style, (Uint8)(255.0f * vignette_str));
                 }
 
@@ -3108,6 +3176,13 @@ int main(int argc, char** argv) {
     g_renderer.cleanup();
 
     flock(lock_fd, LOCK_UN); close(lock_fd);
+    // Stop thermal monitoring
+    thermal_running.store(false);
+    if (thermal_thread.joinable()) thermal_thread.join();
+
+    // Clear crash state after stable runtime
+    pitrove::safe_mode::clear();
+
     g_logger.info("piTrove v%s shutdown complete", VERSION);
     return 0;
 }

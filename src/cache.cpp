@@ -9,7 +9,6 @@
 #include <cstdio>
 #include <climits>
 
-
 bool CacheManager::open(const std::string& dir) {
     g_logger.info("[TRACE] CacheManager::open dir=%s", dir.c_str());
     std::error_code ec;
@@ -132,7 +131,7 @@ bool CacheManager::open(const std::string& dir) {
         "ON CONFLICT(path) DO UPDATE SET "
         "w=excluded.w, h=excluded.h, exif=excluded.exif, "
         "duration=excluded.duration, framerate=excluded.framerate, bad=excluded.bad, "
-        "last_shown=excluded.last_shown, timestamp=excluded.timestamp, is_camera=excluded.is_camera, creation_time=excluded.creation_time, preprocessed=excluded.preprocessed",
+        "last_shown=MAX(cache.last_shown, excluded.last_shown), timestamp=excluded.timestamp, is_camera=excluded.is_camera, creation_time=excluded.creation_time, preprocessed=excluded.preprocessed",
         -1, &stmt_upsert, nullptr) != SQLITE_OK) {
         trigger_error(410); // E410: SQLITE_PREPARE_STMT_FAIL
         close();
@@ -168,6 +167,51 @@ void CacheManager::close() {
     if (db) { sqlite3_close_v2(db); db = nullptr; }
 }
 
+
+void CacheManager::mark_corrupt(const std::string& path,
+                                const std::string& code,
+                                const std::string& message) {
+    std::lock_guard<std::mutex> lock(db_mutex);
+    if (!db) return;
+
+    // Create table if not exists
+    sqlite3_exec(db, R"(
+        CREATE TABLE IF NOT EXISTS corrupt_files (
+            path TEXT PRIMARY KEY,
+            error_code TEXT,
+            error_message TEXT,
+            first_seen TEXT,
+            last_seen TEXT,
+            retry_count INTEGER DEFAULT 0
+        );
+    )", nullptr, nullptr, nullptr);
+
+    const char* sql = R"(
+        INSERT INTO corrupt_files(path, error_code, error_message, first_seen, last_seen, retry_count)
+        VALUES(?, ?, ?, datetime('now'), datetime('now'), 0)
+        ON CONFLICT(path) DO UPDATE SET
+            error_code = excluded.error_code,
+            error_message = excluded.error_message,
+            last_seen = datetime('now'),
+            retry_count = retry_count + 1;
+    )";
+
+    sqlite3_stmt* stmt = nullptr;
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) == SQLITE_OK) {
+        sqlite3_bind_text(stmt, 1, path.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(stmt, 2, code.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(stmt, 3, message.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_step(stmt);
+        sqlite3_finalize(stmt);
+    }
+}
+
+void CacheManager::clear_quarantine() {
+    std::lock_guard<std::mutex> lock(db_mutex);
+    if (!db) return;
+    sqlite3_exec(db, "DELETE FROM corrupt_files;", nullptr, nullptr, nullptr);
+}
+
 CacheManager::~CacheManager() {
     close();
 }
@@ -197,7 +241,7 @@ bool CacheManager::load_cached(MediaItem& mi) {
     return found;
 }
 
-void CacheManager::upsert(const MediaItem& mi, int bad, int preprocessed) {
+void CacheManager::upsert(MediaItem mi, int bad, int preprocessed) {
     if (!stmt_upsert) return;
 
     if ((mi.is_camera == -1 || mi.creation_time == 0) && mi.type == "image" && bad == 0) {

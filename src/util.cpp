@@ -1,4 +1,5 @@
 #include "util.h"
+#include <regex>
 #include "media_item.h"
 #include "image_loader.h"
 #include "cache.h"
@@ -21,6 +22,15 @@
 #include <dlfcn.h>
 
 
+
+
+static std::string redact_secrets(const std::string& msg) {
+    static const std::regex bearer(R"(Bearer\s+[A-Za-z0-9._~+/=-]+)", std::regex::icase);
+    static const std::regex kv(R"(((api_key|password|client_secret|refresh_token|pin|token)\s*[=:]\s*)([^\s,;]+))", std::regex::icase);
+    std::string result = std::regex_replace(msg, bearer, "Bearer [REDACTED]");
+    result = std::regex_replace(result, kv, "$1[REDACTED]");
+    return result;
+}
 
 void Logger::log_error_code(int code_num) {
     if (code_num == 0) {
@@ -433,7 +443,7 @@ void Logger::log_v(LogLevel lvl, const char* fmt, va_list ap) {
     LogMessage msg;
     msg.time = std::chrono::system_clock::now();
     msg.level = lvl;
-    msg.body = std::string(body_buf, n);
+    msg.body = redact_secrets(std::string(body_buf, n));
 
     {
         std::lock_guard<std::mutex> lock(queue_mtx);
@@ -968,7 +978,10 @@ void prefetch_video(const std::string& path) {
     {
         std::lock_guard lk(g_prefetch_mtx);
         if (g_prefetch_thread.joinable()) {
-            g_prefetch_thread.detach();
+            // Wait for previous prefetch to complete (max 50ms) instead of detach
+            g_prefetch_mtx.unlock();
+            g_prefetch_thread.join();
+            g_prefetch_mtx.lock();
         }
         g_prefetch_thread = std::thread([path]() {
             int fd = open(path.c_str(), O_RDONLY | O_NONBLOCK);

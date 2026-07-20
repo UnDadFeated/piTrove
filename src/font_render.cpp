@@ -3,6 +3,31 @@
 #include "util.h"
 #include <stdexcept>
 
+#include <unordered_map>
+
+struct TextKey {
+    std::string text;
+    int size;
+    Uint8 r, g, b, a;
+
+    bool operator==(const TextKey& other) const {
+        return text == other.text && size == other.size &&
+               r == other.r && g == other.g && b == other.b && a == other.a;
+    }
+};
+
+struct TextKeyHash {
+    size_t operator()(const TextKey& key) const {
+        size_t h1 = std::hash<std::string>{}(key.text);
+        size_t h2 = std::hash<int>{}(key.size);
+        size_t h3 = std::hash<int>{}(key.r << 24 | key.g << 16 | key.b << 8 | key.a);
+        return h1 ^ (h2 << 1) ^ (h3 << 2);
+    }
+};
+
+static std::unordered_map<std::string, SDL_Texture*> g_text_texture_cache;
+
+
 static std::atomic<int> g_font_renderer_instances{0};
 static std::mutex g_font_init_mutex;
 

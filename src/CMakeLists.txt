@@ -1,15 +1,14 @@
 cmake_minimum_required(VERSION 3.16)
-project(piTrove VERSION 14.7.1 LANGUAGES CXX)
+project(piTrove VERSION 15.6.6 LANGUAGES CXX)
 
-set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
 # ARM64 optimization
 if(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|arm64")
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3 -march=native -mtune=native")
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -flto -fomit-frame-pointer")
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -pipe")
+    set(CMAKE_CXX_FLAGS_RELEASE "-O2 -march=armv8-a+crc+simd -mtune=cortex-a72 -fomit-frame-pointer -pipe")
+    # LTO removed in v15.6.6 to prevent FFmpeg SIMD miscompilation
 endif()
 
 # ============================================================
@@ -53,6 +52,10 @@ pkg_check_modules(SWRESAMPLE REQUIRED libswresample)
 
 set(PISTROVE_SOURCES
     main.cpp
+    auth.cpp
+    health.cpp
+    safe_mode.cpp
+    thermal.cpp
     config.cpp
     tui.cpp
     scanner.cpp
@@ -97,6 +100,7 @@ target_include_directories(piTrove PRIVATE
 )
 
 target_link_libraries(piTrove PRIVATE
+    sodium
     ${SDL3_LIBRARIES}
     ${SDL3_IMAGE_LIBRARIES}
     ${SDL3_TTF_LIBRARIES}
@@ -123,7 +127,7 @@ target_link_libraries(piTrove PRIVATE
 )
 
 # Compiler flags
-target_compile_options(piTrove PRIVATE -O2 -Wall -Wextra)
+target_compile_options(piTrove PRIVATE -Wall -Wextra -Wno-unused-parameter)
 
 # Output binary in parent of src/ (repo root)
 set_target_properties(piTrove PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/..")

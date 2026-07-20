@@ -2,6 +2,86 @@
 #define _GNU_SOURCE
 #endif
 #include "image_loader.h"
+extern "C" {
+#include <jpeglib.h>
+#include <setjmp.h>
+}
+
+
+struct JpegErrorMgr {
+    jpeg_error_mgr pub;
+    jmp_buf jump;
+};
+
+static void jpeg_error_exit(j_common_ptr cinfo) {
+    auto* err = reinterpret_cast<JpegErrorMgr*>(cinfo->err);
+    longjmp(err->jump, 1);
+}
+
+SDL_Surface* load_jpeg_scaled(const std::string& path, int max_w, int max_h) {
+    FILE* fp = std::fopen(path.c_str(), "rb");
+    if (!fp) return nullptr;
+
+    jpeg_decompress_struct cinfo;
+    JpegErrorMgr jerr;
+    cinfo.err = jpeg_std_error(&jerr.pub);
+    jerr.pub.error_exit = jpeg_error_exit;
+
+    if (setjmp(jerr.jump)) {
+        jpeg_destroy_decompress(&cinfo);
+        std::fclose(fp);
+        return nullptr;
+    }
+
+    jpeg_create_decompress(&cinfo);
+    jpeg_stdio_src(&cinfo, fp);
+    jpeg_read_header(&cinfo, TRUE);
+
+    int den = 1;
+    while (den < 8 &&
+           (static_cast<int>(cinfo.image_width) / den > max_w ||
+            static_cast<int>(cinfo.image_height) / den > max_h)) {
+        ++den;
+    }
+
+    cinfo.scale_num = 1;
+    cinfo.scale_denom = den;
+    cinfo.out_color_space = JCS_RGB;
+    jpeg_calc_output_dimensions(&cinfo);
+
+    SDL_Surface* surface = SDL_CreateSurface(
+        static_cast<int>(cinfo.output_width),
+        static_cast<int>(cinfo.output_height),
+        SDL_PIXELFORMAT_RGBA32);
+
+    if (!surface) {
+        jpeg_destroy_decompress(&cinfo);
+        std::fclose(fp);
+        return nullptr;
+    }
+
+    jpeg_start_decompress(&cinfo);
+    std::vector<JSAMPLE> row_buffer(cinfo.output_width * cinfo.output_components);
+
+    while (cinfo.output_scanline < cinfo.output_height) {
+        JSAMPROW row = row_buffer.data();
+        jpeg_read_scanlines(&cinfo, &row, 1);
+        Uint8* dst = static_cast<Uint8*>(surface->pixels) +
+                     (cinfo.output_scanline - 1) * surface->pitch;
+        for (unsigned int x = 0; x < cinfo.output_width; ++x) {
+            dst[x * 4 + 0] = row_buffer[x * 3 + 0];
+            dst[x * 4 + 1] = row_buffer[x * 3 + 1];
+            dst[x * 4 + 2] = row_buffer[x * 3 + 2];
+            dst[x * 4 + 3] = 255;
+        }
+    }
+
+    jpeg_finish_decompress(&cinfo);
+    jpeg_destroy_decompress(&cinfo);
+    std::fclose(fp);
+    return surface;
+}
+
 #include "config.h"
 #include "renderer.h"
 #include "util.h"
@@ -520,14 +600,16 @@ ImageMetadata ImageLoader::read_metadata_from_memory(const uint8_t* buffer, unsi
         if (val >= 1 && val <= 8) meta.rotation = val;
     }
 
-    // 2. Camera verification (optical tags)
+    // 2. Camera verification (optical hardware & lens tags)
+    ExifEntry* make = exif_content_get_entry(ed->ifd[EXIF_IFD_0], EXIF_TAG_MAKE);
+    ExifEntry* model = exif_content_get_entry(ed->ifd[EXIF_IFD_0], EXIF_TAG_MODEL);
     ExifEntry* exposure = exif_content_get_entry(ed->ifd[EXIF_IFD_EXIF], EXIF_TAG_EXPOSURE_TIME);
     ExifEntry* fnumber = exif_content_get_entry(ed->ifd[EXIF_IFD_EXIF], EXIF_TAG_FNUMBER);
     ExifEntry* iso = exif_content_get_entry(ed->ifd[EXIF_IFD_EXIF], EXIF_TAG_ISO_SPEED_RATINGS);
     ExifEntry* focal = exif_content_get_entry(ed->ifd[EXIF_IFD_EXIF], EXIF_TAG_FOCAL_LENGTH);
     ExifEntry* datetime = exif_content_get_entry(ed->ifd[EXIF_IFD_EXIF], EXIF_TAG_DATE_TIME_ORIGINAL);
 
-    int count = (exposure ? 1 : 0) + (fnumber ? 1 : 0) + (iso ? 1 : 0) + (focal ? 1 : 0) + (datetime ? 1 : 0);
+    int count = (make ? 1 : 0) + (model ? 1 : 0) + (exposure ? 1 : 0) + (fnumber ? 1 : 0) + (iso ? 1 : 0) + (focal ? 1 : 0) + (datetime ? 1 : 0);
     meta.is_camera = (count >= 2);
 
     // 3. Creation / Capture time

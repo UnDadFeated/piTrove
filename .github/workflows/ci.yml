@@ -1,0 +1,33 @@
+name: CI
+
+on:
+  push:
+    branches: [ develop, main ]
+  pull_request:
+    branches: [ develop, main ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container:
+      image: debian:trixie
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Copy Raspberry Pi archive keyring & sources
+        run: |
+          apt-get update && apt-get install -y ca-certificates curl gnupg
+          cp raspberrypi-archive-keyring.pgp /usr/share/keyrings/raspberrypi-archive-keyring.pgp
+          cp raspi.sources /etc/apt/sources.list.d/raspi.sources
+
+      - name: Install dependencies
+        run: |
+          apt-get update
+          apt-get install -y             build-essential             cmake             ninja-build             pkg-config             libsdl3-dev             libsdl3-image-dev             libsdl3-ttf-dev             libavcodec-dev             libavformat-dev             libswscale-dev             libswresample-dev             libavutil-dev             libsqlite3-dev             libexif-dev             libdrm-dev             libgbm-dev             libegl1-mesa-dev             libgles2-mesa-dev             libsodium-dev             libstb-dev
+
+      - name: Configure CMake
+        run: cmake -S src -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build piTrove
+        run: cmake --build build
