@@ -1,0 +1,14 @@
+.git
+.github
+docs
+*.md
+CHANGELOG.md
+LICENSE.md
+SECURITY.md
+README.md
+install.sh
+scripts/
+cache/
+config/
+logs/
+build-test/

@@ -1,5 +1,23 @@
 # Changelog
 
+## v15.5.0 — GPU 4K Video Scaling & Deep Hardening Release (July 19, 2026)
+### ⚡ 4K Video Downscaling Performance Optimization
+- **GPU-Accelerated 4K Video Scaling (`src/video_decoder.cpp`)** — Eliminated CPU software downscaling (`sws_scale()`) for 4K video frames; frames are decoded at native video resolution and uploaded directly into SDL textures, allowing the Raspberry Pi V3D GPU / DRM display pipeline to handle hardware downscaling to 1080p display resolution at 60fps.
+
+### 🔴 Critical Bug & Security Fixes
+- **SQLite Read-Write Mode & Const RAII (`src/cache.cpp`, `src/cache.h`)** — Resolved contradictory `SQLITE_OPEN_READONLY | SQLITE_OPEN_CREATE` open mode in `CacheManager::open()` and changed `upsert()` signature to pass `MediaItem` by value, removing undefined behavior when mutating metadata fields.
+- **Video Decoder RAII & I/O Network Protection (`src/video_decoder.cpp`)** — Converted raw `new uint8_t[]` and `new int16_t[]` allocations to `std::vector` RAII containers, added `avformat_network_deinit()` to all exit paths, and implemented a 30-second I/O interrupt callback for hung NAS streams.
+- **MQTT Child Process Fork Safety (`src/mqtt.cpp`)** — Snapshotted all configuration values under lock before `fork()`, eliminating all `g_cfg` access in the child process (`pid == 0`) and correcting argument vector insertion.
+- **Installer Helper Function Order (`install.sh`)** — Reordered `fail()` definition prior to root check so fresh Debian Trixie Lite installs do not throw `fail: command not found`.
+- **Installer Dependencies (`install.sh`)** — Added `python3`, `nfs-common`, `dbus`, and `network-manager` to the bootstrap installation step.
+- **HTTP Control API Authorization (`src/http_server.cpp`)** — Enforced `is_authorized()` authorization checks across `/api/restart`, `/api/next`, `/api/prev`, and all control endpoints.
+
+### 🟡 Performance & Reliability Upgrades
+- **Watchman Thread Safe Shutdown (`src/main.cpp`)** — Replaced watchman thread `detach()` with an extended 5-second join polling loop to eliminate shutdown crashes.
+- **Connector Trim Mask Fix (`src/main.cpp`)** — Corrected trim mask to `" \t\r\n"` in `probe_connected_connector()`.
+- **Container Context Exclusion (`.dockerignore`)** — Added `.dockerignore` file excluding `.git`, `cache/`, `logs/`, `docs/`, `scripts/`, and build artifacts from Docker build contexts.
+
+
 ## v15.4.0 — Production Engineering & Robustness Release (July 19, 2026)
 ### Critical Fixes
 - **SQLite Read-Write Mode Fix (`src/cache.cpp`)** — Fixed `SQLITE_OPEN_READONLY` flag in `CacheManager::open()` preventing write operations on SQLite 3.46+; changed to `SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_FULLMUTEX`.

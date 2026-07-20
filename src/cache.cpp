@@ -241,7 +241,7 @@ bool CacheManager::load_cached(MediaItem& mi) {
     return found;
 }
 
-void CacheManager::upsert(const MediaItem& mi, int bad, int preprocessed) {
+void CacheManager::upsert(MediaItem mi, int bad, int preprocessed) {
     if (!stmt_upsert) return;
 
     if ((mi.is_camera == -1 || mi.creation_time == 0) && mi.type == "image" && bad == 0) {

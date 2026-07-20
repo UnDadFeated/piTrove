@@ -2261,6 +2261,7 @@ static void handle_client(int client_fd) {
             send_response(client_fd, "HTTP/1.1 200 OK", "application/json", get_api_status());
         } 
         else if (request.rfind("GET /api/next", 0) == 0) {
+        if (!is_authorized(request, client_fd)) return;
             g_remote_command.store(1);
             send_response(client_fd, "HTTP/1.1 200 OK", "application/json", "{\"status\":\"ok\"}");
         } 
@@ -2288,6 +2289,7 @@ static void handle_client(int client_fd) {
             send_response(client_fd, "HTTP/1.1 200 OK", "application/json", "{\"status\":\"ok\"}");
         }
         else if (request.rfind("GET /api/restart", 0) == 0) {
+        if (!is_authorized(request, client_fd)) return;
             g_running.store(false);
             send_response(client_fd, "HTTP/1.1 200 OK", "application/json", "{\"status\":\"ok\"}");
         } 

@@ -285,7 +285,7 @@ std::vector<char*> argv;
             }
 
             if (pid == 0) {
-                // Child process
+                // Child process: strictly use local variables, NO g_cfg access
                 dup2(pipefds[1], STDOUT_FILENO);
                 int devnull = open("/dev/null", O_WRONLY);
                 if (devnull >= 0) {
@@ -294,17 +294,13 @@ std::vector<char*> argv;
                 }
                 close(pipefds[0]);
                 close(pipefds[1]);
-
                 int max_fd = sysconf(_SC_OPEN_MAX);
                 if (max_fd < 0) max_fd = 1024;
                 for (int i = 3; i < max_fd; ++i) close(i);
-
                 
-                // NOTE: TLS and auth args are already in argv built before fork.
                 execvp(argv[0], argv.data());
                 _exit(1);
             }
-
             // Parent process
             close(pipefds[1]);
 
