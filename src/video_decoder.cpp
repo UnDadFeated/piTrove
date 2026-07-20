@@ -388,7 +388,7 @@ void VideoDecoder::decode_loop() {
     }
     // Scaler
     SwsContext* sws = sws_getContext(vcc->width, vcc->height, vcc->pix_fmt,
-                                     vcc->width, vcc->height, AV_PIX_FMT_NV12,
+                                     dst_w, dst_h, AV_PIX_FMT_RGBA,
                                      SWS_FAST_BILINEAR, nullptr, nullptr, nullptr);
     if (!sws) {
         g_logger.error("VIDEO_DEC: Failed to create scaler for %s", m_path.c_str());
@@ -402,9 +402,9 @@ void VideoDecoder::decode_loop() {
     AVPacket* pkt = av_packet_alloc();
     AVFrame* frame = av_frame_alloc();
     AVFrame* rgba = av_frame_alloc();
-    int nbytes = av_image_get_buffer_size(AV_PIX_FMT_NV12, vcc->width, vcc->height, 1);
+    int nbytes = av_image_get_buffer_size(AV_PIX_FMT_RGBA, dst_w, dst_h, 1);
     uint8_t* buf = (uint8_t*)av_malloc(nbytes);
-    av_image_fill_arrays(rgba->data, rgba->linesize, buf, AV_PIX_FMT_NV12, vcc->width, vcc->height, 1);
+    av_image_fill_arrays(rgba->data, rgba->linesize, buf, AV_PIX_FMT_RGBA, dst_w, dst_h, 1);
 
     AVFrame* aframe = nullptr;
     if (acc) aframe = av_frame_alloc();
