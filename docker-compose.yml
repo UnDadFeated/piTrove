@@ -19,7 +19,6 @@ services:
     devices:
       - /dev/dri:/dev/dri
       - /dev/input:/dev/input
-      - /dev/vchiq:/dev/vchiq
     security_opt:
       - no-new-privileges:true
     environment:
