@@ -1,5 +1,19 @@
 # Changelog
 
+## v15.6.3 — Comprehensive Video & Shuffle Stability (July 19, 2026)
+### 🔴 P0: Critical Fixes
+- **DRM_PRIME Hardware Frame Transfer (`src/video_decoder.cpp`)** — Added `av_hwframe_transfer_data()` to transfer V4L2 M2M hardware-decoded frames (DRM_PRIME/NV12) to CPU-accessible buffers before `sws_scale()`. Fixes black screen video playback on Pi 4/5 when hardware decoder outputs non-CPU-accessible pixel formats.
+- **CMake Pi 4 Compatibility (`src/CMakeLists.txt`)** — Changed `-mtune=cortex-a76` (Pi 5 only) to `-mtune=cortex-a72` (Pi 4 compatible). Removed `-flto=auto` to prevent silent miscompilation of FFmpeg SIMD routines.
+- **SQLite Cooldown Preservation (`src/cache.cpp`)** — Fixed UPSERT to use `MAX(cache.last_shown, excluded.last_shown)`, preventing background preprocessor from overwriting cooldown timestamps to 0 on restart.
+
+### 🟡 P1: High-Priority Improvements
+- **Randomized Start Index (`src/main.cpp`)** — `current_idx` now starts at a random position in the playlist instead of always index 0, ensuring different photos on each boot.
+- **FF_THREAD_SLICE Decode Throughput (`src/video_decoder.cpp`)** — Added `FF_THREAD_SLICE` alongside `FF_THREAD_FRAME` for improved multi-threaded video decode performance.
+- **High-Entropy Shuffle Seeding (`src/scanner.cpp`)** — Combined `high_resolution_clock` + `/dev/urandom` + `std::random_device` in `make_entropy_seed()` for guaranteed unique shuffle order per boot.
+- **Prefetch Thread Join Safety (`src/util.cpp`)** — Replaced `detach()` with `join()` in `prefetch_video()` to prevent undefined behavior on rapid video transitions.
+- **avformat_network_deinit() Leak Fix (`src/video_decoder.cpp`)** — Ensured FFmpeg network cleanup runs on all decode_loop exit paths.
+
+
 ## v15.6.2 — Persistent Texture Stability & Expanded Temporal Window (July 19, 2026)
 ### ⚡ Video Decode Stability & KMSDRM Resource Leak Fix
 - **Persistent Texture Reuse (`src/main.cpp`, `src/video_decoder.cpp`)** — Resolved crash/reboot loop during video playback by eliminating 60Hz texture reallocation (`SDL_DestroyTexture` / `SDL_CreateTexture` per frame). Video frames now reuse persistent streaming textures updated in-place via `SDL_UpdateTexture()`.

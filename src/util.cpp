@@ -978,7 +978,10 @@ void prefetch_video(const std::string& path) {
     {
         std::lock_guard lk(g_prefetch_mtx);
         if (g_prefetch_thread.joinable()) {
-            g_prefetch_thread.detach();
+            // Wait for previous prefetch to complete (max 50ms) instead of detach
+            g_prefetch_mtx.unlock();
+            g_prefetch_thread.join();
+            g_prefetch_mtx.lock();
         }
         g_prefetch_thread = std::thread([path]() {
             int fd = open(path.c_str(), O_RDONLY | O_NONBLOCK);

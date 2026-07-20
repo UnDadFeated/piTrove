@@ -1802,7 +1802,13 @@ int main(int argc, char** argv) {
     g_preload->start();
 
     g_logger.info("Starting slideshow loop with %zu items", g_eligible.size());
-    current_idx = 0;
+    // Randomize start position so each boot shows different initial photos
+    if (!g_eligible.empty()) {
+        current_idx = (int)(make_entropy_seed() % g_eligible.size());
+    } else {
+        current_idx = 0;
+    }
+    g_logger.info("Randomized start index: %d / %zu", current_idx, g_eligible.size());
     double item_timer = 0.0;
     auto last_frame_time = std::chrono::steady_clock::now();
 

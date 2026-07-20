@@ -131,7 +131,7 @@ bool CacheManager::open(const std::string& dir) {
         "ON CONFLICT(path) DO UPDATE SET "
         "w=excluded.w, h=excluded.h, exif=excluded.exif, "
         "duration=excluded.duration, framerate=excluded.framerate, bad=excluded.bad, "
-        "last_shown=excluded.last_shown, timestamp=excluded.timestamp, is_camera=excluded.is_camera, creation_time=excluded.creation_time, preprocessed=excluded.preprocessed",
+        "last_shown=MAX(cache.last_shown, excluded.last_shown), timestamp=excluded.timestamp, is_camera=excluded.is_camera, creation_time=excluded.creation_time, preprocessed=excluded.preprocessed",
         -1, &stmt_upsert, nullptr) != SQLITE_OK) {
         trigger_error(410); // E410: SQLITE_PREPARE_STMT_FAIL
         close();
