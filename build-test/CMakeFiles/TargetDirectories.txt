@@ -1,7 +1,0 @@
-/home/pi/piTrove/build-test/CMakeFiles/piTrove.dir
-/home/pi/piTrove/build-test/CMakeFiles/edit_cache.dir
-/home/pi/piTrove/build-test/CMakeFiles/rebuild_cache.dir
-/home/pi/piTrove/build-test/CMakeFiles/list_install_components.dir
-/home/pi/piTrove/build-test/CMakeFiles/install.dir
-/home/pi/piTrove/build-test/CMakeFiles/install/local.dir
-/home/pi/piTrove/build-test/CMakeFiles/install/strip.dir
