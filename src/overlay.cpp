@@ -331,6 +331,7 @@ void OverlayManager::draw_all(int current_idx, int total_items, const MediaItem*
         FontHandle& font = font_renderer->load_font(overlay_font->path, timer_size);
         if (is_video && !video_remaining.empty()) {
             // Uncached draw for video timer to ensure countdown updates every frame
+            g_logger.debug("REM: remaining=%s", video_remaining.c_str());
             font_renderer->draw_text_uncached(tx + 2, ty + 2, font, video_remaining, 0, 0, 0, 180);
             font_renderer->draw_text_uncached(tx, ty, font, video_remaining, timer_col.r, timer_col.g, timer_col.b, timer_col.a);
         } else if (!is_video) {
