@@ -5,6 +5,11 @@ services:
       dockerfile: Dockerfile
     container_name: piTrove
     restart: always
+    deploy:
+      resources:
+        limits:
+          memory: 768M
+    stop_grace_period: 30s
     init: true
     network_mode: host
     cap_add:
