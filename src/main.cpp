@@ -873,6 +873,7 @@ static std::thread g_watchdog_thread;
 static std::atomic<bool> g_watchdog_running{false};
 
 static FILE* g_event_log = nullptr;
+static int64_t g_video_stall_ts = 0;
 static void watchdog_loop() {
     g_logger.info("Watchdog: Software watchdog thread active.");
     g_watchdog_last_time = std::chrono::steady_clock::now();
@@ -2525,7 +2526,6 @@ int main(int argc, char** argv) {
                     }
                 } else if (g_video_decoder.is_running() || g_video_decoder.has_frames()) {
                     // Queue empty but decoder still running - wait and retry
-                    static int64_t g_video_stall_ts = 0;
                     if (g_video_stall_ts == 0) g_video_stall_ts = SDL_GetTicks();
                     else if (SDL_GetTicks() - g_video_stall_ts > 30000) {
                         g_logger.error("[VIDEO_STALL] Decoder stuck 30s, forcing recovery");
@@ -2586,6 +2586,7 @@ int main(int argc, char** argv) {
                 // Reset video frame pacing for new video
                 
                 
+                    g_video_stall_ts = 0;
                 if (!g_video_decoder.start(video_path, width, height)) {
                     g_logger.error("Failed to start video decoder, skipping.");
                     current_data = nullptr;
