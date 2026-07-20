@@ -19,7 +19,6 @@ services:
     devices:
       - /dev/dri:/dev/dri
       - /dev/input:/dev/input
-      - /dev/vchiq:/dev/vchiq
       - /dev/media0:/dev/media0
       - /dev/media1:/dev/media1
       - /dev/media2:/dev/media2
