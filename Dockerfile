@@ -29,7 +29,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libjpeg62-turbo-dev \
     libopenjp2-7-dev \
     libraw-dev \
-    libasound2-dev \
+    libasound2t64-dev \
     libfreetype6-dev \
     libfontconfig1-dev \
     libdrm-dev \
