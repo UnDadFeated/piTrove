@@ -56,5 +56,4 @@ Thumbs.db
 
 # Local test suite
 /tests/
-docs/
 build-test/
