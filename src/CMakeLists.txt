@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(piTrove VERSION 15.3.0 LANGUAGES CXX)
+project(piTrove VERSION 15.4.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -7,9 +7,9 @@ set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
 # ARM64 optimization
 if(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|arm64")
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3 -march=native -mtune=native")
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -flto -fomit-frame-pointer")
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -pipe")
+    set(CMAKE_CXX_FLAGS_RELEASE "-O3 -march=armv8-a+crc+simd -mtune=cortex-a76 -fomit-frame-pointer -pipe")
+    set(CMAKE_EXE_LINKER_FLAGS_RELEASE "${CMAKE_EXE_LINKER_FLAGS_RELEASE} -flto=auto")
+    set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -flto=auto")
 endif()
 
 # ============================================================
@@ -128,7 +128,7 @@ target_link_libraries(piTrove PRIVATE
 )
 
 # Compiler flags
-target_compile_options(piTrove PRIVATE -O2 -Wall -Wextra)
+target_compile_options(piTrove PRIVATE -Wall -Wextra -Wno-unused-parameter)
 
 # Output binary in parent of src/ (repo root)
 set_target_properties(piTrove PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/..")

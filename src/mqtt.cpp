@@ -236,7 +236,23 @@ void start_mqtt_client() {
             args.push_back("-F");
             args.push_back("%t:%p");
 
-            std::vector<char*> argv;
+                        // Capture TLS config under lock BEFORE fork (fork-safety)
+            bool tls_enabled = false;
+            std::string ca_cert;
+            {
+                std::shared_lock lk(g_config_mtx);
+                tls_enabled = g_cfg.mqtt_tls_enabled;
+                ca_cert = g_cfg.mqtt_ca_cert;
+            }
+
+            if (tls_enabled && !ca_cert.empty()) {
+                args.push_back("--cafile");
+                args.push_back(ca_cert);
+                args.push_back("--tls-version");
+                args.push_back("tlsv1.2");
+            }
+
+std::vector<char*> argv;
             argv.reserve(args.size() + 1);
             for (const auto& a : args) {
                 argv.push_back(const_cast<char*>(a.c_str()));
@@ -255,6 +271,7 @@ void start_mqtt_client() {
                 continue;
             }
 
+            
             pid_t pid = fork();
             if (pid < 0) {
                 close(pipefds[0]);
@@ -283,24 +300,7 @@ void start_mqtt_client() {
                 for (int i = 3; i < max_fd; ++i) close(i);
 
                 
-                // Add MQTT TLS support
-                if (g_cfg.mqtt_tls_enabled) {
-                    argv.insert(argv.end() - 1, (char*)"--cafile");
-                    argv.insert(argv.end() - 1, (char*)g_cfg.mqtt_ca_cert.c_str());
-                    argv.insert(argv.end() - 1, (char*)"--tls-version");
-                    argv.insert(argv.end() - 1, (char*)"tlsv1.2");
-                }
-
-                // Add MQTT username/password auth
-                if (!g_cfg.mqtt_user.empty()) {
-                    argv.insert(argv.end() - 1, (char*)"-u");
-                    argv.insert(argv.end() - 1, (char*)g_cfg.mqtt_user.c_str());
-                }
-                if (!g_cfg.mqtt_pass.empty()) {
-                    argv.insert(argv.end() - 1, (char*)"-P");
-                    argv.insert(argv.end() - 1, (char*)g_cfg.mqtt_pass.c_str());
-                }
-
+                // NOTE: TLS and auth args are already in argv built before fork.
                 execvp(argv[0], argv.data());
                 _exit(1);
             }

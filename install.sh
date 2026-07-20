@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# install.sh — piTrove v14.5.2 Premium Graphical Installer
+# install.sh — piTrove v15.4.0 Premium Graphical Installer
 # Target: Debian Trixie (13) 64-bit on Raspberry Pi 4/5
 
 set -eo pipefail
@@ -277,9 +277,14 @@ run_with_spinner "Installing QR encoder" apt-get install -y -qq qrencode 2>/dev/
 
 # Bootstrap Docker
 if ! command -v docker &>/dev/null; then
-    run_with_spinner "Installing Docker Engine" sh -c "curl -fsSL https://get.docker.com | sh"
+    
+info "Installing network filesystem utilities & base dependencies..."
+apt-get update -qq
+apt-get install -y -qq git curl ca-certificates gnupg2 cifs-utils nfs-common 2>/dev/null || true
+
+run_with_spinner "Installing Docker Engine" sh -c "curl -fsSL https://get.docker.com | sh"
 fi
-if ! command -v docker compose &>/dev/null; then
+if ! docker compose version &>/dev/null; then
     run_with_spinner "Installing Docker Compose Plugin" apt-get install -y -qq docker-compose-plugin
 fi
 

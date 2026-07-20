@@ -45,7 +45,11 @@ static std::mutex g_http_threads_mtx;
 static std::vector<int> g_active_client_fds;
 static std::mutex g_active_fds_mtx;
 
-static void register_client_fd(int fd) {
+static std::atomic<int64_t> g_last_next_cmd{0};
+static std::atomic<int64_t> g_last_prev_cmd{0};
+static constexpr int64_t CMD_COOLDOWN_MS = 500;
+
+void register_client_fd(int fd) {
     std::lock_guard<std::mutex> lk(g_active_fds_mtx);
     g_active_client_fds.push_back(fd);
 }
