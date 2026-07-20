@@ -8,7 +8,7 @@
 <img src="https://img.shields.io/github/stars/UnDadFeated/piTrove?style=flat-square&logo=github" alt="Stars" />
 </p>
 
-Professional-grade, **containerized** digital picture & video frame application for Raspberry Pi 4 & 5. C++17, DRM/KMS GPU rendering, hardware-accelerated video decoding, NAS storage support, and zero-touch auto-updates.
+Professional-grade, **containerized** digital picture & video frame application for Raspberry Pi 4 & 5. C++20, DRM/KMS GPU rendering, hardware-accelerated video decoding, NAS storage support, and zero-touch auto-updates.
 
 🌐 **[Live Documentation & Landing Page](https://undadfeated.github.io/piTrove/)**
 
@@ -99,7 +99,7 @@ sudo ./install.sh --organize /path/to/archive
 Media Root → Recursive Scan → SQLite Cache → Async Preload → SDL3 Render Loop → DRM/KMS
 ```
 
-- **Language**: C++17
+- **Language**: C++20
 - **Core**: SDL3, SDL3_image, SDL3_ttf, FFmpeg (libavcodec/libavformat/libswscale/libswresample), SQLite3, libexif, libheif
 - **HW Accel**: Pi 5 DRM (vc4-kms-v3d) / Pi 4 V4L2 M2M / SW fallback
 - **Target**: Debian Trixie Lite 64-bit on Raspberry Pi 4 & 5
