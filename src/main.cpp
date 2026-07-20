@@ -2521,8 +2521,8 @@ int main(int argc, char** argv) {
                 { std::lock_guard lock(g_config_mtx); width = g_cfg.screen_w; height = g_cfg.screen_h; }
 
                 // Reset video frame pacing for new video
-                { static uint64_t vft = 0; vft = 0; }
-                { static bool vpi = false; vpi = false; }
+                
+                
                 if (!g_video_decoder.start(video_path, width, height)) {
                     g_logger.error("Failed to start video decoder, skipping.");
                     current_data = nullptr;

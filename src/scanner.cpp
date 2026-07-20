@@ -26,6 +26,24 @@ static constexpr int MAX_DETACHED_SCANNER_THREADS = 16;
 #include <fcntl.h>
 #include <random>
 
+
+#include <ctime>
+
+static std::atomic<int64_t> g_scanner_last_reset_time{0};
+static constexpr int SCANNER_THREAD_RESET_INTERVAL_S = 120;
+
+static void maybe_reset_leaked_thread_counter() {
+    int64_t now = static_cast<int64_t>(std::time(nullptr));
+    int64_t last = g_scanner_last_reset_time.load();
+    if (now - last > SCANNER_THREAD_RESET_INTERVAL_S) {
+        int leaked = g_scanner_detached_threads.load();
+        if (leaked > 0) {
+            g_logger.warn("Scanner: Resetting leaked detached-thread counter from %d to 0 (threads likely stuck on hung CIFS mount)", leaked);
+            g_scanner_detached_threads.store(0);
+        }
+        g_scanner_last_reset_time.store(now);
+    }
+}
 static constexpr std::string_view IMAGE_EXTS[] = {"jpg", "jpeg", "png", "bmp", "tga", "gif", "webp", "tiff", "tif", "heic", "heif"};
 
 
@@ -56,6 +74,7 @@ std::vector<std::string> read_dir(const std::string& path) {
 }
 
 std::vector<std::string> read_dir_timeout(const std::string& path, int timeout_ms) {
+    maybe_reset_leaked_thread_counter();
     if (g_scanner_detached_threads.load() >= MAX_DETACHED_SCANNER_THREADS) {
         g_logger.warn("Scanner: max detached threads limit reached (%d), skipping read_dir for %s",
                       g_scanner_detached_threads.load(), path.c_str());
@@ -92,6 +111,7 @@ struct StatResult {
 };
 
 bool stat_timeout(const std::string& path, struct stat& st, int timeout_ms) {
+    maybe_reset_leaked_thread_counter();
     if (g_scanner_detached_threads.load() >= MAX_DETACHED_SCANNER_THREADS) {
         return false;
     }

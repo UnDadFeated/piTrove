@@ -109,6 +109,8 @@ bool Config::load(const std::string& path) {
         else if (key == "weather_lat")       this->weather_lat = safe_stof(val, this->weather_lat);
         else if (key == "weather_lon")       this->weather_lon = safe_stof(val, this->weather_lon);
         else if (key == "dashboard_pin")      this->dashboard_pin = val;
+        else if (key == "pin_hash" && section == "dashboard") this->pin_hash = val;
+        else if (key == "pin_changed" && section == "dashboard") this->pin_changed = (val == "1" || val == "true");
         else if (key == "http_enabled")      this->http_enabled = (val == "1" || val == "true");
         else if (key == "http_port") {
             int p = safe_stoi(val, this->http_port);

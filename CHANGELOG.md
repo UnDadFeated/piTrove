@@ -1,5 +1,31 @@
 # Changelog
 
+## v15.4.0 — Production Engineering & Robustness Release (July 19, 2026)
+### Critical Fixes
+- **SQLite Read-Write Mode Fix (`src/cache.cpp`)** — Fixed `SQLITE_OPEN_READONLY` flag in `CacheManager::open()` preventing write operations on SQLite 3.46+; changed to `SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_FULLMUTEX`.
+- **MQTT Child Process Fork Safety (`src/mqtt.cpp`)** — Resolved undefined behavior post-`fork()` by capturing TLS and authentication credentials under lock *before* spawning child processes and removing duplicated `-u`/`-P` arguments.
+- **Dockerfile Dependency Completion (`Dockerfile`)** — Added `libsodium-dev` to builder stage and `libsodium23` to runtime stage to prevent container build failures.
+
+### High-Priority Performance & Stability Upgrades
+- **Scanner Thread Counter Auto-Reset (`src/scanner.cpp`)** — Added `maybe_reset_leaked_thread_counter()` resetting stuck thread counters every 120 seconds to prevent hung CIFS/NFS mounts from permanently blocking future scans.
+- **Portable ARM64 Optimization & LTO Linker (`src/CMakeLists.txt`)** — Replaced host-dependent `-march=native` with portable `-march=armv8-a+crc+simd -mtune=cortex-a76` and added `-flto=auto` to linker flags to fix `SIGILL` crashes on Pi 4.
+- **Video Decoder Multi-Core Thread Scaling (`src/video_decoder.cpp`)** — Scaled FFmpeg decoder thread allocation to `max(1, threads - 1)` with `FF_THREAD_FRAME | FF_THREAD_SLICE` for 1080p software decode performance.
+- **Audio Resampling Buffer Optimization (`src/video_decoder.cpp`)** — Pre-allocated audio resampling buffer prior to decode loop, eliminating ~100 heap allocations per second during video playback.
+- **PIN Hash & State Persistence (`src/config.cpp`)** — Added `pin_hash` and `pin_changed` serialization to `Config::save()` and `Config::load()` to retain web dashboard authentication state across restarts.
+- **Cleartext Secrets Isolation (`src/config.cpp`)** — Isolated `api_key`, `pin_hash`, `mqtt_pass`, `google_photos_client_secret`, and `refresh_token` into `/app/config/secrets.toml` with restricted `0600` permissions.
+
+### Installer & Deployment Improvements
+- **Debian Trixie Installer Robustness (`install.sh`)** — Updated installer version header to `v15.4.0`, fixed `docker compose version` check syntax, added fallback to Debian-packaged `docker.io` / `docker-compose-v2`, and pre-installed `cifs-utils` and `nfs-common`.
+- **Canonical Audio Package for Trixie (`Dockerfile`)** — Replaced transitional `libasound2-dev` package with `libasound2t64-dev` in builder stage.
+- **Container Healthcheck Synchronization (`Dockerfile`, `docker-compose.yml`)** — Synchronized Dockerfile `HEALTHCHECK` directive with `scripts/healthcheck.sh`.
+- **HTTP Control API Rate Limiting (`src/http_server.cpp`)** — Enforced 500ms command cooldown on `/api/next` and `/api/prev` endpoints returning `429 Too Many Requests`.
+
+### Quality & Code Cleanup
+- **Dead Code Removal (`src/main.cpp`)** — Removed unused `vft` and `vpi` static resets.
+- **Connector Status String Trim Fix (`src/main.cpp`)** — Corrected trim mask to `" \t\r\n"` in `probe_connected_connector()` to prevent improper string truncation.
+- **Preload Shutdown Join (`src/preload.cpp`)** — Simplified worker thread join logic in `PreloadQueue::shutdown()`.
+
+
 ## v15.3.0 — Comprehensive Security, Robustness & Performance Upgrade (July 19, 2026)
 ### Security Hardening
 - **Argon2id PIN Hashing** — Added `src/auth.cpp` with libsodium-backed Argon2id PIN hashing; plaintext PINs are auto-migrated to hashed form on first save. Default PIN `0000` now disables the web dashboard until changed.

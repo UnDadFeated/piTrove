@@ -41,6 +41,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libswscale-dev \
     libavutil-dev \
     libstb-dev \
+    libsodium-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # Set up build directories
@@ -88,6 +89,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     dav1d \
     ffmpeg \
     mosquitto-clients \
+    libsodium23 \
     ca-certificates \
     curl \
     iputils-ping \
