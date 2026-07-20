@@ -2533,6 +2533,7 @@ int main(int argc, char** argv) {
                             fprintf(g_event_log, "VIDEO_STALL: item=%d\n", current_idx);
                             fflush(g_event_log);
                         }
+                        pitrove::health::heartbeat_tick();
                         g_video_decoder.stop();
                         transitioning = true;
                         playlist_lock.unlock();

@@ -159,8 +159,11 @@ void VideoDecoder::stop() {
     m_running.store(false);
     m_queue_cv.notify_all();
     if (m_thread != 0) {
-        pthread_join(m_thread, nullptr);
+        std::thread([=] {
+            pthread_join(m_thread, nullptr);
+        }).detach();
         m_thread = 0;
+        std::this_thread::sleep_for(std::chrono::seconds(2));
     }
     shutdown_audio();
     std::lock_guard lk(m_queue_mtx);
