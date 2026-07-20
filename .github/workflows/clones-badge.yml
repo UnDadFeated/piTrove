@@ -16,16 +16,20 @@ jobs:
 
       - name: Fetch clone count from GitHub API
         id: clones
+        env:
+          TOKEN: ${{ secrets.REPO_TRAFFIC_TOKEN }}
         run: |
-          CLONES=$(curl -s -H "Authorization: Bearer ${{ secrets.REPO_TRAFFIC_TOKEN }}" \
-            "https://api.github.com/repos/${{ github.repository }}/traffic/clones" \
-            | jq '.count // 0')
+          if [ -z "$TOKEN" ]; then
+            echo "count=0" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          CLONES=$(curl -s -H "Authorization: Bearer $TOKEN"             "https://api.github.com/repos/${{ github.repository }}/traffic/clones"             | jq '.count // 0')
           echo "count=$CLONES" >> "$GITHUB_OUTPUT"
 
       - name: Update badge JSON
         run: |
           mkdir -p .github
-          echo "{\"clones\":${{ steps.clones.outputs.count }}}" > .github/clones.json
+          echo "{"clones":${{ steps.clones.outputs.count }}}" > .github/clones.json
 
       - name: Commit if changed
         run: |
