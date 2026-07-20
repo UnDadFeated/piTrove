@@ -456,7 +456,8 @@ void VideoDecoder::decode_loop() {
                         if (ret != 0) break;
                         if (swr && aframe->nb_samples > 0 && aframe->extended_data) {
                             int max_s = av_rescale_rnd(aframe->nb_samples, 48000, audio_sample_rate, AV_ROUND_UP);
-                            int os = swr_convert(swr, (uint8_t**)audio_resample_buf.data(), max_s,
+                            uint8_t* outbuf[1] = { audio_resample_buf.data() };
+                            int os = swr_convert(swr, outbuf, max_s,
                                                  (const uint8_t**)aframe->extended_data, aframe->nb_samples);
                             if (os > 0) { push_audio_samples(audio_resample_buf.data(), os); af_count += os; }
                             
@@ -643,7 +644,8 @@ void VideoDecoder::decode_loop() {
                 if (ret != 0) break;
                 if (swr && aframe->nb_samples > 0 && aframe->extended_data) {
                     int max_s = std::min((int)av_rescale_rnd(aframe->nb_samples, 48000, audio_sample_rate, AV_ROUND_UP), MAX_AUDIO_SAMPLES);
-                    int os = swr_convert(swr, (uint8_t**)audio_resample_buf.data(), max_s,
+                    uint8_t* outbuf[1] = { audio_resample_buf.data() };
+                    int os = swr_convert(swr, outbuf, max_s,
                                          (const uint8_t**)aframe->extended_data, aframe->nb_samples);
                     if (os > 0) { push_audio_samples(audio_resample_buf.data(), os); af_count += os; }
                     
