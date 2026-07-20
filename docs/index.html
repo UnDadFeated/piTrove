@@ -3,2076 +3,297 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>piTrove &mdash; Digital Picture &amp; Video Frame for Raspberry Pi</title>
-    <meta name="description" content="A professional-grade, containerized digital picture and video frame for Raspberry Pi. DRM/KMS rendering, NAS storage, smart home integration.">
-    <meta name="keywords" content="piTrove, Raspberry Pi, digital picture frame, video frame, C++, DRM/KMS, SDL3, smart home, MQTT, Google Photos sync, Home Assistant, Docker">
-    
-    <!-- Open Graph Metadata -->
-    <meta property="og:title" content="piTrove &mdash; Digital Picture &amp; Video Frame for Raspberry Pi">
-    <meta property="og:description" content="Professional-grade, containerized C++ digital picture and video frame for Raspberry Pi. DRM/KMS rendering, NAS storage, Google Photos sync, and smart home integration.">
+    <title>piTrove — Digital Picture &amp; Video Frame for Raspberry Pi</title>
+    <meta name="description" content="Professional-grade C++ digital picture and video frame for Raspberry Pi with hardware-accelerated DRM/KMS rendering, NAS support, and zero-touch auto-updates.">
+    <meta name="keywords" content="piTrove, Raspberry Pi, digital picture frame, video frame, C++, DRM/KMS, SDL3, smart home, Home Assistant">
+    <meta property="og:title" content="piTrove — Digital Picture &amp; Video Frame for Raspberry Pi">
+    <meta property="og:description" content="Professional-grade C++ digital picture and video frame with hardware-accelerated rendering, NAS storage, and Docker deployment.">
     <meta property="og:type" content="website">
     <meta property="og:url" content="https://undadfeated.github.io/piTrove/">
-
-    <!-- Google Structured Data (JSON-LD) -->
-    <script type="application/ld+json">
-    {
-      "@context": "https://schema.org",
-      "@type": "SoftwareApplication",
-      "name": "piTrove",
-      "description": "Professional-grade digital picture and video frame for Raspberry Pi with C++ DRM/KMS rendering, NAS storage, Google Photos sync, and smart home integration.",
-      "operatingSystem": "Raspberry Pi OS Lite (64-bit)",
-      "applicationCategory": "MultimediaApplication",
-      "offers": {
-        "@type": "Offer",
-        "price": "0",
-        "priceCurrency": "USD"
-      },
-      "featureList": [
-        "DRM/KMS GPU Framebuffer Rendering via SDL3",
-        "Docker Containerized Isolation (Raspberry Pi 4 & 5)",
-        "Native In-Process H.264/H.265 Video Decoding via FFmpeg & SDL3",
-        "GPU Transition Effects (Pixelate, Dissolve)",
-        "NAS-Optimized I/O with CIFS Hang Prevention & Recovery",
-        "Seasonal Smart Scanning (Month-based matching)",
-        "Multi-threaded background image preloading",
-        "On This Day history filter",
-        "Graceful Offline Mode with Cached media fallback",
-        "Photo Overlay Engine (Filename, date, twin-portrait, drop shadows)",
-        "Bias Lighting controls with adjustable modes",
-        "OLED Burn-in prevention pixel shifting",
-        "Customizable splash boot screen",
-        "Transition progress bar",
-        "Web dashboard remote control with live telemetry",
-        "PIN-protected dashboard access lock",
-        "Home Assistant MQTT auto-discovery",
-        "MQTT TLS encryption support",
-        "Native Touchscreen input via evdev",
-        "Scheduled Sleep/Wake power saving",
-        "Terminal UI (TUI) configuration wizard",
-        "CLI management command-line utility",
-        "Web Dashboard Color palette themes",
-        "Real-time diagnostics telemetry HUD",
-        "Google Photos background synchronization",
-        "Daily cron-based auto-update system",
-        "Three-layer auto-recovery watchdog"
-      ]
-    }
-    </script>
-
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/tabler-icons.min.css" rel="stylesheet">
-
     <style>
         :root {
-            --tblr-blue: #2065d6;
-            --tblr-indigo: #6574cd;
-            --tblr-purple: #a55eea;
-            --tblr-pink: #f66d9b;
-            --tblr-red: #d63939;
-            --tblr-orange: #fd7e14;
-            --tblr-yellow: #ffc107;
-            --tblr-green: #2fb344;
-            --tblr-teal: #0ca678;
-            --tblr-cyan: #17a2b8;
-            --tblr-gray-100: #f6f8fb;
-            --tblr-gray-200: #eef2f6;
-            --tblr-gray-300: #d0d5e0;
-            --tblr-gray-400: #aab4c3;
-            --tblr-gray-500: #9aabbc;
-            --tblr-gray-600: #6b7a8d;
-            --tblr-gray-700: #4b5367;
-            --tblr-gray-800: #212a3a;
-            --tblr-gray-900: #1b2436;
             --tblr-primary: #2065d6;
             --tblr-success: #2fb344;
-            --tblr-danger: #d63939;
-            --tblr-warning: #ffc107;
-            --tblr-info: #17a2b8;
+            --tblr-muted: #6b7a8d;
+            --tblr-gray-100: #f6f8fb;
+            --tblr-gray-800: #212a3a;
+            --tblr-gray-900: #1b2436;
             --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-            --font-mono: "JetBrains Mono", "Fira Code", monospace;
+            --font-mono: "JetBrains Mono", monospace;
         }
-
         [data-bs-theme="dark"] {
-            --tblr-body-bg: #1b2436;
-            --tblr-body-color: #ccd6e2;
-            --tblr-card-bg: #212a3a;
-            --tblr-card-border: #2c3649;
-            --tblr-border: #2c3649;
-            --tblr-border-hover: #3a4659;
-            --tblr-muted: #6b7a8d;
-            --tblr-input-bg: #1b2436;
-            --tblr-input-border: #2c3649;
-            --tblr-input-color: #ccd6e2;
-            --tblr-btn-bg: #212a3a;
-            --tblr-btn-border: #2c3649;
-            --tblr-btn-color: #ccd6e2;
-            --tblr-hover-bg: #2a3547;
-            --tblr-active-bg: #2c3649;
-            --tblr-code-bg: #1b2436;
-            --tblr-pre-bg: #1b2436;
-            --tblr-primary-rgb: 32,101,214;
-            --tblr-success-rgb: 47,179,68;
-            --tblr-danger-rgb: 214,57,57;
+            --body-bg: #1b2436;
+            --body-color: #ccd6e2;
+            --card-bg: #212a3a;
+            --card-border: #2c3649;
+            --input-bg: #1b2436;
         }
-
-        [data-bs-theme="light"] {
-            --tblr-body-bg: #f6f8fb;
-            --tblr-body-color: #323f51;
-            --tblr-card-bg: #ffffff;
-            --tblr-card-border: #d0d5e0;
-            --tblr-border: #d0d5e0;
-            --tblr-border-hover: #aab4c3;
-            --tblr-muted: #6b7a8d;
-            --tblr-input-bg: #ffffff;
-            --tblr-input-border: #d0d5e0;
-            --tblr-input-color: #323f51;
-            --tblr-btn-bg: #ffffff;
-            --tblr-btn-border: #d0d5e0;
-            --tblr-btn-color: #323f51;
-            --tblr-hover-bg: #eef2f6;
-            --tblr-active-bg: #e0e5ee;
-            --tblr-code-bg: #eef2f6;
-            --tblr-pre-bg: #eef2f6;
-            --tblr-primary-rgb: 32,101,214;
-            --tblr-success-rgb: 47,179,68;
-            --tblr-danger-rgb: 214,57,57;
-        }
-
         *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-
+        html { scroll-behavior: smooth; }
         body {
             font-family: var(--font-sans);
-            background: var(--tblr-body-bg);
-            color: var(--tblr-body-color);
-            font-size: 14px;
-            line-height: 1.5;
+            background: var(--body-bg);
+            color: var(--body-color);
+            line-height: 1.6;
             -webkit-font-smoothing: antialiased;
         }
+        a { color: var(--tblr-primary); text-decoration: none; }
+        a:hover { text-decoration: underline; }
+        .container { max-width: 1100px; margin: 0 auto; padding: 0 24px; }
 
         /* Header */
         header {
-            background: var(--tblr-card-bg);
-            border-bottom: 1px solid var(--tblr-border);
-            position: fixed;
-            top: 0;
-            width: 100%;
-            z-index: 100;
-            height: 52px;
+            border-bottom: 1px solid var(--card-border);
+            background: rgba(27,36,54,0.85);
+            backdrop-filter: blur(12px);
+            position: sticky; top: 0; z-index: 100;
         }
         .header-inner {
-            max-width: 1120px;
-            margin: 0 auto;
-            padding: 0 24px;
-            height: 52px;
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 12px 24px; max-width: 1100px; margin: 0 auto;
         }
-        .logo {
-            font-weight: 700;
-            font-size: 15px;
-            color: var(--tblr-body-color);
-            text-decoration: none;
-            display: flex;
-            align-items: center;
-            gap: 8px;
+        .brand {
+            font-size: 1.25rem; font-weight: 700; color: #fff; display: flex; align-items: center; gap: 8px;
         }
-        .logo-icon {
-            width: 28px;
-            height: 28px;
-            background: var(--tblr-primary);
-            border-radius: 6px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            color: #fff;
-            font-size: 13px;
-            font-weight: 800;
-        }
-        nav { display: flex; gap: 20px; align-items: center; }
-        nav a {
-            color: var(--tblr-muted);
-            text-decoration: none;
-            font-size: 13px;
-            font-weight: 500;
-            transition: color 0.2s;
-        }
-        nav a:hover { color: var(--tblr-body-color); }
-        .nav-github {
-            display: inline-flex;
-            align-items: center;
-            gap: 6px;
-            padding: 6px 12px;
-            border: 1px solid var(--tblr-border);
-            border-radius: 6px;
-            color: var(--tblr-body-color) !important;
-            font-size: 13px;
-            transition: background 0.2s;
-        }
-        .nav-github:hover { background: var(--tblr-hover-bg); }
-        .theme-toggle {
-            background: transparent;
-            border: 1px solid var(--tblr-border);
-            border-radius: 6px;
-            padding: 6px 8px;
-            color: var(--tblr-body-color);
-            cursor: pointer;
-            display: flex;
-            align-items: center;
-            gap: 4px;
-            font-size: 16px;
-            transition: background 0.2s;
-        }
-        .theme-toggle:hover { background: var(--tblr-hover-bg); }
-
-        /* Main */
-        main { padding-top: 52px; }
-        .container { max-width: 1120px; margin: 0 auto; padding: 0 24px; }
+        .brand .ti { font-size: 1.5rem; }
+        nav { display: flex; gap: 20px; }
+        nav a { color: var(--tblr-muted); font-size: 0.9rem; font-weight: 500; }
+        nav a:hover { color: #fff; text-decoration: none; }
 
         /* Hero */
         .hero {
-            padding: 32px 24px 20px;
-            text-align: center;
+            text-align: center; padding: 80px 24px 60px;
         }
         .hero h1 {
-            font-size: 1.75rem;
-            font-weight: 700;
-            line-height: 1.2;
-            letter-spacing: -0.02em;
-            margin-bottom: 8px;
-            color: var(--tblr-body-color);
+            font-size: clamp(2rem, 5vw, 3.2rem);
+            font-weight: 700; color: #fff; line-height: 1.2; margin-bottom: 16px;
         }
         .hero p {
-            font-size: 14px;
-            color: var(--tblr-muted);
-            max-width: 520px;
-            margin: 0 auto 4px;
+            font-size: clamp(1rem, 2.5vw, 1.2rem);
+            color: var(--tblr-muted); max-width: 640px; margin: 0 auto 12px;
         }
         .hero-ver {
-            font-size: 12px;
-            color: var(--tblr-muted);
-            margin-bottom: 20px;
-            font-weight: 500;
+            font-size: 0.85rem; color: var(--tblr-muted);
+            font-family: var(--font-mono); margin-top: 8px;
         }
 
         /* Install */
-        .install {
-            max-width: 760px;
-            margin: 0 auto;
-            padding: 20px 24px 28px;
-            text-align: center;
-        }
-        .install h2 {
-            font-size: 16px;
-            font-weight: 700;
-            margin-bottom: 6px;
-            color: var(--tblr-body-color);
-        }
-        .install > p {
-            color: var(--tblr-muted);
-            margin-bottom: 14px;
-            font-size: 12px;
-        }
+        .install { padding: 40px 0; }
+        .install h2 { font-size: 1.5rem; color: #fff; margin-bottom: 8px; }
+        .install > p { color: var(--tblr-muted); margin-bottom: 20px; }
         .install-box {
-            background: var(--tblr-pre-bg);
-            border: 1px solid var(--tblr-border);
-            border-radius: 8px;
-            overflow: hidden;
+            background: var(--card-bg); border: 1px solid var(--card-border);
+            border-radius: 12px; padding: 24px;
         }
         .install-cmd {
-            display: flex;
-            border-bottom: 1px solid var(--tblr-border);
+            display: flex; align-items: center; gap: 8px;
+            background: var(--tblr-gray-900); border-radius: 8px;
+            padding: 12px 16px; margin-bottom: 20px;
+            font-family: var(--font-mono); font-size: 0.9rem;
+            overflow-x: auto;
         }
-        .install-cmd pre {
-            font-family: var(--font-mono);
-            font-size: 11px;
-            margin: 0;
-            padding: 12px 16px;
-            white-space: pre-wrap;
-            word-break: break-all;
-            line-height: 1.4;
-            flex: 1;
-            min-width: 0;
-        }
+        .install-cmd .prompt { color: var(--tblr-success); }
+        .install-cmd .cmd { color: #fff; flex: 1; }
         .copy-btn {
-            background: var(--tblr-btn-bg);
-            border: none;
-            border-left: 1px solid var(--tblr-border);
-            padding: 8px 12px;
-            color: var(--tblr-muted);
-            cursor: pointer;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            transition: all 0.2s;
-            flex-shrink: 0;
+            background: none; border: none; color: var(--tblr-muted);
+            cursor: pointer; font-size: 1.1rem; padding: 4px;
         }
-        .copy-btn:hover {
-            background: var(--tblr-hover-bg);
-            color: var(--tblr-body-color);
+        .copy-btn:hover { color: #fff; }
+        .install-steps {
+            list-style: none; counter-reset: step;
         }
-        .copy-btn .ti { font-size: 16px; }
-        .install-steps { list-style: none; padding: 0; margin: 0; }
         .install-step {
-            display: flex;
-            gap: 10px;
-            padding: 6px 0;
-            font-size: 12px;
-            color: var(--tblr-muted);
-            border-bottom: 1px solid var(--tblr-border);
+            display: flex; align-items: flex-start; gap: 12px;
+            padding: 10px 0; counter-increment: step;
         }
-        .install-step:last-child { border-bottom: none; }
-        .step-num {
-            color: var(--tblr-primary);
-            font-weight: 600;
-            min-width: 18px;
-            font-size: 12px;
+        .install-step::before {
+            content: counter(step);
+            background: var(--tblr-primary); color: #fff;
+            width: 28px; height: 28px; border-radius: 50%;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 0.8rem; font-weight: 600; flex-shrink: 0;
         }
         .install-step code {
-            background: var(--tblr-hover-bg);
-            padding: 1px 4px;
-            border-radius: 3px;
-            font-family: var(--font-mono);
-            font-size: 11px;
+            background: var(--tblr-gray-900); padding: 2px 6px;
+            border-radius: 4px; font-size: 0.85rem;
+        }
+
+        /* Video */
+        .video-wrapper { padding: 40px 0; }
+        .video-container {
+            position: relative; width: 100%; max-width: 800px;
+            margin: 0 auto; border-radius: 12px; overflow: hidden;
+            border: 1px solid var(--card-border);
+        }
+        .video-container iframe {
+            width: 100%; aspect-ratio: 16/9; border: none; display: block;
         }
 
         /* Features */
-        .video-wrapper {
-            max-width: 720px;
-            margin: 0 auto;
-            padding: 0 24px 8px;
-        }
-        .video-container {
-            position: relative;
-            width: 100%;
-            padding-bottom: 56.25%;
-            border-radius: 10px;
-            overflow: hidden;
-            background: #000;
-        }
-        .video-container iframe {
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            border: none;
-        }
-        .features {
-            padding: 24px 24px 20px;
-        }
-        .features h2 {
-            font-size: 16px;
-            font-weight: 700;
-            text-align: center;
-            margin-bottom: 4px;
-            color: var(--tblr-body-color);
-        }
-        .features-sub {
-            text-align: center;
-            color: var(--tblr-muted);
-            font-size: 12px;
-            margin-bottom: 20px;
-            max-width: 480px;
-            margin-left: auto;
-            margin-right: auto;
-        }
-        .features-container {
+        .features { padding: 40px 0; }
+        .features h2 { font-size: 1.5rem; color: #fff; margin-bottom: 8px; }
+        .features > p { color: var(--tblr-muted); margin-bottom: 24px; }
+        .features-grid {
             display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 32px;
-            max-width: 1000px;
-            margin: 0 auto;
-        }
-        .feature-column {
-            display: flex;
-            flex-direction: column;
-            gap: 28px;
-        }
-        .feature-category {
-            background: var(--tblr-card-bg);
-            border: 1px solid var(--tblr-border);
-            border-radius: 12px;
-            padding: 20px;
-            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
-            transition: border-color 0.2s ease, box-shadow 0.2s ease;
-        }
-        .feature-category:hover {
-            border-color: var(--tblr-border-hover);
-            box-shadow: 0 6px 24px rgba(0, 0, 0, 0.12);
-        }
-        .category-header {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            margin-bottom: 18px;
-            padding-bottom: 10px;
-            border-bottom: 1px solid var(--tblr-border);
-        }
-        .category-header h3 {
-            font-size: 14px;
-            font-weight: 700;
-            color: var(--tblr-body-color);
-            letter-spacing: 0.5px;
-            text-transform: uppercase;
-            margin: 0;
-        }
-        .category-header .category-icon {
-            font-size: 18px;
-            color: var(--tblr-primary);
-            display: flex;
-            align-items: center;
-        }
-        .feature-list {
-            display: flex;
-            flex-direction: column;
-            gap: 14px;
-        }
-        .feature-item {
-            display: flex;
-            gap: 12px;
-            align-items: flex-start;
-            transition: transform 0.2s ease;
-        }
-        .feature-item:hover {
-            transform: translateX(4px);
-        }
-        .feature-item-icon {
-            width: 22px;
-            height: 22px;
-            border-radius: 50%;
-            background: rgba(var(--tblr-primary-rgb), 0.15);
-            color: var(--tblr-primary);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 11px;
-            margin-top: 2px;
-            flex-shrink: 0;
-        }
-        .feature-item-content h4 {
-            font-size: 13px;
-            font-weight: 600;
-            color: var(--tblr-body-color);
-            margin-bottom: 3px;
-        }
-        .feature-item-content p {
-            font-size: 12px;
-            color: var(--tblr-muted);
-            line-height: 1.45;
-        }
-        @media (max-width: 768px) {
-            .features-container {
-                grid-template-columns: 1fr;
-                gap: 24px;
-            }
-        }
-
-        /* Dashboard Preview */
-        .preview-wrapper {
-            padding: 20px 24px 32px;
-        }
-        .preview-wrapper h2 {
-            font-size: 16px;
-            font-weight: 700;
-            margin-bottom: 4px;
-            color: var(--tblr-body-color);
-            text-align: center;
-        }
-        .preview-subtitle {
-            text-align: center;
-            color: var(--tblr-muted);
-            font-size: 12px;
-            margin-bottom: 16px;
-        }
-
-        /* Card */
-        .card {
-            background: var(--tblr-card-bg);
-            border: 1px solid var(--tblr-border);
-            border-radius: 8px;
-            overflow: hidden;
-        }
-        .card-header {
-            padding: 10px 14px;
-            border-bottom: 1px solid var(--tblr-border);
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-        }
-        .card-header h3 {
-            font-size: 13px;
-            font-weight: 600;
-            margin: 0;
-            color: var(--tblr-body-color);
-        }
-        .card-body { padding: 14px; }
-
-        /* Segmented Tabs */
-        .nav-tabs-segmented {
-            display: flex;
-            border: 1px solid var(--tblr-border);
-            border-radius: 6px;
-            overflow: hidden;
-            margin-bottom: 14px;
-        }
-        .nav-tab-btn {
-            flex: 1;
-            background: transparent;
-            border: none;
-            padding: 8px 10px;
-            color: var(--tblr-muted);
-            font-family: inherit;
-            font-size: 12px;
-            font-weight: 500;
-            cursor: pointer;
-            transition: all 0.15s ease;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 5px;
-        }
-        .nav-tab-btn:hover {
-            background: var(--tblr-hover-bg);
-            color: var(--tblr-body-color);
-        }
-        .nav-tab-btn.active {
-            background: var(--tblr-primary);
-            color: #fff;
-        }
-        .nav-tab-btn .ti { font-size: 14px; }
-        .tab-panel { display: none; }
-        .tab-panel.active { display: block; }
-
-        /* Preview Screen */
-        .preview-screen {
-            width: 100%;
-            aspect-ratio: 4 / 3;
-            border-radius: 8px;
-            background: #000;
-            overflow: hidden;
-            position: relative;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-        }
-        .preview-screen .media-bg {
-            width: 100%;
-            height: 100%;
-            background: linear-gradient(135deg, #1e1b4b, #311042);
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-        }
-        .preview-screen .media-bg .ti {
-            font-size: 48px;
-            color: var(--tblr-primary);
-            margin-bottom: 12px;
-        }
-        .preview-screen .media-bg .label {
-            font-family: var(--font-sans);
-            font-size: 14px;
-            fill: #f8fafc;
-            font-weight: 600;
-            text-anchor: middle;
-            color: #f8fafc;
-        }
-        .preview-screen .media-bg .sub {
-            font-family: var(--font-sans);
-            font-size: 11px;
-            fill: #94a3b8;
-            text-anchor: middle;
-            color: #94a3b8;
-        }
-        .preview-overlay {
-            position: absolute;
-            bottom: 0;
-            left: 0;
-            right: 0;
-            padding: 8px 12px;
-            background: linear-gradient(transparent, rgba(0,0,0,0.8));
-            font-size: 11px;
-            color: rgba(255,255,255,0.85);
-        }
-        .preview-overlay .file-name {
-            font-weight: 500;
-            font-size: 12px;
-            margin-bottom: 3px;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-        }
-        .preview-overlay .meta-row {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            font-size: 10px;
-        }
-
-        /* Status Badges */
-        .status-badge {
-            display: inline-flex;
-            align-items: center;
-            gap: 4px;
-            padding: 2px 8px;
-            border-radius: 12px;
-            font-size: 11px;
-            font-weight: 500;
-            border: 1px solid var(--tblr-border);
-            color: var(--tblr-body-color);
-            background: var(--tblr-hover-bg);
-        }
-        .status-badge.video {
-            color: var(--tblr-primary);
-            background: rgba(32,101,214,0.1);
-            border-color: rgba(32,101,214,0.2);
-        }
-        .status-dot {
-            width: 6px;
-            height: 6px;
-            border-radius: 50%;
-            background: currentColor;
-        }
-        .status-dot.green { color: var(--tblr-success); }
-        .status-dot.blue { color: var(--tblr-primary); }
-        .mqtt-icon {
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            width: 24px;
-            height: 24px;
-            border-radius: 50%;
-            background: var(--tblr-success);
-            color: #fff;
-            flex-shrink: 0;
-        }
-        .mqtt-icon .ti {
-            font-size: 14px;
-            line-height: 1;
-        }
-
-        /* Controls */
-        .controls-row {
-            display: grid;
-            grid-template-columns: repeat(4, 1fr);
-            gap: 6px;
-            margin-top: 10px;
-        }
-        .ctrl-btn {
-            background: var(--tblr-btn-bg);
-            border: 1px solid var(--tblr-btn-border);
-            border-radius: 6px;
-            padding: 8px 6px;
-            color: var(--tblr-btn-color);
-            font-family: inherit;
-            font-size: 11px;
-            font-weight: 500;
-            cursor: pointer;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            gap: 3px;
-            transition: all 0.15s ease;
-        }
-        .ctrl-btn:hover {
-            background: var(--tblr-hover-bg);
-            border-color: var(--tblr-border-hover);
-        }
-        .ctrl-btn.active {
-            background: var(--tblr-primary);
-            border-color: var(--tblr-primary);
-            color: #fff;
-        }
-        .ctrl-btn .ti { font-size: 16px; }
-        .ctrl-btn .label { font-size: 10px; }
-
-        /* Telemetry */
-        .stats-row {
-            display: grid;
-            grid-template-columns: repeat(3, 1fr);
-            gap: 8px;
-            margin-bottom: 12px;
-        }
-        .stat-card {
-            background: var(--tblr-hover-bg);
-            border: 1px solid var(--tblr-border);
-            border-radius: 6px;
-            padding: 8px 10px;
-        }
-        .stat-label {
-            font-size: 10px;
-            color: var(--tblr-muted);
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
-            margin-bottom: 3px;
-            font-weight: 600;
-        }
-        .stat-value {
-            font-family: var(--font-mono);
-            font-size: 14px;
-            font-weight: 600;
-            color: var(--tblr-body-color);
-        }
-        .mqtt-row {
-            grid-column: span 3;
-            margin-top: 6px;
-            padding-top: 8px;
-            border-top: 1px solid var(--tblr-border);
-            display: flex;
-            align-items: center;
-            gap: 6px;
-        }
-        .mqtt-status.connected { color: var(--tblr-success); }
-        .mqtt-status.disconnected { color: var(--tblr-muted); }
-
-        /* Action Buttons */
-        .action-row {
-            display: grid;
-            grid-template-columns: repeat(3, 1fr);
-            gap: 6px;
-            margin-top: 12px;
-        }
-        .action-btn {
-            background: var(--tblr-btn-bg);
-            border: 1px solid var(--tblr-btn-border);
-            border-radius: 6px;
-            padding: 8px;
-            color: var(--tblr-btn-color);
-            font-family: inherit;
-            font-size: 12px;
-            font-weight: 500;
-            cursor: pointer;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 5px;
-            transition: all 0.15s ease;
-        }
-        .action-btn:hover {
-            background: var(--tblr-hover-bg);
-            border-color: var(--tblr-border-hover);
-        }
-        .action-btn.danger:hover {
-            background: var(--tblr-danger);
-            border-color: var(--tblr-danger);
-            color: #fff;
-        }
-        .action-btn.active {
-            background: var(--tblr-primary);
-            border-color: var(--tblr-primary);
-            color: #fff;
-        }
-        .action-btn .ti { font-size: 16px; }
-
-        /* Settings Form */
-        .settings-form { display: flex; flex-direction: column; gap: 14px; }
-        .form-section-title {
-            font-size: 10px;
-            text-transform: uppercase;
-            color: var(--tblr-muted);
-            letter-spacing: 0.05em;
-            font-weight: 600;
-            margin-bottom: 8px;
-            padding-bottom: 6px;
-            border-bottom: 1px solid var(--tblr-border);
-        }
-        .form-grid {
-            display: grid;
-            grid-template-columns: repeat(2, 1fr);
-            gap: 12px;
-        }
-        .form-group label {
-            display: block;
-            font-size: 12px;
-            font-weight: 500;
-            margin-bottom: 3px;
-            color: var(--tblr-body-color);
-        }
-        .form-group input[type="number"],
-        .form-group input[type="password"],
-        .form-group input[type="text"] {
-            width: 100%;
-            padding: 6px 10px;
-            background: var(--tblr-input-bg);
-            border: 1px solid var(--tblr-input-border);
-            border-radius: 5px;
-            color: var(--tblr-input-color);
-            font-family: inherit;
-            font-size: 12px;
-            transition: border-color 0.15s;
-        }
-        .form-group input:focus {
-            outline: none;
-            border-color: var(--tblr-primary);
-        }
-        .form-group input[type="range"] {
-            -webkit-appearance: none;
-            width: 100%;
-            height: 3px;
-            background: var(--tblr-border);
-            border-radius: 2px;
-            border: none;
-            margin-top: 4px;
-        }
-        .form-group input[type="range"]::-webkit-slider-thumb {
-            -webkit-appearance: none;
-            width: 14px;
-            height: 14px;
-            border-radius: 50%;
-            background: var(--tblr-primary);
-            cursor: pointer;
-            border: 2px solid var(--tblr-card-bg);
-        }
-        .range-row {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        }
-        .range-row input[type="range"] { flex: 1; margin: 0; }
-        .range-val {
-            font-family: var(--font-mono);
-            font-size: 11px;
-            color: var(--tblr-muted);
-            min-width: 32px;
-            text-align: right;
-        }
-        .checkbox-group {
-            display: flex;
-            align-items: center;
-            gap: 6px;
-        }
-        .checkbox-group input[type="checkbox"] {
-            width: 15px;
-            height: 15px;
-            accent-color: var(--tblr-primary);
-        }
-        .checkbox-group label {
-            margin: 0;
-            font-size: 12px;
-            cursor: pointer;
-        }
-        .btn-save {
-            width: 100%;
-            padding: 8px 14px;
-            background: var(--tblr-primary);
-            color: #fff;
-            border: 1px solid var(--tblr-primary);
-            border-radius: 5px;
-            font-family: inherit;
-            font-size: 13px;
-            font-weight: 600;
-            cursor: pointer;
-            transition: opacity 0.15s;
-        }
-        .btn-save:hover { opacity: 0.9; }
-
-        /* Logs */
-        .log-console {
-            background: var(--tblr-pre-bg);
-            border: 1px solid var(--tblr-border);
-            border-radius: 6px;
-            padding: 12px;
-            font-family: var(--font-mono);
-            font-size: 10px;
-            color: var(--tblr-success);
-            height: 260px;
-            overflow-y: auto;
-            white-space: pre-wrap;
-            line-height: 1.5;
-        }
-
-        /* Toast */
-        .toast-container {
-            position: fixed;
-            bottom: 16px;
-            left: 50%;
-            transform: translateX(-50%);
-            z-index: 1000;
-        }
-        .toast {
-            background: var(--tblr-card-bg);
-            border: 1px solid var(--tblr-border);
-            border-radius: 5px;
-            padding: 8px 14px;
-            color: var(--tblr-body-color);
-            font-size: 12px;
-            font-weight: 500;
-            opacity: 0;
-            transform: translateY(8px);
-            transition: all 0.2s ease;
-            white-space: nowrap;
-            box-shadow: 0 3px 10px rgba(0,0,0,0.15);
-        }
-        .toast.show {
-            opacity: 1;
-            transform: translateY(0);
-        }
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 16px;
+        }
+        .feature-card {
+            background: var(--card-bg); border: 1px solid var(--card-border);
+            border-radius: 10px; padding: 20px;
+            transition: border-color 0.2s;
+        }
+        .feature-card:hover { border-color: var(--tblr-primary); }
+        .feature-card-icon {
+            width: 40px; height: 40px; border-radius: 8px;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 1.3rem; margin-bottom: 12px;
+        }
+        .feature-card h3 {
+            font-size: 1rem; color: #fff; margin-bottom: 8px; font-weight: 600;
+        }
+        .feature-card p {
+            font-size: 0.88rem; color: var(--tblr-muted); line-height: 1.5;
+        }
+        .icon-media { background: rgba(214,57,57,0.15); color: #d63939; }
+        .icon-storage { background: rgba(47,179,68,0.15); color: #2fb344; }
+        .icon-integration { background: rgba(32,101,214,0.15); color: #2065d6; }
+        .icon-system { background: rgba(165,94,234,0.15); color: #a55eea; }
+        .icon-reliability { background: rgba(23,162,184,0.15); color: #17a2b8; }
 
         /* Footer */
         footer {
-            border-top: 1px solid var(--tblr-border);
-            padding: 20px 24px;
-            text-align: center;
-            color: var(--tblr-muted);
-            font-size: 12px;
+            border-top: 1px solid var(--card-border);
+            padding: 24px 0; text-align: center;
+            font-size: 0.85rem; color: var(--tblr-muted);
         }
-        .footer-inner {
-            max-width: 1120px;
-            margin: 0 auto;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-        footer a { color: var(--tblr-muted); text-decoration: none; }
-        footer a:hover { color: var(--tblr-body-color); }
+        footer a { color: var(--tblr-muted); }
+        footer a:hover { color: #fff; }
 
-        /* Touch */
-        * { -webkit-tap-highlight-color: transparent; -webkit-touch-callout: none; user-select: none; }
-        input, textarea, select { user-select: text; -webkit-user-select: text; }
-        button { touch-action: manipulation; }
-        @media (pointer: coarse) {
-            .ctrl-btn, .action-btn, .nav-tab-btn, .btn-save, .copy-btn {
-                min-height: 44px;
-                min-width: 44px;
-            }
-        }
-
-        /* Save Overlay */
-        .save-overlay {
-            position: fixed;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            background: rgba(0,0,0,0.6);
-            z-index: 2000;
-            opacity: 0;
-            transition: opacity 0.3s;
-            pointer-events: none;
-        }
-        .save-overlay.show {
-            opacity: 1;
-            pointer-events: auto;
-        }
-        .save-overlay-content {
-            background: var(--tblr-card-bg);
-            border: 1px solid var(--tblr-border);
-            border-radius: 12px;
-            padding: 20px 40px;
-            color: var(--tblr-success);
-            font-size: 18px;
-            font-weight: 600;
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            box-shadow: 0 8px 30px rgba(0,0,0,0.3);
-        }
-        .save-overlay-content .ti {
-            font-size: 28px;
-        }
-
-        /* PIN Pad Overlay */
-        .pin-overlay {
-            position: fixed;
-            top: 0; left: 0; right: 0; bottom: 0;
-            background: rgba(0,0,0,0.85);
-            z-index: 3000;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            transition: opacity 0.4s;
-        }
-        .pin-overlay.hidden {
-            opacity: 0;
-            pointer-events: none;
-        }
-        .pin-overlay.locked {
-            opacity: 1;
-            pointer-events: auto;
-        }
-        .pin-modal {
-            background: var(--tblr-card-bg);
-            border: 1px solid var(--tblr-border);
-            border-radius: 16px;
-            padding: 28px;
-            width: 280px;
-            max-width: 90vw;
-            text-align: center;
-            box-shadow: 0 12px 40px rgba(0,0,0,0.4);
-        }
-        .pin-modal-title {
-            font-size: 14px;
-            font-weight: 600;
-            color: var(--tblr-body-color);
-            margin-bottom: 6px;
-        }
-        .pin-modal-sub {
-            font-size: 11px;
-            color: var(--tblr-muted);
-            margin-bottom: 16px;
-        }
-        .pin-display {
-            display: flex;
-            justify-content: center;
-            gap: 12px;
-            margin-bottom: 20px;
-            min-height: 36px;
-            align-items: center;
-        }
-        .pin-dot {
-            width: 16px;
-            height: 16px;
-            border-radius: 50%;
-            border: 2px solid var(--tblr-border);
-            background: transparent;
-            transition: all 0.15s;
-        }
-        .pin-dot.filled {
-            background: var(--tblr-primary);
-            border-color: var(--tblr-primary);
-        }
-        .pin-dot.error {
-            background: var(--tblr-danger);
-            border-color: var(--tblr-danger);
-        }
-        .pin-keypad {
-            display: grid;
-            grid-template-columns: repeat(3, 1fr);
-            gap: 10px;
-        }
-        .pin-key {
-            background: var(--tblr-btn-bg);
-            border: 1px solid var(--tblr-btn-border);
-            border-radius: 10px;
-            padding: 14px;
-            color: var(--tblr-btn-color);
-            font-size: 20px;
-            font-weight: 600;
-            font-family: var(--font-sans);
-            cursor: pointer;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            transition: all 0.1s;
-            min-height: 52px;
-            -webkit-tap-highlight-color: transparent;
-        }
-        .pin-key:active {
-            background: var(--tblr-hover-bg);
-            transform: scale(0.95);
-        }
-        .pin-key.enter {
-            background: var(--tblr-success);
-            border-color: var(--tblr-success);
-            color: #fff;
-        }
-        .pin-key.enter:active {
-            opacity: 0.8;
-        }
-        .pin-key.delete {
-            background: var(--tblr-btn-bg);
-            font-size: 16px;
-        }
-        .pin-key.change {
-            background: transparent;
-            border: 1px dashed var(--tblr-border);
-            font-size: 11px;
-            padding: 8px;
-            font-weight: 500;
-        }
-        .pin-error-msg {
-            color: var(--tblr-danger);
-            font-size: 11px;
-            margin-top: 12px;
-            min-height: 16px;
-            font-weight: 500;
-        }
-        .pin-shake {
-            animation: pinShake 0.4s ease;
-        }
-        @keyframes pinShake {
-            0%, 100% { transform: translateX(0); }
-            20% { transform: translateX(-10px); }
-            40% { transform: translateX(10px); }
-            60% { transform: translateX(-6px); }
-            80% { transform: translateX(6px); }
-        }
-
-        /* Toggle Switch */
-        .toggle-switch {
-            display: inline-flex;
-            align-items: center;
-            cursor: pointer;
-            position: relative;
-            padding-left: 56px;
-            height: 36px;
-            user-select: none;
-            -webkit-tap-highlight-color: transparent;
-        }
-        .toggle-switch input {
-            opacity: 0;
-            width: 0;
-            height: 0;
-            position: absolute;
-        }
-        .toggle-slider {
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 48px;
-            height: 28px;
-            background: var(--tblr-border);
-            border-radius: 14px;
-            transition: background 0.2s;
-        }
-        .toggle-slider::before {
-            content: '';
-            position: absolute;
-            width: 22px;
-            height: 22px;
-            left: 3px;
-            top: 3px;
-            background: #fff;
-            border-radius: 50%;
-            transition: transform 0.2s;
-        }
-        .toggle-switch input:checked + .toggle-slider {
-            background: var(--tblr-primary);
-        }
-        .toggle-switch input:checked + .toggle-slider::before {
-            transform: translateX(20px);
-        }
-        .toggle-switch:active .toggle-slider::before {
-            width: 28px;
-        }
-        .toggle-switch input:checked:active + .toggle-slider::before {
-            transform: translateX(14px);
-        }
-
-        /* Toggle Grid */
-        .form-section { margin-bottom: 1.5rem; }
-        .form-section-title {
-            font-size: 0.75rem; font-weight: 600; color: #8b95a5;
-            text-transform: uppercase; letter-spacing: 0.5px;
-            margin-bottom: 0.5rem; padding-bottom: 0.35rem;
-            border-bottom: 1px solid var(--tblr-border);
-        }
-        .toggle-grid {
-            display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.5rem;
-        }
-        .toggle-card {
-            background: var(--tblr-card-bg); border: 1px solid var(--tblr-border);
-            border-radius: 8px; padding: 8px 10px;
-            display: flex; align-items: center; justify-content: space-between;
-            cursor: pointer; transition: background 0.2s, border-color 0.2s;
-        }
-        .toggle-card:hover {
-            background: var(--tblr-hover-bg); border-color: var(--tblr-border-hover);
-        }
-        .toggle-label {
-            font-size: 0.78rem; color: #adb5bd; line-height: 1.2;
-            margin-right: 6px; pointer-events: none;
-        }
-        .toggle-switch { display: flex; align-items: center; flex-shrink: 0; }
-        .toggle-switch input:checked + .toggle-slider { margin-top: 10px; }
-
-        /* Responsive */
-        @media (max-width: 768px) {
-            .form-grid { grid-template-columns: 1fr; }
-            .stats-row { grid-template-columns: repeat(2, 1fr); }
-            .mqtt-row { grid-column: span 2; }
-            .footer-inner { flex-direction: column; gap: 12px; }
-            .action-row, .controls-row { grid-template-columns: repeat(2, 1fr); }
-        }
-        @media (max-width: 480px) {
-            .stats-row { grid-template-columns: 1fr; }
-            .mqtt-row { grid-column: span 1; }
-            .hero h1 { font-size: 1.5rem; }
-            .pin-modal { padding: 20px; width: 240px; }
+        /* Mobile */
+        @media (max-width: 600px) {
+            .hero { padding: 50px 16px 40px; }
+            .header-inner { padding: 10px 16px; }
+            nav { gap: 14px; }
+            .install-box { padding: 16px; }
+            .install-cmd { font-size: 0.75rem; padding: 10px 12px; }
+            .features-grid { grid-template-columns: 1fr; }
         }
     </style>
 </head>
 <body>
     <header>
         <div class="header-inner">
-            <a href="#" class="logo">
-                <div class="logo-icon">p</div>
+            <div class="brand">
+                <span class="ti ti-device-tv-old"></span>
                 piTrove
-            </a>
+            </div>
             <nav>
                 <a href="#install">Install</a>
                 <a href="#features">Features</a>
-                <a href="#demo">Demo</a>
-                <button class="theme-toggle" id="theme-toggle" onclick="toggleTheme()" title="Toggle theme">
-                    <span class="ti ti-sun" id="theme-icon"></span>
-                </button>
-                <a href="https://github.com/UnDadFeated/piTrove" target="_blank" class="nav-github">
-                    <span class="ti ti-brand-github"></span>
-                    GitHub
-                </a>
+                <a href="https://github.com/UnDadFeated/piTrove" target="_blank">GitHub</a>
             </nav>
         </div>
     </header>
-
     <main>
-        <section class="hero">
-            <h1>C++ Digital Picture &amp; Video Frame<br>for Raspberry Pi</h1>
-            <p>Professional-grade slideshow engine built for Raspberry Pi. Hardware-accelerated rendering, NAS storage, and smart home integration.</p>
-            <p class="hero-ver">C++ &middot; Docker &middot; DRM/KMS &middot; Raspberry Pi 4 &amp; 5 &middot; 4K HDR</p>
-        </section>
+        <div class="container">
+            <section class="hero">
+                <h1>C++ Digital Picture &amp; Video Frame<br>for Raspberry Pi</h1>
+                <p>Professional-grade slideshow engine with hardware-accelerated DRM/KMS rendering, in-process video decoding, NAS storage, and zero-touch auto-updates.</p>
+                <p class="hero-ver">v16.1.6 &middot; C++17 &middot; SDL3 &middot; Docker &middot; DRM/KMS &middot; Pi 4 &amp; 5</p>
+            </section>
 
-        <section class="install" id="install">
-            <h2>Get started</h2>
-            <p>One command. Fully containerized. Runs on boot.</p>
-            <div class="install-box">
-                <div class="install-cmd">
-                    <pre><span class="prompt">$ </span><span class="cmd">wget -qO- https://raw.githubusercontent.com/UnDadFeated/piTrove/main/install.sh | sudo bash</span></pre>
-                    <button class="copy-btn" onclick="copyInstallCmd()" title="Copy to clipboard">
-                        <span class="ti ti-copy"></span>
-                    </button>
+            <section class="install" id="install">
+                <h2>Get started</h2>
+                <p>One command. Fully containerized. Runs on boot.</p>
+                <div class="install-box">
+                    <div class="install-cmd">
+                        <span class="prompt">$</span>
+                        <span class="cmd">wget -qO- https://raw.githubusercontent.com/UnDadFeated/piTrove/main/install.sh | sudo bash</span>
+                        <button class="copy-btn" onclick="copyInstallCmd()" title="Copy">
+                            <span class="ti ti-copy"></span>
+                        </button>
+                    </div>
+                    <ol class="install-steps">
+                        <li class="install-step">Flash <strong>Raspberry Pi OS Lite 64-bit</strong> via the Pi Imager.</li>
+                        <li class="install-step">Boot, connect to network, and SSH in: <code>ssh pi@&lt;pi-ip&gt;</code></li>
+                        <li class="install-step">Run the install command above — Docker, NAS mounts, and systemd unit are configured automatically.</li>
+                        <li class="install-step">Access the web dashboard at <code>http://&lt;pi-ip&gt;:9000</code>.</li>
+                    </ol>
                 </div>
-                <ol class="install-steps">
-                    <li class="install-step">
-                        <span class="step-num">1</span>
-                        <span>Flash <strong>Raspberry Pi OS Lite 64-bit</strong> via the Pi Imager.</span>
-                    </li>
-                    <li class="install-step">
-                        <span class="step-num">2</span>
-                        <span>Boot the Pi, connect to your network, and SSH in.</span>
-                    </li>
-                    <li class="install-step">
-                        <span class="step-num">3</span>
-                        <span>Run the install command above. Docker, media mounts, and systemd unit are set up automatically.</span>
-                    </li>
-                    <li class="install-step">
-                        <span class="step-num">4</span>
-                        <span>Access the web dashboard at <code>http://&lt;pi-ip&gt;:8080</code>.</span>
-                    </li>
-                </ol>
-            </div>
-        </section>
+            </section>
 
-        <section class="video-wrapper">
-            <div class="video-container">
-                <iframe src="https://www.youtube-nocookie.com/embed/Blg8EHAL3RY" title="piTrove Digital Picture Frame" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen loading="lazy"></iframe>
-            </div>
-        </section>
+            <section class="video-wrapper">
+                <div class="video-container">
+                    <iframe src="https://www.youtube-nocookie.com/embed/Blg8EHAL3RY"
+                            title="piTrove Digital Picture Frame"
+                            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                            allowfullscreen loading="lazy"></iframe>
+                </div>
+            </section>
 
-        <section class="features" id="features">
-            <h2>Built for reliability</h2>
-            <p class="features-sub">Every component designed to run unattended for months without intervention.</p>
-            <div class="features-container">
-                <!-- Column 1 -->
-                <div class="feature-column">
-                    <!-- Category 1: Media Engine & Visuals -->
-                    <div class="feature-category">
-                        <div class="category-header">
-                            <span class="category-icon"><span class="ti ti-device-tv-old"></span></span>
-                            <h3>Media Engine &amp; Visuals</h3>
-                        </div>
-                        <div class="feature-list">
-                            <div class="feature-item">
-                                <div class="feature-item-icon"><span class="ti ti-device-tv-old"></span></div>
-                                <div class="feature-item-content">
-                                    <h4>DRM/KMS Rendering</h4>
-                                    <p>Direct GPU framebuffer rendering via SDL3. No desktop environment, X11, or Wayland required.</p>
-                                </div>
-                            </div>
-                            <div class="feature-item">
-                                <div class="feature-item-icon"><span class="ti ti-player-play"></span></div>
-                                <div class="feature-item-content">
-                                    <h4>Video Playback</h4>
-                                    <p>H.264/H.265/AV1 video decoding baked directly into SDL3 using FFmpeg. Eliminates external process switches for seamless video-to-photo transitions and full frame-level playback control.</p>
-                                </div>
-                            </div>
-                            <div class="feature-item">
-                                <div class="feature-item-icon"><span class="ti ti-arrows-shuffle"></span></div>
-                                <div class="feature-item-content">
-                                    <h4>GPU Transition Effects</h4>
-                                    <p>Pixelate and dissolve transitions between photos rendered on the GPU. Configurable duration and effect per profile.</p>
-                                </div>
-                            </div>
-                            <div class="feature-item">
-                                <div class="feature-item-icon"><span class="ti ti-photo"></span></div>
-                                <div class="feature-item-content">
-                                    <h4>Photo Overlay Engine</h4>
-                                    <p>Configurable filename, date, and twin-portrait overlays. Adaptive text sizing with drop shadows for readability on any background.</p>
-                                </div>
-                            </div>
-                            <div class="feature-item">
-                                <div class="feature-item-icon"><span class="ti ti-lamp"></span></div>
-                                <div class="feature-item-content">
-                                    <h4>Bias Lighting Controls</h4>
-                                    <p>Five bias lighting modes with adjustable color, brightness, and zone width for ambient LED strips behind the frame.</p>
-                                </div>
-                            </div>
-                            <div class="feature-item">
-                                <div class="feature-item-icon"><span class="ti ti-frame"></span></div>
-                                <div class="feature-item-content">
-                                    <h4>Splash Boot Screen</h4>
-                                    <p>Customizable splash image displayed during startup and watchdog recovery. Fades seamlessly into the first photo.</p>
-                                </div>
-                            </div>
-                            <div class="feature-item">
-                                <div class="feature-item-icon"><span class="ti ti-progress-check"></span></div>
-                                <div class="feature-item-content">
-                                    <h4>Transition Progress Bar</h4>
-                                    <p>Optional progress indicator at the bottom of the screen showing remaining display time. Configurable style, position, and visibility.</p>
-                                </div>
-                            </div>
-                        </div>
+            <section class="features" id="features">
+                <h2>Built for reliability</h2>
+                <p>Every component designed to run unattended for months without intervention.</p>
+                <div class="features-grid">
+                    <div class="feature-card">
+                        <div class="feature-card-icon icon-media"><span class="ti ti-device-tv-old"></span></div>
+                        <h3>Media Engine</h3>
+                        <p>DRM/KMS GPU rendering via SDL3 with no desktop required. H.264/H.265/AV1 video playback with Pi 4/5 auto-detected hardware acceleration. JPEG, PNG, HEIC, WebP, TIFF support. Professional transitions, Ken Burns, bias lighting, and adaptive overlays.</p>
                     </div>
-
-                    <!-- Category 2: Smart Scanning & Storage -->
-                    <div class="feature-category">
-                        <div class="category-header">
-                            <span class="category-icon"><span class="ti ti-server"></span></span>
-                            <h3>Smart Scanning &amp; Storage</h3>
-                        </div>
-                        <div class="feature-list">
-                            <div class="feature-item">
-                                <div class="feature-item-icon"><span class="ti ti-server"></span></div>
-                                <div class="feature-item-content">
-                                    <h4>NAS-Optimized I/O</h4>
-                                    <p>Custom filesystem scanner with CIFS hang prevention, readlink-based fd leak protection, and stale mount recovery for network storage.</p>
-                                </div>
-                            </div>
-                            <div class="feature-item">
-                                <div class="feature-item-icon"><span class="ti ti-calendar-stats"></span></div>
-                                <div class="feature-item-content">
-                                    <h4>Seasonal Smart Scanning</h4>
-                                    <p>Year-agnostic month-based scanning with configurable temporal window. Only surfaces photos matching the current season.</p>
-                                </div>
-                            </div>
-                            <div class="feature-item">
-                                <div class="feature-item-icon"><span class="ti ti-refresh"></span></div>
-                                <div class="feature-item-content">
-                                    <h4>Background Preloading</h4>
-                                    <p>Multi-threaded image preloader with intelligent queue. Next photos are decoded while current one is displayed for zero-lag transitions.</p>
-                                </div>
-                            </div>
-                            <div class="feature-item">
-                                <div class="feature-item-icon"><span class="ti ti-calendar-time"></span></div>
-                                <div class="feature-item-content">
-                                    <h4>On This Day</h4>
-                                    <p>Automatically surfaces photos from the same date in past years. Configurable day range to broaden matching window.</p>
-                                </div>
-                            </div>
-                            <div class="feature-item">
-                                <div class="feature-item-icon"><span class="ti ti-wifi-off"></span></div>
-                                <div class="feature-item-content">
-                                    <h4>Graceful Offline Mode</h4>
-                                    <p>When NAS or network drops, the frame continues playing cached photos. Auto-recovers when connectivity returns without user intervention.</p>
-                                </div>
-                            </div>
-                        </div>
+                    <div class="feature-card">
+                        <div class="feature-card-icon icon-storage"><span class="ti ti-server"></span></div>
+                        <h3>Smart Scanning</h3>
+                        <p>NAS-optimized scanning with CIFS hang prevention. SQLite3 WAL persistence for zero redundant scans. Seasonal window filtering, On-This-Day anniversary matching, content filtering for documents, and multi-threaded async preloading.</p>
                     </div>
-
-                    <!-- Category 3: Integrations & Cloud -->
-                    <div class="feature-category">
-                        <div class="category-header">
-                            <span class="category-icon"><span class="ti ti-cloud"></span></span>
-                            <h3>Integrations &amp; Cloud</h3>
-                        </div>
-                        <div class="feature-list">
-                            <div class="feature-item">
-                                <div class="feature-item-icon"><span class="ti ti-home"></span></div>
-                                <div class="feature-item-content">
-                                    <h4>Home Assistant MQTT</h4>
-                                    <p>Auto-discovers as a smart home device in Home Assistant. Control screen, skip photos, and trigger motion simulation via MQTT.</p>
-                                </div>
-                            </div>
-                            <div class="feature-item">
-                                <div class="feature-item-icon"><span class="ti ti-shield-lock"></span></div>
-                                <div class="feature-item-content">
-                                    <h4>MQTT TLS Encryption</h4>
-                                    <p>Secure Home Assistant integration with TLS client certificates. All smart home commands encrypted end-to-end.</p>
-                                </div>
-                            </div>
-                            <div class="feature-item">
-                                <div class="feature-item-icon"><span class="ti ti-cloud"></span></div>
-                                <div class="feature-item-content">
-                                    <h4>Google Photos Sync</h4>
-                                    <p>Background OAuth2 sync from your Google Photos albums with configurable sync interval. Selective album and media type filtering.</p>
-                                </div>
-                            </div>
-                        </div>
+                    <div class="feature-card">
+                        <div class="feature-card-icon icon-integration"><span class="ti ti-brand-apple"></span></div>
+                        <h3>Integrations</h3>
+                        <p>MQTT with Home Assistant auto-discovery for remote controls and motion sensing. Google Photos cloud sync. Glassmorphic web dashboard with live telemetry. Native touchscreen input via evdev.</p>
+                    </div>
+                    <div class="feature-card">
+                        <div class="feature-card-icon icon-system"><span class="ti ti-settings"></span></div>
+                        <h3>System &amp; Controls</h3>
+                        <p>11-category TUI configuration wizard. PIN-protected dashboard. Scheduled sleep/wake. Diagnostics HUD with real-time telemetry. Adaptive text contrast. OLED burn-in prevention. CLI management tool.</p>
+                    </div>
+                    <div class="feature-card">
+                        <div class="feature-card-icon icon-reliability"><span class="ti ti-heartbeat"></span></div>
+                        <h3>Reliability</h3>
+                        <p>Docker containerized isolation. Three-layer auto-recovery watchdog. Network monitoring with automatic Wi-Fi reset. Video stall detection with forced recovery. Async-signal-safe crash handlers. Daily zero-touch auto-updates.</p>
+                    </div>
+                    <div class="feature-card">
+                        <div class="feature-card-icon icon-media"><span class="ti ti-code"></span></div>
+                        <h3>Architecture</h3>
+                        <p>C++17 with SDL3, FFmpeg, SQLite3, and libexif. Multi-stage Docker builds. Runtime Pi 4/5 hardware detection. 40+ source modules with comprehensive error database and diagnostic codes.</p>
                     </div>
                 </div>
-
-                <!-- Column 2 -->
-                <div class="feature-column">
-                    <!-- Category 4: System & Controls -->
-                    <div class="feature-category">
-                        <div class="category-header">
-                            <span class="category-icon"><span class="ti ti-settings"></span></span>
-                            <h3>System &amp; Controls</h3>
-                        </div>
-                        <div class="feature-list">
-                            <div class="feature-item">
-                                <div class="feature-item-icon"><span class="ti ti-dashboard"></span></div>
-                                <div class="feature-item-content">
-                                    <h4>Web Dashboard</h4>
-                                    <p>Remote control with live telemetry, playback controls, settings, and log streaming. Access from any browser on your network.</p>
-                                </div>
-                            </div>
-                            <div class="feature-item">
-                                <div class="feature-item-icon"><span class="ti ti-lock"></span></div>
-                                <div class="feature-item-content">
-                                    <h4>Dashboard PIN Lock</h4>
-                                    <p>PIN-protected access to the web dashboard. Configurable passcode with lockout delay prevents unauthorized changes.</p>
-                                </div>
-                            </div>
-                            <div class="feature-item">
-                                <div class="feature-item-icon"><span class="ti ti-terminal-2"></span></div>
-                                <div class="feature-item-content">
-                                    <h4>TUI Configuration Wizard</h4>
-                                    <p>Full 11-category terminal user interface for configuring every setting. Keyboard-driven with live preview and restore defaults.</p>
-                                </div>
-                            </div>
-                            <div class="feature-item">
-                                <div class="feature-item-icon"><span class="ti ti-command"></span></div>
-                                <div class="feature-item-content">
-                                    <h4>CLI Management Tool</h4>
-                                    <p>The pitrove command gives you restart, logs, status, and config access from any SSH session. No web browser needed.</p>
-                                </div>
-                            </div>
-                            <div class="feature-item">
-                                <div class="feature-item-icon"><span class="ti ti-palette"></span></div>
-                                <div class="feature-item-content">
-                                    <h4>Color Palette System</h4>
-                                    <p>Multiple color themes (Emerald, Sapphire, Zinc) for the web dashboard and TUI. Switch live without restarting.</p>
-                                </div>
-                            </div>
-                            <div class="feature-item">
-                                <div class="feature-item-icon"><span class="ti ti-report-analytics"></span></div>
-                                <div class="feature-item-content">
-                                    <h4>Diagnostics Telemetry HUD</h4>
-                                    <p>On-screen overlay showing real-time FPS, memory usage, cache stats, and WiFi signal strength. Toggle via config or touch shortcut.</p>
-                                </div>
-                            </div>
-                            <div class="feature-item">
-                                <div class="feature-item-icon"><span class="ti ti-hand-three-fingers"></span></div>
-                                <div class="feature-item-content">
-                                    <h4>Touchscreen Input</h4>
-                                    <p>Native touch input via evdev. Swipe between photos, tap for overlay controls, long press for dashboard PIN.</p>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Category 5: Reliability & Efficiency -->
-                    <div class="feature-category">
-                        <div class="category-header">
-                            <span class="category-icon"><span class="ti ti-heartbeat"></span></span>
-                            <h3>Reliability &amp; Efficiency</h3>
-                        </div>
-                        <div class="feature-list">
-                            <div class="feature-item">
-                                <div class="feature-item-icon"><span class="ti ti-brand-docker"></span></div>
-                                <div class="feature-item-content">
-                                    <h4>Docker Containerized</h4>
-                                    <p>All dependencies isolated in a single container. Build once, run on Raspberry Pi 4 or 5.</p>
-                                </div>
-                            </div>
-                            <div class="feature-item">
-                                <div class="feature-item-icon"><span class="ti ti-moon"></span></div>
-                                <div class="feature-item-content">
-                                    <h4>OLED Burn-In Prevention</h4>
-                                    <p>Pixel shifting and periodic content rotation to prevent burn-in on OLED displays. Configurable shift interval and pattern.</p>
-                                </div>
-                            </div>
-                            <div class="feature-item">
-                                <div class="feature-item-icon"><span class="ti ti-clock-play"></span></div>
-                                <div class="feature-item-content">
-                                    <h4>Scheduled Sleep/Wake</h4>
-                                    <p>Set daily on/off times for the display. Screen blanks automatically at night, wakes in the morning. Saves power and panel life.</p>
-                                </div>
-                            </div>
-                            <div class="feature-item">
-                                <div class="feature-item-icon"><span class="ti ti-cloud-up"></span></div>
-                                <div class="feature-item-content">
-                                    <h4>Auto-Update System</h4>
-                                    <p>Daily cron-based updates pulled from GitHub. Zero-touch deployment with automatic Docker image rebuilds on new releases.</p>
-                                </div>
-                            </div>
-                            <div class="feature-item">
-                                <div class="feature-item-icon"><span class="ti ti-heartbeat"></span></div>
-                                <div class="feature-item-content">
-                                    <h4>Auto-Recovery Watchdog</h4>
-                                    <p>Three-layer resilience: in-app heartbeat monitor, Docker restart policy, and host-level WiFi watchdog. Self-heals without manual intervention.</p>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </section>
-
-        <section class="preview-wrapper" id="demo">
-            <h2>Dashboard Preview</h2>
-            <p class="preview-subtitle">Interactive web remote for managing your frame.</p>
-            <div class="container">
-                <div class="pin-overlay locked" id="pin-overlay">
-                    <div class="pin-modal" id="pin-modal">
-                        <div class="pin-modal-title" id="pin-title">Enter PIN</div>
-                        
-                        <div class="pin-display" id="pin-display">
-                            <span class="pin-dot"></span>
-                            <span class="pin-dot"></span>
-                            <span class="pin-dot"></span>
-                            <span class="pin-dot"></span>
-                        </div>
-                        <div class="pin-keypad" id="pin-keypad">
-                            <button class="pin-key" data-val="1" onclick="pinInput('1')">1</button>
-                            <button class="pin-key" data-val="2" onclick="pinInput('2')">2</button>
-                            <button class="pin-key" data-val="3" onclick="pinInput('3')">3</button>
-                            <button class="pin-key" data-val="4" onclick="pinInput('4')">4</button>
-                            <button class="pin-key" data-val="5" onclick="pinInput('5')">5</button>
-                            <button class="pin-key" data-val="6" onclick="pinInput('6')">6</button>
-                            <button class="pin-key" data-val="7" onclick="pinInput('7')">7</button>
-                            <button class="pin-key" data-val="8" onclick="pinInput('8')">8</button>
-                            <button class="pin-key" data-val="9" onclick="pinInput('9')">9</button>
-                            
-                            <button class="pin-key" data-val="0" onclick="pinInput('0')">0</button>
-                            <button class="pin-key delete" onclick="pinDelete()">
-                                <span class="ti ti-backspace"></span>
-                            </button>
-                        </div>
-                        <div class="pin-error-msg" id="pin-error"></div>
-                    </div>
-                </div>
-                <div class="card">
-                    <div class="card-header">
-                        <h3>piTrove Controller</h3>
-                        <div style="display:flex;align-items:center;gap:8px;">
-                            <select id="color-palette" onchange="changePalette(this.value)" style="background:var(--tblr-input-bg);color:var(--tblr-input-color);border:1px solid var(--tblr-border);border-radius:6px;padding:4px 8px;font-size:12px;font-family:inherit;">
-                                <option value="grey">Zinc</option>
-                                <option value="emerald" selected>Emerald</option>
-                                <option value="sapphire">Sapphire</option>
-                                <option value="amber">Amber</option>
-                            </select>
-                        </div>
-                    </div>
-
-                    <div class="card-body">
-                        <div class="nav-tabs-segmented">
-                            <button class="nav-tab-btn active" onclick="switchTab(this, 'remote')">
-                                <span class="ti ti-remote-control"></span>
-                                Remote
-                            </button>
-                            <button class="nav-tab-btn" onclick="switchTab(this, 'settings')">
-                                <span class="ti ti-settings"></span>
-                                Settings
-                            </button>
-                            <button class="nav-tab-btn" onclick="switchTab(this, 'logs')">
-                                <span class="ti ti-file-text"></span>
-                                Logs
-                            </button>
-                        </div>
-
-                        <div id="tab-remote" class="tab-panel active">
-                            <div class="preview-screen">
-                                <div class="media-bg">
-                                    <span class="ti ti-photo"></span>
-                                    <span class="label">2024-08_Family_Beach.jpg</span>
-                                    <span class="sub">Rendering on HDMI display</span>
-                                </div>
-                                <div class="preview-overlay">
-                                    <div class="file-name">2024-08_Family_Beach.jpg</div>
-                                    <div class="meta-row">
-                                        <span class="status-badge">Photo</span>
-                                        <span>3 / 2,847</span>
-                                        <span class="status-badge video"><span class="status-dot blue"></span>12s</span>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <div class="controls-row">
-                                <button class="ctrl-btn" onclick="showToast('Sent: Previous')">
-                                    <span class="ti ti-player-skip-back"></span>
-                                    <span class="label">Previous</span>
-                                </button>
-                                <button class="ctrl-btn" onclick="togglePause(); showToast('Sent: Pause')">
-                                    <span class="ti ti-player-pause" id="demo-pause-icon"></span>
-                                    <span class="label" id="demo-pause-label">Pause</span>
-                                </button>
-                                <button class="ctrl-btn" onclick="showToast('Sent: Next')">
-                                    <span class="ti ti-player-skip-forward"></span>
-                                    <span class="label">Next</span>
-                                </button>
-                                <button class="ctrl-btn active" onclick="toggleShuffle(this); showToast('Shuffle toggled')">
-                                    <span class="ti ti-arrows-random"></span>
-                                    <span class="label" id="demo-shuffle-label">Shuffle ON</span>
-                                </button>
-                            </div>
-
-                            <div style="margin-top:16px;">
-                                <div class="stats-row">
-                                    <div class="stat-card">
-                                        <div class="stat-label">CPU Temp</div>
-                                        <div class="stat-value">48.2&deg;C</div>
-                                    </div>
-                                    <div class="stat-card">
-                                        <div class="stat-label">Cache DB</div>
-                                        <div class="stat-value">1.24 MB</div>
-                                    </div>
-                                    <div class="stat-card">
-                                        <div class="stat-label">Queue</div>
-                                        <div class="stat-value">2,847</div>
-                                    </div>
-                                    <div class="mqtt-row">
-                                        <span class="mqtt-icon"><span class="ti ti-circle-check"></span></span>
-                                        <span class="mqtt-status connected">Connected</span>
-                                        <span style="font-size:11px;color:var(--tblr-muted);margin-left:auto;">192.168.4.100:1883</span>
-                                    </div>
-                                </div>
-                                <div class="action-row">
-                                    <button class="action-btn" onclick="showToast('Motion triggered')">
-                                        <span class="ti ti-motion"></span>
-                                        Motion
-                                    </button>
-                                    <button class="action-btn danger" onclick="if(confirm('Restart piTrove?')) showToast('Restart sent')">
-                                        <span class="ti ti-reload"></span>
-                                        Restart
-                                    </button>
-                                    <button class="action-btn" onclick="showSaveOverlay()" style="background:var(--tblr-success);border-color:var(--tblr-success);color:#fff;">
-                                        <span class="ti ti-device-floppy"></span>
-                                        Save
-                                    </button>
-                                </div>
-                            </div>
-                        </div>
-
-                        <div id="tab-settings" class="tab-panel">
-                            <div class="settings-form">
-                                <!-- Playback Section -->
-                                <div class="form-section">
-                                    <h3 class="form-section-title">Playback</h3>
-                                    <div class="toggle-grid">
-                                        <div class="toggle-card" onclick="this.querySelector('input').click()">
-                                            <span class="toggle-label">Shuffle Playlist</span>
-                                            <label class="toggle-switch">
-                                                <input type="checkbox" id="set-shuffle" checked>
-                                                <span class="toggle-slider"></span>
-                                            </label>
-                                        </div>
-                                        <div class="toggle-card" onclick="this.querySelector('input').click()" style="grid-column: span 4;">
-                                            <span class="toggle-label">Slideshow Interval</span>
-                                            <select id="set-interval" style="flex:1; padding:0.4rem; border-radius:8px; border:1px solid var(--tblr-card-border); background:var(--tblr-card-bg); color:var(--tblr-body-color); color-scheme:dark;">
-                                            <option value="30" selected>30s</option>
-                                            <option value="60">60s</option>
-                                            <option value="90">90s</option>
-                                            <option value="120">120s (2m)</option>
-                                            <option value="150">150s (2m)</option>
-                                            <option value="180">180s (3m)</option>
-                                            <option value="210">210s (3m)</option>
-                                            <option value="240">240s (4m)</option>
-                                            <option value="270">270s (4m)</option>
-                                            <option value="300">300s (5m)</option>
-                                            </select>
-                                        </div>
-                                    </div>
-                                </div>
-
-                                <!-- Display Section -->
-                                <div class="form-section">
-                                    <h3 class="form-section-title">Display</h3>
-                                    <div class="toggle-grid">
-                                        <div class="toggle-card" onclick="this.querySelector('input').click()">
-                                            <span class="toggle-label">Edge Lighting</span>
-                                            <label class="toggle-switch">
-                                                <input type="checkbox" id="set-overlay" checked>
-                                                <span class="toggle-slider"></span>
-                                            </label>
-                                        </div>
-                                        <div class="toggle-card" onclick="this.querySelector('input').click()">
-                                            <span class="toggle-label">Countdown Timer</span>
-                                            <label class="toggle-switch">
-                                                <input type="checkbox" id="set-countdown" checked>
-                                                <span class="toggle-slider"></span>
-                                            </label>
-                                        </div>
-                                        <div class="toggle-card" onclick="this.querySelector('input').click()">
-                                            <span class="toggle-label">Date Overlay</span>
-                                            <label class="toggle-switch">
-                                                <input type="checkbox" id="set-date" checked>
-                                                <span class="toggle-slider"></span>
-                                            </label>
-                                        </div>
-                                        <div class="toggle-card" onclick="this.querySelector('input').click()">
-                                            <span class="toggle-label">Clock Overlay</span>
-                                            <label class="toggle-switch">
-                                                <input type="checkbox" id="set-clock">
-                                                <span class="toggle-slider"></span>
-                                            </label>
-                                        </div>
-                                        <div class="toggle-card" onclick="this.querySelector('input').click()">
-                                            <span class="toggle-label">Bias Lighting</span>
-                                            <label class="toggle-switch">
-                                                <input type="checkbox" id="set-bias" checked>
-                                                <span class="toggle-slider"></span>
-                                            </label>
-                                        </div>
-                                        <div class="toggle-card" onclick="this.querySelector('input').click()">
-                                            <span class="toggle-label">CRT Vignette</span>
-                                            <label class="toggle-switch">
-                                                <input type="checkbox" id="set-crt">
-                                                <span class="toggle-slider"></span>
-                                            </label>
-                                        </div>
-                                        <div class="toggle-card" onclick="this.querySelector('input').click()">
-                                            <span class="toggle-label">Ken Burns</span>
-                                            <label class="toggle-switch">
-                                                <input type="checkbox" id="set-kenburns">
-                                                <span class="toggle-slider"></span>
-                                            </label>
-                                        </div>
-                                    </div>
-                                </div>
-
-
-                                <div style="margin-top:20px;text-align:center;">
-                                    <button class="btn-save btn-save-large" onclick="showSaveOverlay()" style="min-height:44px;font-size:15px;">
-                                        <span class="ti ti-device-floppy"></span> Save Settings
-                                    </button>
-                                </div>
-
-                                <div style="margin-top:8px;font-size:11px;color:var(--tblr-muted);text-align:center;">
-                                    <span class="ti ti-lock" style="font-size:13px;"></span> PIN protected dashboard
-                                </div>
-                            </div>
-                        </div>
-
-                        <div id="tab-logs" class="tab-panel">
-                            <div class="log-console" id="demo-log-console">v16.0.0 2026-06-21 10:00:01.123 [INFO] piTrove started
-v16.0.0 2026-06-21 10:00:01.456 [INFO] DRM/KMS: Found card1 - /dev/dri/card1
-v16.0.0 2026-06-21 10:00:01.789 [INFO] Renderer: SDL3 KMSDRM initialized
-v16.0.0 2026-06-21 10:00:02.012 [INFO] Scanner: Scanning /mnt/nas/Photos...
-v16.0.0 2026-06-21 10:00:03.345 [INFO] Scanner: Found 2847 eligible items
-v16.0.0 2026-06-21 10:00:03.678 [INFO] Cache: SQLite3 WAL-mode loaded
-v16.0.0 2026-06-21 10:00:03.901 [INFO] MQTT: Connected to broker 192.168.4.100:1883
-v16.0.0 2026-06-21 10:00:04.123 [INFO] MQTT: HA auto-discovery published
-v16.0.0 2026-06-21 10:00:04.456 [INFO] HTTP: Dashboard listening on port 8080
-v16.0.0 2026-06-21 10:00:04.789 [INFO] Slideshow loop started
-v16.0.0 2026-06-21 10:00:05.012 [INFO] Loading: 2024-08_Family_Beach.jpg
-v16.0.0 2026-06-21 10:00:05.345 [INFO] Render: 1920x1080 | 12ms | Ken Burns enabled
-v16.0.0 2026-06-21 10:00:08.678 [INFO] Transition: Dissolve 2.0s
-v16.0.0 2026-06-21 10:00:10.901 [INFO] Loading: 2024-07_Sunset.webp
-v16.0.0 2026-06-21 10:00:11.234 [INFO] Render: 1920x1080 | 8ms | EXIF rotation applied
-v16.0.0 2026-06-21 10:00:15.567 [INFO] Transition: Crossfade 1.5s
-v16.0.0 2026-06-21 10:00:17.890 [INFO] Loading: 2025-01_Vacation.mp4
-v16.0.0 2026-06-21 10:00:18.123 [INFO] VIDEO_DEC: Video playback started - H.265/HEVC 4K (FFmpeg & SDL3)
-v16.0.0 2026-06-21 10:00:33.456 [INFO] VIDEO_DEC: Video finished (Natural EOF)</div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </section>
+            </section>
+        </div>
     </main>
-
     <footer>
-        <div class="footer-inner">
-            <span>&copy; 2026 piTrove &middot; MIT License</span>
-            <span>
-                <a href="https://github.com/UnDadFeated/piTrove" target="_blank">GitHub</a>
-                &middot;
-                <a href="https://www.reddit.com/r/piTrove/" target="_blank">Subreddit</a>
-            </span>
+        <div class="container">
+            <span>&copy; 2026 piTrove &middot; GNU GPLv3</span>
+            &middot;
+            <a href="https://github.com/UnDadFeated/piTrove" target="_blank">GitHub</a>
+            &middot;
+            <a href="https://www.reddit.com/r/piTrove/" target="_blank">Subreddit</a>
         </div>
     </footer>
-
-    <div class="toast-container">
-        <div id="toast" class="toast"></div>
-    </div>
-
-
-    <div id="save-overlay" class="save-overlay">
-        <div class="save-overlay-content">
-            <span class="ti ti-circle-check"></span>
-            Settings Saved
-        </div>
-    </div>
-
     <script>
-        // PIN Pad Security
-        var PIN = localStorage.getItem('pitrove-pin') || '0000';
-        var failedAttempts = parseInt(localStorage.getItem('pitrove-failed') || '0');
-        var isLocked = failedAttempts >= 5;
-        var currentPin = '';
-        var changeMode = 0;
-        var changeStep = 0;
-
-        (function() {
-            var overlay = document.getElementById('pin-overlay');
-            if (isLocked) {
-                overlay.classList.add('locked');
-                overlay.classList.remove('hidden');
-                document.getElementById('pin-title').textContent = 'Dashboard Locked';
-                document.getElementById('pin-sub').textContent = 'Too many failed attempts. Wait...';
-                document.getElementById('pin-keypad').style.pointerEvents = 'none';
-                document.getElementById('pin-keypad').style.opacity = '0.5';
-                setTimeout(function() {
-                    failedAttempts = 0;
-                    localStorage.setItem('pitrove-failed', '0');
-                    location.reload();
-                }, 15000);
-            } else {
-                overlay.classList.remove('locked');
-                overlay.classList.add('hidden');
-            }
-        })();
-
-        function pinInput(val) {
-            if (currentPin.length >= 4) return;
-            currentPin += val;
-            updatePinDots();
-            if (currentPin.length === 4) {
-                setTimeout(checkPin, 200);
-            }
-        }
-
-        function pinDelete() {
-            currentPin = currentPin.slice(0, -1);
-            updatePinDots();
-            document.getElementById('pin-error').textContent = '';
-            document.getElementById('pin-modal').classList.remove('pin-shake');
-        }
-
-        function updatePinDots() {
-            var dots = document.querySelectorAll('.pin-dot');
-            dots.forEach(function(dot, i) {
-                dot.classList.remove('filled', 'error');
-                if (i < currentPin.length) dot.classList.add('filled');
-            });
-        }
-
-        function checkPin() {
-            var modal = document.getElementById('pin-modal');
-            if (changeMode && changeStep === 1) {
-                if (currentPin === PIN) {
-                    changeStep = 2;
-                    document.getElementById('pin-title').textContent = 'Enter New PIN';
-                    document.getElementById('pin-sub').textContent = '4 digits only';
-                    currentPin = '';
-                    updatePinDots();
-                    document.getElementById('pin-error').textContent = '';
-                    return;
-                } else {
-                    document.getElementById('pin-error').textContent = 'Wrong PIN, try again';
-                    modal.classList.add('pin-shake');
-                    setTimeout(function() { modal.classList.remove('pin-shake'); }, 400);
-                    currentPin = '';
-                    updatePinDots();
-                    return;
-                }
-            }
-            if (currentPin === PIN) {
-                var overlay = document.getElementById('pin-overlay');
-                overlay.classList.add('hidden');
-                overlay.classList.remove('locked');
-                failedAttempts = 0;
-                localStorage.setItem('pitrove-failed', '0');
-                showToast('Unlocked');
-            } else {
-                failedAttempts++;
-                localStorage.setItem('pitrove-failed', String(failedAttempts));
-                var dots = document.querySelectorAll('.pin-dot');
-                dots.forEach(function(d) { d.classList.remove('filled'); d.classList.add('error'); });
-                modal.classList.add('pin-shake');
-                setTimeout(function() { modal.classList.remove('pin-shake'); }, 400);
-                if (failedAttempts >= 5) {
-                    document.getElementById('pin-error').textContent = 'Locked for 15 seconds';
-                    document.getElementById('pin-keypad').style.pointerEvents = 'none';
-                    document.getElementById('pin-keypad').style.opacity = '0.5';
-                    setTimeout(function() {
-                        failedAttempts = 0;
-                        localStorage.setItem('pitrove-failed', '0');
-                        location.reload();
-                    }, 15000);
-                } else {
-                    document.getElementById('pin-error').textContent = 'Wrong PIN (' + (5 - failedAttempts) + ' left)';
-                }
-                currentPin = '';
-                setTimeout(function() {
-                    dots.forEach(function(d) { d.classList.remove('error'); });
-                }, 1000);
-            }
-        }
-
-        function pinChangeStart() {
-            if (currentPin.length > 0) return;
-            changeMode = 1;
-            changeStep = 0;
-            document.getElementById('pin-title').textContent = 'Change PIN';
-            document.getElementById('pin-sub').textContent = 'Enter current PIN';
-            document.getElementById('pin-error').textContent = '';
-            showToast('Enter current PIN to change');
-        }
-
-        // Theme toggle
-        (function() {
-            var theme = localStorage.getItem('pitrove-theme') || 'dark';
-            document.documentElement.setAttribute('data-bs-theme', theme);
-            updateThemeIcon(theme);
-        })();
-
-        function toggleTheme() {
-            var current = document.documentElement.getAttribute('data-bs-theme');
-            var next = current === 'dark' ? 'light' : 'dark';
-            document.documentElement.setAttribute('data-bs-theme', next);
-            localStorage.setItem('pitrove-theme', next);
-            updateThemeIcon(next);
-        }
-
-        function updateThemeIcon(theme) {
-            var icon = document.getElementById('theme-icon');
-            icon.className = theme === 'dark' ? 'ti ti-sun' : 'ti ti-moon';
-        }
-
-        var paletteRoot = document.documentElement;
-        var palettes = {
-            zinc: { primary: '#6b7280', success: '#6b7280', danger: '#ef4444' },
-            emerald: { primary: '#10b981', success: '#10b981', danger: '#ef4444' },
-            sapphire: { primary: '#3b82f6', success: '#3b82f6', danger: '#ef4444' },
-            amber: { primary: '#f59e0b', success: '#f59e0b', danger: '#ef4444' }
-        };
-        function applyPalette(name) {
-            var p = palettes[name] || palettes.zinc;
-            paletteRoot.style.setProperty('--tblr-primary', p.primary);
-            paletteRoot.style.setProperty('--tblr-success', p.success);
-            var sel = document.getElementById('color-palette');
-            sel.value = name;
-            localStorage.setItem('pitrove-palette', name);
-        }
-        var savedPalette = localStorage.getItem('pitrove-palette') || 'emerald';
-        applyPalette(savedPalette);
-        function changePalette(value) {
-            applyPalette(value);
-            showToast('Palette: ' + document.getElementById('color-palette').options[document.getElementById('color-palette').selectedIndex].text);
-        }
-
-        // Tab switching
-        function switchTab(btn, tabId) {
-            document.querySelectorAll('.nav-tab-btn').forEach(function(b) { b.classList.remove('active'); });
-            document.querySelectorAll('.tab-panel').forEach(function(c) { c.classList.remove('active'); });
-            btn.classList.add('active');
-            document.getElementById('tab-' + tabId).classList.add('active');
-        }
-
-        function toggleActive(el) {
-            el.classList.toggle('active');
-        }
-
-        function showToast(message) {
-            var toast = document.getElementById('toast');
-            toast.textContent = message;
-            toast.classList.add('show');
-            setTimeout(function() { toast.classList.remove('show'); }, 2500);
-        }
-
-        var pauseOn = false;
-        function togglePause() {
-            pauseOn = !pauseOn;
-            var icon = document.getElementById('demo-pause-icon');
-            var label = document.getElementById('demo-pause-label');
-            if (pauseOn) {
-                icon.className = 'ti ti-player-play';
-                label.textContent = 'Resume';
-            } else {
-                icon.className = 'ti ti-player-pause';
-                label.textContent = 'Pause';
-            }
-        }
-
-        var shuffleOn = true;
-        function toggleShuffle(btn) {
-            shuffleOn = !shuffleOn;
-            var label = document.getElementById('demo-shuffle-label');
-            if (shuffleOn) {
-                btn.classList.add('active');
-                label.textContent = 'Shuffle ON';
-            } else {
-                btn.classList.remove('active');
-                label.textContent = 'Shuffle OFF';
-            }
-        }
-
-        function showSaveOverlay() {
-            var overlay = document.getElementById('save-overlay');
-            overlay.classList.add('show');
-            setTimeout(function() { overlay.classList.remove('show'); }, 3000);
-        }
-
-        // Copy install command
         function copyInstallCmd() {
-            navigator.clipboard.writeText('wget -qO- https://raw.githubusercontent.com/UnDadFeated/piTrove/main/install.sh | sudo bash').then(function() {
-                var btn = document.querySelector('.copy-btn');
-                if (btn) {
-                    btn.innerHTML = '<span class="ti ti-check"></span>';
-                    btn.style.color = 'var(--tblr-success)';
-                    setTimeout(function() {
-                        btn.innerHTML = '<span class="ti ti-copy"></span>';
-                        btn.style.color = '';
-                    }, 2000);
-                }
-            });
-        }
-
-        // Overlay auto-hide after touch
-        (function() {
-            var overlay = document.querySelector('.preview-overlay');
-            var timerEl = overlay ? overlay.querySelector('.meta-row span:last-child') : null;
-            if (!overlay || !timerEl) return;
-            var seconds = 0;
-            var maxSeconds = 10;
-            var timer = null;
-            
-            function resetTimer() {
-                seconds = 0;
-                timerEl.innerHTML = '<span class="status-dot blue"></span>' + seconds + 's';
-            }
-            
-            function hideOverlay() {
-                overlay.style.opacity = '0';
-                overlay.style.transition = 'opacity 0.5s';
-            }
-            
-            function showOverlay() {
-                overlay.style.opacity = '1';
-                overlay.style.transition = 'opacity 0.3s';
-            }
-            
-            function startHide() {
-                if (timer) clearInterval(timer);
-                timer = setInterval(function() {
-                    seconds++;
-                    if (seconds >= maxSeconds) {
-                        clearInterval(timer);
-                        hideOverlay();
-                    } else {
-                        timerEl.innerHTML = '<span class="status-dot blue"></span>' + seconds + 's';
+            navigator.clipboard.writeText('wget -qO- https://raw.githubusercontent.com/UnDadFeated/piTrove/main/install.sh | sudo bash')
+                .then(() => {
+                    const btn = document.querySelector('.copy-btn');
+                    if (btn) {
+                        btn.innerHTML = '<span class="ti ti-check"></span>';
+                        setTimeout(() => { btn.innerHTML = '<span class="ti ti-copy"></span>'; }, 2000);
                     }
-                }, 1000);
-            }
-            
-            // Show overlay briefly on page load
-            showOverlay();
-            setTimeout(function() { startHide(); }, 2000);
-            
-            // Reset timer on any interaction inside card
-            var card = document.querySelector('.card');
-            if (card) {
-                card.addEventListener('touchstart', function() { resetTimer(); startHide(); }, { passive: true });
-                card.addEventListener('click', function() { resetTimer(); startHide(); });
-            }
-        })();
+                });
+        }
     </script>
 </body>
 </html>
