@@ -19,7 +19,6 @@ services:
     devices:
       - /dev/dri:/dev/dri
       - /dev/input:/dev/input
-      - /dev/vchiq:/dev/vchiq
       - /dev/video19:/dev/video19
       - /dev/video20:/dev/video20
       - /dev/video21:/dev/video21
