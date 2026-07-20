@@ -1,4 +1,7 @@
 # Changelog
+## v16.1.3 — Clear Stale Video Texture on Stop (July 20, 2026)
+### 🎥 Video
+- **Stale Texture Fix** — Video texture destroyed immediately after stop() to prevent source photo flash during video-to-photo transitions
 ## v16.1.2 — Audit Verification & Stall Recovery (July 20, 2026)
 ### 🎥 Video Decoder
 - **Stop Timeout Fix** — VideoDecoder::stop() uses detached join with 2s timeout to prevent main loop block during hwaccel failures
