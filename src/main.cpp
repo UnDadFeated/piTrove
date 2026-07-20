@@ -872,6 +872,7 @@ static void watchman_loop() {
 static std::thread g_watchdog_thread;
 static std::atomic<bool> g_watchdog_running{false};
 
+static FILE* g_event_log = nullptr;
 static void watchdog_loop() {
     g_logger.info("Watchdog: Software watchdog thread active.");
     g_watchdog_last_time = std::chrono::steady_clock::now();
@@ -1093,7 +1094,6 @@ static void keepalive_loop() {
 }
 
 
-static FILE* g_event_log = nullptr;
 
 int main(int argc, char** argv) {
     signal(SIGPIPE, SIG_IGN);
