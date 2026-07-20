@@ -1,4 +1,10 @@
 # Changelog
+## v16.1.6 — Video Countdown Fix & Docker Hwaccel Support (July 20, 2026)
+### Video
+- **Countdown Timer Fix** — decode_start_time now set at decode loop start so countdown works even when frames fail
+- **Docker Support** — Removed 1GB memory limit blocking dma-heap hwaccel allocations
+### Code
+- decode_start_time initialization moved to decode loop entry
 ## v16.1.5 — Video Countdown Fix (July 20, 2026)
 ### Video
 - **Countdown Timer Fix** — Video timer overlay now uses uncached font rendering to ensure countdown updates every frame instead of freezing at first rendered value

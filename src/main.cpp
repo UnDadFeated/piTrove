@@ -1438,6 +1438,7 @@ int main(int argc, char** argv) {
                             double fallback_dur = (!g_eligible.empty() && current_idx >= 0 && current_idx < (int)g_eligible.size()) ? g_eligible[current_idx].duration : 0.0;
                             double remaining = g_video_decoder.get_video_remaining(fallback_dur);
                             std::string remaining_str = "0:00";
+                            static int rem_cnt2=0; if(++rem_cnt2%60==0) g_logger.info("REM_TRACE2: remaining=%.1f is_run=%d has_f=%d", remaining, g_video_decoder.is_running(), g_video_decoder.has_frames());
                             if (remaining > 0.0 && (g_video_decoder.is_running() || g_video_decoder.has_frames())) {
                                 int mins = (int)(remaining / 60.0);
                                 int secs = (int)(remaining - mins * 60.0);
@@ -2454,6 +2455,7 @@ int main(int argc, char** argv) {
                             double fallback_dur = (!g_eligible.empty() && current_idx >= 0 && current_idx < (int)g_eligible.size()) ? g_eligible[current_idx].duration : 0.0;
                             double remaining = g_video_decoder.get_video_remaining(fallback_dur);
                             std::string remaining_str = "0:00";
+                            static int rem_cnt=0; if(++rem_cnt%60==0) g_logger.info("REM_TRACE: remaining=%.1f is_running=%d has_frames=%d", remaining, g_video_decoder.is_running(), g_video_decoder.has_frames());
                             if (remaining > 0.0 && (g_video_decoder.is_running() || g_video_decoder.has_frames())) {
                                 int mins = (int)(remaining / 60.0);
                                 int secs = (int)(remaining - mins * 60.0);
