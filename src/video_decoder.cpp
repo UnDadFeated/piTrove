@@ -180,12 +180,19 @@ double VideoDecoder::get_frame_duration() const {
 double VideoDecoder::get_video_remaining(double fallback_duration) const {
     if (m_eof.load(std::memory_order_relaxed)) return 0.0;
     double total = m_video_total_duration.load(std::memory_order_relaxed);
-    double last_pts = m_last_frame_pts.load(std::memory_order_relaxed);
-        if (total <= 0.0) total = fallback_duration;
+    if (total <= 0.0) total = fallback_duration;
     double start_t = decode_start_time.load(std::memory_order_relaxed);
-    if (total <= 0.0 || start_t <= 0.0) return 0.0;
+    if (start_t <= 0.0) return 0.0;
     double elapsed = (av_gettime_relative() / 1000000.0) - start_t;
-    return std::max(0.0, total - elapsed);
+    if (total > 0.0) {
+        return std::max(0.0, total - elapsed);
+    }
+    // Duration unknown: estimate from elapsed + buffered frames
+    double frame_dur = m_frame_duration;
+    if (frame_dur <= 0.0) frame_dur = 0.04;
+    size_t buffered = 0;
+    { std::lock_guard lk(m_queue_mtx); buffered = m_frame_queue.size(); }
+    return elapsed + buffered * frame_dur;
 }
 
 
