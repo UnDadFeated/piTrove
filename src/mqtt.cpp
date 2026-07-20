@@ -52,8 +52,11 @@ static void pub_worker_loop() {
         if (!req.cmd.empty()) {
             FILE* fp = popen(req.cmd.c_str(), "w");
             if (fp) {
-                fwrite(req.payload.data(), 1, req.payload.size(), fp);
-                pclose(fp);
+                size_t written = fwrite(req.payload.data(), 1, req.payload.size(), fp);
+                int status = pclose(fp);
+                if (status != 0) {
+                    g_logger.warn("MQTT Publisher: mosquitto_pub exit code %d (%zu/%zu bytes written)", status, written, req.payload.size());
+                }
             } else {
                 g_logger.error("MQTT Publisher: popen failed to start publish helper.");
             }

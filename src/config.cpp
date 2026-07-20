@@ -284,6 +284,7 @@ bool Config::load(const std::string& path) {
                 if (ssection == "remote") {
                     if (skey == "api_key") this->http_api_key = sval;
                     else if (skey == "pin_hash") this->pin_hash = sval;
+                    else if (skey == "pin_changed") this->pin_changed = (sval == "1" || sval == "true");
                 }
                 else if (ssection == "mqtt") {
                     if (skey == "password") this->mqtt_pass = sval;

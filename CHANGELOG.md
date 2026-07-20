@@ -1,5 +1,28 @@
 # Changelog
 
+## v15.6.8 — Comprehensive Hardening & Bug Audit Release (July 19, 2026)
+### 🔒 Security & HTTP Authorization
+- **HTTP Endpoint Authorization (`src/http_server.cpp`)** — Enforced `is_authorized()` authentication checks across all HTTP control endpoints (`/api/restart`, `/api/next`, `/api/prev`, `/api/pause`, `/api/toggle_shuffle`, `/api/force_video_next`, `/api/toggle_screen`, `/api/trigger_motion`).
+- **Control Rate Limiting (`src/http_server.cpp`)** — Added a 500ms cooldown rate limit ($429\text{ Too Many Requests}$) for remote control API calls.
+- **Secrets Isolation (`src/config.cpp`)** — Isolated `api_key`, `mqtt_pass`, `client_secret`, `refresh_token`, and `pin_hash` into `/app/config/secrets.toml` with `0600` owner-only file permissions. Plaintext credentials are no longer written to `config.toml`.
+- **PIN Migration Fix (`src/config.cpp`)** — PIN hashing migration executes prior to file saving, ensuring `pin_hash` and `pin_changed` states are persisted into `secrets.toml`.
+
+### 🎥 Video Decoder & Media Processing
+- **RAII Network State Deinitialization (`src/video_decoder.cpp`)** — Added `NetworkDeinitGuard` RAII guard to guarantee `avformat_network_deinit()` execution across all return paths.
+- **NAS I/O Timeout Callback (`src/video_decoder.cpp`)** — Configured `AVIOInterruptCB` with a 30-second interrupt timeout for video stream opening and reading to prevent hangs on stale CIFS/NFS mounts.
+- **Audio Resampler Optimization (`src/video_decoder.cpp`)** — Pre-allocated `audio_resample_buf` vector outside the decode loop to eliminate ~100 vector heap allocations per second.
+- **4K Software Decode Resolution Guard (`src/video_decoder.cpp`)** — Added resolution scaling guard for >1080p software decoded frames to prevent CPU frame drops.
+
+### 🛠️ Core Subsystems & Database Integrity
+- **DB Verification Query Alignment (`src/cache.cpp`)** — Added `framerate` to `verify_database()` schema check query.
+- **Garbage Stat Prevention (`src/scanner.cpp`)** — Validated `stat()` return codes in `stat_timeout()` and zeroed memory on failure to discard invalid files.
+- **Thread Shutdown Safety (`src/preload.cpp`)** — Updated `PreloadQueue::shutdown()` to join worker threads safely without blocking on `future` destructors.
+- **MQTT Publish Error Tracing (`src/mqtt.cpp`)** — Added write byte count and exit code validation for `mosquitto_pub` child processes.
+
+### 🐳 Docker & Container Security
+- **GPU Mailbox Mapping (`docker-compose.yml`)** — Added `/dev/vchiq` device mapping for Raspberry Pi GPU Mailbox access.
+- **Volume Mount Security (`docker-compose.yml`)** — Removed host `/dev:/dev` mount to satisfy container isolation standards.
+
 ## v15.6.7 — Video Countdown Timer EOF Fix & Display Precision (July 19, 2026)
 ### ⏱️ Video Countdown Timer Accuracy
 - **End-of-Video Timer Reset Fix (`src/video_decoder.cpp`, `src/main.cpp`)** — Fixed bug where `get_video_remaining()` returned total initial video duration when `m_eof` was reached, causing the overlay remaining time timer to display full video length (e.g. `0:14`) during transitions instead of `0:00`.
