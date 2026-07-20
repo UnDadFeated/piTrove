@@ -69,19 +69,12 @@ void PreloadQueue::shutdown() {
     state->work_cv.notify_all();
     state->queue_cv.notify_all();
 
-    // Join threads with timeout - use async future for non-blocking join
     for (auto& t : threads) {
         if (t.joinable()) {
-            auto fut = std::async(std::launch::async, [&t]() { t.join(); });
-            if (fut.wait_for(std::chrono::seconds(2)) == std::future_status::timeout) {
-                g_logger.warn("PreloadQueue: worker thread did not exit in 2s, detaching");
-                // Detach to avoid destructor blocking, but keep state alive
-                t.detach();
-            }
-            // fut destructor blocks if thread still running, but that's fine here
-            // since we're still in shutdown() and threads vector is alive
+            std::thread([&t] { t.join(); }).detach();
         }
     }
+    std::this_thread::sleep_for(std::chrono::seconds(1));
     threads.clear();
 
     cancel_all();

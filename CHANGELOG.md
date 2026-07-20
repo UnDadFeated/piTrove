@@ -1,4 +1,104 @@
 # Changelog
+## v16.1.6 — Video Countdown Fix & Docker Hwaccel Support (July 20, 2026)
+### Video
+- **Countdown Timer Fix** — decode_start_time now set at decode loop start so countdown works even when frames fail
+- **Docker Support** — Removed 1GB memory limit blocking dma-heap hwaccel allocations
+### Code
+- decode_start_time initialization moved to decode loop entry
+## v16.1.6 — Video Countdown Fix & Docker Hwaccel Support (July 20, 2026)
+### Video
+- **Countdown Timer Fix** — decode_start_time now set at decode loop start so countdown works even when frames fail
+- **Docker Hwaccel** — Removed 1GB memory limit blocking dma-heap hwaccel allocations
+## v16.1.6 — Video Countdown Fix & Docker Hwaccel Support (July 20, 2026)
+### Video
+- **Countdown Timer Fix** — decode_start_time now set at decode loop start so countdown works even when frames fail
+- **Docker Hwaccel** — Removed 1GB memory limit blocking dma-heap hwaccel allocations
+## v16.1.5 — Video Countdown Fix (July 20, 2026)
+### Video
+- **Countdown Timer Fix** — Video timer overlay now uses uncached font rendering to ensure countdown updates every frame instead of freezing at first rendered value
+- **Font Renderer** — Added `draw_text_uncached()` for dynamic text that changes every frame
+
+## v16.1.4 — Pi 4 Runtime Detection & Video Remaining Fix (July 20, 2026)
+### Pi 4 Compatibility
+- **Runtime HW Acceleration Detection** — Probe V4L2 M2M codecs (hevc_v4l2m2m/h264_v4l2m2m) as fallback when DRM hwaccel unavailable, ensuring Pi 4 hardware decode works
+### Video
+- **Remaining Time Fix** — get_video_remaining() no longer returns 0:00 before first frame; frame-based duration estimation fallback when FFmpeg duration metadata unavailable
+### Code
+- Added m_decoded_frames atomic counter for duration estimation
+- hwaccel_path tracking (drm/v4l2/none) for diagnostics
+## v16.1.3 — Clear Stale Video Texture on Stop (July 20, 2026)
+### 🎥 Video
+- **Stale Texture Fix** — Video texture destroyed immediately after stop() to prevent source photo flash during video-to-photo transitions
+## v16.1.2 — Audit Verification & Stall Recovery (July 20, 2026)
+### 🎥 Video Decoder
+- **Stop Timeout Fix** — VideoDecoder::stop() uses detached join with 2s timeout to prevent main loop block during hwaccel failures
+- **Stall Recovery** — Heartbeat tick added before stop() in stall path; decoder stop/advance/continue events logged
+- **Verified Test** — 4 videos + 3 photos sequence passed with stall recovery at 30s detection
+
+### 🐳 Container
+- **Healthcheck** — Interval increased to 30s, timeout to 15s for stability
+
+## v16.1.0 — Full Audit Remediation & swr_convert Crash Fix (July 20, 2026)
+### 🎥 Video
+- **swr_convert Crash Fix** — Replaced unsafe cast of audio resample buffer with proper outbuf array to prevent segfault in libswresample during hwaccel decode
+### 🔒 Security & Hardening
+- **HTTP Auth** — Enforced is_authorized() on all 8 control endpoints
+- **Rate Limiting** — Added 500ms cooldown with 429 responses
+- **Dockerfile** — Fixed libasound2 package name, added missing libsodium/libswresample
+- **docker-compose** — stop_grace_period: 30s, removed /dev:/dev volume mount
+- **Healthcheck** — Script properly copied into container
+### 🧪 Code Quality
+- **cache.h/cpp** — upsert() signature aligned, framerate in verify_database
+- **scanner** — stat() return value checked, zeroed on failure
+- **mqtt** — popen/pclose return codes validated
+- **video_decoder** — NetworkDeinitGuard, IO interrupt callback with 30s timeout
+- **PreloadQueue** — shutdown() fixed to avoid UB on detached threads
+- **Audio Resampler** — Zero Heap Allocation, aligned buffer, strict device mapping
+
+## v16.0.2 — DRM Hwaccel for V4L2 Stateless HEVC Decode (July 20, 2026)
+### 🎥 Video
+- **DRM Hwaccel Path** — Replaced Pi 4 stateful V4L2 M2M codec lookup with DRM hwaccel via `av_hwdevice_ctx_create` for V4L2 stateless HEVC decode on Pi 5. FFmpeg now uses `AV_HWDEVICE_TYPE_DRM` which probes the stateless decoder at `/dev/video19` via `/dev/media2`.
+- **DMABuf Support** — Added `/dev/dma_heap` device mapping for zero-copy DMABuf allocation during hardware decode.
+## v16.0.1 — V4L2 Device Mapping for Pi 5 HW Decode (July 20, 2026)
+### 🎥 Video
+- **V4L2 Device Mapping** — Added /dev/video19 through /dev/video35 for Pi 5 hardware decode
+## v16.0.0 — Major Release: Full Audit Remediation, GPU Device Restoration & Security Hardening (July 19, 2026)
+### 🎥 Video
+- **V4L2 Device Mapping** — Added /dev/video19 through /dev/video35 to docker-compose.yml devices list for Pi 5 hardware decode
+### 🔒 Security & Authorization
+- **Full Audit Remediation** — Verified and confirmed all 13 audit-flagged issues resolved: auth on all 8 HTTP endpoints, rate limiting with 429 responses, NetworkDeinitGuard RAII, I/O interrupt callbacks with 30s timeout, upsert() signature alignment, verify_database() framerate column, stat_timeout() return validation, PreloadQueue::shutdown() thread safety, MQTT popen error handling, audio resample zero-allocation, and /dev:/dev volume removal
+- **GPU Mailbox Device Restoration** — Restored `/dev/vchiq:/dev/vchiq` device mapping required for Pi 4 hardware video decode
+- **stop_grace_period** — 30s graceful shutdown period confirmed
+## v15.6.9 — Zero Heap Allocation Audio Resampling & Healthcheck Alignment (July 19, 2026)
+### 🎵 Audio Resampler Memory Optimization
+- **Zero Vector Heap Allocation (`src/video_decoder.cpp`)** — Replaced `std::vector<int16_t> ob(max_s * 2)` in the second audio decode loop (line 649) with pre-allocated `audio_resample_buf.data()`. Video audio resampling now performs **0 heap allocations per second**.
+
+### 🐳 Container Healthcheck Alignment & Security
+- **Healthcheck Alignment (`Dockerfile`, `docker-compose.yml`)** — Aligned `Dockerfile`'s `HEALTHCHECK` directive with `/app/scripts/healthcheck.sh` script to ensure container health status consistency.
+- **Strict Device Mapping (`docker-compose.yml`)** — Mapped specific `/dev/dri`, `/dev/input`, `/dev/vchiq` devices with 0 broad `/dev` host volume mounts.
+
+## v15.6.8 — Comprehensive Hardening & Bug Audit Release (July 19, 2026)
+### 🔒 Security & HTTP Authorization
+- **HTTP Endpoint Authorization (`src/http_server.cpp`)** — Enforced `is_authorized()` authentication checks across all HTTP control endpoints (`/api/restart`, `/api/next`, `/api/prev`, `/api/pause`, `/api/toggle_shuffle`, `/api/force_video_next`, `/api/toggle_screen`, `/api/trigger_motion`).
+- **Control Rate Limiting (`src/http_server.cpp`)** — Added a 500ms cooldown rate limit ($429\text{ Too Many Requests}$) for remote control API calls.
+- **Secrets Isolation (`src/config.cpp`)** — Isolated `api_key`, `mqtt_pass`, `client_secret`, `refresh_token`, and `pin_hash` into `/app/config/secrets.toml` with `0600` owner-only file permissions. Plaintext credentials are no longer written to `config.toml`.
+- **PIN Migration Fix (`src/config.cpp`)** — PIN hashing migration executes prior to file saving, ensuring `pin_hash` and `pin_changed` states are persisted into `secrets.toml`.
+
+### 🎥 Video Decoder & Media Processing
+- **RAII Network State Deinitialization (`src/video_decoder.cpp`)** — Added `NetworkDeinitGuard` RAII guard to guarantee `avformat_network_deinit()` execution across all return paths.
+- **NAS I/O Timeout Callback (`src/video_decoder.cpp`)** — Configured `AVIOInterruptCB` with a 30-second interrupt timeout for video stream opening and reading to prevent hangs on stale CIFS/NFS mounts.
+- **Audio Resampler Optimization (`src/video_decoder.cpp`)** — Pre-allocated `audio_resample_buf` vector outside the decode loop to eliminate ~100 vector heap allocations per second.
+- **4K Software Decode Resolution Guard (`src/video_decoder.cpp`)** — Added resolution scaling guard for >1080p software decoded frames to prevent CPU frame drops.
+
+### 🛠️ Core Subsystems & Database Integrity
+- **DB Verification Query Alignment (`src/cache.cpp`)** — Added `framerate` to `verify_database()` schema check query.
+- **Garbage Stat Prevention (`src/scanner.cpp`)** — Validated `stat()` return codes in `stat_timeout()` and zeroed memory on failure to discard invalid files.
+- **Thread Shutdown Safety (`src/preload.cpp`)** — Updated `PreloadQueue::shutdown()` to join worker threads safely without blocking on `future` destructors.
+- **MQTT Publish Error Tracing (`src/mqtt.cpp`)** — Added write byte count and exit code validation for `mosquitto_pub` child processes.
+
+### 🐳 Docker & Container Security
+- **GPU Mailbox Mapping (`docker-compose.yml`)** — Added `/dev/vchiq` device mapping for Raspberry Pi GPU Mailbox access.
+- **Volume Mount Security (`docker-compose.yml`)** — Removed host `/dev:/dev` mount to satisfy container isolation standards.
 
 ## v15.6.7 — Video Countdown Timer EOF Fix & Display Precision (July 19, 2026)
 ### ⏱️ Video Countdown Timer Accuracy
@@ -2000,18 +2100,18 @@
 - **EGL surface asymmetry**  -  `make_egl_current()` and `release_egl_current()` now map both `EGL_DRAW` and `EGL_READ` surfaces instead of a single surface, preventing context flip draw validation failures.
 - **Countdown timer missing**  -  Replaced synchronous 60fps `mpv_get_property("time-remaining")` polling (which flooded IPC and caused thread locks) with `mpv_observe_property()` async listeners on the event thread. Timer overlay now shows `MM:SS` countdown during video playback.
 
-## v7.8.0  -  Preload thread explosion fix (May 20, 2026)
-
-### Fixed
-
-- **CRITICAL · Preload thread explosion**  -  `preload_running` flag raced between `update()`, `advance()`, and the preload thread, causing ~30 threads/sec spawned for the same image → SIGKILL by systemd in ~30s. Fixed with 4-part atomic lifecycle: (1) `preload_next()` atomically check-and-sets `preload_running=true` under `preload_lifecycle_mtx` before spawning, (2) preload thread keeps `preload_running=true` on success (prevents `update()` from restarting loop), (3) swap path resets `preload_running=false` so guard block can trigger next preload, (4) `advance()` joins in-flight thread then resets flag.
-
 ## v7.8.1  -  EXIF rotation at display time, skip video probing in Phase 2 (May 20, 2026)
 
 ### Fixed
 
 - **EXIF rotation now read at display time**  -  Phase 2 cache only stored placeholder value of 1. Now `preload_next()` and `load_item()` call `read_exif_rotation_timeout()` at preload/load time (3s timeout) so EXIF orientation is applied to every image.
 - **Phase 2 caching skip video probing**  -  `probe_video_meta()` had 8s timeout per video × 905 videos = hours of blocking on CIFS. Phase 2 now skips video probing entirely; duration is probed lazily during preload at display time (3s timeout).
+
+## v7.8.0  -  Preload thread explosion fix (May 20, 2026)
+
+### Fixed
+
+- **CRITICAL · Preload thread explosion**  -  `preload_running` flag raced between `update()`, `advance()`, and the preload thread, causing ~30 threads/sec spawned for the same image → SIGKILL by systemd in ~30s. Fixed with 4-part atomic lifecycle: (1) `preload_next()` atomically check-and-sets `preload_running=true` under `preload_lifecycle_mtx` before spawning, (2) preload thread keeps `preload_running=true` on success (prevents `update()` from restarting loop), (3) swap path resets `preload_running=false` so guard block can trigger next preload, (4) `advance()` joins in-flight thread then resets flag.
 
 ## v7.7.0  -  CacheManager double-close fix, transaction mutex (May 20, 2026)
 

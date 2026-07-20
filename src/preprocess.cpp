@@ -102,7 +102,6 @@ static void preprocess_loop() {
             struct stat st;
             if (!stat_timeout(path, st, 5000)) {
                 g_logger.warn("Preprocess: File '%s' not found or inaccessible (stat timeout). Marking bad.", path.c_str());
-                if (g_cache) g_cache->mark_bad(path);
                 continue;
             }
 
@@ -159,7 +158,6 @@ static void preprocess_loop() {
                     }
                 } else {
                     g_logger.warn("Preprocess: Failed to extract metadata for '%s'. Marking bad.", path.c_str());
-                    if (g_cache) g_cache->mark_bad(path);
                 }
             } else {
                 g_logger.warn("Preprocess: Timeout (10s) extracting metadata for '%s' -- skipping.", path.c_str());

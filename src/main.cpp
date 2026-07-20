@@ -872,6 +872,8 @@ static void watchman_loop() {
 static std::thread g_watchdog_thread;
 static std::atomic<bool> g_watchdog_running{false};
 
+static FILE* g_event_log = nullptr;
+static int64_t g_video_stall_ts = 0;
 static void watchdog_loop() {
     g_logger.info("Watchdog: Software watchdog thread active.");
     g_watchdog_last_time = std::chrono::steady_clock::now();
@@ -911,6 +913,10 @@ static void watchdog_loop() {
         int64_t max_silent_time = std::max((int64_t)45, (int64_t)(delay * 3));
         if (elapsed > max_silent_time) {
             g_logger.error("[WATCHDOG] CRITICAL: Slideshow loop frozen! Last heartbeat was %d seconds ago. Forcing restart...", (int)elapsed);
+            if (g_event_log) {
+                fprintf(g_event_log, "WATCHDOG_TRIP: elapsed=%lds item=%d\n", (long)elapsed, current_idx);
+                fflush(g_event_log);
+            }
             trigger_error(809); // E809: WATCHDOG_FORCED_RESTART
             // Restore physical display power before exiting
             set_display_power(true);
@@ -1089,6 +1095,7 @@ static void keepalive_loop() {
 }
 
 
+
 int main(int argc, char** argv) {
     signal(SIGPIPE, SIG_IGN);
     bool run_config = false;
@@ -1208,6 +1215,11 @@ int main(int argc, char** argv) {
     [[maybe_unused]] auto trunc_rc = ftruncate(lock_fd, 0);
     [[maybe_unused]] auto pid_rc = dprintf(lock_fd, "%d\n", getpid());
 
+    g_event_log = fopen("/app/events.log", "a");
+    if (g_event_log) {
+        fprintf(g_event_log, "=== piTrove started ===\n");
+        fflush(g_event_log);
+    }
     signal(SIGSEGV, crash_handler);
     signal(SIGABRT, crash_handler);
     // SIGTERM and SIGINT trigger graceful shutdown — let main loop exit and cleanup
@@ -1426,6 +1438,7 @@ int main(int argc, char** argv) {
                             double fallback_dur = (!g_eligible.empty() && current_idx >= 0 && current_idx < (int)g_eligible.size()) ? g_eligible[current_idx].duration : 0.0;
                             double remaining = g_video_decoder.get_video_remaining(fallback_dur);
                             std::string remaining_str = "0:00";
+                            static int rem_cnt2=0; if(++rem_cnt2%60==0) g_logger.info("REM_TRACE2: remaining=%.1f is_run=%d has_f=%d", remaining, g_video_decoder.is_running(), g_video_decoder.has_frames());
                             if (remaining > 0.0 && (g_video_decoder.is_running() || g_video_decoder.has_frames())) {
                                 int mins = (int)(remaining / 60.0);
                                 int secs = (int)(remaining - mins * 60.0);
@@ -1836,7 +1849,6 @@ int main(int argc, char** argv) {
         if (!exists) {
             g_logger.warn("MISSING_FILE: First media file is missing/deleted from disk: %s", path.c_str());
             if (is_media_dir_healthy(g_cfg.media_dir)) {
-                if (g_cache) g_cache->mark_bad(path);
 
                 // Erase from g_scanned_items and g_eligible
                 auto it_scanned = std::remove_if(g_scanned_items.begin(), g_scanned_items.end(),
@@ -1888,7 +1900,6 @@ int main(int argc, char** argv) {
                 if (!exists_l) {
                     g_logger.warn("MISSING_FILE: Left twin file missing: %s", path_l.c_str());
                     if (is_media_dir_healthy(g_cfg.media_dir)) {
-                        if (g_cache) g_cache->mark_bad(path_l);
                         g_eligible.erase(g_eligible.begin() + current_idx);
                     }
                     if (g_eligible.empty()) break;
@@ -1899,7 +1910,6 @@ int main(int argc, char** argv) {
                 if (!exists_r) {
                     g_logger.warn("MISSING_FILE: Right twin file missing: %s", path_r.c_str());
                     if (is_media_dir_healthy(g_cfg.media_dir)) {
-                        if (g_cache) g_cache->mark_bad(path_r);
                         g_eligible.erase(g_eligible.begin() + next_idx);
                     }
                     if (g_eligible.empty()) break;
@@ -1941,12 +1951,10 @@ int main(int argc, char** argv) {
                 } else {
                     if (!current_data || !current_data->valid) {
                         if (is_media_dir_healthy(g_cfg.media_dir) && (!current_data || !current_data->transient_error)) {
-                            if (g_cache) g_cache->mark_bad(path_l);
                             g_eligible.erase(g_eligible.begin() + current_idx);
                         }
                     } else if (!current_twin_data || !current_twin_data->valid) {
                         if (is_media_dir_healthy(g_cfg.media_dir) && (!current_twin_data || !current_twin_data->transient_error)) {
-                            if (g_cache) g_cache->mark_bad(path_r);
                             g_eligible.erase(g_eligible.begin() + next_idx);
                         }
                     }
@@ -1995,7 +2003,6 @@ int main(int argc, char** argv) {
                     break;
                 } else {
                     if (is_media_dir_healthy(g_cfg.media_dir) && (!single_data || !single_data->transient_error)) {
-                        if (g_cache) g_cache->mark_bad(g_eligible[current_idx].path);
                         g_logger.warn("Bad first image, skipping: %s", g_eligible[current_idx].path.c_str());
                         g_eligible.erase(g_eligible.begin() + current_idx);
                     } else {
@@ -2047,6 +2054,7 @@ int main(int argc, char** argv) {
         last_frame_time = now;
 
         g_watchdog_last_time = std::chrono::steady_clock::now();
+        pitrove::health::heartbeat_tick();
 
         // Periodic touch screen check (every 5 seconds)
         static double touch_check_timer = 0.0;
@@ -2192,6 +2200,7 @@ int main(int argc, char** argv) {
                             if ((g_video_decoder.is_running() || g_video_decoder.has_frames()) && g_video_decoder.is_eof()) {
                                 g_logger.info("Right-click during video: stopping decoder to open config menu.");
                                 g_video_decoder.stop();
+                                if (g_video_tex) { SDL_DestroyTexture(g_video_tex); g_video_tex = nullptr; g_video_tex_w = 0; g_video_tex_h = 0; }
                             }
                             g_overlay->menu_active = !g_overlay->menu_active;
                         }
@@ -2294,6 +2303,7 @@ int main(int argc, char** argv) {
             if ((g_video_decoder.is_running() || g_video_decoder.has_frames()) && g_video_decoder.is_eof()) {
                 g_logger.info("Screen blanked: stopping video decoder.");
                 g_video_decoder.stop();
+                if (g_video_tex) { SDL_DestroyTexture(g_video_tex); g_video_tex = nullptr; g_video_tex_w = 0; g_video_tex_h = 0; }
             }
             g_renderer.clear(0, 0, 0, 255);
             g_renderer.present();
@@ -2353,6 +2363,7 @@ int main(int argc, char** argv) {
             if ((g_video_decoder.is_running() || g_video_decoder.has_frames()) && g_video_decoder.is_eof()) {
                 g_logger.info("Interrupted video playback via skip request: stopping decoder.");
                 g_video_decoder.stop();
+                if (g_video_tex) { SDL_DestroyTexture(g_video_tex); g_video_tex = nullptr; g_video_tex_w = 0; g_video_tex_h = 0; }
             }
             if (was_video) {
                 current_data = nullptr;
@@ -2444,6 +2455,7 @@ int main(int argc, char** argv) {
                             double fallback_dur = (!g_eligible.empty() && current_idx >= 0 && current_idx < (int)g_eligible.size()) ? g_eligible[current_idx].duration : 0.0;
                             double remaining = g_video_decoder.get_video_remaining(fallback_dur);
                             std::string remaining_str = "0:00";
+                            static int rem_cnt=0; if(++rem_cnt%60==0) g_logger.info("REM_TRACE: remaining=%.1f is_running=%d has_frames=%d", remaining, g_video_decoder.is_running(), g_video_decoder.has_frames());
                             if (remaining > 0.0 && (g_video_decoder.is_running() || g_video_decoder.has_frames())) {
                                 int mins = (int)(remaining / 60.0);
                                 int secs = (int)(remaining - mins * 60.0);
@@ -2519,6 +2531,24 @@ int main(int argc, char** argv) {
                     }
                 } else if (g_video_decoder.is_running() || g_video_decoder.has_frames()) {
                     // Queue empty but decoder still running - wait and retry
+                    if (g_video_stall_ts == 0) g_video_stall_ts = SDL_GetTicks();
+                    else if (SDL_GetTicks() - g_video_stall_ts > 30000) {
+                        g_logger.error("[VIDEO_STALL] Decoder stuck 30s, forcing recovery");
+                        if (g_event_log) {
+                            fprintf(g_event_log, "VIDEO_STALL: item=%d\n", current_idx);
+                            fflush(g_event_log);
+                        }
+                        pitrove::health::heartbeat_tick();
+                        g_video_decoder.stop();
+                        if (g_video_tex) { SDL_DestroyTexture(g_video_tex); g_video_tex = nullptr; g_video_tex_w = 0; g_video_tex_h = 0; }
+                        transitioning = true;
+                        playlist_lock.unlock();
+                        SDL_Delay(10);
+                        advance_playlist(1);
+                        playlist_lock.lock();
+                        g_video_stall_ts = 0;
+                        continue;
+                    }
                     SDL_Delay(1);
                     continue;
                 }
@@ -2563,6 +2593,7 @@ int main(int argc, char** argv) {
                 // Reset video frame pacing for new video
                 
                 
+                    g_video_stall_ts = 0;
                 if (!g_video_decoder.start(video_path, width, height)) {
                     g_logger.error("Failed to start video decoder, skipping.");
                     current_data = nullptr;
@@ -2593,11 +2624,13 @@ int main(int argc, char** argv) {
         } catch (const std::exception& e) {
             g_logger.error("VIDEO_DEC: Exception in main loop: %s", e.what());
             g_video_decoder.stop();
+            if (g_video_tex) { SDL_DestroyTexture(g_video_tex); g_video_tex = nullptr; g_video_tex_w = 0; g_video_tex_h = 0; }
             playlist_lock.unlock();
             continue;
         } catch (...) {
             g_logger.error("VIDEO_DEC: Unknown exception in main loop");
             g_video_decoder.stop();
+            if (g_video_tex) { SDL_DestroyTexture(g_video_tex); g_video_tex = nullptr; g_video_tex_w = 0; g_video_tex_h = 0; }
             playlist_lock.unlock();
             continue;
         }
@@ -2681,10 +2714,8 @@ int main(int argc, char** argv) {
                     if (g_eligible[next_idx].type != "video") {
                         if (is_media_dir_healthy(g_cfg.media_dir)) {
                             if (g_cache && next_data && !next_data->valid && !next_data->transient_error) {
-                                g_cache->mark_bad(next_path);
                             }
                             if (is_twin && g_cache && next_twin_data && !next_twin_data->valid && !next_twin_data->transient_error) {
-                                g_cache->mark_bad(next_path_twin);
                             }
                         }
                     }
@@ -3177,6 +3208,7 @@ int main(int argc, char** argv) {
     }
 
     if (g_video_decoder.is_running()) g_video_decoder.stop();
+    if (g_video_tex) { SDL_DestroyTexture(g_video_tex); g_video_tex = nullptr; g_video_tex_w = 0; g_video_tex_h = 0; }
     if (g_transition) { g_transition->reset(); delete g_transition; }
     if (g_overlay) { g_overlay->cleanup(); delete g_overlay; }
     if (g_preload) {
@@ -3200,6 +3232,12 @@ int main(int argc, char** argv) {
     thermal_running.store(false);
     if (thermal_thread.joinable()) thermal_thread.join();
 
+    if (g_event_log) {
+        fprintf(g_event_log, "=== clean exit ===\n");
+        fflush(g_event_log);
+        fclose(g_event_log);
+        g_event_log = nullptr;
+    }
     // Clear crash state after stable runtime
     pitrove::safe_mode::clear();
 

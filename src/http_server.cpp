@@ -2261,7 +2261,14 @@ static void handle_client(int client_fd) {
             send_response(client_fd, "HTTP/1.1 200 OK", "application/json", get_api_status());
         } 
         else if (request.rfind("GET /api/next", 0) == 0) {
-        if (!is_authorized(request, client_fd)) return;
+            if (!is_authorized(request, client_fd)) return;
+            static std::atomic<int64_t> last_next_ms{0};
+            int64_t now_ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
+            if (now_ms - last_next_ms.load() < 500) {
+                send_response(client_fd, "HTTP/1.1 429 Too Many Requests", "text/plain", "Rate limited");
+                return;
+            }
+            last_next_ms.store(now_ms);
             g_remote_command.store(1);
             send_response(client_fd, "HTTP/1.1 200 OK", "application/json", "{\"status\":\"ok\"}");
         } 
@@ -2269,14 +2276,38 @@ static void handle_client(int client_fd) {
             handle_preview(client_fd);
         } 
         else if (request.rfind("GET /api/prev", 0) == 0) {
+            if (!is_authorized(request, client_fd)) return;
+            static std::atomic<int64_t> last_prev_ms{0};
+            int64_t now_ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
+            if (now_ms - last_prev_ms.load() < 500) {
+                send_response(client_fd, "HTTP/1.1 429 Too Many Requests", "text/plain", "Rate limited");
+                return;
+            }
+            last_prev_ms.store(now_ms);
             g_remote_command.store(2);
             send_response(client_fd, "HTTP/1.1 200 OK", "application/json", "{\"status\":\"ok\"}");
         } 
         else if (request.rfind("GET /api/pause", 0) == 0) {
+            if (!is_authorized(request, client_fd)) return;
+            static std::atomic<int64_t> last_pause_ms{0};
+            int64_t now_ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
+            if (now_ms - last_pause_ms.load() < 500) {
+                send_response(client_fd, "HTTP/1.1 429 Too Many Requests", "text/plain", "Rate limited");
+                return;
+            }
+            last_pause_ms.store(now_ms);
             g_remote_command.store(3);
             send_response(client_fd, "HTTP/1.1 200 OK", "application/json", "{\"status\":\"ok\"}");
         } 
         else if (request.rfind("GET /api/toggle_shuffle", 0) == 0) {
+            if (!is_authorized(request, client_fd)) return;
+            static std::atomic<int64_t> last_shuffle_ms{0};
+            int64_t now_ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
+            if (now_ms - last_shuffle_ms.load() < 500) {
+                send_response(client_fd, "HTTP/1.1 429 Too Many Requests", "text/plain", "Rate limited");
+                return;
+            }
+            last_shuffle_ms.store(now_ms);
             {
                 std::lock_guard lock(g_config_mtx);
                 g_cfg.shuffle = !g_cfg.shuffle;
@@ -2285,15 +2316,38 @@ static void handle_client(int client_fd) {
             send_response(client_fd, "HTTP/1.1 200 OK", "application/json", "{\"status\":\"ok\"}");
         } 
         else if (request.rfind("GET /api/force_video_next", 0) == 0) {
+            if (!is_authorized(request, client_fd)) return;
+            static std::atomic<int64_t> last_force_video_ms{0};
+            int64_t now_ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
+            if (now_ms - last_force_video_ms.load() < 500) {
+                send_response(client_fd, "HTTP/1.1 429 Too Many Requests", "text/plain", "Rate limited");
+                return;
+            }
+            last_force_video_ms.store(now_ms);
             g_remote_command.store(5);
             send_response(client_fd, "HTTP/1.1 200 OK", "application/json", "{\"status\":\"ok\"}");
         }
         else if (request.rfind("GET /api/restart", 0) == 0) {
-        if (!is_authorized(request, client_fd)) return;
+            if (!is_authorized(request, client_fd)) return;
+            static std::atomic<int64_t> last_restart_ms{0};
+            int64_t now_ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
+            if (now_ms - last_restart_ms.load() < 500) {
+                send_response(client_fd, "HTTP/1.1 429 Too Many Requests", "text/plain", "Rate limited");
+                return;
+            }
+            last_restart_ms.store(now_ms);
             g_running.store(false);
             send_response(client_fd, "HTTP/1.1 200 OK", "application/json", "{\"status\":\"ok\"}");
         } 
         else if (request.rfind("GET /api/toggle_screen", 0) == 0) {
+            if (!is_authorized(request, client_fd)) return;
+            static std::atomic<int64_t> last_toggle_screen_ms{0};
+            int64_t now_ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
+            if (now_ms - last_toggle_screen_ms.load() < 500) {
+                send_response(client_fd, "HTTP/1.1 429 Too Many Requests", "text/plain", "Rate limited");
+                return;
+            }
+            last_toggle_screen_ms.store(now_ms);
             bool expected = g_screen_blanked.load();
             bool desired = !expected;
             while (!g_screen_blanked.compare_exchange_weak(expected, desired)) {
@@ -2306,6 +2360,14 @@ static void handle_client(int client_fd) {
             send_response(client_fd, "HTTP/1.1 200 OK", "application/json", "{\"status\":\"ok\"}");
         }
         else if (request.rfind("GET /api/trigger_motion", 0) == 0) {
+            if (!is_authorized(request, client_fd)) return;
+            static std::atomic<int64_t> last_motion_ms{0};
+            int64_t now_ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
+            if (now_ms - last_motion_ms.load() < 500) {
+                send_response(client_fd, "HTTP/1.1 429 Too Many Requests", "text/plain", "Rate limited");
+                return;
+            }
+            last_motion_ms.store(now_ms);
             g_last_motion_time.store(static_cast<int64_t>(std::time(nullptr)));
             std::string prefix, sensor_topic;
             { std::lock_guard lk(g_config_mtx); prefix = g_cfg.mqtt_topic_prefix; sensor_topic = g_cfg.mqtt_motionsensor_topic; }
