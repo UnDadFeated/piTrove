@@ -107,6 +107,8 @@ COPY --from=builder /build-src/src/piTrove /app/piTrove
 COPY src/fonts/ /app/src/fonts/
 COPY src/splash.png /app/src/splash.png
 COPY src/config.toml /app/src/config/config.toml
+COPY scripts/ /app/scripts/
+RUN chmod +x /app/scripts/*.sh 2>/dev/null || true
 
 # Expose HTTP control interface dashboard
 EXPOSE 9000
