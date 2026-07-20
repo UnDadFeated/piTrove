@@ -5,10 +5,6 @@
 - **Docker Support** — Removed 1GB memory limit blocking dma-heap hwaccel allocations
 ### Code
 - decode_start_time initialization moved to decode loop entry
-## v16.1.5 — Video Countdown Fix (July 20, 2026)
-### Video
-- **Countdown Timer Fix** — Video timer overlay now uses uncached font rendering to ensure countdown updates every frame instead of freezing at first rendered value
-- **Font Renderer** — Added `draw_text_uncached()` for dynamic text that changes every frame
 
 ## v16.1.4 — Pi 4 Runtime Detection & Video Remaining Fix (July 20, 2026)
 ### Pi 4 Compatibility
