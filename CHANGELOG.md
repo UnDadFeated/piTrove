@@ -1,5 +1,14 @@
 # Changelog
 
+## v15.6.6 — Strict Optical EXIF Camera Tagging & Video Safety (July 19, 2026)
+### 📸 Optical EXIF Camera Tagging
+- **Camera Verification (`src/image_loader.cpp`)** — Added `EXIF_TAG_MAKE` and `EXIF_TAG_MODEL` to the optical hardware check. Screenshots and web captures lack camera hardware tags and are now 100% accurately identified as non-camera documents (`is_camera = 0`) and filtered out.
+
+### 🎥 Video Decoder Safety & Retry Loop Prevention
+- **Corrupted Video Isolation (`src/video_decoder.cpp`)** — Unopenable or corrupted video files now automatically trigger `mark_bad(path)` in `CacheManager`, isolating damaged media files so piTrove never enters a high-frequency decode retry loop.
+- **EOF State Guard (`src/video_decoder.cpp`)** — Ensured `m_eof = true` is set on all early exit paths to prevent watchdog timeouts during video transitions.
+
+
 ## v15.6.5 — Audio Resampler Channel Layout Fix & Enhanced Diagnostics (July 19, 2026)
 ### ⚡ Video Decode & Audio Resampling Stability
 - **Audio Resampler Safety (`src/video_decoder.cpp`)** — Fixed `libswresample.so.5` SIGSEGV crash during AAC video audio playback by initializing `AVChannelLayout` with `av_channel_layout_default()` fallback when `acc->ch_layout` has 0 channels.

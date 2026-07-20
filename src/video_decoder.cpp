@@ -1,3 +1,4 @@
+#include "cache.h"
 #include "video_decoder.h"
 #include <SDL3/SDL_timer.h>
 #include "util.h"
@@ -209,6 +210,7 @@ void VideoDecoder::decode_loop() {
     AVFormatContext* fmt_ctx = nullptr;
     if (avformat_open_input(&fmt_ctx, m_path.c_str(), nullptr, nullptr) != 0) {
         g_logger.error("VIDEO_DEC: Failed to open %s", m_path.c_str());
+        if (g_cache) g_cache->mark_bad(m_path);
         m_running.store(false);
         m_eof.store(true);
         return;

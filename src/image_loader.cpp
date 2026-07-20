@@ -600,14 +600,16 @@ ImageMetadata ImageLoader::read_metadata_from_memory(const uint8_t* buffer, unsi
         if (val >= 1 && val <= 8) meta.rotation = val;
     }
 
-    // 2. Camera verification (optical tags)
+    // 2. Camera verification (optical hardware & lens tags)
+    ExifEntry* make = exif_content_get_entry(ed->ifd[EXIF_IFD_0], EXIF_TAG_MAKE);
+    ExifEntry* model = exif_content_get_entry(ed->ifd[EXIF_IFD_0], EXIF_TAG_MODEL);
     ExifEntry* exposure = exif_content_get_entry(ed->ifd[EXIF_IFD_EXIF], EXIF_TAG_EXPOSURE_TIME);
     ExifEntry* fnumber = exif_content_get_entry(ed->ifd[EXIF_IFD_EXIF], EXIF_TAG_FNUMBER);
     ExifEntry* iso = exif_content_get_entry(ed->ifd[EXIF_IFD_EXIF], EXIF_TAG_ISO_SPEED_RATINGS);
     ExifEntry* focal = exif_content_get_entry(ed->ifd[EXIF_IFD_EXIF], EXIF_TAG_FOCAL_LENGTH);
     ExifEntry* datetime = exif_content_get_entry(ed->ifd[EXIF_IFD_EXIF], EXIF_TAG_DATE_TIME_ORIGINAL);
 
-    int count = (exposure ? 1 : 0) + (fnumber ? 1 : 0) + (iso ? 1 : 0) + (focal ? 1 : 0) + (datetime ? 1 : 0);
+    int count = (make ? 1 : 0) + (model ? 1 : 0) + (exposure ? 1 : 0) + (fnumber ? 1 : 0) + (iso ? 1 : 0) + (focal ? 1 : 0) + (datetime ? 1 : 0);
     meta.is_camera = (count >= 2);
 
     // 3. Creation / Capture time
