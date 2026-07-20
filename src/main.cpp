@@ -550,6 +550,8 @@ static std::vector<MediaItem> filter_playlist(const std::vector<MediaItem>& item
                     snap_keep_animals = g_cfg.keep_animals;
                 }
 
+
+
                 if (is_doc) {
                     continue;
                 } else {
@@ -1483,7 +1485,6 @@ int main(int argc, char** argv) {
                     mi.exif_rotation = sqlite3_column_int(stmt, 6);
                     mi.last_shown = sqlite3_column_int64(stmt, 7);
                     mi.is_camera = sqlite3_column_int(stmt, 8);
-                    mi.is_camera = sqlite3_column_int(stmt, 7);
                     auto slash = mi.path.rfind('/');
                     mi.filename = (slash != std::string::npos) ? mi.path.substr(slash + 1) : mi.path;
                     auto dot = mi.filename.find_last_of('.');
@@ -2399,9 +2400,10 @@ int main(int argc, char** argv) {
             if (g_video_decoder.is_running() || g_video_decoder.has_frames()) {
                 VideoFrame frame;
                 if (g_video_decoder.get_frame(frame)) {
-                    if (current_tex) { SDL_DestroyTexture(current_tex); current_tex = nullptr; }
-                    current_tex = SDL_CreateTexture(g_renderer.sdl_renderer, SDL_PIXELFORMAT_RGBA32,
-                        SDL_TEXTUREACCESS_STREAMING, frame.width, frame.height);
+                    if (!current_tex) {
+                        current_tex = SDL_CreateTexture(g_renderer.sdl_renderer, SDL_PIXELFORMAT_RGBA32,
+                            SDL_TEXTUREACCESS_STREAMING, frame.width, frame.height);
+                    }
                     if (current_tex) {
                         SDL_UpdateTexture(current_tex, nullptr, frame.data, frame.width * 4);
                         g_renderer.clear(0, 0, 0, 255);
@@ -2608,6 +2610,15 @@ int main(int argc, char** argv) {
                     }
                 }
                 playlist_lock.lock();
+
+                // Validate indices after re-acquiring lock (watchman may have resized playlist)
+                if (g_eligible.empty()) {
+                    next_data = nullptr;
+                    next_twin_data = nullptr;
+                } else {
+                    if (next_idx >= (int)g_eligible.size()) next_idx = next_idx % (int)g_eligible.size();
+                    if (current_idx >= (int)g_eligible.size()) current_idx = current_idx % (int)g_eligible.size();
+                }
 
                 // Update metadata using path-safe lookups (indices may have shifted)
                 auto update_meta_safe = [&](const std::string& expected_path, const std::shared_ptr<ImageData>& data) {

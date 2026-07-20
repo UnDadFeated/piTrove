@@ -1,5 +1,17 @@
 # Changelog
 
+## v15.6.4 — Deferred Video Scaler & Transition Safety (July 19, 2026)
+### Critical Fixes
+- **Deferred Video Scaler Init (`src/video_decoder.cpp`)** — Moved `sws_getContext()` from eager init (using `vcc->pix_fmt` which may be `DRM_PRIME`) to deferred init after the first frame is decoded and transferred. The scaler now uses the actual decoded pixel format (e.g., NV12, YUV420P), fixing `sws == NULL` silent video skip and rapid playlist advance crash.
+- **Video Decoder EOF State Machine (`src/video_decoder.cpp`)** — All error exit paths now set `m_eof = true`, preventing the render loop from interpreting decoder errors as "still decoding" and entering rapid advance loops.
+- **CMake -O2 Safety (`src/CMakeLists.txt`)** — Downgraded from `-O3` to `-O2` to prevent aggressive auto-vectorization from miscompiling SDL3/FFmpeg float math in transition paths.
+
+### High-Priority Improvements
+- **Playlist Lock Re-acquire Validation (`src/main.cpp`)** — After releasing `playlist_lock` for I/O and re-acquiring it, indices are now bounds-checked against the potentially resized `g_eligible` vector.
+- **Deferred Flush Path Scaler (`src/video_decoder.cpp`)** — Flush path also uses deferred scaler creation with actual frame format detection.
+- **Fresh Cache Rebuild** — Cache database deleted on deploy to rebuild with correct metadata for all 72K+ items.
+
+
 ## v15.6.3 — Comprehensive Video & Shuffle Stability (July 19, 2026)
 ### 🔴 P0: Critical Fixes
 - **DRM_PRIME Hardware Frame Transfer (`src/video_decoder.cpp`)** — Added `av_hwframe_transfer_data()` to transfer V4L2 M2M hardware-decoded frames (DRM_PRIME/NV12) to CPU-accessible buffers before `sws_scale()`. Fixes black screen video playback on Pi 4/5 when hardware decoder outputs non-CPU-accessible pixel formats.

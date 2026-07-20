@@ -210,6 +210,7 @@ void VideoDecoder::decode_loop() {
     if (avformat_open_input(&fmt_ctx, m_path.c_str(), nullptr, nullptr) != 0) {
         g_logger.error("VIDEO_DEC: Failed to open %s", m_path.c_str());
         m_running.store(false);
+        m_eof.store(true);
         return;
     }
 
@@ -249,6 +250,7 @@ void VideoDecoder::decode_loop() {
         g_logger.error("VIDEO_DEC: No video stream found in %s", m_path.c_str());
         avformat_close_input(&fmt_ctx);
         m_running.store(false);
+        m_eof.store(true);
         return;
     }
 
@@ -294,6 +296,7 @@ void VideoDecoder::decode_loop() {
         g_logger.error("VIDEO_DEC: Unsupported video codec for %s", m_path.c_str());
         avformat_close_input(&fmt_ctx);
         m_running.store(false);
+        m_eof.store(true);
         return;
     }
     AVCodecContext* vcc = avcodec_alloc_context3(vc);
@@ -323,6 +326,7 @@ void VideoDecoder::decode_loop() {
             if (vcc) avcodec_free_context(&vcc);
             avformat_close_input(&fmt_ctx);
             m_running.store(false);
+            m_eof.store(true);
             return;
         }
     }
@@ -386,18 +390,10 @@ void VideoDecoder::decode_loop() {
             dst_w = (int)(m_target_height * video_ar);
         }
     }
-    // Scaler
-    SwsContext* sws = sws_getContext(vcc->width, vcc->height, vcc->pix_fmt,
-                                     dst_w, dst_h, AV_PIX_FMT_RGBA,
-                                     SWS_FAST_BILINEAR, nullptr, nullptr, nullptr);
-    if (!sws) {
-        g_logger.error("VIDEO_DEC: Failed to create scaler for %s", m_path.c_str());
-        if (acc) avcodec_free_context(&acc);
-        avcodec_free_context(&vcc);
-        avformat_close_input(&fmt_ctx);
-        m_running.store(false);
-        return;
-    }
+    // Scaler — deferred creation until first frame reveals actual pixel format
+    // (V4L2 M2M HW decoders may output DRM_PRIME which needs transfer first)
+    SwsContext* sws = nullptr;
+    AVPixelFormat actual_pix_fmt = AV_PIX_FMT_NONE;
     g_logger.info("VIDEO_DEC: Decoding %s (%dx%d -> %dx%d)", m_path.c_str(), vcc->width, vcc->height, dst_w, dst_h);
     AVPacket* pkt = av_packet_alloc();
     AVFrame* frame = av_frame_alloc();
@@ -463,8 +459,23 @@ void VideoDecoder::decode_loop() {
                             if (av_hwframe_transfer_data(tmp_sw2, frame, 0) >= 0) {
                                 sw_frame2 = tmp_sw2;
                             } else {
+                                g_logger.warn("VIDEO_DEC: flush hw transfer failed, skipping");
                                 av_frame_free(&tmp_sw2);
-                                tmp_sw2 = nullptr;
+                                av_frame_unref(frame);
+                                continue;
+                            }
+                        }
+                        // Deferred scaler for flush path
+                        AVPixelFormat flush_fmt = (AVPixelFormat)sw_frame2->format;
+                        if (!sws || flush_fmt != actual_pix_fmt) {
+                            if (sws) sws_freeContext(sws);
+                            actual_pix_fmt = flush_fmt;
+                            sws = sws_getContext(sw_frame2->width, sw_frame2->height,
+                                actual_pix_fmt, dst_w, dst_h, AV_PIX_FMT_RGBA,
+                                SWS_FAST_BILINEAR, nullptr, nullptr, nullptr);
+                            if (!sws) {
+                                if (tmp_sw2) av_frame_free(&tmp_sw2);
+                                break;
                             }
                         }
                         sws_scale(sws, sw_frame2->data, sw_frame2->linesize, 0, sw_frame2->height,
@@ -524,20 +535,27 @@ void VideoDecoder::decode_loop() {
                 if (av_hwframe_transfer_data(tmp_sw, frame, 0) >= 0) {
                     sw_frame = tmp_sw;
                 } else {
+                    g_logger.warn("VIDEO_DEC: av_hwframe_transfer_data failed, skipping frame");
                     av_frame_free(&tmp_sw);
-                    tmp_sw = nullptr;
-                    sw_frame = frame; // fallback to original
+                    av_frame_unref(frame);
+                    continue;
                 }
             }
-            // Recreate scaler if pixel format changed (e.g. HW decoder switched format)
-            if (sw_frame->format != AV_PIX_FMT_NONE && sw_frame->format != vcc->pix_fmt) {
-                SwsContext* new_sws = sws_getContext(sw_frame->width, sw_frame->height,
-                    (AVPixelFormat)sw_frame->format, dst_w, dst_h, AV_PIX_FMT_RGBA,
+            // Deferred scaler creation on first frame (actual format now known)
+            AVPixelFormat cur_fmt = (AVPixelFormat)sw_frame->format;
+            if (!sws || cur_fmt != actual_pix_fmt) {
+                if (sws) sws_freeContext(sws);
+                actual_pix_fmt = cur_fmt;
+                sws = sws_getContext(sw_frame->width, sw_frame->height,
+                    actual_pix_fmt, dst_w, dst_h, AV_PIX_FMT_RGBA,
                     SWS_FAST_BILINEAR, nullptr, nullptr, nullptr);
-                if (new_sws) {
-                    sws_freeContext(sws);
-                    sws = new_sws;
+                if (!sws) {
+                    g_logger.error("VIDEO_DEC: Failed to create scaler for fmt=%d", (int)actual_pix_fmt);
+                    if (tmp_sw) av_frame_free(&tmp_sw);
+                    break;
                 }
+                g_logger.info("VIDEO_DEC: Created scaler for fmt=%d (%dx%d -> %dx%d)",
+                    (int)actual_pix_fmt, sw_frame->width, sw_frame->height, dst_w, dst_h);
             }
             sws_scale(sws, sw_frame->data, sw_frame->linesize, 0, sw_frame->height,
                       rgba->data, rgba->linesize);
