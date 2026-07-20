@@ -1,4 +1,10 @@
 # Changelog
+## v16.0.1 — V4L2 Device Mapping for Pi 5 HW Decode (July 20, 2026)
+### 🎥 Video
+- **V4L2 Device Mapping** — Added /dev/video19 through /dev/video35 to docker-compose.yml devices list for Pi 5 hardware video decoder support
+### 📦 Version Bump
+- **Version bump to v16.0.1**
+
 ## v16.0.0 — Major Release: Full Audit Remediation, GPU Device Restoration & Security Hardening (July 19, 2026)
 ### 🔒 Security & Authorization
 - **Full Audit Remediation** — Verified and confirmed all 13 audit-flagged issues resolved: auth on all 8 HTTP endpoints, rate limiting with 429 responses, NetworkDeinitGuard RAII, I/O interrupt callbacks with 30s timeout, upsert() signature alignment, verify_database() framerate column, stat_timeout() return validation, PreloadQueue::shutdown() thread safety, MQTT popen error handling, audio resample zero-allocation, and /dev:/dev volume removal
