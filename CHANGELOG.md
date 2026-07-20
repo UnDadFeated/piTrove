@@ -1,5 +1,12 @@
 # Changelog
 
+## v15.6.5 — Audio Resampler Channel Layout Fix & Enhanced Diagnostics (July 19, 2026)
+### ⚡ Video Decode & Audio Resampling Stability
+- **Audio Resampler Safety (`src/video_decoder.cpp`)** — Fixed `libswresample.so.5` SIGSEGV crash during AAC video audio playback by initializing `AVChannelLayout` with `av_channel_layout_default()` fallback when `acc->ch_layout` has 0 channels.
+- **New Error Catalog Codes (`src/error_db.cpp`)** — Registered `E525` (`VIDEO_AUDIO_SWR_FAIL`) and `E526` (`VIDEO_HW_FALLBACK_WARN`) for granular video pipeline health tracking.
+- **Enhanced Logger Diagnostics (`src/video_decoder.cpp`)** — Added explicit tracing for audio sample rate, channel layout fallback, and decoder thread type configuration.
+
+
 ## v15.6.4 — Deferred Video Scaler & Transition Safety (July 19, 2026)
 ### Critical Fixes
 - **Deferred Video Scaler Init (`src/video_decoder.cpp`)** — Moved `sws_getContext()` from eager init (using `vcc->pix_fmt` which may be `DRM_PRIME`) to deferred init after the first frame is decoded and transferred. The scaler now uses the actual decoded pixel format (e.g., NV12, YUV420P), fixing `sws == NULL` silent video skip and rapid playlist advance crash.
