@@ -97,6 +97,8 @@ std::mutex g_playlist_mtx;
 std::vector<MediaItem> g_scanned_items;
 std::vector<MediaItem> g_eligible;
 int current_idx = 0;
+SDL_Texture* g_video_tex = nullptr;
+int g_video_tex_w = 0, g_video_tex_h = 0;
 static std::thread g_watchman_thread;
 static std::atomic<bool> g_watchman_running{false};
 static std::atomic<bool> g_watchman_finished{false};
@@ -2397,15 +2399,24 @@ int main(int argc, char** argv) {
             current_idx = 0;
         }
         if (g_eligible[current_idx].type == "video") {
+            if (transitioning) {
+                transitioning = false;
+                if (g_transition) g_transition->reset();
+                if (transition_prev_target) { SDL_DestroyTexture(transition_prev_target); transition_prev_target = nullptr; }
+                if (transition_next_target) { SDL_DestroyTexture(transition_next_target); transition_next_target = nullptr; }
+            }
             if (g_video_decoder.is_running() || g_video_decoder.has_frames()) {
                 VideoFrame frame;
                 if (g_video_decoder.get_frame(frame)) {
-                    if (!current_tex) {
-                        current_tex = SDL_CreateTexture(g_renderer.sdl_renderer, SDL_PIXELFORMAT_RGBA32,
+                    if (!g_video_tex || g_video_tex_w != frame.width || g_video_tex_h != frame.height) {
+                        if (g_video_tex) SDL_DestroyTexture(g_video_tex);
+                        g_video_tex = SDL_CreateTexture(g_renderer.sdl_renderer, SDL_PIXELFORMAT_RGBA32,
                             SDL_TEXTUREACCESS_STREAMING, frame.width, frame.height);
+                        g_video_tex_w = frame.width;
+                        g_video_tex_h = frame.height;
                     }
-                    if (current_tex) {
-                        SDL_UpdateTexture(current_tex, nullptr, frame.data, frame.width * 4);
+                    if (g_video_tex) {
+                        SDL_UpdateTexture(g_video_tex, nullptr, frame.data, frame.width * 4);
                         g_renderer.clear(0, 0, 0, 255);
                         // Scale video to fill screen while maintaining aspect ratio
                         SDL_FRect dst_rect;
@@ -2427,7 +2438,7 @@ int main(int argc, char** argv) {
                             dst_rect.x = (sw - dst_rect.w) / 2;
                             dst_rect.y = 0;
                         }
-                        SDL_RenderTexture(g_renderer.sdl_renderer, current_tex, nullptr, &dst_rect);
+                        SDL_RenderTexture(g_renderer.sdl_renderer, g_video_tex, nullptr, &dst_rect);
                         // FIX: Overlay rendering + draw overlays BEFORE present()
                         if (g_overlay) {
                             double fallback_dur = (!g_eligible.empty() && current_idx >= 0 && current_idx < (int)g_eligible.size()) ? g_eligible[current_idx].duration : 0.0;
@@ -2496,6 +2507,7 @@ int main(int argc, char** argv) {
                 if (!g_video_decoder.has_frames() && (!g_video_decoder.is_running() || g_video_decoder.is_eof())) {
                     g_logger.info("Video decoder finished (EOF), advancing playlist.");
                     g_video_decoder.stop();
+                    if (g_video_tex) { SDL_DestroyTexture(g_video_tex); g_video_tex = nullptr; g_video_tex_w = 0; g_video_tex_h = 0; }
                     mark_item_shown(g_eligible[current_idx].path, false);
                     transitioning = true;
                     playlist_lock.unlock();
