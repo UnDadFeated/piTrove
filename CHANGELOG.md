@@ -1,5 +1,11 @@
 # Changelog
 
+## v15.6.7 — Video Countdown Timer EOF Fix & Display Precision (July 19, 2026)
+### ⏱️ Video Countdown Timer Accuracy
+- **End-of-Video Timer Reset Fix (`src/video_decoder.cpp`, `src/main.cpp`)** — Fixed bug where `get_video_remaining()` returned total initial video duration when `m_eof` was reached, causing the overlay remaining time timer to display full video length (e.g. `0:14`) during transitions instead of `0:00`.
+- **EOF Guard (`src/video_decoder.cpp`)** — `get_video_remaining()` now checks `m_eof` and immediately returns `0.0` upon reaching EOF.
+- **Overlay Transition Timer (`src/main.cpp`)** — Overlay remaining timer displays `0:00` at video completion and transition entry.
+
 ## v15.6.6 — Strict Optical EXIF Camera Tagging & Video Safety (July 19, 2026)
 ### 📸 Optical EXIF Camera Tagging
 - **Camera Verification (`src/image_loader.cpp`)** — Added `EXIF_TAG_MAKE` and `EXIF_TAG_MODEL` to the optical hardware check. Screenshots and web captures lack camera hardware tags and are now 100% accurately identified as non-camera documents (`is_camera = 0`) and filtered out.
