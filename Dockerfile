@@ -126,4 +126,4 @@ ENTRYPOINT ["/app/piTrove", "--config", "/app/config/config.toml"]
 
 # Container Health Check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
-    CMD curl -sf http://localhost:9000/api/status || exit 1
+    CMD /app/scripts/healthcheck.sh
