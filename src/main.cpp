@@ -2965,7 +2965,7 @@ int main(int argc, char** argv) {
                 // 1. Draw background based on style
                 std::string snap_bg_style;
                 { std::lock_guard lk(g_config_mtx); snap_bg_style = g_cfg.bg_style; }
-                if (snap_blurred || snap_bg_style != "photo") {
+                if (current_data && (snap_blurred || snap_bg_style != "photo")) {
                     g_renderer.draw_background(current_data.get(), snap_bg_style, (Uint8)(255.0f * vignette_str));
                 }
 

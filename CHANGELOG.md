@@ -1,5 +1,11 @@
 # Changelog
 
+## v15.6.2 — Persistent Texture Stability & Expanded Temporal Window (July 19, 2026)
+### ⚡ Video Decode Stability & KMSDRM Resource Leak Fix
+- **Persistent Texture Reuse (`src/main.cpp`, `src/video_decoder.cpp`)** — Resolved crash/reboot loop during video playback by eliminating 60Hz texture reallocation (`SDL_DestroyTexture` / `SDL_CreateTexture` per frame). Video frames now reuse persistent streaming textures updated in-place via `SDL_UpdateTexture()`.
+- **Expanded Temporal Seasonal Window (`src/main.cpp`)** — Increased minimum target count in `filter_playlist()` to 500 items, allowing 5-day seasonal windows across multi-year photo libraries to yield comprehensive playlists without premature degradation.
+
+
 ## v15.6.1 — GPU NV12 Pipeline & Black Screen Resolution (July 19, 2026)
 ### ⚡ Video Playback GPU NV12 Pipeline Fix
 - **Native Resolution NV12 GPU Decoder (, )** — Resolved black screen issue by ensuring  outputs NV12 frames at native video resolution, transferring Y and UV planes directly to  streaming textures, and letting VideoCore VII GPU / DRM display controller handle 4K→1080p hardware downscaling and color conversion at 60fps without CPU bottlenecking.
