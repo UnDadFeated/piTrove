@@ -55,12 +55,14 @@ static AVBufferRef* create_hw_device() {
     if (av_hwdevice_ctx_create(&hw_device_ctx,
                                AV_HWDEVICE_TYPE_DRM,
                                nullptr, nullptr, 0) >= 0) {
-        hwaccel_path = "drm";
+        hwaccel_path = "pi5_drm";
         return hw_device_ctx;
     }
-    if (avcodec_find_decoder_by_name("hevc_v4l2m2m") ||
-        avcodec_find_decoder_by_name("h264_v4l2m2m")) {
-        hwaccel_path = "v4l2";
+    // V4L2 M2M fallback: only if DRM hwaccel failed (Pi 4)
+    if (!hw_device_ctx &&
+        (avcodec_find_decoder_by_name("hevc_v4l2m2m") ||
+         avcodec_find_decoder_by_name("h264_v4l2m2m"))) {
+        hwaccel_path = "pi4_v4l2";
     }
     return nullptr;
 }
@@ -333,10 +335,10 @@ void VideoDecoder::decode_loop() {
     AVBufferRef* hw_dev = create_hw_device();
     const AVCodec* vc = avcodec_find_decoder(vp->codec_id);
     // Pi 4 fallback: use V4L2 M2M codec directly if DRM hwaccel not available
-    if (!hw_dev && hwaccel_path == "v4l2" && vp->codec_id == AV_CODEC_ID_HEVC) {
+    if (!hw_dev && hwaccel_path == "pi4_v4l2" && vp->codec_id == AV_CODEC_ID_HEVC) {
         vc = avcodec_find_decoder_by_name("hevc_v4l2m2m");
     }
-    if (!hw_dev && hwaccel_path == "v4l2" && vp->codec_id == AV_CODEC_ID_H264) {
+    if (!hw_dev && hwaccel_path == "pi4_v4l2" && vp->codec_id == AV_CODEC_ID_H264) {
         vc = avcodec_find_decoder_by_name("h264_v4l2m2m");
     }
     if (vc && hw_dev) {
