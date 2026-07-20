@@ -2041,6 +2041,7 @@ int main(int argc, char** argv) {
         last_frame_time = now;
 
         g_watchdog_last_time = std::chrono::steady_clock::now();
+        pitrove::health::heartbeat_tick();
 
         // Periodic touch screen check (every 5 seconds)
         static double touch_check_timer = 0.0;
