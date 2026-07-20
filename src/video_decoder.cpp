@@ -1,3 +1,4 @@
+#include "cache.h"
 #include "video_decoder.h"
 #include <SDL3/SDL_timer.h>
 #include "util.h"
@@ -13,6 +14,50 @@ extern "C" {
 #include <libavutil/opt.h>
 #include <libavutil/imgutils.h>
 #include <libavutil/time.h>
+
+
+struct VideoLimits {
+    int max_width = 1920;
+    int max_height = 1080;
+    int64_t max_bitrate = 20 * 1000 * 1000;
+    int max_duration_seconds = 300;
+};
+
+static bool video_within_budget(AVFormatContext* fmt, const VideoLimits& limits) {
+    if (!g_cfg.video_decode_budget_enabled) {
+        return true; // Budget enforcement disabled: downscale and play any video using HW decoding
+    }
+    for (unsigned int i = 0; i < fmt->nb_streams; ++i) {
+        AVStream* stream = fmt->streams[i];
+        if (stream->codecpar->codec_type == AVMEDIA_TYPE_VIDEO) {
+            if (stream->codecpar->width > limits.max_width ||
+                stream->codecpar->height > limits.max_height) {
+                return false;
+            }
+            if (stream->codecpar->bit_rate > limits.max_bitrate) {
+                return false;
+            }
+        }
+    }
+    if (fmt->duration > 0) {
+        int seconds = static_cast<int>(fmt->duration / AV_TIME_BASE);
+        if (seconds > limits.max_duration_seconds) {
+            return false;
+        }
+    }
+    return true;
+}
+
+static AVBufferRef* create_hw_device() {
+    AVBufferRef* hw_device_ctx = nullptr;
+    if (av_hwdevice_ctx_create(&hw_device_ctx,
+                               AV_HWDEVICE_TYPE_DRM,
+                               nullptr, nullptr, 0) >= 0) {
+        return hw_device_ctx;
+    }
+    return nullptr;
+}
+
 }
 
 #define DEBUG_LOG(fmt, ...) \
@@ -165,12 +210,30 @@ void VideoDecoder::decode_loop() {
     AVFormatContext* fmt_ctx = nullptr;
     if (avformat_open_input(&fmt_ctx, m_path.c_str(), nullptr, nullptr) != 0) {
         g_logger.error("VIDEO_DEC: Failed to open %s", m_path.c_str());
+        
         m_running.store(false);
+        m_eof.store(true);
         return;
     }
 
     if (avformat_find_stream_info(fmt_ctx, nullptr) < 0) {
         g_logger.error("VIDEO_DEC: Failed to find stream info for %s", m_path.c_str());
+    VideoLimits limits;
+    {
+        std::shared_lock lk(g_config_mtx);
+        limits.max_width = g_cfg.video_max_width;
+        limits.max_height = g_cfg.video_max_height;
+        limits.max_bitrate = g_cfg.video_max_bitrate;
+        limits.max_duration_seconds = g_cfg.video_max_duration_seconds;
+    }
+    if (!video_within_budget(fmt_ctx, limits)) {
+        g_logger.warn("VIDEO_DEC: %s exceeds decode budget. Skipping.", m_path.c_str());
+        avformat_close_input(&fmt_ctx);
+        m_running.store(false);
+        m_eof.store(true);
+        avformat_network_deinit();
+        return;
+    }
         avformat_close_input(&fmt_ctx);
         m_running.store(false);
         return;
@@ -189,6 +252,7 @@ void VideoDecoder::decode_loop() {
         g_logger.error("VIDEO_DEC: No video stream found in %s", m_path.c_str());
         avformat_close_input(&fmt_ctx);
         m_running.store(false);
+        m_eof.store(true);
         return;
     }
 
@@ -234,15 +298,20 @@ void VideoDecoder::decode_loop() {
         g_logger.error("VIDEO_DEC: Unsupported video codec for %s", m_path.c_str());
         avformat_close_input(&fmt_ctx);
         m_running.store(false);
+        m_eof.store(true);
         return;
     }
     AVCodecContext* vcc = avcodec_alloc_context3(vc);
     avcodec_parameters_to_context(vcc, vp);
-    // Enable multi-threaded decoding (maxcores-1)
+    // Enable multi-threaded decoding based on codec capabilities
     {
         int threads = std::thread::hardware_concurrency();
-        vcc->thread_count = std::min(2, std::max(1, threads - 1));
-        vcc->thread_type = FF_THREAD_FRAME;
+        vcc->thread_count = std::min(4, std::max(1, threads - 1));
+        if (vc->capabilities & AV_CODEC_CAP_FRAME_THREADS) {
+            vcc->thread_type = FF_THREAD_FRAME;
+        } else if (vc->capabilities & AV_CODEC_CAP_SLICE_THREADS) {
+            vcc->thread_type = FF_THREAD_SLICE;
+        }
     }
     bool is_hw = (vc && std::string(vc->name).find("v4l2m2m") != std::string::npos);
     if (avcodec_open2(vcc, vc, nullptr) < 0) {
@@ -255,7 +324,7 @@ void VideoDecoder::decode_loop() {
                 avcodec_parameters_to_context(vcc, vp);
                 int threads = std::thread::hardware_concurrency();
                 vcc->thread_count = std::min(2, std::max(1, threads - 1));
-                vcc->thread_type = FF_THREAD_FRAME;
+                vcc->thread_type = FF_THREAD_FRAME | FF_THREAD_SLICE;
             }
         }
         if (!vc || avcodec_open2(vcc, vc, nullptr) < 0) {
@@ -263,6 +332,7 @@ void VideoDecoder::decode_loop() {
             if (vcc) avcodec_free_context(&vcc);
             avformat_close_input(&fmt_ctx);
             m_running.store(false);
+            m_eof.store(true);
             return;
         }
     }
@@ -292,26 +362,34 @@ void VideoDecoder::decode_loop() {
 
     if (acc) init_audio();
 
-    // Swresample — FFmpeg 6 uses swr_alloc_set_opts2
+    // Swresample — FFmpeg 6 uses swr_alloc_set_opts2 with robust channel layout fallbacks
     SwrContext* swr = nullptr;
-    if (acc) {
+    if (acc && audio_sample_rate > 0) {
         AVChannelLayout src_ch, dst_ch;
-        av_channel_layout_copy(&src_ch, &acc->ch_layout);
-        av_channel_layout_from_mask(&dst_ch, AV_CH_LAYOUT_STEREO);
+        memset(&src_ch, 0, sizeof(src_ch));
+        memset(&dst_ch, 0, sizeof(dst_ch));
+
+        int ch_cnt = (acc->ch_layout.nb_channels > 0) ? acc->ch_layout.nb_channels : (audio_channels > 0 ? audio_channels : 2);
+        av_channel_layout_default(&src_ch, ch_cnt);
+        av_channel_layout_default(&dst_ch, 2);
 
         int ret = swr_alloc_set_opts2(&swr,
             &dst_ch, AV_SAMPLE_FMT_S16, 48000,
             &src_ch, (AVSampleFormat)acc->sample_fmt, audio_sample_rate,
             0, nullptr);
-        if (ret < 0) {
+        if (ret < 0 || !swr) {
             DEBUG_LOG("AUDIO: swr_alloc_set_opts2 failed: %d", ret);
+            swr = nullptr;
         } else {
             ret = swr_init(swr);
             if (ret < 0) {
                 DEBUG_LOG("AUDIO: swr_init failed: %d", ret);
                 swr_free(&swr);
+                swr = nullptr;
             }
         }
+        av_channel_layout_uninit(&src_ch);
+        av_channel_layout_uninit(&dst_ch);
     }
     // Compute scaled target dimensions maintaining video aspect ratio
     int dst_w = vcc->width, dst_h = vcc->height;
@@ -326,18 +404,10 @@ void VideoDecoder::decode_loop() {
             dst_w = (int)(m_target_height * video_ar);
         }
     }
-    // Scaler
-    SwsContext* sws = sws_getContext(vcc->width, vcc->height, vcc->pix_fmt,
-                                     dst_w, dst_h, AV_PIX_FMT_RGBA,
-                                     SWS_FAST_BILINEAR, nullptr, nullptr, nullptr);
-    if (!sws) {
-        g_logger.error("VIDEO_DEC: Failed to create scaler for %s", m_path.c_str());
-        if (acc) avcodec_free_context(&acc);
-        avcodec_free_context(&vcc);
-        avformat_close_input(&fmt_ctx);
-        m_running.store(false);
-        return;
-    }
+    // Scaler — deferred creation until first frame reveals actual pixel format
+    // (V4L2 M2M HW decoders may output DRM_PRIME which needs transfer first)
+    SwsContext* sws = nullptr;
+    AVPixelFormat actual_pix_fmt = AV_PIX_FMT_NONE;
     g_logger.info("VIDEO_DEC: Decoding %s (%dx%d -> %dx%d)", m_path.c_str(), vcc->width, vcc->height, dst_w, dst_h);
     AVPacket* pkt = av_packet_alloc();
     AVFrame* frame = av_frame_alloc();
@@ -353,7 +423,7 @@ void VideoDecoder::decode_loop() {
     int vf_count = 0, af_count = 0, pkt_count = 0;
     while (is_running() && !eof) {
         int ret = av_read_frame(fmt_ctx, pkt);
-        g_logger.debug("VIDEO_DEC: av_read_frame ret=%d stream=%d pkt_count=%d", ret, (pkt ? pkt->stream_index : -1), pkt_count);
+        // hot-path debug log omitted
         pkt_count++;
         if (ret < 0) {
             g_logger.info("VIDEO_DEC: av_read_frame error ret=%d (AVERROR_EOF=%d, AVERROR(EAGAIN)=%d)", ret, AVERROR_EOF, AVERROR(EAGAIN));
@@ -369,11 +439,12 @@ void VideoDecoder::decode_loop() {
                         if (ret != 0) break;
                         if (swr) {
                             int max_s = av_rescale_rnd(aframe->nb_samples, 48000, audio_sample_rate, AV_ROUND_UP);
-                            int16_t* ob = new int16_t[max_s * 2];
-                            int os = swr_convert(swr, (uint8_t**)&ob, max_s,
-                                                 (const uint8_t**)aframe->data, aframe->nb_samples);
-                            if (os > 0) { push_audio_samples(ob, os); af_count += os; }
-                            delete[] ob;
+                            std::vector<int16_t> ob(max_s * 2);
+                            uint8_t* out_buf[1] = { (uint8_t*)ob.data() };
+                            int os = swr_convert(swr, out_buf, max_s,
+                                                 (const uint8_t**)aframe->extended_data, aframe->nb_samples);
+                            if (os > 0) { push_audio_samples(ob.data(), os); af_count += os; }
+                            
                         }
                     }
                 }
@@ -395,8 +466,36 @@ void VideoDecoder::decode_loop() {
                             break;
                         }
                         vf_count++;
-                        sws_scale(sws, frame->data, frame->linesize, 0, vcc->height,
+                        // Transfer HW frames during flush
+                        AVFrame* sw_frame2 = frame;
+                        AVFrame* tmp_sw2 = nullptr;
+                        if (frame->format == AV_PIX_FMT_DRM_PRIME || frame->hw_frames_ctx) {
+                            tmp_sw2 = av_frame_alloc();
+                            if (av_hwframe_transfer_data(tmp_sw2, frame, 0) >= 0) {
+                                sw_frame2 = tmp_sw2;
+                            } else {
+                                g_logger.warn("VIDEO_DEC: flush hw transfer failed, skipping");
+                                av_frame_free(&tmp_sw2);
+                                av_frame_unref(frame);
+                                continue;
+                            }
+                        }
+                        // Deferred scaler for flush path
+                        AVPixelFormat flush_fmt = (AVPixelFormat)sw_frame2->format;
+                        if (!sws || flush_fmt != actual_pix_fmt) {
+                            if (sws) sws_freeContext(sws);
+                            actual_pix_fmt = flush_fmt;
+                            sws = sws_getContext(sw_frame2->width, sw_frame2->height,
+                                actual_pix_fmt, dst_w, dst_h, AV_PIX_FMT_RGBA,
+                                SWS_FAST_BILINEAR, nullptr, nullptr, nullptr);
+                            if (!sws) {
+                                if (tmp_sw2) av_frame_free(&tmp_sw2);
+                                break;
+                            }
+                        }
+                        sws_scale(sws, sw_frame2->data, sw_frame2->linesize, 0, sw_frame2->height,
                                   rgba->data, rgba->linesize);
+                        if (tmp_sw2) av_frame_free(&tmp_sw2);
                         VideoFrame vf;
                         vf.width = dst_w; vf.height = dst_h;
                         vf.data = new uint8_t[nbytes];
@@ -416,6 +515,7 @@ void VideoDecoder::decode_loop() {
                             }
                             m_frame_queue.push(std::move(vf));
                         }
+                        av_frame_unref(frame);
                         if (vf_count % 100 == 0) g_logger.debug("VIDEO_DEC: queue_depth=%zu", m_frame_queue.size());
                     }
                 }
@@ -428,13 +528,13 @@ void VideoDecoder::decode_loop() {
 
         if (pkt->stream_index == video_stream_idx) {
             ret = avcodec_send_packet(vcc, pkt);
-            g_logger.debug("VIDEO_DEC: send_packet vcc ret=%d", ret);
+            // hot-path debug log omitted
             av_packet_unref(pkt);
             if (ret < 0) continue;
             // Drain all frames from decoder after sending packet
             while (true) {
             ret = avcodec_receive_frame(vcc, frame);
-            g_logger.debug("VIDEO_DEC: receive_frame ret=%d vf_count=%d", ret, vf_count);
+            // hot-path debug log omitted
             if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF) break;
             if (ret < 0) {
                 g_logger.warn("VIDEO_DEC: Bad frame ret=%d, flushing decoder", ret);
@@ -443,8 +543,39 @@ void VideoDecoder::decode_loop() {
             }
 
             vf_count++;
-            sws_scale(sws, frame->data, frame->linesize, 0, vcc->height,
+            // Transfer HW frames (DRM_PRIME/V4L2) to CPU-accessible format before scaling
+            AVFrame* sw_frame = frame;
+            AVFrame* tmp_sw = nullptr;
+            if (frame->format == AV_PIX_FMT_DRM_PRIME || frame->hw_frames_ctx) {
+                tmp_sw = av_frame_alloc();
+                if (av_hwframe_transfer_data(tmp_sw, frame, 0) >= 0) {
+                    sw_frame = tmp_sw;
+                } else {
+                    g_logger.warn("VIDEO_DEC: av_hwframe_transfer_data failed, skipping frame");
+                    av_frame_free(&tmp_sw);
+                    av_frame_unref(frame);
+                    continue;
+                }
+            }
+            // Deferred scaler creation on first frame (actual format now known)
+            AVPixelFormat cur_fmt = (AVPixelFormat)sw_frame->format;
+            if (!sws || cur_fmt != actual_pix_fmt) {
+                if (sws) sws_freeContext(sws);
+                actual_pix_fmt = cur_fmt;
+                sws = sws_getContext(sw_frame->width, sw_frame->height,
+                    actual_pix_fmt, dst_w, dst_h, AV_PIX_FMT_RGBA,
+                    SWS_FAST_BILINEAR, nullptr, nullptr, nullptr);
+                if (!sws) {
+                    g_logger.error("VIDEO_DEC: Failed to create scaler for fmt=%d", (int)actual_pix_fmt);
+                    if (tmp_sw) av_frame_free(&tmp_sw);
+                    break;
+                }
+                g_logger.info("VIDEO_DEC: Created scaler for fmt=%d (%dx%d -> %dx%d)",
+                    (int)actual_pix_fmt, sw_frame->width, sw_frame->height, dst_w, dst_h);
+            }
+            sws_scale(sws, sw_frame->data, sw_frame->linesize, 0, sw_frame->height,
                       rgba->data, rgba->linesize);
+            if (tmp_sw) av_frame_free(&tmp_sw);
 
             VideoFrame vf;
             vf.width = dst_w;
@@ -466,6 +597,7 @@ void VideoDecoder::decode_loop() {
                 if (!m_running.load()) break;
                 m_frame_queue.push(std::move(vf));
             }
+            av_frame_unref(frame);
             } // end while drain
             if (ret < 0 && ret != AVERROR(EAGAIN) && ret != AVERROR_EOF) {
                 g_logger.warn("VIDEO_DEC: Skipping to next packet after bad frame");
@@ -482,11 +614,12 @@ void VideoDecoder::decode_loop() {
                 if (ret != 0) break;
                 if (swr) {
                     int max_s = av_rescale_rnd(aframe->nb_samples, 48000, audio_sample_rate, AV_ROUND_UP);
-                    int16_t* ob = new int16_t[max_s * 2];
-                    int os = swr_convert(swr, (uint8_t**)&ob, max_s,
-                                         (const uint8_t**)aframe->data, aframe->nb_samples);
-                    if (os > 0) { push_audio_samples(ob, os); af_count += os; }
-                    delete[] ob;
+                    std::vector<int16_t> ob(max_s * 2);
+                    uint8_t* out_buf[1] = { (uint8_t*)ob.data() };
+                            int os = swr_convert(swr, out_buf, max_s,
+                                                 (const uint8_t**)aframe->extended_data, aframe->nb_samples);
+                    if (os > 0) { push_audio_samples(ob.data(), os); af_count += os; }
+                    
                 }
             }
         } else {
@@ -510,6 +643,7 @@ void VideoDecoder::decode_loop() {
     if (acc) avcodec_free_context(&acc);
     avcodec_free_context(&vcc);
     avformat_close_input(&fmt_ctx);
+    avformat_network_deinit();
     } catch (...) {}
 
     } catch (const std::exception& e) {

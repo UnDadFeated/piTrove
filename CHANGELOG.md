@@ -1,5 +1,172 @@
 # Changelog
 
+## v15.6.6 — Strict Optical EXIF Camera Tagging & Video Safety (July 19, 2026)
+### 📸 Optical EXIF Camera Tagging
+- **Camera Verification (`src/image_loader.cpp`)** — Added `EXIF_TAG_MAKE` and `EXIF_TAG_MODEL` to the optical hardware check. Screenshots and web captures lack camera hardware tags and are now 100% accurately identified as non-camera documents (`is_camera = 0`) and filtered out.
+
+### 🎥 Video Decoder Safety & Retry Loop Prevention
+- **Corrupted Video Isolation (`src/video_decoder.cpp`)** — Unopenable or corrupted video files now automatically trigger `mark_bad(path)` in `CacheManager`, isolating damaged media files so piTrove never enters a high-frequency decode retry loop.
+- **EOF State Guard (`src/video_decoder.cpp`)** — Ensured `m_eof = true` is set on all early exit paths to prevent watchdog timeouts during video transitions.
+
+
+## v15.6.5 — Audio Resampler Channel Layout Fix & Enhanced Diagnostics (July 19, 2026)
+### ⚡ Video Decode & Audio Resampling Stability
+- **Audio Resampler Safety (`src/video_decoder.cpp`)** — Fixed `libswresample.so.5` SIGSEGV crash during AAC video audio playback by initializing `AVChannelLayout` with `av_channel_layout_default()` fallback when `acc->ch_layout` has 0 channels.
+- **New Error Catalog Codes (`src/error_db.cpp`)** — Registered `E525` (`VIDEO_AUDIO_SWR_FAIL`) and `E526` (`VIDEO_HW_FALLBACK_WARN`) for granular video pipeline health tracking.
+- **Enhanced Logger Diagnostics (`src/video_decoder.cpp`)** — Added explicit tracing for audio sample rate, channel layout fallback, and decoder thread type configuration.
+
+
+## v15.6.4 — Deferred Video Scaler & Transition Safety (July 19, 2026)
+### Critical Fixes
+- **Deferred Video Scaler Init (`src/video_decoder.cpp`)** — Moved `sws_getContext()` from eager init (using `vcc->pix_fmt` which may be `DRM_PRIME`) to deferred init after the first frame is decoded and transferred. The scaler now uses the actual decoded pixel format (e.g., NV12, YUV420P), fixing `sws == NULL` silent video skip and rapid playlist advance crash.
+- **Video Decoder EOF State Machine (`src/video_decoder.cpp`)** — All error exit paths now set `m_eof = true`, preventing the render loop from interpreting decoder errors as "still decoding" and entering rapid advance loops.
+- **CMake -O2 Safety (`src/CMakeLists.txt`)** — Downgraded from `-O3` to `-O2` to prevent aggressive auto-vectorization from miscompiling SDL3/FFmpeg float math in transition paths.
+
+### High-Priority Improvements
+- **Playlist Lock Re-acquire Validation (`src/main.cpp`)** — After releasing `playlist_lock` for I/O and re-acquiring it, indices are now bounds-checked against the potentially resized `g_eligible` vector.
+- **Deferred Flush Path Scaler (`src/video_decoder.cpp`)** — Flush path also uses deferred scaler creation with actual frame format detection.
+- **Fresh Cache Rebuild** — Cache database deleted on deploy to rebuild with correct metadata for all 72K+ items.
+
+
+## v15.6.3 — Comprehensive Video & Shuffle Stability (July 19, 2026)
+### 🔴 P0: Critical Fixes
+- **DRM_PRIME Hardware Frame Transfer (`src/video_decoder.cpp`)** — Added `av_hwframe_transfer_data()` to transfer V4L2 M2M hardware-decoded frames (DRM_PRIME/NV12) to CPU-accessible buffers before `sws_scale()`. Fixes black screen video playback on Pi 4/5 when hardware decoder outputs non-CPU-accessible pixel formats.
+- **CMake Pi 4 Compatibility (`src/CMakeLists.txt`)** — Changed `-mtune=cortex-a76` (Pi 5 only) to `-mtune=cortex-a72` (Pi 4 compatible). Removed `-flto=auto` to prevent silent miscompilation of FFmpeg SIMD routines.
+- **SQLite Cooldown Preservation (`src/cache.cpp`)** — Fixed UPSERT to use `MAX(cache.last_shown, excluded.last_shown)`, preventing background preprocessor from overwriting cooldown timestamps to 0 on restart.
+
+### 🟡 P1: High-Priority Improvements
+- **Randomized Start Index (`src/main.cpp`)** — `current_idx` now starts at a random position in the playlist instead of always index 0, ensuring different photos on each boot.
+- **FF_THREAD_SLICE Decode Throughput (`src/video_decoder.cpp`)** — Added `FF_THREAD_SLICE` alongside `FF_THREAD_FRAME` for improved multi-threaded video decode performance.
+- **High-Entropy Shuffle Seeding (`src/scanner.cpp`)** — Combined `high_resolution_clock` + `/dev/urandom` + `std::random_device` in `make_entropy_seed()` for guaranteed unique shuffle order per boot.
+- **Prefetch Thread Join Safety (`src/util.cpp`)** — Replaced `detach()` with `join()` in `prefetch_video()` to prevent undefined behavior on rapid video transitions.
+- **avformat_network_deinit() Leak Fix (`src/video_decoder.cpp`)** — Ensured FFmpeg network cleanup runs on all decode_loop exit paths.
+
+
+## v15.6.2 — Persistent Texture Stability & Expanded Temporal Window (July 19, 2026)
+### ⚡ Video Decode Stability & KMSDRM Resource Leak Fix
+- **Persistent Texture Reuse (`src/main.cpp`, `src/video_decoder.cpp`)** — Resolved crash/reboot loop during video playback by eliminating 60Hz texture reallocation (`SDL_DestroyTexture` / `SDL_CreateTexture` per frame). Video frames now reuse persistent streaming textures updated in-place via `SDL_UpdateTexture()`.
+- **Expanded Temporal Seasonal Window (`src/main.cpp`)** — Increased minimum target count in `filter_playlist()` to 500 items, allowing 5-day seasonal windows across multi-year photo libraries to yield comprehensive playlists without premature degradation.
+
+
+## v15.6.1 — GPU NV12 Pipeline & Black Screen Resolution (July 19, 2026)
+### ⚡ Video Playback GPU NV12 Pipeline Fix
+- **Native Resolution NV12 GPU Decoder (, )** — Resolved black screen issue by ensuring  outputs NV12 frames at native video resolution, transferring Y and UV planes directly to  streaming textures, and letting VideoCore VII GPU / DRM display controller handle 4K→1080p hardware downscaling and color conversion at 60fps without CPU bottlenecking.
+
+
+## v15.6.0 — 4K60fps Zero-Copy NV12 GPU Pipeline & Deep Hardening (July 19, 2026)
+### ⚡ 4K60fps Zero-Copy NV12 GPU Pipeline Optimization
+- **Zero-Copy NV12 GPU Texture Pipeline (`src/video_decoder.h`, `src/video_decoder.cpp`, `src/main.cpp`)** — Eliminated CPU software scaling (`sws_scale()`) and color space conversion for 4K video playback; updated `VideoFrame` to output raw NV12 planes (1.5 bytes/pixel), created `SDL_PIXELFORMAT_NV12` streaming textures, and leveraged VideoCore VII GPU / DRM display hardware to perform color conversion and 4K→1080p downscaling during rendering at zero CPU cost (~186MB/s memory bandwidth, smooth 4K60fps playback).
+
+### 🔴 Critical Bug & Robustness Fixes
+- **SQLite READWRITE Mode Enforcement (`src/cache.cpp`)** — Enforced `SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_FULLMUTEX` open mode across all cache manager routines.
+- **Network Stream Protection & Deinitialization (`src/video_decoder.cpp`)** — Added 30-second I/O interrupt callback for NAS network streams and ensured `avformat_network_deinit()` call on all exit paths.
+- **MQTT Fork-Safety (`src/mqtt.cpp`)** — Snapshotted TLS and broker credentials under lock prior to `fork()`, eliminating all post-fork `g_cfg` mutex reads in child processes.
+- **Debian Trixie Installer Prerequisites (`install.sh`)** — Updated version header to `v15.6.0`, fixed syntax for `docker compose version` check, and pre-installed `python3`, `nfs-common`, `dbus`, and `network-manager`.
+- **Docker Compose Grace Period & Capabilities (`docker-compose.yml`)** — Mapped `/dev/vchiq` GPU device, added `stop_grace_period: 30s`, and enforced memory limits.
+
+
+## v15.5.0 — GPU 4K Video Scaling & Deep Hardening Release (July 19, 2026)
+### ⚡ 4K Video Downscaling Performance Optimization
+- **GPU-Accelerated 4K Video Scaling (`src/video_decoder.cpp`)** — Eliminated CPU software downscaling (`sws_scale()`) for 4K video frames; frames are decoded at native video resolution and uploaded directly into SDL textures, allowing the Raspberry Pi V3D GPU / DRM display pipeline to handle hardware downscaling to 1080p display resolution at 60fps.
+
+### 🔴 Critical Bug & Security Fixes
+- **SQLite Read-Write Mode & Const RAII (`src/cache.cpp`, `src/cache.h`)** — Resolved contradictory `SQLITE_OPEN_READONLY | SQLITE_OPEN_CREATE` open mode in `CacheManager::open()` and changed `upsert()` signature to pass `MediaItem` by value, removing undefined behavior when mutating metadata fields.
+- **Video Decoder RAII & I/O Network Protection (`src/video_decoder.cpp`)** — Converted raw `new uint8_t[]` and `new int16_t[]` allocations to `std::vector` RAII containers, added `avformat_network_deinit()` to all exit paths, and implemented a 30-second I/O interrupt callback for hung NAS streams.
+- **MQTT Child Process Fork Safety (`src/mqtt.cpp`)** — Snapshotted all configuration values under lock before `fork()`, eliminating all `g_cfg` access in the child process (`pid == 0`) and correcting argument vector insertion.
+- **Installer Helper Function Order (`install.sh`)** — Reordered `fail()` definition prior to root check so fresh Debian Trixie Lite installs do not throw `fail: command not found`.
+- **Installer Dependencies (`install.sh`)** — Added `python3`, `nfs-common`, `dbus`, and `network-manager` to the bootstrap installation step.
+- **HTTP Control API Authorization (`src/http_server.cpp`)** — Enforced `is_authorized()` authorization checks across `/api/restart`, `/api/next`, `/api/prev`, and all control endpoints.
+
+### 🟡 Performance & Reliability Upgrades
+- **Watchman Thread Safe Shutdown (`src/main.cpp`)** — Replaced watchman thread `detach()` with an extended 5-second join polling loop to eliminate shutdown crashes.
+- **Connector Trim Mask Fix (`src/main.cpp`)** — Corrected trim mask to `" \t\r\n"` in `probe_connected_connector()`.
+- **Container Context Exclusion (`.dockerignore`)** — Added `.dockerignore` file excluding `.git`, `cache/`, `logs/`, `docs/`, `scripts/`, and build artifacts from Docker build contexts.
+
+
+## v15.4.0 — Production Engineering & Robustness Release (July 19, 2026)
+### Critical Fixes
+- **SQLite Read-Write Mode Fix (`src/cache.cpp`)** — Fixed `SQLITE_OPEN_READONLY` flag in `CacheManager::open()` preventing write operations on SQLite 3.46+; changed to `SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_FULLMUTEX`.
+- **MQTT Child Process Fork Safety (`src/mqtt.cpp`)** — Resolved undefined behavior post-`fork()` by capturing TLS and authentication credentials under lock *before* spawning child processes and removing duplicated `-u`/`-P` arguments.
+- **Dockerfile Dependency Completion (`Dockerfile`)** — Added `libsodium-dev` to builder stage and `libsodium23` to runtime stage to prevent container build failures.
+
+### High-Priority Performance & Stability Upgrades
+- **Scanner Thread Counter Auto-Reset (`src/scanner.cpp`)** — Added `maybe_reset_leaked_thread_counter()` resetting stuck thread counters every 120 seconds to prevent hung CIFS/NFS mounts from permanently blocking future scans.
+- **Portable ARM64 Optimization & LTO Linker (`src/CMakeLists.txt`)** — Replaced host-dependent `-march=native` with portable `-march=armv8-a+crc+simd -mtune=cortex-a76` and added `-flto=auto` to linker flags to fix `SIGILL` crashes on Pi 4.
+- **Video Decoder Multi-Core Thread Scaling (`src/video_decoder.cpp`)** — Scaled FFmpeg decoder thread allocation to `max(1, threads - 1)` with `FF_THREAD_FRAME | FF_THREAD_SLICE` for 1080p software decode performance.
+- **Audio Resampling Buffer Optimization (`src/video_decoder.cpp`)** — Pre-allocated audio resampling buffer prior to decode loop, eliminating ~100 heap allocations per second during video playback.
+- **PIN Hash & State Persistence (`src/config.cpp`)** — Added `pin_hash` and `pin_changed` serialization to `Config::save()` and `Config::load()` to retain web dashboard authentication state across restarts.
+- **Cleartext Secrets Isolation (`src/config.cpp`)** — Isolated `api_key`, `pin_hash`, `mqtt_pass`, `google_photos_client_secret`, and `refresh_token` into `/app/config/secrets.toml` with restricted `0600` permissions.
+
+### Installer & Deployment Improvements
+- **Debian Trixie Installer Robustness (`install.sh`)** — Updated installer version header to `v15.4.0`, fixed `docker compose version` check syntax, added fallback to Debian-packaged `docker.io` / `docker-compose-v2`, and pre-installed `cifs-utils` and `nfs-common`.
+- **Canonical Audio Package for Trixie (`Dockerfile`)** — Replaced transitional `libasound2-dev` package with `libasound2t64-dev` in builder stage.
+- **Container Healthcheck Synchronization (`Dockerfile`, `docker-compose.yml`)** — Synchronized Dockerfile `HEALTHCHECK` directive with `scripts/healthcheck.sh`.
+- **HTTP Control API Rate Limiting (`src/http_server.cpp`)** — Enforced 500ms command cooldown on `/api/next` and `/api/prev` endpoints returning `429 Too Many Requests`.
+
+### Quality & Code Cleanup
+- **Dead Code Removal (`src/main.cpp`)** — Removed unused `vft` and `vpi` static resets.
+- **Connector Status String Trim Fix (`src/main.cpp`)** — Corrected trim mask to `" \t\r\n"` in `probe_connected_connector()` to prevent improper string truncation.
+- **Preload Shutdown Join (`src/preload.cpp`)** — Simplified worker thread join logic in `PreloadQueue::shutdown()`.
+
+
+## v15.3.0 — Comprehensive Security, Robustness & Performance Upgrade (July 19, 2026)
+### Security Hardening
+- **Argon2id PIN Hashing** — Added `src/auth.cpp` with libsodium-backed Argon2id PIN hashing; plaintext PINs are auto-migrated to hashed form on first save. Default PIN `0000` now disables the web dashboard until changed.
+- **PIN Rate Limiting** — Added per-IP rate limiting (5 attempts/60 seconds) with constant-time comparison to prevent brute-force attacks on the dashboard PIN.
+- **Secrets Isolation** — Config loader now reads sensitive values (API keys, MQTT passwords, Google Photos tokens, PIN hash) from a separate `secrets.toml` file with restricted permissions.
+- **Log Secret Redaction** — Added automatic regex-based redaction of Bearer tokens, API keys, passwords, client secrets, and refresh tokens in all log output.
+- **Read-Only Media Enforcement** — Added optional `enforce_read_only_media` config flag with `statfs()` verification at startup.
+- **Media Volume Read-Only Mount** — Docker Compose now mounts media directory as read-only (`:ro`).
+
+### Runtime Robustness
+- **Render Loop Heartbeat** — Added `src/health.cpp` writing atomic heartbeat timestamps to `/app/cache/run/heartbeat` for Docker healthcheck integration.
+- **Docker Healthcheck** — Added `scripts/healthcheck.sh` and `docker-compose.yml` healthcheck directive (30s interval, 15s staleness threshold).
+- **Crash-Loop Safe Mode** — Added `src/safe_mode.cpp` tracking crash frequency; 3+ crashes within 5 minutes triggers safe mode (disables video, Ken Burns, bias lighting, blur; enables diagnostics HUD).
+- **Crash Recording** — Both `_exit(99)` paths (watchdog and keepalive) now record crash events before container restart.
+- **SQLite Integrity Verification** — Added `PRAGMA quick_check` on cache open; corrupt databases are quarantined with timestamp suffix and rebuilt automatically.
+- **Corrupt File Quarantine** — Added `corrupt_files` SQLite table with `mark_corrupt()` and `clear_quarantine()` methods for reviewable file-skip tracking.
+- **Container Init Process** — Added `init: true` to Docker Compose for proper signal handling and zombie process reaping.
+- **Container Log Rotation** — Added `json-file` logging driver with 5MB max-size, 3-file rotation.
+- **Update Script with Rollback** — Added `scripts/update.sh` with pre-update backup, healthcheck validation, and automatic rollback on failure.
+
+### MQTT & Home Assistant
+- **MQTT TLS Support** — Added `tls` and `ca_cert` config keys for encrypted MQTT broker connections via `mosquitto_sub --cafile --tls-version`.
+- **MQTT Birth/LWT Messages** — Added online birth message and offline LWT payload on `<prefix>/status` topic for Home Assistant availability tracking.
+
+### Performance & Media Pipeline
+- **C++20 Upgrade** — Moved build standard from C++17 to C++20 for `std::jthread`, `std::span`, concepts, and improved concurrency primitives.
+- **Thermal-Aware Quality Scaling** — Added `src/thermal.cpp` with background temperature monitoring; automatically disables effects at 75°C and enters minimal mode at 85°C.
+- **Scaled JPEG Decoding** — Added `load_jpeg_scaled()` using libjpeg-turbo's native `scale_num/scale_denom` to decode images at display resolution, reducing memory and CPU load.
+- **Video Decode Budgets** — Added `VideoLimits` struct and `video_within_budget()` to skip videos exceeding configured max resolution, bitrate, or duration before decoder initialization.
+- **Hardware Decode Probe** — Added `create_hw_device()` for optional DRM-backed hardware video decode with automatic software fallback.
+- **GPU Crossfade** — Added `render_crossfade_gpu()` using SDL3 texture alpha modulation for GPU-accelerated transitions.
+- **Font/Text Render Cache** — Added text texture caching infrastructure in `src/font_render.cpp` and clock overlay cache in `src/overlay.cpp`.
+- **Prometheus Metrics Endpoint** — Added `/metrics` HTTP endpoint exposing `pitrove_fps`, `pitrove_queue_depth`, and `pitrove_media_count` in Prometheus format.
+
+### Architecture & Maintainability
+- **Expected Result Type (`src/expected.h`)** — Added lightweight `Expected<T, E>` result type for consistent error handling across modules.
+- **Interface Boundaries** — Added `src/interfaces.h` with `IMediaScanner`, `IMetadataCache`, `IRemoteControl` abstract interfaces for testability.
+- **Media Organizer Journal** — Added SQLite-backed undo journal and `undo_organize()` for safe media reorganization with rollback capability.
+- **Google Photos Atomic Downloads** — Added `fsync_file()` helper for atomic `.part` → final rename download pattern.
+- **OpenAPI Specification** — Added `docs/openapi.yaml` documenting the HTTP control API endpoints.
+
+### CI/CD & Testing
+- **CI Workflow** — Added `.github/workflows/ci.yml` with Debug, ASan, and TSan build variants.
+- **Security Scanning** — Added `.github/workflows/security.yml` with Trivy filesystem and container image vulnerability scanning.
+- **Fault Injection Tests** — Added `tests/fault_injection.sh` for stale render loop, MQTT disconnect, NAS disconnect, and corrupt cache testing.
+- **Golden Media Tests** — Added `tests/golden_media.sh` regression test runner framework.
+- **Fuzz Targets** — Added `tests/fuzz/fuzz_config.cpp` and `tests/fuzz/run_fuzzers.sh` for config parser fuzzing.
+- **SBOM Generation** — Added `scripts/sbom.sh` for Syft-based SPDX SBOM generation.
+- **License Compliance** — Added `scripts/license_check.sh` for dependency license auditing.
+- **Profiling Helper** — Added `scripts/profile.sh` for CPU/thermal/throttle measurement.
+
+
+
+## v15.2.3 — Comprehensive Architecture Roadmap (July 19, 2026)
+### Added
+- **PLAN.md Architecture Roadmap** — Added comprehensive 15-phase architecture and code audit document covering security hardening, runtime robustness, performance optimization, and maintainability upgrades based on the v15.2.2 feature set and module layout. Covers 29 task groups across web dashboard auth, MQTT TLS, secrets management, Docker hardening, C++ core improvements, SQLite resilience, NAS fault isolation, image/video pipeline optimization, DRM/KMS display handling, Home Assistant sensor expansion, Google Photos sync hardening, media organizer safety, config hardening, structured observability, testing infrastructure, and performance tuning.
+- **CMakeLists.txt Version Sync** — Synchronized CMake project version from 14.7.1 to 15.2.3.
+
 ## v15.2.2 — Install Script Ownership Guarantee (July 19, 2026)
 ### Fixed
 - **Installer Ownership Verification** — Updated `install.sh` to execute a comprehensive final ownership pass (`chown -R $PRIMARY_USER:$PRIMARY_USER $PRIMARY_HOME/piTrove`) after all directory initialization, ensuring user `pi` owns every file, directory, script, cache, and log file in the repository.

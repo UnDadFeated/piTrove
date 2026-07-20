@@ -236,7 +236,23 @@ void start_mqtt_client() {
             args.push_back("-F");
             args.push_back("%t:%p");
 
-            std::vector<char*> argv;
+                        // Capture TLS config under lock BEFORE fork (fork-safety)
+            bool tls_enabled = false;
+            std::string ca_cert;
+            {
+                std::shared_lock lk(g_config_mtx);
+                tls_enabled = g_cfg.mqtt_tls_enabled;
+                ca_cert = g_cfg.mqtt_ca_cert;
+            }
+
+            if (tls_enabled && !ca_cert.empty()) {
+                args.push_back("--cafile");
+                args.push_back(ca_cert);
+                args.push_back("--tls-version");
+                args.push_back("tlsv1.2");
+            }
+
+std::vector<char*> argv;
             argv.reserve(args.size() + 1);
             for (const auto& a : args) {
                 argv.push_back(const_cast<char*>(a.c_str()));
@@ -255,6 +271,7 @@ void start_mqtt_client() {
                 continue;
             }
 
+            
             pid_t pid = fork();
             if (pid < 0) {
                 close(pipefds[0]);
@@ -268,7 +285,7 @@ void start_mqtt_client() {
             }
 
             if (pid == 0) {
-                // Child process
+                // Child process: strictly use local variables, NO g_cfg access
                 dup2(pipefds[1], STDOUT_FILENO);
                 int devnull = open("/dev/null", O_WRONLY);
                 if (devnull >= 0) {
@@ -277,15 +294,13 @@ void start_mqtt_client() {
                 }
                 close(pipefds[0]);
                 close(pipefds[1]);
-
                 int max_fd = sysconf(_SC_OPEN_MAX);
                 if (max_fd < 0) max_fd = 1024;
                 for (int i = 3; i < max_fd; ++i) close(i);
-
+                
                 execvp(argv[0], argv.data());
                 _exit(1);
             }
-
             // Parent process
             close(pipefds[1]);
 
@@ -321,6 +336,9 @@ void start_mqtt_client() {
 
             // Publish Home Assistant auto-discovery configs
             publish_ha_discovery();
+
+            // Publish birth (online) message
+            mqtt_publish(prefix + "/status", R"({"state":"online"})", true);
             
             // Publish current state
             mqtt_publish(prefix + "/status/screen", g_screen_blanked.load() ? "OFF" : "ON", true);

@@ -1,4 +1,5 @@
 #include "http_server.h"
+#include "auth.h"
 #include "media_item.h"
 #include "util.h"
 #include "config.h"
@@ -44,7 +45,11 @@ static std::mutex g_http_threads_mtx;
 static std::vector<int> g_active_client_fds;
 static std::mutex g_active_fds_mtx;
 
-static void register_client_fd(int fd) {
+static std::atomic<int64_t> g_last_next_cmd{0};
+static std::atomic<int64_t> g_last_prev_cmd{0};
+static constexpr int64_t CMD_COOLDOWN_MS = 500;
+
+void register_client_fd(int fd) {
     std::lock_guard<std::mutex> lk(g_active_fds_mtx);
     g_active_client_fds.push_back(fd);
 }
@@ -2256,6 +2261,7 @@ static void handle_client(int client_fd) {
             send_response(client_fd, "HTTP/1.1 200 OK", "application/json", get_api_status());
         } 
         else if (request.rfind("GET /api/next", 0) == 0) {
+        if (!is_authorized(request, client_fd)) return;
             g_remote_command.store(1);
             send_response(client_fd, "HTTP/1.1 200 OK", "application/json", "{\"status\":\"ok\"}");
         } 
@@ -2283,6 +2289,7 @@ static void handle_client(int client_fd) {
             send_response(client_fd, "HTTP/1.1 200 OK", "application/json", "{\"status\":\"ok\"}");
         }
         else if (request.rfind("GET /api/restart", 0) == 0) {
+        if (!is_authorized(request, client_fd)) return;
             g_running.store(false);
             send_response(client_fd, "HTTP/1.1 200 OK", "application/json", "{\"status\":\"ok\"}");
         } 

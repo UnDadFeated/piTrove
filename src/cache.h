@@ -18,7 +18,7 @@ struct CacheManager {
     bool open(const std::string& dir);
     void close();
     bool load_cached(MediaItem& mi);
-    void upsert(const MediaItem& mi, int bad, int preprocessed = 1);
+    void upsert(MediaItem mi, int bad, int preprocessed = 1);
     void mark_shown(const std::string& path);
     void mark_bad(const std::string& filepath);
     void begin_transaction();
@@ -26,6 +26,8 @@ struct CacheManager {
     void reset_all_cooldowns();
     void seed_error_catalog();
     bool get_error_details(const std::string& code, std::string& title, std::string& desc, std::string& recovery);
+    void mark_corrupt(const std::string& path, const std::string& code, const std::string& message);
+    void clear_quarantine();
     ~CacheManager();
 };
 

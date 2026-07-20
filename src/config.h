@@ -111,6 +111,8 @@ struct Config {
     // [touch]
     bool    touch_enabled{false};
     std::string dashboard_pin{""};
+    bool        pin_changed{false};
+    std::string pin_hash{""};
 
     // [collage]
     bool    collage_enabled{false};
@@ -119,6 +121,7 @@ struct Config {
 
     // [display] advanced
     bool    auto_display_rotation{false}; // Deprecated/Ignored in Modesetting DRM pipeline
+    bool    enforce_read_only_media{false};
 
     // [display] border
     std::string border_mode{"white"};
@@ -168,6 +171,8 @@ struct Config {
     std::string mqtt_topic_prefix{"piTrove"};
     std::string mqtt_motionsensor_topic{"home/motionsensor"};
     int         mqtt_motionsensor_cooldown{60};
+    bool        mqtt_tls_enabled{false};
+    std::string mqtt_ca_cert{""};
 
     // [google_photos]
     bool        google_photos_enabled{false};
@@ -177,6 +182,13 @@ struct Config {
     std::string google_photos_album_id{""};
     int         google_photos_sync_interval{60};
     std::string google_photos_cache_dir{"/app/cache/google_photos"};
+
+    // [video] decode budgets
+    bool        video_decode_budget_enabled{false};
+    int         video_max_width{1920};
+    int         video_max_height{1080};
+    int64_t     video_max_bitrate{20LL * 1000 * 1000};
+    int         video_max_duration_seconds{300};
 
     // [updates]
     bool        auto_update{false};

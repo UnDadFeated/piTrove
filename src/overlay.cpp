@@ -12,6 +12,12 @@
 #include <filesystem>
 #include <fstream>
 
+
+// Cached clock texture to avoid re-rendering every frame
+static std::string g_last_clock_text;
+static SDL_Texture* g_clock_texture_cache = nullptr;
+
+
 OverlayManager::OverlayManager(Renderer* renderer)
     : renderer(renderer), font_renderer(nullptr), overlay_font(nullptr) {}
 

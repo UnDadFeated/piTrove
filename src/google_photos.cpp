@@ -1,4 +1,6 @@
 #include "google_photos.h"
+#include <fcntl.h>
+#include <unistd.h>
 #include "config.h"
 #include "util.h"
 #include <sys/socket.h>

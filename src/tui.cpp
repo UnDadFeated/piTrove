@@ -154,7 +154,8 @@ void config_wizard(const std::string& config_path) {
         {"Subtitles Dir", STR, "Path to folder containing .srt files (matching video basename)"},
         {"OSD Offset X", INT, "Horizontal offset for video OSD overlay (pixels, negative=left)"},
         {"OSD Offset Y", INT, "Vertical offset for video OSD overlay (pixels, negative=down)"},
-        {"Max Tex Dim", INT, "Max texture dimension in pixels (256-8192)"}
+        {"Max Tex Dim", INT, "Max texture dimension in pixels (256-8192)"},
+        {"Decode Budget", TGL, "Skip videos exceeding max resolution/bitrate (Disabled by default)"}
     };
     static const CI CE[] = {
         {"Transition Delay", FLT, "Seconds to display photo before transitioning"},
@@ -303,6 +304,7 @@ void config_wizard(const std::string& config_path) {
             case 7: return std::to_string(g_cfg.osd_offset_x);
             case 8: return std::to_string(g_cfg.osd_offset_y);
             case 9: return std::to_string(g_cfg.max_texture_dim);
+            case 10: return g_cfg.video_decode_budget_enabled?"[ON]":"[OFF]";
         }
         if (c == 1) switch(i) {
             case 0: return std::to_string(g_cfg.transition_delay);
@@ -440,6 +442,7 @@ void config_wizard(const std::string& config_path) {
                 case 6:g_cfg.video_subtitles_dir=v;break;
                 case 7:{ try { g_cfg.osd_offset_x=std::stoi(v); } catch(...) {} break; }
                 case 8:{ try { g_cfg.osd_offset_y=std::stoi(v); } catch(...) {} break; }
+                case 10:g_cfg.video_decode_budget_enabled=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
                 case 9:{ try { g_cfg.max_texture_dim=std::clamp(std::stoi(v), 256, 8192); } catch(...) {} break; }
             }
             else if(c==1) switch(i){
