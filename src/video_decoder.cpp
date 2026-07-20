@@ -302,7 +302,7 @@ void VideoDecoder::decode_loop() {
     {
         int threads = std::thread::hardware_concurrency();
         vcc->thread_count = std::min(2, std::max(1, threads - 1));
-        vcc->thread_type = FF_THREAD_FRAME;
+        vcc->thread_type = FF_THREAD_FRAME | FF_THREAD_SLICE;
     }
     bool is_hw = (vc && std::string(vc->name).find("v4l2m2m") != std::string::npos);
     if (avcodec_open2(vcc, vc, nullptr) < 0) {
@@ -315,7 +315,7 @@ void VideoDecoder::decode_loop() {
                 avcodec_parameters_to_context(vcc, vp);
                 int threads = std::thread::hardware_concurrency();
                 vcc->thread_count = std::min(2, std::max(1, threads - 1));
-                vcc->thread_type = FF_THREAD_FRAME;
+                vcc->thread_type = FF_THREAD_FRAME | FF_THREAD_SLICE;
             }
         }
         if (!vc || avcodec_open2(vcc, vc, nullptr) < 0) {
@@ -455,8 +455,21 @@ void VideoDecoder::decode_loop() {
                             break;
                         }
                         vf_count++;
-                        sws_scale(sws, frame->data, frame->linesize, 0, vcc->height,
+                        // Transfer HW frames during flush
+                        AVFrame* sw_frame2 = frame;
+                        AVFrame* tmp_sw2 = nullptr;
+                        if (frame->format == AV_PIX_FMT_DRM_PRIME || frame->hw_frames_ctx) {
+                            tmp_sw2 = av_frame_alloc();
+                            if (av_hwframe_transfer_data(tmp_sw2, frame, 0) >= 0) {
+                                sw_frame2 = tmp_sw2;
+                            } else {
+                                av_frame_free(&tmp_sw2);
+                                tmp_sw2 = nullptr;
+                            }
+                        }
+                        sws_scale(sws, sw_frame2->data, sw_frame2->linesize, 0, sw_frame2->height,
                                   rgba->data, rgba->linesize);
+                        if (tmp_sw2) av_frame_free(&tmp_sw2);
                         VideoFrame vf;
                         vf.width = dst_w; vf.height = dst_h;
                         vf.data = new uint8_t[nbytes];
@@ -503,8 +516,32 @@ void VideoDecoder::decode_loop() {
             }
 
             vf_count++;
-            sws_scale(sws, frame->data, frame->linesize, 0, vcc->height,
+            // Transfer HW frames (DRM_PRIME/V4L2) to CPU-accessible format before scaling
+            AVFrame* sw_frame = frame;
+            AVFrame* tmp_sw = nullptr;
+            if (frame->format == AV_PIX_FMT_DRM_PRIME || frame->hw_frames_ctx) {
+                tmp_sw = av_frame_alloc();
+                if (av_hwframe_transfer_data(tmp_sw, frame, 0) >= 0) {
+                    sw_frame = tmp_sw;
+                } else {
+                    av_frame_free(&tmp_sw);
+                    tmp_sw = nullptr;
+                    sw_frame = frame; // fallback to original
+                }
+            }
+            // Recreate scaler if pixel format changed (e.g. HW decoder switched format)
+            if (sw_frame->format != AV_PIX_FMT_NONE && sw_frame->format != vcc->pix_fmt) {
+                SwsContext* new_sws = sws_getContext(sw_frame->width, sw_frame->height,
+                    (AVPixelFormat)sw_frame->format, dst_w, dst_h, AV_PIX_FMT_RGBA,
+                    SWS_FAST_BILINEAR, nullptr, nullptr, nullptr);
+                if (new_sws) {
+                    sws_freeContext(sws);
+                    sws = new_sws;
+                }
+            }
+            sws_scale(sws, sw_frame->data, sw_frame->linesize, 0, sw_frame->height,
                       rgba->data, rgba->linesize);
+            if (tmp_sw) av_frame_free(&tmp_sw);
 
             VideoFrame vf;
             vf.width = dst_w;
@@ -570,6 +607,7 @@ void VideoDecoder::decode_loop() {
     if (acc) avcodec_free_context(&acc);
     avcodec_free_context(&vcc);
     avformat_close_input(&fmt_ctx);
+    avformat_network_deinit();
     } catch (...) {}
 
     } catch (const std::exception& e) {
