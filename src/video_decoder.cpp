@@ -178,6 +178,7 @@ double VideoDecoder::get_frame_duration() const {
 }
 
 double VideoDecoder::get_video_remaining(double fallback_duration) const {
+    if (m_eof.load(std::memory_order_relaxed)) return 0.0;
     double total = m_video_total_duration.load(std::memory_order_relaxed);
     double last_pts = m_last_frame_pts.load(std::memory_order_relaxed);
         if (total <= 0.0) total = fallback_duration;
@@ -540,6 +541,13 @@ void VideoDecoder::decode_loop() {
                 g_logger.warn("VIDEO_DEC: Bad frame ret=%d, flushing decoder", ret);
                 avcodec_flush_buffers(vcc);
                 break;
+            }
+
+            // Skip corrupted noise frames flagged by decoder
+            if (frame->decode_error_flags != 0 || (frame->flags & AV_FRAME_FLAG_CORRUPT)) {
+                g_logger.warn("VIDEO_DEC: Skipping corrupt frame flags=0x%x error=0x%x", frame->flags, frame->decode_error_flags);
+                av_frame_unref(frame);
+                continue;
             }
 
             vf_count++;

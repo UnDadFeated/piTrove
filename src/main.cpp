@@ -1425,8 +1425,8 @@ int main(int argc, char** argv) {
                         if (g_overlay) {
                             double fallback_dur = (!g_eligible.empty() && current_idx >= 0 && current_idx < (int)g_eligible.size()) ? g_eligible[current_idx].duration : 0.0;
                             double remaining = g_video_decoder.get_video_remaining(fallback_dur);
-                            std::string remaining_str = "";
-                            if (remaining > 0.0) {
+                            std::string remaining_str = "0:00";
+                            if (remaining > 0.0 && (g_video_decoder.is_running() || g_video_decoder.has_frames())) {
                                 int mins = (int)(remaining / 60.0);
                                 int secs = (int)(remaining - mins * 60.0);
                                 remaining_str = std::to_string(mins) + ":" + (secs < 10 ? "0" : "") + std::to_string(secs);
@@ -2443,8 +2443,8 @@ int main(int argc, char** argv) {
                         if (g_overlay) {
                             double fallback_dur = (!g_eligible.empty() && current_idx >= 0 && current_idx < (int)g_eligible.size()) ? g_eligible[current_idx].duration : 0.0;
                             double remaining = g_video_decoder.get_video_remaining(fallback_dur);
-                            std::string remaining_str = "";
-                            if (remaining > 0.0) {
+                            std::string remaining_str = "0:00";
+                            if (remaining > 0.0 && (g_video_decoder.is_running() || g_video_decoder.has_frames())) {
                                 int mins = (int)(remaining / 60.0);
                                 int secs = (int)(remaining - mins * 60.0);
                                 remaining_str = std::to_string(mins) + ":" + (secs < 10 ? "0" : "") + std::to_string(secs);
@@ -2472,13 +2472,33 @@ int main(int argc, char** argv) {
                     }
 
                     if (frame.pts >= 0.0) {
-                        if (video_first_pts < 0.0) video_first_pts = frame.pts;
+                        if (video_first_pts < 0.0 || (frame.pts - video_first_pts) < 0.0) {
+                            video_first_pts = frame.pts;
+                            video_start_ticks_ms = now_ticks_ms;
+                        }
                         double rel_pts = frame.pts - video_first_pts;
                         double elapsed_sec = (double)(now_ticks_ms - video_start_ticks_ms) / 1000.0;
                         double diff_sec = rel_pts - elapsed_sec;
+
+                        // Resync if PTS drifts significantly (e.g. after bad packet skips)
+                        if (diff_sec < -1.0 || diff_sec > 5.0) {
+                            video_first_pts = frame.pts;
+                            video_start_ticks_ms = now_ticks_ms;
+                            diff_sec = 0.0;
+                        }
+
                         if (diff_sec > 0.001 && diff_sec < 0.5) {
                             uint32_t sleep_ms = (uint32_t)(diff_sec * 1000.0);
                             if (sleep_ms > 0) SDL_Delay(sleep_ms);
+                        } else {
+                            // Enforce minimum target frame duration so playback speed never doubles/triples
+                            double cfps = g_eligible[current_idx].framerate;
+                            if (cfps <= 0) cfps = g_video_decoder.get_fps();
+                            if (cfps <= 0) cfps = 25.0;
+                            uint32_t min_delay_ms = (uint32_t)(1000.0 / cfps);
+                            if (min_delay_ms > 0 && min_delay_ms < 100) {
+                                SDL_Delay(min_delay_ms);
+                            }
                         }
                     } else {
                         double cfps = g_eligible[current_idx].framerate;
