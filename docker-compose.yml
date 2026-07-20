@@ -20,6 +20,23 @@ services:
       - /dev/dri:/dev/dri
       - /dev/input:/dev/input
       - /dev/vchiq:/dev/vchiq
+      - /dev/video19:/dev/video19
+      - /dev/video20:/dev/video20
+      - /dev/video21:/dev/video21
+      - /dev/video22:/dev/video22
+      - /dev/video23:/dev/video23
+      - /dev/video24:/dev/video24
+      - /dev/video25:/dev/video25
+      - /dev/video26:/dev/video26
+      - /dev/video27:/dev/video27
+      - /dev/video28:/dev/video28
+      - /dev/video29:/dev/video29
+      - /dev/video30:/dev/video30
+      - /dev/video31:/dev/video31
+      - /dev/video32:/dev/video32
+      - /dev/video33:/dev/video33
+      - /dev/video34:/dev/video34
+      - /dev/video35:/dev/video35
     security_opt:
       - no-new-privileges:true
     environment:
