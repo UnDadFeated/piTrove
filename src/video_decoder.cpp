@@ -215,6 +215,22 @@ void VideoDecoder::decode_loop() {
 
     if (avformat_find_stream_info(fmt_ctx, nullptr) < 0) {
         g_logger.error("VIDEO_DEC: Failed to find stream info for %s", m_path.c_str());
+    VideoLimits limits;
+    {
+        std::shared_lock lk(g_config_mtx);
+        limits.max_width = g_cfg.video_max_width;
+        limits.max_height = g_cfg.video_max_height;
+        limits.max_bitrate = g_cfg.video_max_bitrate;
+        limits.max_duration_seconds = g_cfg.video_max_duration_seconds;
+    }
+    if (!video_within_budget(fmt_ctx, limits)) {
+        g_logger.warn("VIDEO_DEC: %s exceeds decode budget. Skipping.", m_path.c_str());
+        avformat_close_input(&fmt_ctx);
+        m_running.store(false);
+        m_eof.store(true);
+        avformat_network_deinit();
+        return;
+    }
         avformat_close_input(&fmt_ctx);
         m_running.store(false);
         return;
@@ -397,7 +413,7 @@ void VideoDecoder::decode_loop() {
     int vf_count = 0, af_count = 0, pkt_count = 0;
     while (is_running() && !eof) {
         int ret = av_read_frame(fmt_ctx, pkt);
-        g_logger.debug("VIDEO_DEC: av_read_frame ret=%d stream=%d pkt_count=%d", ret, (pkt ? pkt->stream_index : -1), pkt_count);
+        // hot-path debug log omitted
         pkt_count++;
         if (ret < 0) {
             g_logger.info("VIDEO_DEC: av_read_frame error ret=%d (AVERROR_EOF=%d, AVERROR(EAGAIN)=%d)", ret, AVERROR_EOF, AVERROR(EAGAIN));
@@ -472,13 +488,13 @@ void VideoDecoder::decode_loop() {
 
         if (pkt->stream_index == video_stream_idx) {
             ret = avcodec_send_packet(vcc, pkt);
-            g_logger.debug("VIDEO_DEC: send_packet vcc ret=%d", ret);
+            // hot-path debug log omitted
             av_packet_unref(pkt);
             if (ret < 0) continue;
             // Drain all frames from decoder after sending packet
             while (true) {
             ret = avcodec_receive_frame(vcc, frame);
-            g_logger.debug("VIDEO_DEC: receive_frame ret=%d vf_count=%d", ret, vf_count);
+            // hot-path debug log omitted
             if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF) break;
             if (ret < 0) {
                 g_logger.warn("VIDEO_DEC: Bad frame ret=%d, flushing decoder", ret);
