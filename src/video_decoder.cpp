@@ -356,26 +356,37 @@ void VideoDecoder::decode_loop() {
 
     if (acc) init_audio();
 
-    // Swresample — FFmpeg 6 uses swr_alloc_set_opts2
+    // Swresample — FFmpeg 6 uses swr_alloc_set_opts2 with robust channel layout fallbacks
     SwrContext* swr = nullptr;
-    if (acc) {
+    if (acc && audio_sample_rate > 0) {
         AVChannelLayout src_ch, dst_ch;
-        av_channel_layout_copy(&src_ch, &acc->ch_layout);
-        av_channel_layout_from_mask(&dst_ch, AV_CH_LAYOUT_STEREO);
+        memset(&src_ch, 0, sizeof(src_ch));
+        memset(&dst_ch, 0, sizeof(dst_ch));
+
+        if (acc->ch_layout.nb_channels > 0) {
+            av_channel_layout_copy(&src_ch, &acc->ch_layout);
+        } else {
+            av_channel_layout_default(&src_ch, audio_channels > 0 ? audio_channels : 2);
+        }
+        av_channel_layout_default(&dst_ch, 2);
 
         int ret = swr_alloc_set_opts2(&swr,
             &dst_ch, AV_SAMPLE_FMT_S16, 48000,
             &src_ch, (AVSampleFormat)acc->sample_fmt, audio_sample_rate,
             0, nullptr);
-        if (ret < 0) {
+        if (ret < 0 || !swr) {
             DEBUG_LOG("AUDIO: swr_alloc_set_opts2 failed: %d", ret);
+            swr = nullptr;
         } else {
             ret = swr_init(swr);
             if (ret < 0) {
                 DEBUG_LOG("AUDIO: swr_init failed: %d", ret);
                 swr_free(&swr);
+                swr = nullptr;
             }
         }
+        av_channel_layout_uninit(&src_ch);
+        av_channel_layout_uninit(&dst_ch);
     }
     // Compute scaled target dimensions maintaining video aspect ratio
     int dst_w = vcc->width, dst_h = vcc->height;

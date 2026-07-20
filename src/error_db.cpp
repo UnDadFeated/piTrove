@@ -668,6 +668,18 @@ std::vector<ErrorSeed> get_all_error_seeds() {
 
         // --- Graphic Pipeline & Framebuffer Layers (E600s) ---
         {
+            "E525",
+            "VIDEO_AUDIO_SWR_FAIL",
+            "Failed to initialize FFmpeg audio resampler for video audio stream.",
+            "Verify video audio format; system will continue video playback without audio."
+        },
+        {
+            "E526",
+            "VIDEO_HW_FALLBACK_WARN",
+            "Hardware video decoder (V4L2 M2M) configuration failed; falling back to software decoding.",
+            "No action required; software decoding will handle the video."
+        },
+        {
             "E601", 
             "DRM_CONNECTOR_MISSING", 
             "The modesetting subsystem failed to discover any connected HDMI display ports.", 
