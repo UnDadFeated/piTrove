@@ -5,10 +5,7 @@
 <a href="https://www.debian.org/"><img src="https://img.shields.io/badge/OS-Trixie%20Lite%20%28Debian%2013%29-lightgreen?style=flat-square" alt="OS" /></a>
 <a href="https://en.wikipedia.org/wiki/AArch64"><img src="https://img.shields.io/badge/arch-aarch64-orange?style=flat-square" alt="Arch" /></a>
 <a href="https://www.libsdl.org/"><img src="https://img.shields.io/badge/graphics-SDL3-red?style=flat-square" alt="Graphics" /></a>
-<br />
-<img src="https://img.shields.io/github/v/tag/UnDadFeated/piTrove?label=version&style=flat-square" alt="Version" />
 <img src="https://img.shields.io/github/stars/UnDadFeated/piTrove?style=flat-square&logo=github" alt="Stars" />
-<img src="https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fraw.githubusercontent.com%2FUnDadFeated%2FpiTrove%2Fmain%2F.github%2Fclones.json&query=total_count&label=clones&style=flat-square" alt="Clones" />
 </p>
 
 Professional-grade, **containerized** digital picture & video frame application for Raspberry Pi 4 & 5. C++17, DRM/KMS GPU rendering, hardware-accelerated video decoding, NAS storage support, and zero-touch auto-updates.
@@ -148,18 +145,7 @@ src/
 - `install.sh`: Bootstrap installer (Docker, NAS, systemd, auto-update)
 - `CHANGELOG.md`: Detailed version history
 
----
 
-## Star History
-
-<a href="https://www.star-history.com/?repos=UnDadFeated%2FpiTrove&type=date&legend=top-left">
- <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=UnDadFeated/piTrove&type=date&legend=top-left&theme=dark" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=UnDadFeated/piTrove&type=date&legend=top-left&theme=light" />
-   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=UnDadFeated/piTrove&type=date&legend=top-left" />
- </picture>
-</a>
-
----
+## License
 
 GNU GPLv3 (or later) License
