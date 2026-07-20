@@ -471,6 +471,7 @@ void VideoDecoder::decode_loop() {
     AVFrame* aframe = nullptr;
     if (acc) aframe = av_frame_alloc();
 
+    decode_start_time.store(av_gettime_relative() / 1000000.0, std::memory_order_relaxed);
     bool eof = false;
     int vf_count = 0, af_count = 0, pkt_count = 0;
     while (is_running() && !eof) {
