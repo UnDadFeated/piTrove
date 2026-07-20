@@ -1,4 +1,13 @@
 # Changelog
+## v16.0.0 — Major Release: Full Audit Remediation, GPU Device Restoration & Security Hardening (July 19, 2026)
+### 🔒 Security & Authorization
+- **Full Audit Remediation** — Verified and confirmed all 13 audit-flagged issues resolved: auth on all 8 HTTP endpoints, rate limiting with 429 responses, NetworkDeinitGuard RAII, I/O interrupt callbacks with 30s timeout, upsert() signature alignment, verify_database() framerate column, stat_timeout() return validation, PreloadQueue::shutdown() thread safety, MQTT popen error handling, audio resample zero-allocation, and /dev:/dev volume removal
+- **GPU Mailbox Device Restoration** — Restored `/dev/vchiq:/dev/vchiq` device mapping required for Pi 4 hardware video decode
+- **stop_grace_period** — 30s graceful shutdown period confirmed
+### 📦 Version Bump
+- **Major version bump to v16.0.0** — Stable release with full audit verification
+
+
 
 ## v15.6.9 — Zero Heap Allocation Audio Resampling & Healthcheck Alignment (July 19, 2026)
 ### 🎵 Audio Resampler Memory Optimization
