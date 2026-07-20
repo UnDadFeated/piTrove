@@ -363,11 +363,8 @@ void VideoDecoder::decode_loop() {
         memset(&src_ch, 0, sizeof(src_ch));
         memset(&dst_ch, 0, sizeof(dst_ch));
 
-        if (acc->ch_layout.nb_channels > 0) {
-            av_channel_layout_copy(&src_ch, &acc->ch_layout);
-        } else {
-            av_channel_layout_default(&src_ch, audio_channels > 0 ? audio_channels : 2);
-        }
+        int ch_cnt = (acc->ch_layout.nb_channels > 0) ? acc->ch_layout.nb_channels : (audio_channels > 0 ? audio_channels : 2);
+        av_channel_layout_default(&src_ch, ch_cnt);
         av_channel_layout_default(&dst_ch, 2);
 
         int ret = swr_alloc_set_opts2(&swr,
@@ -437,8 +434,9 @@ void VideoDecoder::decode_loop() {
                         if (swr) {
                             int max_s = av_rescale_rnd(aframe->nb_samples, 48000, audio_sample_rate, AV_ROUND_UP);
                             std::vector<int16_t> ob(max_s * 2);
-                            int os = swr_convert(swr, (uint8_t**)ob.data(), max_s,
-                                                 (const uint8_t**)aframe->data, aframe->nb_samples);
+                            uint8_t* out_buf[1] = { (uint8_t*)ob.data() };
+                            int os = swr_convert(swr, out_buf, max_s,
+                                                 (const uint8_t**)aframe->extended_data, aframe->nb_samples);
                             if (os > 0) { push_audio_samples(ob.data(), os); af_count += os; }
                             
                         }
@@ -609,8 +607,9 @@ void VideoDecoder::decode_loop() {
                 if (swr) {
                     int max_s = av_rescale_rnd(aframe->nb_samples, 48000, audio_sample_rate, AV_ROUND_UP);
                     std::vector<int16_t> ob(max_s * 2);
-                    int os = swr_convert(swr, (uint8_t**)ob.data(), max_s,
-                                         (const uint8_t**)aframe->data, aframe->nb_samples);
+                    uint8_t* out_buf[1] = { (uint8_t*)ob.data() };
+                            int os = swr_convert(swr, out_buf, max_s,
+                                                 (const uint8_t**)aframe->extended_data, aframe->nb_samples);
                     if (os > 0) { push_audio_samples(ob.data(), os); af_count += os; }
                     
                 }
