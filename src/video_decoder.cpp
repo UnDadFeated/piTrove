@@ -210,7 +210,7 @@ void VideoDecoder::decode_loop() {
     AVFormatContext* fmt_ctx = nullptr;
     if (avformat_open_input(&fmt_ctx, m_path.c_str(), nullptr, nullptr) != 0) {
         g_logger.error("VIDEO_DEC: Failed to open %s", m_path.c_str());
-        if (g_cache) g_cache->mark_bad(m_path);
+        
         m_running.store(false);
         m_eof.store(true);
         return;
@@ -303,11 +303,15 @@ void VideoDecoder::decode_loop() {
     }
     AVCodecContext* vcc = avcodec_alloc_context3(vc);
     avcodec_parameters_to_context(vcc, vp);
-    // Enable multi-threaded decoding (maxcores-1)
+    // Enable multi-threaded decoding based on codec capabilities
     {
         int threads = std::thread::hardware_concurrency();
-        vcc->thread_count = std::min(2, std::max(1, threads - 1));
-        vcc->thread_type = FF_THREAD_FRAME | FF_THREAD_SLICE;
+        vcc->thread_count = std::min(4, std::max(1, threads - 1));
+        if (vc->capabilities & AV_CODEC_CAP_FRAME_THREADS) {
+            vcc->thread_type = FF_THREAD_FRAME;
+        } else if (vc->capabilities & AV_CODEC_CAP_SLICE_THREADS) {
+            vcc->thread_type = FF_THREAD_SLICE;
+        }
     }
     bool is_hw = (vc && std::string(vc->name).find("v4l2m2m") != std::string::npos);
     if (avcodec_open2(vcc, vc, nullptr) < 0) {
@@ -511,6 +515,7 @@ void VideoDecoder::decode_loop() {
                             }
                             m_frame_queue.push(std::move(vf));
                         }
+                        av_frame_unref(frame);
                         if (vf_count % 100 == 0) g_logger.debug("VIDEO_DEC: queue_depth=%zu", m_frame_queue.size());
                     }
                 }
@@ -592,6 +597,7 @@ void VideoDecoder::decode_loop() {
                 if (!m_running.load()) break;
                 m_frame_queue.push(std::move(vf));
             }
+            av_frame_unref(frame);
             } // end while drain
             if (ret < 0 && ret != AVERROR(EAGAIN) && ret != AVERROR_EOF) {
                 g_logger.warn("VIDEO_DEC: Skipping to next packet after bad frame");
