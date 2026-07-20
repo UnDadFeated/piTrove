@@ -302,18 +302,14 @@ void VideoDecoder::decode_loop() {
 
     // Video codec — probe hardware acceleration (V4L2 M2M) first, fallback to software
     AVCodecParameters* vp = fmt_ctx->streams[video_stream_idx]->codecpar;
-    const AVCodec* vc = nullptr;
-    if (vp->codec_id == AV_CODEC_ID_H264) {
-        vc = avcodec_find_decoder_by_name("h264_v4l2m2m");
-    } else if (vp->codec_id == AV_CODEC_ID_HEVC) {
-        vc = avcodec_find_decoder_by_name("hevc_v4l2m2m");
+    // DRM hwaccel for V4L2 stateless decode (Pi 5 HEVC, Pi 4/5 H264)
+    AVBufferRef* hw_dev = create_hw_device();
+    const AVCodec* vc = avcodec_find_decoder(vp->codec_id);
+    if (vc && hw_dev) {
+        g_logger.info("VIDEO_DEC: Hardware video acceleration enabled (%s via DRM)", vc->name);
     }
     if (!vc) {
-        vc = avcodec_find_decoder(vp->codec_id);
-    } else {
-        g_logger.info("VIDEO_DEC: Hardware video acceleration enabled (%s)", vc->name);
-    }
-    if (!vc) {
+    av_buffer_unref(&hw_dev);
         g_logger.error("VIDEO_DEC: Unsupported video codec for %s", m_path.c_str());
         avformat_close_input(&fmt_ctx);
         m_running.store(false);
@@ -322,6 +318,7 @@ void VideoDecoder::decode_loop() {
     }
     AVCodecContext* vcc = avcodec_alloc_context3(vc);
     avcodec_parameters_to_context(vcc, vp);
+    if (hw_dev) vcc->hw_device_ctx = av_buffer_ref(hw_dev);
     // Enable multi-threaded decoding based on codec capabilities
     {
         int threads = std::thread::hardware_concurrency();
@@ -332,7 +329,7 @@ void VideoDecoder::decode_loop() {
             vcc->thread_type = FF_THREAD_SLICE;
         }
     }
-    bool is_hw = (vc && std::string(vc->name).find("v4l2m2m") != std::string::npos);
+    bool is_hw = (hw_dev != nullptr);
     if (avcodec_open2(vcc, vc, nullptr) < 0) {
         if (is_hw) {
             g_logger.warn("VIDEO_DEC: Hardware decoder %s failed to configure, falling back to software decoder", vc->name);
@@ -670,6 +667,7 @@ void VideoDecoder::decode_loop() {
     av_free(buf);
     sws_freeContext(sws);
     swr_free(&swr);
+    av_buffer_unref(&hw_dev);
     if (acc) avcodec_free_context(&acc);
     avcodec_free_context(&vcc);
     avformat_close_input(&fmt_ctx);
