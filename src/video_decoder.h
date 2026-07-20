@@ -107,6 +107,7 @@ private:
  std::atomic<double> m_video_start_pts{0.0};
  std::atomic<double> m_video_total_duration{0.0};
  std::atomic<double> m_last_frame_pts{0.0}; // PTS of last decoded frame for accurate countdown
+    std::atomic<int> m_decoded_frames{0}; // frame count for duration estimation
  std::atomic<double> decode_start_time{0.0};
  static constexpr size_t MAX_QUEUED_FRAMES = 8; // wall-clock at first frame
 

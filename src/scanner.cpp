@@ -121,7 +121,8 @@ bool stat_timeout(const std::string& path, struct stat& st, int timeout_ms) {
     g_scanner_detached_threads++;
     std::string p(path);
     std::thread([p, sr]() {
-        stat(p.c_str(), &sr->data);
+        int ret = stat(p.c_str(), &sr->data);
+        if (ret != 0) memset(&sr->data, 0, sizeof(sr->data));
         sr->done.store(true);
         g_scanner_detached_threads--;
     }).detach();
@@ -131,6 +132,7 @@ bool stat_timeout(const std::string& path, struct stat& st, int timeout_ms) {
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
     if (!sr->done.load()) return false;
+    if (sr->data.st_size == 0 && sr->data.st_mode == 0) return false;
     st = sr->data;
     return true;
 }

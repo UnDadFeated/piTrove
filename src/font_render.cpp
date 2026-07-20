@@ -171,6 +171,23 @@ void FontRenderer::draw_text(int x, int y, const FontHandle& font, const std::st
     }
 }
 
+void FontRenderer::draw_text_uncached(int x, int y, const FontHandle& font, const std::string& text,
+                             uint8_t r, uint8_t g, uint8_t b, uint8_t a) {
+    if (!renderer || !renderer->sdl_renderer || text.empty() || !font.font) return;
+    SDL_Surface* main_surf = TTF_RenderText_Blended(font.font, text.c_str(), 0, {r, g, b, a});
+    if (main_surf) {
+        SDL_Texture* main_tex = SDL_CreateTextureFromSurface(renderer->sdl_renderer, main_surf);
+        int tw = main_surf->w;
+        int th = main_surf->h;
+        SDL_DestroySurface(main_surf);
+        if (main_tex) {
+            SDL_FRect dst = {(float)x, (float)y, (float)tw, (float)th};
+            SDL_RenderTexture(renderer->sdl_renderer, main_tex, nullptr, &dst);
+            SDL_DestroyTexture(main_tex);
+        }
+    }
+}
+
 void FontRenderer::draw_text_glow(int x, int y, const FontHandle& font, const std::string& text,
                                   uint8_t r, uint8_t g, uint8_t b, uint8_t a,
                                   uint8_t gr, uint8_t gg, uint8_t gb, uint8_t ga) {

@@ -48,12 +48,21 @@ static bool video_within_budget(AVFormatContext* fmt, const VideoLimits& limits)
     return true;
 }
 
+// Runtime Pi 4/5 detection
+static std::string hwaccel_path = "none";
 static AVBufferRef* create_hw_device() {
     AVBufferRef* hw_device_ctx = nullptr;
     if (av_hwdevice_ctx_create(&hw_device_ctx,
                                AV_HWDEVICE_TYPE_DRM,
                                nullptr, nullptr, 0) >= 0) {
+        hwaccel_path = "pi5_drm";
         return hw_device_ctx;
+    }
+    // V4L2 M2M fallback: only if DRM hwaccel failed (Pi 4)
+    if (!hw_device_ctx &&
+        (avcodec_find_decoder_by_name("hevc_v4l2m2m") ||
+         avcodec_find_decoder_by_name("h264_v4l2m2m"))) {
+        hwaccel_path = "pi4_v4l2";
     }
     return nullptr;
 }
@@ -159,8 +168,11 @@ void VideoDecoder::stop() {
     m_running.store(false);
     m_queue_cv.notify_all();
     if (m_thread != 0) {
-        pthread_join(m_thread, nullptr);
+        std::thread([=] {
+            pthread_join(m_thread, nullptr);
+        }).detach();
         m_thread = 0;
+        std::this_thread::sleep_for(std::chrono::seconds(2));
     }
     shutdown_audio();
     std::lock_guard lk(m_queue_mtx);
@@ -180,12 +192,28 @@ double VideoDecoder::get_frame_duration() const {
 double VideoDecoder::get_video_remaining(double fallback_duration) const {
     if (m_eof.load(std::memory_order_relaxed)) return 0.0;
     double total = m_video_total_duration.load(std::memory_order_relaxed);
-    double last_pts = m_last_frame_pts.load(std::memory_order_relaxed);
-        if (total <= 0.0) total = fallback_duration;
+    if (total <= 0.0) total = fallback_duration;
     double start_t = decode_start_time.load(std::memory_order_relaxed);
-    if (total <= 0.0 || start_t <= 0.0) return 0.0;
+    if (start_t <= 0.0) {
+        // start_time not set yet: return total as remaining
+        return total;
+    }
     double elapsed = (av_gettime_relative() / 1000000.0) - start_t;
-    return std::max(0.0, total - elapsed);
+    if (total > 0.0) {
+        return std::max(0.0, total - elapsed);
+    }
+    // Fallback: estimate duration from decoded frames
+    int frames = m_decoded_frames.load(std::memory_order_relaxed);
+    if (frames > 0 && m_frame_duration > 0) {
+        double est_total = frames * m_frame_duration;
+        return std::max(0.0, est_total - elapsed);
+    }
+    // Duration unknown: estimate from elapsed + buffered frames
+    double frame_dur = m_frame_duration;
+    if (frame_dur <= 0.0) frame_dur = 0.04;
+    size_t buffered = 0;
+    { std::lock_guard lk(m_queue_mtx); buffered = m_frame_queue.size(); }
+    return elapsed + buffered * frame_dur;
 }
 
 
@@ -203,12 +231,30 @@ bool VideoDecoder::has_frames() const {
 }
 
 void VideoDecoder::decode_loop() {
+    static constexpr int MAX_AUDIO_SAMPLES = 8192;
+    std::vector<int16_t> audio_resample_buf(MAX_AUDIO_SAMPLES * 2);
     try {
     DEBUG_LOG("VIDEO_DEC: Starting decode thread for %s", m_path.c_str());
 
     avformat_network_init();
+    struct NetworkDeinitGuard {
+        ~NetworkDeinitGuard() { avformat_network_deinit(); }
+    } network_guard;
 
-    AVFormatContext* fmt_ctx = nullptr;
+    AVFormatContext* fmt_ctx = avformat_alloc_context();
+    if (!fmt_ctx) { m_running.store(false); return; }
+
+    static const int64_t IO_TIMEOUT_US = 30LL * 1000000LL;
+    struct IOInterruptData { int64_t start_time; std::atomic<bool>* running; };
+    IOInterruptData io_data{av_gettime_relative(), &m_running};
+
+    fmt_ctx->interrupt_callback.callback = [](void* opaque) -> int {
+        auto* d = static_cast<IOInterruptData*>(opaque);
+        if (!d->running->load()) return 1;
+        return (av_gettime_relative() - d->start_time > IO_TIMEOUT_US) ? 1 : 0;
+    };
+    fmt_ctx->interrupt_callback.opaque = &io_data;
+
     if (avformat_open_input(&fmt_ctx, m_path.c_str(), nullptr, nullptr) != 0) {
         g_logger.error("VIDEO_DEC: Failed to open %s", m_path.c_str());
         
@@ -281,21 +327,25 @@ void VideoDecoder::decode_loop() {
 
 
     m_last_frame_pts.store(0.0);
+    m_decoded_frames.store(0, std::memory_order_relaxed);
 
     // Video codec — probe hardware acceleration (V4L2 M2M) first, fallback to software
     AVCodecParameters* vp = fmt_ctx->streams[video_stream_idx]->codecpar;
-    const AVCodec* vc = nullptr;
-    if (vp->codec_id == AV_CODEC_ID_H264) {
-        vc = avcodec_find_decoder_by_name("h264_v4l2m2m");
-    } else if (vp->codec_id == AV_CODEC_ID_HEVC) {
+    // DRM hwaccel for V4L2 stateless decode (Pi 5 HEVC, Pi 4/5 H264)
+    AVBufferRef* hw_dev = create_hw_device();
+    const AVCodec* vc = avcodec_find_decoder(vp->codec_id);
+    // Pi 4 fallback: use V4L2 M2M codec directly if DRM hwaccel not available
+    if (!hw_dev && hwaccel_path == "pi4_v4l2" && vp->codec_id == AV_CODEC_ID_HEVC) {
         vc = avcodec_find_decoder_by_name("hevc_v4l2m2m");
     }
-    if (!vc) {
-        vc = avcodec_find_decoder(vp->codec_id);
-    } else {
-        g_logger.info("VIDEO_DEC: Hardware video acceleration enabled (%s)", vc->name);
+    if (!hw_dev && hwaccel_path == "pi4_v4l2" && vp->codec_id == AV_CODEC_ID_H264) {
+        vc = avcodec_find_decoder_by_name("h264_v4l2m2m");
+    }
+    if (vc && hw_dev) {
+        g_logger.info("VIDEO_DEC: Hardware video acceleration enabled (%s via DRM)", vc->name);
     }
     if (!vc) {
+    av_buffer_unref(&hw_dev);
         g_logger.error("VIDEO_DEC: Unsupported video codec for %s", m_path.c_str());
         avformat_close_input(&fmt_ctx);
         m_running.store(false);
@@ -304,6 +354,7 @@ void VideoDecoder::decode_loop() {
     }
     AVCodecContext* vcc = avcodec_alloc_context3(vc);
     avcodec_parameters_to_context(vcc, vp);
+    if (hw_dev) vcc->hw_device_ctx = av_buffer_ref(hw_dev);
     // Enable multi-threaded decoding based on codec capabilities
     {
         int threads = std::thread::hardware_concurrency();
@@ -314,7 +365,7 @@ void VideoDecoder::decode_loop() {
             vcc->thread_type = FF_THREAD_SLICE;
         }
     }
-    bool is_hw = (vc && std::string(vc->name).find("v4l2m2m") != std::string::npos);
+    bool is_hw = (hw_dev != nullptr);
     if (avcodec_open2(vcc, vc, nullptr) < 0) {
         if (is_hw) {
             g_logger.warn("VIDEO_DEC: Hardware decoder %s failed to configure, falling back to software decoder", vc->name);
@@ -420,9 +471,11 @@ void VideoDecoder::decode_loop() {
     AVFrame* aframe = nullptr;
     if (acc) aframe = av_frame_alloc();
 
+    decode_start_time.store(av_gettime_relative() / 1000000.0, std::memory_order_relaxed);
     bool eof = false;
     int vf_count = 0, af_count = 0, pkt_count = 0;
     while (is_running() && !eof) {
+        io_data.start_time = av_gettime_relative();
         int ret = av_read_frame(fmt_ctx, pkt);
         // hot-path debug log omitted
         pkt_count++;
@@ -438,13 +491,12 @@ void VideoDecoder::decode_loop() {
                     while (ret >= 0) {
                         ret = avcodec_receive_frame(acc, aframe);
                         if (ret != 0) break;
-                        if (swr) {
+                        if (swr && aframe->nb_samples > 0 && aframe->extended_data) {
                             int max_s = av_rescale_rnd(aframe->nb_samples, 48000, audio_sample_rate, AV_ROUND_UP);
-                            std::vector<int16_t> ob(max_s * 2);
-                            uint8_t* out_buf[1] = { (uint8_t*)ob.data() };
-                            int os = swr_convert(swr, out_buf, max_s,
+                            uint8_t* outbuf[1] = { (uint8_t*)audio_resample_buf.data() };
+                            int os = swr_convert(swr, outbuf, max_s,
                                                  (const uint8_t**)aframe->extended_data, aframe->nb_samples);
-                            if (os > 0) { push_audio_samples(ob.data(), os); af_count += os; }
+                            if (os > 0) { push_audio_samples(audio_resample_buf.data(), os); af_count += os; }
                             
                         }
                     }
@@ -467,6 +519,7 @@ void VideoDecoder::decode_loop() {
                             break;
                         }
                         vf_count++;
+                        m_decoded_frames.fetch_add(1, std::memory_order_relaxed);
                         // Transfer HW frames during flush
                         AVFrame* sw_frame2 = frame;
                         AVFrame* tmp_sw2 = nullptr;
@@ -570,9 +623,16 @@ void VideoDecoder::decode_loop() {
             if (!sws || cur_fmt != actual_pix_fmt) {
                 if (sws) sws_freeContext(sws);
                 actual_pix_fmt = cur_fmt;
+                int scale_w = sw_frame->width;
+                int scale_h = sw_frame->height;
+                if (scale_w > 1920 && !is_hw) {
+                    float ar = (float)scale_h / (float)scale_w;
+                    scale_w = 1920;
+                    scale_h = (int)(1920.0f * ar);
+                }
                 sws = sws_getContext(sw_frame->width, sw_frame->height,
                     actual_pix_fmt, dst_w, dst_h, AV_PIX_FMT_RGBA,
-                    SWS_FAST_BILINEAR, nullptr, nullptr, nullptr);
+                    SWS_BILINEAR, nullptr, nullptr, nullptr);
                 if (!sws) {
                     g_logger.error("VIDEO_DEC: Failed to create scaler for fmt=%d", (int)actual_pix_fmt);
                     if (tmp_sw) av_frame_free(&tmp_sw);
@@ -620,13 +680,12 @@ void VideoDecoder::decode_loop() {
             while (ret >= 0) {
                 ret = avcodec_receive_frame(acc, aframe);
                 if (ret != 0) break;
-                if (swr) {
-                    int max_s = av_rescale_rnd(aframe->nb_samples, 48000, audio_sample_rate, AV_ROUND_UP);
-                    std::vector<int16_t> ob(max_s * 2);
-                    uint8_t* out_buf[1] = { (uint8_t*)ob.data() };
-                            int os = swr_convert(swr, out_buf, max_s,
-                                                 (const uint8_t**)aframe->extended_data, aframe->nb_samples);
-                    if (os > 0) { push_audio_samples(ob.data(), os); af_count += os; }
+                if (swr && aframe->nb_samples > 0 && aframe->extended_data) {
+                    int max_s = std::min((int)av_rescale_rnd(aframe->nb_samples, 48000, audio_sample_rate, AV_ROUND_UP), MAX_AUDIO_SAMPLES);
+                    uint8_t* outbuf[1] = { (uint8_t*)audio_resample_buf.data() };
+                    int os = swr_convert(swr, outbuf, max_s,
+                                         (const uint8_t**)aframe->extended_data, aframe->nb_samples);
+                    if (os > 0) { push_audio_samples(audio_resample_buf.data(), os); af_count += os; }
                     
                 }
             }
@@ -648,6 +707,7 @@ void VideoDecoder::decode_loop() {
     av_free(buf);
     sws_freeContext(sws);
     swr_free(&swr);
+    av_buffer_unref(&hw_dev);
     if (acc) avcodec_free_context(&acc);
     avcodec_free_context(&vcc);
     avformat_close_input(&fmt_ctx);

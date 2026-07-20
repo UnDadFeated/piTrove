@@ -39,6 +39,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libavcodec-dev \
     libavformat-dev \
     libswscale-dev \
+    libswresample-dev \
     libavutil-dev \
     libstb-dev \
     libsodium-dev \
@@ -83,6 +84,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libavcodec61 \
     libavformat61 \
     libswscale8 \
+    libswresample5 \
     libavutil59 \
     imagemagick \
     exiftool \
@@ -124,4 +126,4 @@ ENTRYPOINT ["/app/piTrove", "--config", "/app/config/config.toml"]
 
 # Container Health Check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
-    CMD curl -sf http://localhost:9000/api/status || exit 1
+    CMD /app/scripts/healthcheck.sh
