@@ -1,14 +1,23 @@
 # Changelog
+## v16.1.2 — Audit Verification & Stall Recovery (July 20, 2026)
+### 🎥 Video Decoder
+- **Stop Timeout Fix** — VideoDecoder::stop() uses detached join with 2s timeout to prevent main loop block during hwaccel failures
+- **Stall Recovery** — Heartbeat tick added before stop() in stall path; decoder stop/advance/continue events logged
+- **Verified Test** — 4 videos + 3 photos sequence passed with stall recovery at 30s detection
+
+### 🐳 Container
+- **Healthcheck** — Interval increased to 30s, timeout to 15s for stability
+
 ## v16.1.0 — Full Audit Remediation & swr_convert Crash Fix (July 20, 2026)
-### U0001f41e Video
+### 🎥 Video
 - **swr_convert Crash Fix** — Replaced unsafe cast of audio resample buffer with proper outbuf array to prevent segfault in libswresample during hwaccel decode
-### U0001f512 Security & Hardening
+### 🔒 Security & Hardening
 - **HTTP Auth** — Enforced is_authorized() on all 8 control endpoints
 - **Rate Limiting** — Added 500ms cooldown with 429 responses
 - **Dockerfile** — Fixed libasound2 package name, added missing libsodium/libswresample
 - **docker-compose** — stop_grace_period: 30s, removed /dev:/dev volume mount
 - **Healthcheck** — Script properly copied into container
-### U0001f9ea Code Quality
+### 🧪 Code Quality
 - **cache.h/cpp** — upsert() signature aligned, framerate in verify_database
 - **scanner** — stat() return value checked, zeroed on failure
 - **mqtt** — popen/pclose return codes validated
