@@ -8,7 +8,6 @@
 #include <thread>
 #include <filesystem>
 #include <algorithm>
-#include <cstdarg>
 #include <cstring>
 #include <unistd.h>
 #include <fcntl.h>
@@ -24,7 +23,7 @@
 
 
 
-static std::string redact_secrets(const std::string& msg) {
+std::string redact_secrets(const std::string& msg) {
     static const std::regex bearer(R"(Bearer\s+[A-Za-z0-9._~+/=-]+)", std::regex::icase);
     static const std::regex kv(R"(((api_key|password|client_secret|refresh_token|pin|token)\s*[=:]\s*)([^\s,;]+))", std::regex::icase);
     std::string result = std::regex_replace(msg, bearer, "Bearer [REDACTED]");
@@ -38,9 +37,7 @@ void Logger::log_error_code(int code_num) {
         return;
     }
 
-    char buf[16];
-    snprintf(buf, sizeof(buf), "E%d", code_num);
-    std::string code_str = buf;
+    std::string code_str = std::format("E{}", code_num);
 
     std::string title = "UNKNOWN_ERROR";
     std::string desc = "An undocumented system diagnostic error occurred.";
@@ -50,8 +47,8 @@ void Logger::log_error_code(int code_num) {
         g_cache->get_error_details(code_str, title, desc, rec);
     }
 
-    error("SYSTEM ERROR [%s] - %s: %s (RECOVERY: %s)", 
-          code_str.c_str(), title.c_str(), desc.c_str(), rec.c_str());
+    error("SYSTEM ERROR [{}] - {}: {} (RECOVERY: {})",
+          code_str, title, desc, rec);
 }
 
 #include <set>
@@ -211,7 +208,7 @@ void terminate_handler() {
 }
 
 void set_display_power(bool power) {
-    g_logger.info("DISPLAY_POWER: Setting display power to %s", power ? "ON" : "OFF");
+    g_logger.info("DISPLAY_POWER: Setting display power to {}", power ? "ON" : "OFF");
     int fd = open("/sys/class/graphics/fb0/blank", O_WRONLY);
     if (fd >= 0) {
         const char* val = power ? "0" : "1"; // "0" is unblank, "1" is blank
@@ -225,8 +222,9 @@ void set_display_power(bool power) {
 
 bool set_interface_status(const std::string& iface, bool up) {
     int fd = socket(AF_INET, SOCK_DGRAM, 0);
+    [[unlikely]]
     if (fd < 0) {
-        g_logger.error("Keepalive: Failed to open socket for interface control: %s", std::strerror(errno));
+        g_logger.error("Keepalive: Failed to open socket for interface control: {}", std::strerror(errno));
         return false;
     }
 
@@ -235,7 +233,7 @@ bool set_interface_status(const std::string& iface, bool up) {
     std::strncpy(ifr.ifr_name, iface.c_str(), IFNAMSIZ - 1);
 
     if (ioctl(fd, SIOCGIFFLAGS, &ifr) < 0) {
-        g_logger.error("Keepalive: Failed to read interface flags for %s: %s", iface.c_str(), std::strerror(errno));
+        g_logger.error("Keepalive: Failed to read interface flags for {}: {}", iface.c_str(), std::strerror(errno));
         close(fd);
         return false;
     }
@@ -247,7 +245,7 @@ bool set_interface_status(const std::string& iface, bool up) {
     }
 
     if (ioctl(fd, SIOCSIFFLAGS, &ifr) < 0) {
-        g_logger.error("Keepalive: Failed to write interface flags for %s: %s", iface.c_str(), std::strerror(errno));
+        g_logger.error("Keepalive: Failed to write interface flags for {}: {}", iface.c_str(), std::strerror(errno));
         close(fd);
         return false;
     }
@@ -348,12 +346,11 @@ void Logger::flush_loop() {
                 } else {
                     std::strcpy(header, "0000-00-00 00:00:00");
                 }
-                char line[8192];
-                int len = std::snprintf(line, sizeof(line), "v%s %s.%03ld [%s] %s\n",
-                                        VERSION, header, (long)ms.count(), tag, msg.body.c_str());
-                if (len > 0) {
-                    (void)write(STDOUT_FILENO, line, len);
-                    if (f) fprintf(f, "%s", line);
+                std::string line = std::format("v{} {}.{:03d} [{}] {}\n",
+                    VERSION, header, (int)ms.count(), tag, msg.body);
+                if (!line.empty()) {
+                    (void)write(STDOUT_FILENO, line.c_str(), line.size());
+                    if (f) (void)fputs(line.c_str(), f);
                 }
             }
             if (f) {
@@ -371,7 +368,7 @@ void Logger::init(const std::string& path, LogLevel lvl, int keep_count) {
     std::error_code ec;
     std::filesystem::create_directories(path, ec);
     if (ec) {
-        fprintf(stderr, "[ERROR] Logger: Failed to create directories %s: %s\n", path.c_str(), ec.message().c_str());
+        (void)std::fputs(std::format("[ERROR] Logger: Failed to create directories {}\n: {}\n", path, ec.message()).c_str(), stderr);
     }
 
     auto now = std::chrono::system_clock::now();
@@ -401,13 +398,13 @@ void Logger::init(const std::string& path, LogLevel lvl, int keep_count) {
                 htm = *htm_ptr;
             }
             std::strftime(timebuf, sizeof(timebuf), "%Y-%m-%d %H:%M:%S", &htm);
-            fprintf(f, "=== piTrove v%s started %s ===\n", VERSION, timebuf);
+            (void)std::fputs(std::format("=== piTrove v{} started {} ===\n", VERSION, timebuf).c_str(), f);
             fclose(f);
         }
     }
 
     initialized = true;
-    flush_thread = std::thread(&Logger::flush_loop, this);
+    flush_thread = std::jthread(&Logger::flush_loop, this);
 }
 
 Logger::~Logger() {
@@ -426,60 +423,11 @@ void Logger::rotate_logs(const std::string& dir, int keep) {
             }
         }
         std::sort(files.begin(), files.end());
-        while ((int)files.size() > keep) {
+        while (std::ssize(files) > keep) {
             std::filesystem::remove(files.front());
             files.erase(files.begin());
         }
     } catch (...) {}
-}
-
-
-
-void Logger::log_v(LogLevel lvl, const char* fmt, va_list ap) {
-    if (lvl < level) return;
-
-    char body_buf[4096];
-    int n = std::vsnprintf(body_buf, sizeof(body_buf), fmt, ap);
-    if (n < 0) return;
-
-    LogMessage msg;
-    msg.time = std::chrono::system_clock::now();
-    msg.level = lvl;
-    msg.body = redact_secrets(std::string(body_buf, n));
-
-    {
-        std::lock_guard<std::mutex> lock(queue_mtx);
-        front_queue.push_back(std::move(msg));
-    }
-    cv.notify_one();
-}
-
-void Logger::info(const char* fmt, ...) {
-    if (LogLevel::INFO < level) return;
-    va_list ap; va_start(ap, fmt);
-    log_v(LogLevel::INFO, fmt, ap);
-    va_end(ap);
-}
-
-void Logger::warn(const char* fmt, ...) {
-    if (LogLevel::WARN < level) return;
-    va_list ap; va_start(ap, fmt);
-    log_v(LogLevel::WARN, fmt, ap);
-    va_end(ap);
-}
-
-void Logger::error(const char* fmt, ...) {
-    if (LogLevel::ERROR < level) return;
-    va_list ap; va_start(ap, fmt);
-    log_v(LogLevel::ERROR, fmt, ap);
-    va_end(ap);
-}
-
-void Logger::debug(const char* fmt, ...) {
-    if (LogLevel::DEBUG < level) return;
-    va_list ap; va_start(ap, fmt);
-    log_v(LogLevel::DEBUG, fmt, ap);
-    va_end(ap);
 }
 
 
@@ -851,12 +799,13 @@ static bool perform_nas_online_check() {
     struct addrinfo hints{}, *res = nullptr;
     hints.ai_family = AF_UNSPEC;
     hints.ai_socktype = SOCK_STREAM;
-    if (getaddrinfo(nas_host.c_str(), std::to_string(port).c_str(), &hints, &res) != 0) {
+    if (getaddrinfo(nas_host.c_str(), std::format("{}", port).c_str(), &hints, &res) != 0) {
         return false; // Hostname resolution failed
     }
     AddrInfoGuard addr_guard{res};
 
     int fd = socket(res->ai_family, res->ai_socktype | SOCK_CLOEXEC, res->ai_protocol);
+    [[unlikely]]
     if (fd < 0) {
         return false;
     }
@@ -890,7 +839,7 @@ static bool perform_nas_online_check() {
     return online;
 }
 
-static std::thread g_nas_check_thread;
+static std::jthread g_nas_check_thread;
 static std::mutex g_nas_thread_mtx;
 
 bool is_nas_online() {
@@ -907,7 +856,7 @@ bool is_nas_online() {
             if (g_nas_check_thread.joinable()) {
                 g_nas_check_thread.join();
             }
-            g_nas_check_thread = std::thread([]() {
+            g_nas_check_thread = std::jthread([]() {
                 bool online = perform_nas_online_check();
                 g_nas_online.store(online);
                 g_last_nas_check_time.store(std::time(nullptr));
@@ -963,8 +912,10 @@ void check_network_status() {
     freeifaddrs(ifaddr);
 
     if (!has_active_interface || (!has_valid_ip && !has_apipa)) {
+    [[unlikely]]
         trigger_error(102); // E102: WIFI_DISCONNECTED
     } else if (has_apipa && !has_valid_ip) {
+    [[unlikely]]
         trigger_error(103); // E103: IP_CONFIGURATION_ERROR
     } else {
         clear_error(102);
@@ -972,7 +923,7 @@ void check_network_status() {
     }
 }
 
-static std::thread g_prefetch_thread;
+static std::jthread g_prefetch_thread;
 static std::mutex g_prefetch_mtx;
 
 void prefetch_video(const std::string& path) {
@@ -985,8 +936,9 @@ void prefetch_video(const std::string& path) {
             g_prefetch_thread.join();
             g_prefetch_mtx.lock();
         }
-        g_prefetch_thread = std::thread([path]() {
+        g_prefetch_thread = std::jthread([path]() {
             int fd = open(path.c_str(), O_RDONLY | O_NONBLOCK);
+            [[unlikely]]
             if (fd < 0) return;
             off_t file_size = lseek(fd, 0, SEEK_END);
             if (file_size <= 0) { close(fd); return; }

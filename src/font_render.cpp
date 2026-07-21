@@ -4,6 +4,7 @@
 #include <stdexcept>
 
 #include <unordered_map>
+#include <format>
 
 struct TextKey {
     std::string text;
@@ -32,12 +33,12 @@ static std::atomic<int> g_font_renderer_instances{0};
 static std::mutex g_font_init_mutex;
 
 FontRenderer::FontRenderer(Renderer* renderer) : renderer(renderer) {
-    g_logger.info("TRACE: FontRenderer::ctor TTF_WasInit=%d", TTF_WasInit());
+    g_logger.info("TRACE: FontRenderer::ctor TTF_WasInit={}", TTF_WasInit());
     std::lock_guard<std::mutex> lk(g_font_init_mutex);
     if (g_font_renderer_instances.fetch_add(1) == 0) {
         if (TTF_WasInit() == 0) {
             if (!TTF_Init()) {
-                g_logger.error("TTF_Init failed: %s", SDL_GetError());
+                g_logger.error("TTF_Init failed: {}", SDL_GetError());
                 g_font_renderer_instances.fetch_sub(1);
                 throw std::runtime_error("TTF Init failed");
             }
@@ -46,7 +47,7 @@ FontRenderer::FontRenderer(Renderer* renderer) : renderer(renderer) {
 }
 
 FontRenderer::~FontRenderer() {
-    g_logger.info("TRACE: FontRenderer::dtor fonts=%d", (int)fonts.size());
+    g_logger.info("TRACE: FontRenderer::dtor fonts={}", std::ssize(fonts));
     for (auto& [key, cached_text] : text_cache) {
         if (cached_text.texture) {
             SDL_DestroyTexture(cached_text.texture);
@@ -70,7 +71,7 @@ FontRenderer::~FontRenderer() {
 }
 
 FontHandle& FontRenderer::load_font(const std::string& path, int size) {
-    std::string key = path + ":" + std::to_string(size);
+    std::string key = std::format("{}:{}", path, size);
     auto it = fonts.find(key);
     if (it != fonts.end()) {
         it->second->last_used = SDL_GetTicks();
@@ -90,7 +91,7 @@ FontHandle& FontRenderer::load_font(const std::string& path, int size) {
             if (f != path) {
                 font = TTF_OpenFont(f.c_str(), size);
                 if (font) {
-                    g_logger.warn("Failed to load font '%s', fell back to '%s'", path.c_str(), f.c_str());
+                    g_logger.warn("Failed to load font '{}', fell back to '{}'", path.c_str(), f.c_str());
                     break;
                 }
             }
@@ -133,7 +134,7 @@ FontHandle& FontRenderer::load_font(const std::string& path, int size) {
         clear_error(204);
     }
 
-    g_logger.debug("Successfully loaded font: %s", key.c_str());
+    g_logger.debug("Successfully loaded font: {}", key.c_str());
     return *handle;
 }
 
@@ -143,7 +144,7 @@ void FontRenderer::draw_text(int x, int y, const FontHandle& font, const std::st
                              uint8_t r, uint8_t g, uint8_t b, uint8_t a) {
     if (!renderer || !renderer->sdl_renderer || text.empty() || !font.font) return;
 
-    std::string key = text + "|" + font.path + "|" + std::to_string(font.size) + "|" + std::to_string((r << 24) | (g << 16) | (b << 8) | a);
+    std::string key = std::format("{}|{}|{}|{}", text, font.path, font.size, (r << 24) | (g << 16) | (b << 8) | a);
     auto it = text_cache.find(key);
     if (it != text_cache.end()) {
         SDL_FRect dst = {(float)x, (float)y, (float)it->second.w, (float)it->second.h};

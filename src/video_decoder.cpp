@@ -1,5 +1,7 @@
+#include <thread>
 #include "cache.h"
 #include "video_decoder.h"
+#include <span>
 #include <SDL3/SDL_timer.h>
 #include "util.h"
 #include "config.h"
@@ -72,14 +74,8 @@ static AVBufferRef* create_hw_device() {
 #define DEBUG_LOG(fmt, ...) \
     do { g_logger.debug(fmt, ##__VA_ARGS__); } while (0)
 
-VideoDecoder::VideoDecoder() : m_thread(0) {}
+VideoDecoder::VideoDecoder() {}
 
-void* VideoDecoder::decode_thread_entry(void* arg) {
-    VideoDecoder* self = static_cast<VideoDecoder*>(arg);
-    try { self->decode_loop(); }
-    catch (...) {}
-    return nullptr;
-}
 
 VideoDecoder::~VideoDecoder() { stop(); }
 
@@ -97,13 +93,13 @@ void VideoDecoder::init_audio() {
 
     m_audio_device = SDL_OpenAudioDevice(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, &spec);
     if (m_audio_device < 0) {
-        DEBUG_LOG("AUDIO: SDL_OpenAudioDevice failed: %s", SDL_GetError());
+        DEBUG_LOG("AUDIO: SDL_OpenAudioDevice failed: {}", SDL_GetError());
         return;
     }
 
     m_audio_stream = SDL_CreateAudioStream(&spec, &spec);
     if (!m_audio_stream) {
-        DEBUG_LOG("AUDIO: SDL_CreateAudioStream failed: %s", SDL_GetError());
+        DEBUG_LOG("AUDIO: SDL_CreateAudioStream failed: {}", SDL_GetError());
         SDL_CloseAudioDevice(m_audio_device);
         m_audio_device = -1;
         return;
@@ -111,7 +107,7 @@ void VideoDecoder::init_audio() {
 
     SDL_BindAudioStream(m_audio_device, m_audio_stream);
     m_audio_initialized = true;
-    DEBUG_LOG("AUDIO: Device opened id=%d", m_audio_device);
+    DEBUG_LOG("AUDIO: Device opened id={}", m_audio_device);
 }
 
 void VideoDecoder::shutdown_audio() {
@@ -130,12 +126,12 @@ void VideoDecoder::shutdown_audio() {
     }
 }
 
-void VideoDecoder::push_audio_samples(const int16_t* samples, int num_frames) {
+void VideoDecoder::push_audio_samples(std::span<const int16_t> samples) {
     std::lock_guard lk(m_audio_mtx);
     if (!m_audio_initialized || !m_audio_stream) return;
 
-    int bytes = num_frames * 2 * 2;
-    SDL_PutAudioStreamData(m_audio_stream, samples, bytes);
+    int bytes = samples.size() * 2 * 2;
+    SDL_PutAudioStreamData(m_audio_stream, samples.data(), bytes);
 
     int volume = 0;
     {
@@ -154,26 +150,17 @@ bool VideoDecoder::start(const std::string& path, int target_width, int target_h
     m_eof.store(false);
     decode_start_time.store(0.0, std::memory_order_relaxed);
     m_running.store(true);
-    int rc = pthread_create(&m_thread, nullptr, decode_thread_entry, this);
-    if (rc != 0) {
-        g_logger.error("VIDEO_DEC: pthread_create failed: %d", rc);
-        m_running.store(false);
-        return false;
-    }
+    m_thread = std::jthread([this]() {
+        try { this->decode_loop(); }
+        catch (...) {}
+    });
     return true;
 }
 
 void VideoDecoder::stop() {
-    g_logger.info("VIDEO_DEC: stop() called, m_running=%d", m_running.load());
+    g_logger.info("VIDEO_DEC: stop() called, m_running={}", m_running.load());
     m_running.store(false);
     m_queue_cv.notify_all();
-    if (m_thread != 0) {
-        std::thread([=] {
-            pthread_join(m_thread, nullptr);
-        }).detach();
-        m_thread = 0;
-        std::this_thread::sleep_for(std::chrono::seconds(2));
-    }
     shutdown_audio();
     std::lock_guard lk(m_queue_mtx);
     while (!m_frame_queue.empty()) {
@@ -234,7 +221,7 @@ void VideoDecoder::decode_loop() {
     static constexpr int MAX_AUDIO_SAMPLES = 8192;
     std::vector<int16_t> audio_resample_buf(MAX_AUDIO_SAMPLES * 2);
     try {
-    DEBUG_LOG("VIDEO_DEC: Starting decode thread for %s", m_path.c_str());
+    DEBUG_LOG("VIDEO_DEC: Starting decode thread for {}", m_path);
 
     avformat_network_init();
     struct NetworkDeinitGuard {
@@ -256,7 +243,7 @@ void VideoDecoder::decode_loop() {
     fmt_ctx->interrupt_callback.opaque = &io_data;
 
     if (avformat_open_input(&fmt_ctx, m_path.c_str(), nullptr, nullptr) != 0) {
-        g_logger.error("VIDEO_DEC: Failed to open %s", m_path.c_str());
+        g_logger.error("VIDEO_DEC: Failed to open {}", m_path.c_str());
         
         m_running.store(false);
         m_eof.store(true);
@@ -264,7 +251,7 @@ void VideoDecoder::decode_loop() {
     }
 
     if (avformat_find_stream_info(fmt_ctx, nullptr) < 0) {
-        g_logger.error("VIDEO_DEC: Failed to find stream info for %s", m_path.c_str());
+        g_logger.error("VIDEO_DEC: Failed to find stream info for {}", m_path.c_str());
     VideoLimits limits;
     {
         std::shared_lock lk(g_config_mtx);
@@ -274,7 +261,7 @@ void VideoDecoder::decode_loop() {
         limits.max_duration_seconds = g_cfg.video_max_duration_seconds;
     }
     if (!video_within_budget(fmt_ctx, limits)) {
-        g_logger.warn("VIDEO_DEC: %s exceeds decode budget. Skipping.", m_path.c_str());
+        g_logger.warn("VIDEO_DEC: {} exceeds decode budget. Skipping.", m_path.c_str());
         avformat_close_input(&fmt_ctx);
         m_running.store(false);
         m_eof.store(true);
@@ -296,25 +283,16 @@ void VideoDecoder::decode_loop() {
     }
 
     if (video_stream_idx == -1) {
-        g_logger.error("VIDEO_DEC: No video stream found in %s", m_path.c_str());
+        g_logger.error("VIDEO_DEC: No video stream found in {}", m_path.c_str());
         avformat_close_input(&fmt_ctx);
         m_running.store(false);
         m_eof.store(true);
         return;
     }
 
-    DEBUG_LOG("VIDEO_DEC: Video stream=%d, Audio stream=%d", video_stream_idx, audio_stream_idx);
+    DEBUG_LOG("VIDEO_DEC: Video stream={}, Audio stream={}", video_stream_idx, audio_stream_idx);
 
-    // Extract video frame rate from stream metadata
-    AVRational fr = av_guess_frame_rate(fmt_ctx, fmt_ctx->streams[video_stream_idx], nullptr);
-    if (fr.num > 0 && fr.den > 0) {
-        double fps = av_q2d(fr);
-        m_frame_duration = 1.0 / fps;
-        DEBUG_LOG("VIDEO_DEC: Detected FPS=%.2f via av_guess_frame_rate, frame_duration=%.3fs", fps, m_frame_duration);
-    } else {
-        m_frame_duration = 0.033333; // fallback 30fps
-        DEBUG_LOG("VIDEO_DEC: Could not detect FPS, using fallback 30fps");
-    }
+    // Extract video framerate from stream metadata (prefer avg_framerate, clamp to sane range)    AVRational fr = fmt_ctx->streams[video_stream_idx]->avg_framerate;    if (fr.num == 0) fr = fmt_ctx->streams[video_stream_idx]->r_framerate;    if (fr.num == 0) fr = av_guess_frame_rate(fmt_ctx, fmt_ctx->streams[video_stream_idx], nullptr);    if (fr.num > 0 && fr.den > 0) {        double framerate = av_q2d(fr);        if (framerate > 1 && framerate < 60) {            m_frame_duration = 1.0 / framerate;        } else {            // Clamp to 30fps if framerate seems wrong            m_frame_duration = 0.033333;        }        DEBUG_LOG("VIDEO_DEC: Detected framerate={:.2f} via stream avg_framerate, frame_duration={:.3f}s", framerate, m_frame_duration);    } else {        m_frame_duration = 0.033333; // fallback 30fps        DEBUG_LOG("VIDEO_DEC: Could not detect framerate, using fallback 30fps");    }    }
     // Extract video duration with stream fallback
     m_video_total_duration.store(0.0);
     if (fmt_ctx->duration > 0 && (int64_t)fmt_ctx->duration != (int64_t)0x8000000000000000LL) {
@@ -342,11 +320,11 @@ void VideoDecoder::decode_loop() {
         vc = avcodec_find_decoder_by_name("h264_v4l2m2m");
     }
     if (vc && hw_dev) {
-        g_logger.info("VIDEO_DEC: Hardware video acceleration enabled (%s via DRM)", vc->name);
+        g_logger.info("VIDEO_DEC: Hardware video acceleration enabled ({} via DRM)", vc->name);
     }
     if (!vc) {
     av_buffer_unref(&hw_dev);
-        g_logger.error("VIDEO_DEC: Unsupported video codec for %s", m_path.c_str());
+        g_logger.error("VIDEO_DEC: Unsupported video codec for {}", m_path.c_str());
         avformat_close_input(&fmt_ctx);
         m_running.store(false);
         m_eof.store(true);
@@ -368,7 +346,7 @@ void VideoDecoder::decode_loop() {
     bool is_hw = (hw_dev != nullptr);
     if (avcodec_open2(vcc, vc, nullptr) < 0) {
         if (is_hw) {
-            g_logger.warn("VIDEO_DEC: Hardware decoder %s failed to configure, falling back to software decoder", vc->name);
+            g_logger.warn("VIDEO_DEC: Hardware decoder {} failed to configure, falling back to software decoder", vc->name);
             avcodec_free_context(&vcc);
             vc = avcodec_find_decoder(vp->codec_id);
             if (vc) {
@@ -380,7 +358,7 @@ void VideoDecoder::decode_loop() {
             }
         }
         if (!vc || avcodec_open2(vcc, vc, nullptr) < 0) {
-            g_logger.error("VIDEO_DEC: Failed to open video codec for %s", m_path.c_str());
+            g_logger.error("VIDEO_DEC: Failed to open video codec for {}", m_path.c_str());
             if (vcc) avcodec_free_context(&vcc);
             avformat_close_input(&fmt_ctx);
             m_running.store(false);
@@ -402,8 +380,8 @@ void VideoDecoder::decode_loop() {
             if (avcodec_open2(acc, ac, nullptr) >= 0) {
                 audio_channels = acc->ch_layout.nb_channels;
                 audio_sample_rate = acc->sample_rate;
-                DEBUG_LOG("AUDIO: Codec=%s sr=%d ch=%d fmt=%d",
-                          ac->name, audio_sample_rate, audio_channels, acc->sample_fmt);
+                DEBUG_LOG("AUDIO: Codec={} sr={} ch={} fmt={}",
+                          ac->name, audio_sample_rate, audio_channels, (int)acc->sample_fmt);
             } else {
                 DEBUG_LOG("AUDIO: Failed to open audio codec");
                 avcodec_free_context(&acc);
@@ -430,12 +408,13 @@ void VideoDecoder::decode_loop() {
             &src_ch, (AVSampleFormat)acc->sample_fmt, audio_sample_rate,
             0, nullptr);
         if (ret < 0 || !swr) {
-            DEBUG_LOG("AUDIO: swr_alloc_set_opts2 failed: %d", ret);
+            DEBUG_LOG("AUDIO: swr_alloc_set_opts2 failed: {}", ret);
             swr = nullptr;
         } else {
             ret = swr_init(swr);
+            [[unlikely]]
             if (ret < 0) {
-                DEBUG_LOG("AUDIO: swr_init failed: %d", ret);
+                DEBUG_LOG("AUDIO: swr_init failed: {}", ret);
                 swr_free(&swr);
                 swr = nullptr;
             }
@@ -460,7 +439,7 @@ void VideoDecoder::decode_loop() {
     // (V4L2 M2M HW decoders may output DRM_PRIME which needs transfer first)
     SwsContext* sws = nullptr;
     AVPixelFormat actual_pix_fmt = AV_PIX_FMT_NONE;
-    g_logger.info("VIDEO_DEC: Decoding %s (%dx%d -> %dx%d)", m_path.c_str(), vcc->width, vcc->height, dst_w, dst_h);
+    g_logger.info("VIDEO_DEC: Decoding {} ({}x{} -> {}x{})", m_path.c_str(), vcc->width, vcc->height, dst_w, dst_h);
     AVPacket* pkt = av_packet_alloc();
     AVFrame* frame = av_frame_alloc();
     AVFrame* rgba = av_frame_alloc();
@@ -479,8 +458,9 @@ void VideoDecoder::decode_loop() {
         int ret = av_read_frame(fmt_ctx, pkt);
         // hot-path debug log omitted
         pkt_count++;
-        if (ret < 0) {
-            g_logger.info("VIDEO_DEC: av_read_frame error ret=%d (AVERROR_EOF=%d, AVERROR(EAGAIN)=%d)", ret, AVERROR_EOF, AVERROR(EAGAIN));
+        [[unlikely]]
+            if (ret < 0) {
+            g_logger.info("VIDEO_DEC: av_read_frame error ret={} (AVERROR_EOF={}, AVERROR(EAGAIN)={})", ret, AVERROR_EOF, AVERROR(EAGAIN));
         }
         if (ret == AVERROR_EOF) {
             eof = true;
@@ -496,26 +476,26 @@ void VideoDecoder::decode_loop() {
                             uint8_t* outbuf[1] = { (uint8_t*)audio_resample_buf.data() };
                             int os = swr_convert(swr, outbuf, max_s,
                                                  (const uint8_t**)aframe->extended_data, aframe->nb_samples);
-                            if (os > 0) { push_audio_samples(audio_resample_buf.data(), os); af_count += os; }
+                            if (os > 0) { push_audio_samples({audio_resample_buf.data(), (size_t)os}); af_count += os; }
                             
                         }
                     }
                 }
             }
-            g_logger.info("VIDEO_DEC: Outer loop exited. is_running=%d eof=%d vf_count=%d af_count=%d", is_running(), eof, vf_count, af_count);
-    g_logger.info("VIDEO_DEC: After outer loop. is_running=%d eof=%d vf=%d pkt=%d", is_running(), eof, vf_count, af_count);
+            g_logger.info("VIDEO_DEC: Outer loop exited. is_running={} eof={} vf_count={} af_count={}", is_running(), eof, vf_count, af_count);
+    g_logger.info("VIDEO_DEC: After outer loop. is_running={} eof={} vf={} pkt={}", is_running(), eof, vf_count, af_count);
 
     // Flush video decoder to drain remaining buffered frames
             if (vcc) {
                 int send_ret = avcodec_send_packet(vcc, nullptr);
-                g_logger.debug("VIDEO_DEC: flush send ret=%d", send_ret);
+                g_logger.debug("VIDEO_DEC: flush send ret={}", send_ret);
                 if (send_ret == 0 || send_ret == AVERROR(EAGAIN)) {
                     while (is_running()) {
                         int flush_ret = avcodec_receive_frame(vcc, frame);
-                        g_logger.debug("VIDEO_DEC: flush receive ret=%d", flush_ret);
+                        g_logger.debug("VIDEO_DEC: flush receive ret={}", flush_ret);
                         if (flush_ret == AVERROR(EAGAIN) || flush_ret == AVERROR_EOF) break;
                         if (flush_ret < 0) {
-                            g_logger.warn("VIDEO_DEC: Bad frame during flush ret=%d, skipping", flush_ret);
+                            g_logger.warn("VIDEO_DEC: Bad frame during flush ret={}, skipping", flush_ret);
                             break;
                         }
                         vf_count++;
@@ -570,35 +550,38 @@ void VideoDecoder::decode_loop() {
                             m_frame_queue.push(std::move(vf));
                         }
                         av_frame_unref(frame);
-                        if (vf_count % 100 == 0) g_logger.debug("VIDEO_DEC: queue_depth=%zu", m_frame_queue.size());
+                        if (vf_count % 100 == 0) g_logger.debug("VIDEO_DEC: queue_depth={}", m_frame_queue.size());
                     }
                 }
             }
             // Set EOF flag after flush completes so guards know decoder truly finished
-            if (eof) { m_eof.store(true); g_logger.info("VIDEO_DEC: Natural EOF reached. vf=%d pkt=%d", vf_count, af_count); }
+            if (eof) { m_eof.store(true); g_logger.info("VIDEO_DEC: Natural EOF reached. vf={} pkt={}", vf_count, af_count); }
             break;
         }
-        if (ret < 0) break;
+        [[unlikely]]
+            if (ret < 0) break;
 
         if (pkt->stream_index == video_stream_idx) {
             ret = avcodec_send_packet(vcc, pkt);
             // hot-path debug log omitted
             av_packet_unref(pkt);
+            [[unlikely]]
             if (ret < 0) continue;
             // Drain all frames from decoder after sending packet
             while (true) {
             ret = avcodec_receive_frame(vcc, frame);
             // hot-path debug log omitted
             if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF) break;
+            [[unlikely]]
             if (ret < 0) {
-                g_logger.warn("VIDEO_DEC: Bad frame ret=%d, flushing decoder", ret);
+                g_logger.warn("VIDEO_DEC: Bad frame ret={}, flushing decoder", ret);
                 avcodec_flush_buffers(vcc);
                 break;
             }
 
             // Skip corrupted noise frames flagged by decoder
             if (frame->decode_error_flags != 0 || (frame->flags & AV_FRAME_FLAG_CORRUPT)) {
-                g_logger.warn("VIDEO_DEC: Skipping corrupt frame flags=0x%x error=0x%x", frame->flags, frame->decode_error_flags);
+                g_logger.warn("VIDEO_DEC: Skipping corrupt frame flags=0x{} error=0x{}", frame->flags, frame->decode_error_flags);
                 av_frame_unref(frame);
                 continue;
             }
@@ -634,11 +617,11 @@ void VideoDecoder::decode_loop() {
                     actual_pix_fmt, dst_w, dst_h, AV_PIX_FMT_RGBA,
                     SWS_BILINEAR, nullptr, nullptr, nullptr);
                 if (!sws) {
-                    g_logger.error("VIDEO_DEC: Failed to create scaler for fmt=%d", (int)actual_pix_fmt);
+                    g_logger.error("VIDEO_DEC: Failed to create scaler for fmt={}", (int)actual_pix_fmt);
                     if (tmp_sw) av_frame_free(&tmp_sw);
                     break;
                 }
-                g_logger.info("VIDEO_DEC: Created scaler for fmt=%d (%dx%d -> %dx%d)",
+                g_logger.info("VIDEO_DEC: Created scaler for fmt={} ({}x{} -> {}x{})",
                     (int)actual_pix_fmt, sw_frame->width, sw_frame->height, dst_w, dst_h);
             }
             sws_scale(sws, sw_frame->data, sw_frame->linesize, 0, sw_frame->height,
@@ -676,6 +659,7 @@ void VideoDecoder::decode_loop() {
         else if (pkt->stream_index == audio_stream_idx && acc && aframe) {
             ret = avcodec_send_packet(acc, pkt);
             av_packet_unref(pkt);
+            [[unlikely]]
             if (ret < 0) continue;
             while (ret >= 0) {
                 ret = avcodec_receive_frame(acc, aframe);
@@ -685,7 +669,7 @@ void VideoDecoder::decode_loop() {
                     uint8_t* outbuf[1] = { (uint8_t*)audio_resample_buf.data() };
                     int os = swr_convert(swr, outbuf, max_s,
                                          (const uint8_t**)aframe->extended_data, aframe->nb_samples);
-                    if (os > 0) { push_audio_samples(audio_resample_buf.data(), os); af_count += os; }
+                    if (os > 0) { push_audio_samples({audio_resample_buf.data(), (size_t)os}); af_count += os; }
                     
                 }
             }
@@ -694,7 +678,7 @@ void VideoDecoder::decode_loop() {
         }
     }
 
-    g_logger.info("VIDEO_DEC: Done %s (%d vf, %d af)", m_path.c_str(), vf_count, af_count);
+    g_logger.info("VIDEO_DEC: Done {} ({} vf, {} af)", m_path.c_str(), vf_count, af_count);
     // Mark decoder as stopped immediately so the render loop stops spinning
     // on "decoder already running" while we clean up FFmpeg resources below
     m_running.store(false);
@@ -715,7 +699,8 @@ void VideoDecoder::decode_loop() {
     } catch (...) {}
 
     } catch (const std::exception& e) {
-        g_logger.error("VIDEO_DEC: Exception: %s", e.what());
+    [[unlikely]]
+        g_logger.error("VIDEO_DEC: Exception: {}", e.what());
     } catch (...) {
         g_logger.error("VIDEO_DEC: Unknown exception");
         m_running.store(false);

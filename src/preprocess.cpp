@@ -17,7 +17,7 @@
 #include <cstdio>
 #include <memory>
 
-static std::thread g_preprocess_thread;
+static std::jthread g_preprocess_thread;
 static std::atomic<bool> g_preprocess_running{false};
 static std::atomic<bool> g_preprocess_finished{true};
 
@@ -26,13 +26,13 @@ static bool get_image_metadata_fast(const std::string& path, int& out_w, int& ou
     if (buffer.empty()) return false;
 
     int w = 0, h = 0, comp = 0;
-    if (!stbi_info_from_memory(buffer.data(), (int)buffer.size(), &w, &h, &comp) || w <= 0 || h <= 0) {
+    if (!stbi_info_from_memory(buffer.data(), std::ssize(buffer), &w, &h, &comp) || w <= 0 || h <= 0) {
         return false;
     }
     out_w = w;
     out_h = h;
 
-    ImageMetadata meta = ImageLoader::read_metadata_from_memory(buffer.data(), (unsigned int)buffer.size());
+    ImageMetadata meta = ImageLoader::read_metadata_from_memory(buffer);
     out_exif = meta.rotation;
     out_is_camera = meta.is_camera ? 1 : 0;
     out_creation_time = meta.creation_time;
@@ -94,14 +94,14 @@ static void preprocess_loop() {
             continue;
         }
 
-        g_logger.info("Preprocess: Found %zu items needing preprocessing. Processing...", batch.size());
+        g_logger.info("Preprocess: Found {} items needing preprocessing. Processing...", batch.size());
 
         for (const auto& [path, type] : batch) {
             if (!g_preprocess_running.load() || !g_running.load()) break;
 
             struct stat st;
             if (!stat_timeout(path, st, 5000)) {
-                g_logger.warn("Preprocess: File '%s' not found or inaccessible (stat timeout). Marking bad.", path.c_str());
+                g_logger.warn("Preprocess: File '{}' not found or inaccessible (stat timeout). Marking bad.", path.c_str());
                 continue;
             }
 
@@ -121,7 +121,7 @@ static void preprocess_loop() {
             auto pr = std::make_shared<PreprocessResult>();
             pr->item = mi;
 
-            std::thread([pr, path, type]() {
+            std::jthread([pr, path, type]() {
                 if (type == "image") {
                     int w = 0, h = 0, exif = 1, is_camera = 0;
                     int64_t creation = 0;
@@ -157,10 +157,10 @@ static void preprocess_loop() {
                         g_cache->upsert(pr->item, 0, 1);
                     }
                 } else {
-                    g_logger.warn("Preprocess: Failed to extract metadata for '%s'. Marking bad.", path.c_str());
+                    g_logger.warn("Preprocess: Failed to extract metadata for '{}'. Marking bad.", path.c_str());
                 }
             } else {
-                g_logger.warn("Preprocess: Timeout (10s) extracting metadata for '%s' -- skipping.", path.c_str());
+                g_logger.warn("Preprocess: Timeout (10s) extracting metadata for '{}' -- skipping.", path.c_str());
             }
 
             std::this_thread::sleep_for(std::chrono::milliseconds(100));
@@ -175,7 +175,7 @@ void start_preprocess_worker() {
     if (g_preprocess_running.load()) return;
     g_preprocess_running.store(true);
     g_preprocess_finished.store(false);
-    g_preprocess_thread = std::thread(preprocess_loop);
+    g_preprocess_thread = std::jthread(preprocess_loop);
     g_logger.info("Preprocess: Background preprocessing thread spawned successfully.");
 }
 
