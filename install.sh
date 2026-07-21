@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# install.sh — piTrove v16.0.0 Premium Graphical Installer
+# install.sh — piTrove v17.0.0 Premium Graphical Installer
 # Target: Debian Trixie (13) 64-bit on Raspberry Pi 4/5
 
 set -eo pipefail
@@ -699,7 +699,7 @@ chown -R $PRIMARY_USER:$PRIMARY_USER "$PRIMARY_HOME/piTrove"
 info "Repository ready at: ${CYAN}$PRIMARY_HOME/piTrove${NC} (branch: ${BOLD}${BRANCH_LABEL}${NC})"
 
 # ── Wi-Fi Keepalive Daemon & Organizer Cleanups (v13.0.0 Migration) ───────────
-info "Migrating keepalive and organizer to native C++17 implementations..."
+info "Migrating keepalive and organizer to native C++23 implementations..."
 
 # Remove legacy Wi-Fi keepalive cron jobs
 if crontab -u "$PRIMARY_USER" -l 2>/dev/null | grep -q "wifi_keepalive.sh"; then
