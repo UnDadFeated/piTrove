@@ -4,6 +4,7 @@
 #include "config.h"
 #include <cmath>
 #include <cstring>
+#include <utility>
 
 
 void render_crossfade_gpu(SDL_Renderer* renderer,
@@ -32,7 +33,7 @@ TransitionEngine::~TransitionEngine() {
 }
 
 void TransitionEngine::start(TransitionEffect effect, float duration, int direction, float ken_burns_zoom) {
-    g_logger.debug("TRACE: TransitionEngine::start effect=%d duration=%f", (int)effect, duration);
+    g_logger.debug("TRACE: TransitionEngine::start effect={} duration={}", (int)effect, duration);
     if (duration <= 0.0f) {
         duration = 0.001f;
     }
@@ -82,7 +83,7 @@ void TransitionEngine::render(SDL_Texture* prev_tex, SDL_Texture* next_tex, int 
             render_dissolve(prev_tex, next_tex, screen_w, screen_h);
             break;
         default:
-            break;
+            std::unreachable();
     }
 }
 
@@ -218,7 +219,7 @@ void TransitionEngine::render_pixelate(SDL_Texture* prev_tex, SDL_Texture* next_
         }
     }
     if (!rects.empty()) {
-        SDL_RenderFillRects(sdl, rects.data(), (int)rects.size());
+        SDL_RenderFillRects(sdl, rects.data(), std::ssize(rects));
     }
 
     // Crossfade next
@@ -263,7 +264,7 @@ void TransitionEngine::render_dissolve(SDL_Texture* prev_tex, SDL_Texture* next_
         rects.push_back({(float)px, (float)py, (float)sz, (float)sz});
     }
     if (!rects.empty()) {
-        SDL_RenderFillRects(sdl, rects.data(), (int)rects.size());
+        SDL_RenderFillRects(sdl, rects.data(), std::ssize(rects));
     }
 
     // Crossfade next

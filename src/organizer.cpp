@@ -12,13 +12,12 @@
 #include <chrono>
 #include <iomanip>
 #include <sstream>
+#include <format>
 
 namespace fs = std::filesystem;
 
 static std::string format_date(int y, int m, int d) {
-    std::ostringstream oss;
-    oss << y << "-" << std::setw(2) << std::setfill('0') << m << "-" << std::setw(2) << std::setfill('0') << d;
-    return oss.str();
+    return std::format("{}-{:02d}-{:02d}", y, m, d);
 }
 
 static std::string get_exif_date_str(const fs::path& p) {
@@ -93,7 +92,7 @@ bool organize_media_archive(const std::string& root_dir, bool in_place) {
             // Skip if already in organized out-of-place path
             std::error_code ec;
             std::string rel_path_str = fs::relative(src_path, root_dir, ec).generic_string();
-            if (ec) { g_logger.warn("Organizer: skipping %s: %s", src_path.c_str(), ec.message().c_str()); continue; }
+            if (ec) { g_logger.warn("Organizer: skipping {}: {}", src_path.c_str(), ec.message().c_str()); continue; }
             if (!in_place && std::regex_search("/" + rel_path_str, org_pattern)) {
                 continue;
             }
@@ -148,7 +147,7 @@ bool organize_media_archive(const std::string& root_dir, bool in_place) {
             int counter = 1;
             std::error_code exists_ec;
             while (fs::exists(dest_path, exists_ec) && !exists_ec) {
-                new_filename = date_str + "_" + clean_base + "_" + std::to_string(counter) + ext;
+                new_filename = std::format("{}_{}_{}{}", date_str, clean_base, counter, ext);
                 dest_path = dest_dir / new_filename;
                 counter++;
             }

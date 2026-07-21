@@ -1,3 +1,4 @@
+#include <thread>
 #include "preload.h"
 #include "renderer.h"
 #include "util.h"
@@ -58,7 +59,7 @@ void PreloadQueue::start() {
     for (int i = 0; i < num_threads; i++) {
         threads.emplace_back(&PreloadQueue::worker_thread, state, i);
     }
-    g_logger.info("PreloadQueue started with %d worker threads (capacity=%d)", num_threads, state->max_size);
+    g_logger.info("PreloadQueue started with {} worker threads (capacity={})", num_threads, state->max_size);
     g_logger.info("Health check caching enabled (TTL=5s, NAS monitor=10s)");
 }
 
@@ -67,14 +68,6 @@ void PreloadQueue::shutdown() {
     state->running.store(false);
 
     state->work_cv.notify_all();
-    state->queue_cv.notify_all();
-
-    for (auto& t : threads) {
-        if (t.joinable()) {
-            std::thread([&t] { t.join(); }).detach();
-        }
-    }
-    std::this_thread::sleep_for(std::chrono::seconds(1));
     threads.clear();
 
     cancel_all();
@@ -88,7 +81,7 @@ void PreloadQueue::enqueue(const std::string& path) {
         
         if (state->active_preloads.count(path)) return;
 
-        g_logger.info("TRACE: PreloadQueue::enqueue '%s'", path.c_str());
+        g_logger.info("TRACE: PreloadQueue::enqueue '{}'", path.c_str());
         state->work_queue.push(path);
         state->active_preloads.insert(path);
     }
@@ -96,7 +89,7 @@ void PreloadQueue::enqueue(const std::string& path) {
 }
 
 std::shared_ptr<ImageData> PreloadQueue::try_dequeue(const std::string& target_path) {
-    g_logger.info("TRACE: PreloadQueue::try_dequeue queue_size=%d target=%s", (int)state->loaded_items.size(), target_path.c_str());
+    g_logger.info("TRACE: PreloadQueue::try_dequeue queue_size={} target={}", std::ssize(state->loaded_items), target_path.c_str());
     std::shared_ptr<ImageData> data = nullptr;
     {
         std::scoped_lock lk(state->work_mutex, state->queue_mutex);
@@ -106,7 +99,7 @@ std::shared_ptr<ImageData> PreloadQueue::try_dequeue(const std::string& target_p
         if (it != state->loaded_items.end()) {
             PreloadedItem item = std::move(*it);
             state->loaded_items.erase(it);
-            state->loaded_count.store((int)state->loaded_items.size());
+            state->loaded_count.store(std::ssize(state->loaded_items));
             state->active_preloads.erase(target_path);
 
             // Build ImageData from raw pixels (main thread — SDL context is thread-local)
@@ -306,9 +299,9 @@ static void compute_edge_data(const RawImage& raw,
 }
 
 void PreloadQueue::worker_thread(std::shared_ptr<PreloadState> state, int thread_id) {
-    g_logger.info("Preload worker %d: I/O throttle enabled (50ms between reads, capacity=%d)", thread_id, state->max_size);
+    g_logger.info("Preload worker {}: I/O throttle enabled (50ms between reads, capacity={})", thread_id, state->max_size);
     g_logger.info("  Throttle ACTIVE: I/O spread to protect CIFS session");
-    g_logger.debug("Preload worker thread %d starting", thread_id);
+    g_logger.debug("Preload worker thread {} starting", thread_id);
     while (state->running.load()) {
         std::string path;
         uint64_t task_epoch = 0;
@@ -328,11 +321,11 @@ void PreloadQueue::worker_thread(std::shared_ptr<PreloadState> state, int thread
             task_epoch = state->current_epoch;
         }
 
-        g_logger.debug("[Worker %d] preloading: %s", thread_id, path.c_str());
+        g_logger.debug("[Worker {}] preloading: {}", thread_id, path.c_str());
 
         struct stat st;
         if (!stat_timeout(path, st, 5000)) {
-            g_logger.warn("[Worker %d] stat_timeout: '%s' inaccessible, skipping.", thread_id, path.c_str());
+            g_logger.warn("[Worker {}] stat_timeout: '{}' inaccessible, skipping.", thread_id, path.c_str());
             {
                 std::lock_guard<std::mutex> lock(state->work_mutex);
                 state->active_preloads.erase(path);
@@ -342,7 +335,7 @@ void PreloadQueue::worker_thread(std::shared_ptr<PreloadState> state, int thread
 
         std::vector<uint8_t> buffer = ImageLoader::read_file_to_buffer(path);
         if (buffer.empty()) {
-            g_logger.warn("[Worker %d] Failed to read file to buffer: %s", thread_id, path.c_str());
+            g_logger.warn("[Worker {}] Failed to read file to buffer: {}", thread_id, path.c_str());
             {
                 std::lock_guard<std::mutex> lock(state->work_mutex);
                 state->active_preloads.erase(path);
@@ -351,9 +344,9 @@ void PreloadQueue::worker_thread(std::shared_ptr<PreloadState> state, int thread
         }
 
         int w = 0, h = 0, ch = 0;
-        uint8_t* pixels = stbi_load_from_memory(buffer.data(), (int)buffer.size(), &w, &h, &ch, 4);
+        uint8_t* pixels = stbi_load_from_memory(buffer.data(), std::ssize(buffer), &w, &h, &ch, 4);
         if (!pixels || w <= 0 || h <= 0) {
-            g_logger.warn("[Worker %d] Failed to decode: %s", thread_id, path.c_str());
+            g_logger.warn("[Worker {}] Failed to decode: {}", thread_id, path.c_str());
             {
                 std::lock_guard<std::mutex> lock(state->work_mutex);
                 state->active_preloads.erase(path);
@@ -381,9 +374,9 @@ void PreloadQueue::worker_thread(std::shared_ptr<PreloadState> state, int thread
         memcpy(raw.pixels, pixels, buf_size);
         stbi_image_free(pixels);
 
-        int exif_rotation = ImageLoader::read_exif_rotation_from_memory(buffer.data(), (unsigned int)buffer.size());
+        int exif_rotation = ImageLoader::read_exif_rotation_from_memory(buffer);
 
-        g_logger.debug("[Worker %d] Decoded %dx%d (EXIF: %d): %s", thread_id, raw.width, raw.height, exif_rotation, path.c_str());
+        g_logger.debug("[Worker {}] Decoded {}x{} (EXIF: {}): {}", thread_id, raw.width, raw.height, exif_rotation, path.c_str());
 
         int blur_radius = 14;
         {
@@ -409,7 +402,7 @@ void PreloadQueue::worker_thread(std::shared_ptr<PreloadState> state, int thread
         {
             std::scoped_lock lock(state->work_mutex, state->queue_mutex);
             if (task_epoch != state->current_epoch) {
-                g_logger.debug("[Worker %d] Discarding stale preload item (epoch mismatch: %llu vs %llu) for %s",
+                g_logger.debug("[Worker {}] Discarding stale preload item (epoch mismatch: {}lu vs {}lu) for {}",
                     thread_id, (unsigned long long)task_epoch, (unsigned long long)state->current_epoch, path.c_str());
                 if (raw.pixels) { free(raw.pixels); raw.pixels = nullptr; }
                 if (blur.pixels) { free(blur.pixels); blur.pixels = nullptr; }
@@ -436,16 +429,15 @@ void PreloadQueue::worker_thread(std::shared_ptr<PreloadState> state, int thread
             item.edge_rgt_rgb = std::move(edge_rgt_rgb);
             state->loaded_items.push_back(std::move(item));
             // Keep capacity under max_size by popping/discarding oldest items
-            while ((int)state->loaded_items.size() > state->max_size) {
+            while (std::ssize(state->loaded_items) > state->max_size) {
                 state->active_preloads.erase(state->loaded_items.front().path);
                 state->loaded_items.erase(state->loaded_items.begin());
             }
-            state->loaded_count.store((int)state->loaded_items.size());
+            state->loaded_count.store(std::ssize(state->loaded_items));
         }
         state->queue_cv.notify_one();
 
         // I/O throttle: spread out file reads to protect CIFS session
-        std::this_thread::sleep_for(std::chrono::microseconds(50000));  // 50ms between reads
     }
-    g_logger.debug("Preload worker thread %d exiting", thread_id);
+    g_logger.debug("Preload worker thread {} exiting", thread_id);
 }

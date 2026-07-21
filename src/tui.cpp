@@ -17,6 +17,7 @@
 #include <shared_mutex>
 #include <poll.h>
 #include <fcntl.h>
+#include <format>
 
 // ── Message flash buffer (replaces blocking usleep) ──
 static struct {
@@ -261,85 +262,85 @@ void config_wizard(const std::string& config_path) {
                 if (g_cfg.screen_w == 2560 && g_cfg.screen_h == 1440) return "1440p";
                 return "1080p";
             }
-            case 1: return std::to_string(g_cfg.rotation);
-            case 2: return std::to_string(g_cfg.ken_burns_zoom);
+            case 1: return std::format("{}", g_cfg.rotation);
+            case 2: return std::format("{}", g_cfg.ken_burns_zoom);
             case 3: return g_cfg.auto_display_rotation?"[ON]":"[OFF]";
             case 4: return g_cfg.brightness_auto?"[ON]":"[OFF]";
-            case 5: return std::to_string(g_cfg.brightness_auto_min);
-            case 6: return std::to_string(g_cfg.brightness_auto_max);
+            case 5: return std::format("{}", g_cfg.brightness_auto_min);
+            case 6: return std::format("{}", g_cfg.brightness_auto_max);
             case 7: return g_cfg.border_mode;
-            case 8: return std::to_string(g_cfg.border_width);
+            case 8: return std::format("{}", g_cfg.border_width);
             case 9: return g_cfg.bg_style;
-            case 10: return std::to_string(g_cfg.pattern_offset);
+            case 10: return std::format("{}", g_cfg.pattern_offset);
             case 11: return g_cfg.pattern_style;
-            case 12: return std::to_string(g_cfg.pattern_blend_count);
+            case 12: return std::format("{}", g_cfg.pattern_blend_count);
         }
         
         if (c == 2) switch(i) {
             case 0: return g_cfg.timer_enabled?"[ON]":"[OFF]";
-            case 1: return std::to_string(g_cfg.timer_x);
-            case 2: return std::to_string(g_cfg.timer_y);
-            case 3: return std::to_string(g_cfg.timer_font_size);
+            case 1: return std::format("{}", g_cfg.timer_x);
+            case 2: return std::format("{}", g_cfg.timer_y);
+            case 3: return std::format("{}", g_cfg.timer_font_size);
             case 4: return g_cfg.timer_color;
             case 5: return g_cfg.clock_enabled?"[ON]":"[OFF]";
-            case 6: return std::to_string(g_cfg.clock_x);
-            case 7: return std::to_string(g_cfg.clock_y);
-            case 8: return std::to_string(g_cfg.clock_font_size);
+            case 6: return std::format("{}", g_cfg.clock_x);
+            case 7: return std::format("{}", g_cfg.clock_y);
+            case 8: return std::format("{}", g_cfg.clock_font_size);
             case 9: return g_cfg.clock_color;
             case 10: return g_cfg.clock_24h?"[ON]":"[OFF]";
             case 11: return g_cfg.count_enabled?"[ON]":"[OFF]";
             case 12: return g_cfg.diagnostics_hud_enabled?"[ON]":"[OFF]";
             case 13: return g_cfg.adaptive_text_enabled?"[ON]":"[OFF]";
-            case 14: return std::to_string(g_cfg.splash_overlay_y);
+            case 14: return std::format("{}", g_cfg.splash_overlay_y);
             case 15: return g_cfg.progress_bar_enabled?"[ON]":"[OFF]";
         }
         if (c == 3) switch(i) {
-            case 0: return std::to_string(g_cfg.video_volume);
-            case 1: return std::to_string(g_cfg.videos_per_photos);
-            case 2: return std::to_string(g_cfg.video_probe_timeout);
+            case 0: return std::format("{}", g_cfg.video_volume);
+            case 1: return std::format("{}", g_cfg.videos_per_photos);
+            case 2: return std::format("{}", g_cfg.video_probe_timeout);
             case 3: return g_cfg.play_just_photos?"[ON]":"[OFF]";
             case 4: return g_cfg.play_just_videos?"[ON]":"[OFF]";
             case 5: return g_cfg.closed_captions_enabled?"[ON]":"[OFF]";
             case 6: return g_cfg.video_subtitles_dir;
-            case 7: return std::to_string(g_cfg.osd_offset_x);
-            case 8: return std::to_string(g_cfg.osd_offset_y);
-            case 9: return std::to_string(g_cfg.max_texture_dim);
+            case 7: return std::format("{}", g_cfg.osd_offset_x);
+            case 8: return std::format("{}", g_cfg.osd_offset_y);
+            case 9: return std::format("{}", g_cfg.max_texture_dim);
             case 10: return g_cfg.video_decode_budget_enabled?"[ON]":"[OFF]";
         }
         if (c == 1) switch(i) {
-            case 0: return std::to_string(g_cfg.transition_delay);
-            case 1: return std::to_string(g_cfg.transition_duration);
+            case 0: return std::format("{}", g_cfg.transition_delay);
+            case 1: return std::format("{}", g_cfg.transition_duration);
             case 2: return g_cfg.transition_effect;
             case 3: return g_cfg.ken_burns?"[ON]":"[OFF]";
-            case 4: return std::to_string(g_cfg.ken_burns_speed);
+            case 4: return std::format("{}", g_cfg.ken_burns_speed);
             case 5: return g_cfg.bias_lighting?"[ON]":"[OFF]";
-            case 6: return std::to_string(g_cfg.bias_anim_speed);
+            case 6: return std::format("{}", g_cfg.bias_anim_speed);
             case 7: return g_cfg.bias_anim_style; case 8: return g_cfg.bias_color_mode;
             case 9: return g_cfg.matting?"[ON]":"[OFF]";
-            case 10: return std::to_string(g_cfg.matting_size);
-            case 11: return std::to_string(g_cfg.cooldown_days);
+            case 10: return std::format("{}", g_cfg.matting_size);
+            case 11: return std::format("{}", g_cfg.cooldown_days);
             case 12: return g_cfg.shuffle?"[ON]":"[OFF]";
             case 13: return g_cfg.twin_portrait_enabled?"[ON]":"[OFF]";
-            case 14: return std::to_string(g_cfg.preload_capacity);
-            case 15: return std::to_string(g_cfg.preload_workers);
+            case 14: return std::format("{}", g_cfg.preload_capacity);
+            case 15: return std::format("{}", g_cfg.preload_workers);
             case 16: return g_cfg.reset_cooldown_on_restart?"[ON]":"[OFF]";
             case 17: return g_cfg.edge_glow_shadow?"[ON]":"[OFF]";
         }
         if (c == 4) switch(i) {
             case 0: return g_cfg.recursive?"[ON]":"[OFF]";
-            case 1: return std::to_string(g_cfg.scan_depth);
-            case 2: return std::to_string(g_cfg.scan_window_days);
+            case 1: return std::format("{}", g_cfg.scan_depth);
+            case 2: return std::format("{}", g_cfg.scan_window_days);
             case 3: { std::string s; for(size_t x=0;x<g_cfg.ignore_folders.size();x++) s+=g_cfg.ignore_folders[x]+(x<g_cfg.ignore_folders.size()-1?",":""); return s; }
-            case 4: return std::to_string(g_cfg.max_concurrent);
+            case 4: return std::format("{}", g_cfg.max_concurrent);
             case 5: return g_cfg.show_people_faces?"[ON]":"[OFF]";
             case 6: return g_cfg.keep_animals?"[ON]":"[OFF]";
             case 7: return g_cfg.on_this_day_enabled?"[ON]":"[OFF]";
-            case 8: return std::to_string(g_cfg.on_this_day_range);
+            case 8: return std::format("{}", g_cfg.on_this_day_range);
         }
         if (c == 5) switch(i) {
             case 0: return g_cfg.weather_enabled?"[ON]":"[OFF]";
-            case 1: return std::to_string(g_cfg.weather_lat);
-            case 2: return std::to_string(g_cfg.weather_lon);
+            case 1: return std::format("{}", g_cfg.weather_lat);
+            case 2: return std::format("{}", g_cfg.weather_lon);
         }
         if (c == 6) switch(i) {
             case 0: return g_cfg.touch_enabled?"[ON]":"[OFF]";
@@ -357,20 +358,20 @@ void config_wizard(const std::string& config_path) {
         }
         if (c == 8) switch(i) {
             case 0: return g_cfg.verbose?"debug":"info";
-            case 1: return std::to_string(g_cfg.http_socket_timeout);
-            case 2: return std::to_string(g_cfg.http_bind_attempts);
-            case 3: return std::to_string(g_cfg.cache_mmap_size);
-            case 4: return std::to_string(g_cfg.log_keep_count);
+            case 1: return std::format("{}", g_cfg.http_socket_timeout);
+            case 2: return std::format("{}", g_cfg.http_bind_attempts);
+            case 3: return std::format("{}", g_cfg.cache_mmap_size);
+            case 4: return std::format("{}", g_cfg.log_keep_count);
         }
         if (c == 9) switch(i) {
             case 0: return g_cfg.mqtt_enabled ? "[ON]" : "[OFF]";
             case 1: return g_cfg.mqtt_broker;
-            case 2: return std::to_string(g_cfg.mqtt_port);
+            case 2: return std::format("{}", g_cfg.mqtt_port);
             case 3: return g_cfg.mqtt_user;
             case 4: return g_cfg.mqtt_pass;
             case 5: return g_cfg.mqtt_topic_prefix;
             case 6: return g_cfg.mqtt_motionsensor_topic;
-            case 7: return std::to_string(g_cfg.mqtt_motionsensor_cooldown);
+            case 7: return std::format("{}", g_cfg.mqtt_motionsensor_cooldown);
         }
         if (c == 10) switch(i) {
             case 0: return g_cfg.google_photos_enabled ? "[ON]" : "[OFF]";
@@ -378,7 +379,7 @@ void config_wizard(const std::string& config_path) {
             case 2: return g_cfg.google_photos_client_secret;
             case 3: return g_cfg.google_photos_refresh_token;
             case 4: return g_cfg.google_photos_album_id;
-            case 5: return std::to_string(g_cfg.google_photos_sync_interval);
+            case 5: return std::format("{}", g_cfg.google_photos_sync_interval);
             case 6: return g_cfg.google_photos_cache_dir;
         }
         return "";
@@ -602,8 +603,7 @@ void config_wizard(const std::string& config_path) {
             printf("\033[1;31m|\033[0m  %-*s\033[1;31m|\033[0m\n", draw_cols-6, " Please stretch or expand your window until the TUI");
             printf("\033[1;31m|\033[0m  %-*s\033[1;31m|\033[0m\n", draw_cols-6, " is clearly visible.");
             printf("\033[1;31m|\033[0m  %-*s\033[1;31m|\033[0m\n", draw_cols-6, "");
-            char sz_buf[128];
-            snprintf(sz_buf, sizeof(sz_buf), " Current Terminal size:  %dx%d", cur_cols, cur_rows);
+            std::string sz_buf = std::format(" Current Terminal size:  {}x{}", cur_cols, cur_rows);
             printf("\033[1;31m|\033[0m  %-*s\033[1;31m|\033[0m\n", draw_cols-6, sz_buf);
             printf("\033[1;31m|\033[0m  %-*s\033[1;31m|\033[0m\n", draw_cols-6, " Minimum Required size:  80x24");
             printf("\033[1;31m|\033[0m  %-*s\033[1;31m|\033[0m\n", draw_cols-6, "");

@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <cstring>
 #include <vector>
+#include <span>
 #include <SDL3/SDL.h>
 
 enum class ImageFormat { Unknown, RGBA32, RGB24, BGRA32, BGR24 };
@@ -207,10 +208,10 @@ public:
 
 
     // Read EXIF orientation from a memory buffer
-    static int read_exif_rotation_from_memory(const uint8_t* buffer, unsigned int size);
+    static int read_exif_rotation_from_memory(std::span<const uint8_t> buffer);
 
     // Read all EXIF metadata in a single pass from memory
-    static ImageMetadata read_metadata_from_memory(const uint8_t* buffer, unsigned int size);
+    static ImageMetadata read_metadata_from_memory(std::span<const uint8_t> buffer);
 
     // Helper to read a file fully into a memory buffer with checks
     static std::vector<uint8_t> read_file_to_buffer(const std::string& path);

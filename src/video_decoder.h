@@ -1,8 +1,9 @@
 #pragma once // PITROVE_VIDEO_DECODER_H
 #include <string>
-#include <pthread.h>
+#include <thread>
 #include <atomic>
 #include <mutex>
+#include <span>
 #include <queue>
 #include <condition_variable>
 #include <SDL3/SDL_audio.h>
@@ -38,7 +39,7 @@ struct VideoFrame {
 };
 
 
-static constexpr size_t MAX_QUEUED_FRAMES = 8;
+static constexpr size_t MAX_QUEUED_FRAMES = 16;
 static constexpr size_t FRAME_POOL_SIZE = 10;
 
 struct FramePool {
@@ -95,7 +96,7 @@ private:
  std::string m_path;
  int m_target_width;
  int m_target_height;
- pthread_t m_thread;
+ std::jthread m_thread;
  std::atomic<bool> m_running;
  std::atomic<bool> m_eof{false};
 
@@ -109,7 +110,7 @@ private:
  std::atomic<double> m_last_frame_pts{0.0}; // PTS of last decoded frame for accurate countdown
     std::atomic<int> m_decoded_frames{0}; // frame count for duration estimation
  std::atomic<double> decode_start_time{0.0};
- static constexpr size_t MAX_QUEUED_FRAMES = 8; // wall-clock at first frame
+ static constexpr size_t MAX_QUEUED_FRAMES = 16; // wall-clock at first frame
 
  // Audio
  SDL_AudioStream* m_audio_stream{nullptr};
@@ -119,8 +120,7 @@ private:
 
  void init_audio();
  void shutdown_audio();
- void push_audio_samples(const int16_t* samples, int num_frames);
+ void push_audio_samples(std::span<const int16_t> samples);
 
  void decode_loop();
- static void* decode_thread_entry(void* arg);
 };
