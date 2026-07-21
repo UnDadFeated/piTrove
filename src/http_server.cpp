@@ -1106,7 +1106,7 @@ static std::string get_dashboard_html() {
             font-family: 'JetBrains Mono', monospace;
             font-size: 0.65rem;
             color: #4ade80;
-            height: 320px;
+            height: 420px;
             overflow-y: auto;
             white-space: pre-wrap;
             line-height: 1.4;
