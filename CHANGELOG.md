@@ -1,4 +1,18 @@
 # Changelog
+## v17.0.0 — C++23 Modernization & Logger Rewrite (July 21, 2026)
+### C++23 Migration
+- **Build Standard** — C++17 → C++23, enabling std::jthread, std::format, std::span, std::ssize, concepts, attributes
+- **Logger Rewrite** — Replaced printf-style g_logger with std::format variadic templates; converted all callsites
+- **Thread Migration** — 31 std::thread instances converted to std::jthread with automatic joining via stop tokens
+- **std::span** — Replaced raw pointer + size pairs with std::span across 7 files (video_decoder, preload, image_loader, cache, organizer, preprocess)
+- **std::ssize** — 71 signed-size conversions eliminating unsigned/signed comparison warnings
+- **Attributes** — Added [[unlikely]], [[assume]], std::unreachable() for branch prediction hints
+- **Dead Code Removal** — Deleted expected.h and interfaces.h (unused since refactor)
+### Code
+- Removed 29 snprintf calls, 62 std::to_string calls, 11 ostringstream usages in favor of std::format
+- Simplified TrackedThreadInfo with std::jthread stop tokens
+- Fixed DEBUG_LOG macro callsites in video decoder (std::format specifiers)
+
 ## v16.1.6 — Video Countdown Fix & Docker Hwaccel Support (July 20, 2026)
 ### Video
 - **Countdown Timer Fix** — decode_start_time now set at decode loop start so countdown works even when frames fail
