@@ -1150,10 +1150,41 @@ static std::string get_dashboard_html() {
             transform: translateY(-2px);
             box-shadow: 0 0 15px var(--accent-glow);
         }
-
         @media (max-width: 480px) {
             h1 { font-size: 1.5rem; }
             .form-grid { grid-template-columns: 1fr; }
+            .playback-controls-row {
+                flex-wrap: wrap;
+            }
+            .playback-controls-row .btn {
+                flex: 1 1 calc(50% - 0.25rem);
+                min-width: 0;
+                padding: 0.6rem;
+                font-size: 0.85rem;
+                border-radius: 12px;
+            }
+            .action-buttons-row {
+                flex-wrap: wrap;
+            }
+            .action-buttons-row .btn {
+                flex: 1 1 calc(33.33% - 0.33rem);
+                min-width: 0;
+                padding: 0.6rem;
+                font-size: 0.85rem;
+            }
+            .preview-container {
+                border-radius: 16px;
+            }
+            .telemetry-grid {
+                grid-template-columns: repeat(2, 1fr) !important;
+            }
+            .telemetry-item[style*="grid-column: span 3"] {
+                grid-column: span 2 !important;
+            }
+            .tabs {
+                padding: 0.25rem;
+            }
+        }
         }
     </style>
 </head>
@@ -1198,7 +1229,6 @@ static std::string get_dashboard_html() {
                         <button class="btn btn-blue" onclick="sendCommand('/api/prev')" style="flex: 1; padding: 0.75rem; border-radius: 12px; font-size: 0.9rem; flex-direction: row; gap: 0.2rem;"><span class="btn-icon">⏮</span></button>
                         <button id="btn-pause" class="btn btn-accent" onclick="sendCommand('/api/pause')" style="flex: 1.5; padding: 0.75rem; border-radius: 12px; font-size: 0.9rem; flex-direction: row; gap: 0.2rem;"><span id="icon-pause" class="btn-icon">⏸</span><span id="txt-pause">Pause</span></button>
                         <button class="btn btn-blue" onclick="sendCommand('/api/next')" style="flex: 1; padding: 0.75rem; border-radius: 12px; font-size: 0.9rem; flex-direction: row; gap: 0.2rem;"><span class="btn-icon">⏭</span></button>
-                        <button class="btn btn-blue" onclick="sendCommand('/api/force_video_next')" style="flex: 1.5; padding: 0.75rem; border-radius: 12px; font-size: 0.9rem; flex-direction: row; gap: 0.2rem;"><span class="btn-icon">🎬</span><span>Force Video</span></button>
                         <button id="btn-shuffle" class="btn btn-toggle" onclick="sendCommand('/api/toggle_shuffle')" style="flex: 1; padding: 0.75rem; border-radius: 12px; font-size: 0.9rem; flex-direction: row; gap: 0.2rem;"><span class="btn-icon">🔀</span><span><strong id="lbl-shuffle">ON</strong></span></button>
                     </div>
                 </div>
@@ -2325,18 +2355,6 @@ static void handle_client(int client_fd) {
             g_config_changed.store(true);
             send_response(client_fd, "HTTP/1.1 200 OK", "application/json", "{\"status\":\"ok\"}");
         } 
-        else if (request.rfind("GET /api/force_video_next", 0) == 0) {
-            if (!is_authorized(request, client_fd)) return;
-            static std::atomic<int64_t> last_force_video_ms{0};
-            int64_t now_ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
-            if (now_ms - last_force_video_ms.load() < 500) {
-                send_response(client_fd, "HTTP/1.1 429 Too Many Requests", "text/plain", "Rate limited");
-                return;
-            }
-            last_force_video_ms.store(now_ms);
-            g_remote_command.store(5);
-            send_response(client_fd, "HTTP/1.1 200 OK", "application/json", "{\"status\":\"ok\"}");
-        }
         else if (request.rfind("GET /api/restart", 0) == 0) {
             if (!is_authorized(request, client_fd)) return;
             static std::atomic<int64_t> last_restart_ms{0};
