@@ -109,11 +109,15 @@ while true; do
         fi
         # Verify piTrove application service & container health when network is online
         if ! systemctl is-active --quiet piTrove.service 2>/dev/null; then
-            log "Service check: piTrove.service is inactive! Auto-reviving service..."
+            log "Service check: piTrove.service is inactive! Refreshing NAS mount and auto-reviving service..."
+            SYSTEMD_MOUNT=$(systemd-escape -p --suffix=mount "$CIFS_MOUNT")
+            systemctl restart "$SYSTEMD_MOUNT" 2>/dev/null || true
             systemctl reset-failed piTrove.service 2>/dev/null || true
             systemctl restart piTrove.service 2>/dev/null || true
-        elif docker inspect --format={{.State.Health.Status}} "" 2>/dev/null | grep -q "unhealthy"; then
-            log "Health check: piTrove container reported UNHEALTHY! Restarting service..."
+        elif docker inspect --format='{{.State.Health.Status}}' "$DOCKER_CONTAINER" 2>/dev/null | grep -q "unhealthy"; then
+            log "Health check: piTrove container reported UNHEALTHY! Refreshing NAS mount and restarting service..."
+            SYSTEMD_MOUNT=$(systemd-escape -p --suffix=mount "$CIFS_MOUNT")
+            systemctl restart "$SYSTEMD_MOUNT" 2>/dev/null || true
             systemctl reset-failed piTrove.service 2>/dev/null || true
             systemctl restart piTrove.service 2>/dev/null || true
         fi
