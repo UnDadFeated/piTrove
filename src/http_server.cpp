@@ -1232,7 +1232,6 @@ static std::string get_dashboard_html() {
                         <button id="btn-pause" class="btn btn-accent" onclick="sendCommand('/api/pause')" style="flex: 1.5; padding: 0.75rem; border-radius: 12px; font-size: 0.9rem; flex-direction: row; gap: 0.2rem;"><span id="icon-pause" class="btn-icon">⏸</span><span id="txt-pause">Pause</span></button>
                         <button class="btn btn-blue" onclick="sendCommand('/api/next')" style="flex: 1; padding: 0.75rem; border-radius: 12px; font-size: 0.9rem; flex-direction: row; gap: 0.2rem;"><span class="btn-icon">⏭</span></button>
                         <button id="btn-shuffle" class="btn btn-toggle" onclick="sendCommand('/api/toggle_shuffle')" style="flex: 1; padding: 0.75rem; border-radius: 12px; font-size: 0.9rem; flex-direction: row; gap: 0.2rem;"><span class="btn-icon">🔀</span><span><strong id="lbl-shuffle">ON</strong></span></button>
-                        <button class="btn btn-blue" onclick="sendCommand('/api/play_video')" style="flex: 1; padding: 0.75rem; border-radius: 12px; font-size: 0.9rem; flex-direction: row; gap: 0.2rem;"><span class="btn-icon">🎬</span><span><strong>Video</strong></span></button>
                     </div>
                 </div>
 
