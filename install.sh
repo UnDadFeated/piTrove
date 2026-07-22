@@ -1112,7 +1112,8 @@ $SHARE_IP:$SHARE_PATH $SHARE_MOUNT $SHARE_PROTOCOL defaults,_netdev,timeo=10,ret
             info "First few items detected (up to 10):"
             echo "$file_list" | sed 's/^/     • /'
             echo
-            if yesno "Is this the correct directory to scan recursively?"; then
+            safe_read -p "▸ Is this the correct directory to scan recursively? (Y/n): " scan_ok
+            if [[ ! "$scan_ok" =~ ^[Nn]$ ]]; then
                 break
             else
                 info "Re-entering configuration..."
@@ -1137,7 +1138,8 @@ $SHARE_IP:$SHARE_PATH $SHARE_MOUNT $SHARE_PROTOCOL defaults,_netdev,timeo=10,ret
         fi
     else
         warn "Target directory does not exist or is not a folder: $SHARE_MOUNT"
-        if yesno "Create and use this directory anyway?"; then
+        safe_read -p "▸ Create and use this directory anyway? (Y/n): " create_dir
+        if [[ ! "$create_dir" =~ ^[Nn]$ ]]; then
             mkdir -p "$SHARE_MOUNT"
             break
         fi
