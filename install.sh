@@ -1764,7 +1764,11 @@ if [[ "$launch_config" =~ ^[Yy]$ ]]; then
     echo
     echo -e "  ${GREEN}Launching configuration wizard...${NC}"
     echo
-    docker exec -it piTrove /app/piTrove --config-wizard /app/config/config.toml
+    if [[ -t 0 ]]; then
+        docker exec -it piTrove /app/piTrove --config-wizard /app/config/config.toml
+    else
+        docker exec -i piTrove /app/piTrove --config-wizard /app/config/config.toml || true
+    fi
 fi
 
 echo

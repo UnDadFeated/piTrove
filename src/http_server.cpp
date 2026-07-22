@@ -25,6 +25,8 @@
 #include <filesystem>
 #include <iomanip>
 #include <poll.h>
+#include <cstdlib>
+#include <csignal>
 
 extern std::vector<MediaItem> g_eligible;
 extern int current_idx;
@@ -1106,7 +1108,7 @@ static std::string get_dashboard_html() {
             font-family: 'JetBrains Mono', monospace;
             font-size: 0.65rem;
             color: #4ade80;
-            height: 420px;
+            height: 55vh;
             overflow-y: auto;
             white-space: pre-wrap;
             line-height: 1.4;
@@ -1237,8 +1239,20 @@ static std::string get_dashboard_html() {
                     <div class="telemetry-title">System & Automation</div>
                     <div class="telemetry-grid" style="grid-template-columns: repeat(3, 1fr); gap: 0.5rem; margin-bottom: 0.75rem;">
                         <div class="telemetry-item">
+                            <span class="telemetry-label">Uptime</span>
+                            <span id="stat-uptime" class="telemetry-value">--</span>
+                        </div>
+                        <div class="telemetry-item">
                             <span class="telemetry-label">CPU Temp</span>
                             <span id="stat-temp" class="telemetry-value">--°C</span>
+                        </div>
+                        <div class="telemetry-item">
+                            <span class="telemetry-label">Memory</span>
+                            <span id="stat-mem" class="telemetry-value">--</span>
+                        </div>
+                        <div class="telemetry-item">
+                            <span class="telemetry-label">Disk</span>
+                            <span id="stat-disk" class="telemetry-value">--</span>
                         </div>
                         <div class="telemetry-item">
                             <span class="telemetry-label">Cache DB</span>
@@ -1249,14 +1263,13 @@ static std::string get_dashboard_html() {
                             <span id="stat-queue" class="telemetry-value">--</span>
                         </div>
                         <div class="telemetry-item" style="grid-column: span 3; border-top: 1px solid var(--border-color); padding-top: 0.4rem; margin-top: 0.2rem;">
-                            <span class="telemetry-label">MQTT Connection Status</span>
+                            <span class="telemetry-label">MQTT</span>
                             <span id="stat-mqtt-status" class="telemetry-value" style="font-size: 0.95rem; font-family: inherit;">Disabled</span>
-                            <span id="stat-mqtt-broker" style="font-size: 0.75rem; color: var(--text-muted); display: block; margin-top: 0.1rem;">Broker: --</span>
+                            <span id="stat-mqtt-broker" style="font-size: 0.75rem; color: var(--text-muted); display: block; margin-top: 0.1rem;">--</span>
                         </div>
                     </div>
                     <div class="action-buttons-row" style="display: flex; gap: 0.5rem; width: 100%;">
                         <button id="btn-screen" class="btn btn-toggle" onclick="sendCommand('/api/toggle_screen')" style="flex: 1.2; padding: 0.6rem; border-radius: 12px; font-size: 0.85rem; flex-direction: row; gap: 0.4rem;"><span class="btn-icon" style="font-size: 1rem;">📺</span><span>Screen: <strong id="lbl-screen">ON</strong></span></button>
-                        <button class="btn btn-blue" onclick="sendCommand('/api/trigger_motion')" style="flex: 1; padding: 0.6rem; border-radius: 12px; font-size: 0.85rem; flex-direction: row; gap: 0.4rem;"><span class="btn-icon" style="font-size: 1rem;">🏃</span><span>Motion</span></button>
                         <button class="btn btn-danger" onclick="confirmRestart()" style="flex: 1; padding: 0.6rem; border-radius: 12px; font-size: 0.85rem; flex-direction: row; gap: 0.4rem;"><span class="btn-icon" style="font-size: 1rem;">🔄</span><span>Restart</span></button>
                     </div>
                 </div>
@@ -1479,6 +1492,9 @@ static std::string get_dashboard_html() {
                         loadingEl.innerText = "Syncing...";
                         loadingEl.style.opacity = '1';
                         document.getElementById('preview').src = "/api/preview?t=" + new Date().getTime();
+                    } else if (status.paused !== lastPaused) {
+                        lastPaused = status.paused;
+                        document.getElementById('preview').src = "/api/preview?t=" + new Date().getTime();
                     }
                     
                     document.getElementById('media-title').innerText = status.filename;
@@ -1512,21 +1528,24 @@ static std::string get_dashboard_html() {
                     }
 
                     // Update stats telemetry
+                    document.getElementById('stat-uptime').innerText = status.uptime;
                     document.getElementById('stat-temp').innerText = status.temp;
+                    document.getElementById('stat-mem').innerText = status.mem;
+                    document.getElementById('stat-disk').innerText = status.disk;
                     document.getElementById('stat-db').innerText = status.db_size;
                     document.getElementById('stat-queue').innerText = status.total;
 
                     // Update MQTT details
                     const mqttStatusEl = document.getElementById('stat-mqtt-status');
                     const mqttBrokerEl = document.getElementById('stat-mqtt-broker');
-                    if (status.mqtt_enabled) {
+                    if (status.mqtt_status === "enabled") {
                         mqttStatusEl.innerText = "Connected";
                         mqttStatusEl.style.color = "#22c55e"; // green
-                        mqttBrokerEl.innerText = `Broker: ${status.mqtt_broker}:${status.mqtt_port}`;
+                        mqttBrokerEl.innerText = `${status.mqtt_broker}:${status.mqtt_port}`;
                     } else {
                         mqttStatusEl.innerText = "Disabled";
                         mqttStatusEl.style.color = "var(--text-muted)";
-                        mqttBrokerEl.innerText = "Broker: --";
+                        mqttBrokerEl.innerText = "--";
                     }
                 }
             } catch (err) {}
@@ -1640,6 +1659,72 @@ static std::string get_api_status() {
 
     std::string temp_str = temp_c > 0.0 ? std::format("{:.1f}\u00b0C", temp_c) : std::string("N/A");
     std::string db_str = db_mb > 0.0 ? std::format("{:.2f} MB", db_mb) : std::string("0.00 MB");
+
+    // Query uptime
+    std::string uptime_str = "N/A";
+    {
+        std::ifstream uptime_file("/proc/uptime");
+        if (uptime_file.is_open()) {
+            double uptime_sec;
+            if (uptime_file >> uptime_sec) {
+                int days = static_cast<int>(uptime_sec) / 86400;
+                int hours = (static_cast<int>(uptime_sec) % 86400) / 3600;
+                int mins = (static_cast<int>(uptime_sec) % 3600) / 60;
+                if (days > 0) {
+                    uptime_str = std::format("{}d {}h", days, hours);
+                } else {
+                    uptime_str = std::format("{}h {}m", hours, mins);
+                }
+            }
+            uptime_file.close();
+        }
+    }
+
+    // Query memory usage
+    std::string mem_str = "N/A";
+    {
+        std::ifstream meminfo("/proc/meminfo");
+        if (meminfo.is_open()) {
+            std::string line;
+            uint64_t mem_total = 0, mem_available = 0;
+            while (std::getline(meminfo, line)) {
+                if (line.find("MemTotal:") == 0) {
+                    mem_total = std::stoull(line.substr(9)) / 1024;
+                } else if (line.find("MemAvailable:") == 0) {
+                    mem_available = std::stoull(line.substr(13)) / 1024;
+                }
+            }
+            meminfo.close();
+            if (mem_total > 0) {
+                int used_mb = static_cast<int>(mem_total - mem_available);
+                int total_mb = static_cast<int>(mem_total);
+                int pct = static_cast<int>(100.0 * used_mb / total_mb);
+                mem_str = std::format("{}MB/{}MB ({}%)", used_mb, total_mb, pct);
+            }
+        }
+    }
+
+    // Query disk usage
+    std::string disk_str = "N/A";
+    {
+        std::string disk_out;
+        auto read_cmd = popen("df / --output=pcent 2>/dev/null | tail -1 | tr -d ' %'", "r");
+        if (read_cmd) {
+            char buf[256];
+            while (fgets(buf, sizeof(buf), read_cmd)) {
+                disk_out += buf;
+            }
+            pclose(read_cmd);
+            if (!disk_out.empty() && disk_out.back() == '\n') disk_out.pop_back();
+            if (!disk_out.empty()) {
+                disk_str = disk_out + "%";
+            }
+        }
+    }
+
+    // Determine MQTT status string
+    std::string mqtt_status = mqtt_enabled ? "enabled" : "disabled";
+
     return std::format(R"JSON({{
   "index": {},
   "total": {},
@@ -1647,10 +1732,14 @@ static std::string get_api_status() {
   "is_video": {},
   "shuffle": {},
   "paused": {},
+  "uptime": "{}",
   "temp": "{}",
+  "mem": "{}",
+  "disk": "{}",
   "db_size": "{}",
-  "mqtt_enabled": {},
+  "mqtt_status": "{}",
   "mqtt_broker": "{}",
+  "mqtt_port": {},
   "screen_blanked": {},
   "item_timer": {},
   "transition_delay": {}
@@ -1658,8 +1747,8 @@ static std::string get_api_status() {
         (type == "video" ? "true" : "false"),
         (shuffle ? "true" : "false"),
         (paused ? "true" : "false"),
-        temp_str, db_str,
-        (mqtt_enabled ? "true" : "false"), escape_json(mqtt_broker),
+        uptime_str, temp_str, mem_str, disk_str, db_str,
+        mqtt_status, escape_json(mqtt_broker), mqtt_port,
         (screen_blanked ? "true" : "false"),
         g_item_timer.load(), transition_delay);
 }
