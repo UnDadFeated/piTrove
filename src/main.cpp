@@ -2504,15 +2504,6 @@ int main(int argc, char** argv) {
                         if (diff_sec > 0.001 && diff_sec < 0.5) {
                             uint32_t sleep_ms = (uint32_t)(diff_sec * 1000.0);
                             if (sleep_ms > 0) SDL_Delay(sleep_ms);
-                        } else {
-                            // Enforce minimum target frame duration so playback speed never doubles/triples
-                            double cfps = g_eligible[current_idx].framerate;
-                            if (cfps <= 0) cfps = g_video_decoder.get_fps();
-                            if (cfps <= 0) cfps = 25.0;
-                            uint32_t min_delay_ms = (uint32_t)(1000.0 / cfps);
-                            if (min_delay_ms > 0 && min_delay_ms < 100) {
-                                SDL_Delay(min_delay_ms);
-                            }
                         }
                     } else {
                         double cfps = g_eligible[current_idx].framerate;

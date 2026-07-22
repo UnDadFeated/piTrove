@@ -1,3 +1,9 @@
+## v17.0.5 — Video Playback Speed & GPU Hardware Decoding (July 22, 2026)
+### Core
+- Fixed 0.5x video playback speed bug by removing forced 40ms sleep penalty when behind schedule in main.cpp
+- Enabled AV_HWDEVICE_TYPE_DRM hardware video decoding for HEVC/H264 on Pi 5 GPU with get_hw_format pixel format negotiation
+- Added native 60 FPS and high-framerate video support (framerate <= 144.0)
+
 ## v17.0.4 — Corrupt Video Handling (July 22, 2026)
 ### Core
 - Detect corrupted videos (moov atom not found) and mark as preprocessed with default dimensions

@@ -64,6 +64,15 @@ static bool is_pi5() {
     }
     return result;
 }
+static enum AVPixelFormat get_hw_format(AVCodecContext* ctx, const enum AVPixelFormat* pix_fmts) {
+    for (const enum AVPixelFormat* p = pix_fmts; *p != -1; p++) {
+        if (*p == AV_PIX_FMT_DRM_PRIME || *p == AV_PIX_FMT_NV12) {
+            return *p;
+        }
+    }
+    return pix_fmts[0];
+}
+
 static AVBufferRef* create_hw_device() {
     AVBufferRef* hw_device_ctx = nullptr;
     if (av_hwdevice_ctx_create(&hw_device_ctx,
@@ -304,7 +313,7 @@ void VideoDecoder::decode_loop() {
 
     DEBUG_LOG("VIDEO_DEC: Video stream={}, Audio stream={}", video_stream_idx, audio_stream_idx);
 
-    // Extract video framerate from stream metadata (prefer avg_framerate, clamp to sane range)    AVRational fr = fmt_ctx->streams[video_stream_idx]->avg_framerate;    if (fr.num == 0) fr = fmt_ctx->streams[video_stream_idx]->r_framerate;    if (fr.num == 0) fr = av_guess_frame_rate(fmt_ctx, fmt_ctx->streams[video_stream_idx], nullptr);    if (fr.num > 0 && fr.den > 0) {        double framerate = av_q2d(fr);        if (framerate > 1 && framerate < 60) {            m_frame_duration = 1.0 / framerate;        } else {            // Clamp to 30fps if framerate seems wrong            m_frame_duration = 0.033333;        }        DEBUG_LOG("VIDEO_DEC: Detected framerate={:.2f} via stream avg_framerate, frame_duration={:.3f}s", framerate, m_frame_duration);    } else {        m_frame_duration = 0.033333; // fallback 30fps        DEBUG_LOG("VIDEO_DEC: Could not detect framerate, using fallback 30fps");    }    }
+    // Extract video framerate from stream metadata (prefer avg_framerate, clamp to sane range)    AVRational fr = fmt_ctx->streams[video_stream_idx]->avg_framerate;    if (fr.num == 0) fr = fmt_ctx->streams[video_stream_idx]->r_framerate;    if (fr.num == 0) fr = av_guess_frame_rate(fmt_ctx, fmt_ctx->streams[video_stream_idx], nullptr);    if (fr.num > 0 && fr.den > 0) {        double framerate = av_q2d(fr);        if (framerate > 1.0 && framerate <= 144.0) {            m_frame_duration = 1.0 / framerate;        } else {            // Clamp to 30fps if framerate seems wrong            m_frame_duration = 0.033333;        }        DEBUG_LOG("VIDEO_DEC: Detected framerate={:.2f} via stream avg_framerate, frame_duration={:.3f}s", framerate, m_frame_duration);    } else {        m_frame_duration = 0.033333; // fallback 30fps        DEBUG_LOG("VIDEO_DEC: Could not detect framerate, using fallback 30fps");    }    }
     // Extract video duration with stream fallback
     m_video_total_duration.store(0.0);
     if (fmt_ctx->duration > 0 && (int64_t)fmt_ctx->duration != (int64_t)0x8000000000000000LL) {
@@ -324,12 +333,13 @@ void VideoDecoder::decode_loop() {
     // DRM hwaccel for V4L2 stateless decode (Pi 5 HEVC, Pi 4/5 H264)
     AVBufferRef* hw_dev = create_hw_device();
     const AVCodec* vc = avcodec_find_decoder(vp->codec_id);
-    // Pi 5 V4L2 HEVC stateless decoder is unreliable (dst buffer failures → stalls)
-    // Skip HW accel for HEVC on Pi 5, use software decoder instead
+    // Pi 5 V4L2 HEVC stateless decoder is unreliable on 64MB CMA (dst buffer failures → 30s stalls)
+    // Skip HW accel for HEVC on Pi 5 unless CMA memory is expanded, use software decoder
     if (hw_dev && is_pi5() && vp->codec_id == AV_CODEC_ID_HEVC) {
-        g_logger.info("VIDEO_DEC: Skipping HW accel for HEVC on Pi 5, using software decoder");
+        g_logger.info("VIDEO_DEC: Skipping HW accel for HEVC on Pi 5 to prevent DMA heap memory exhaustion, using software decoder");
         av_buffer_unref(&hw_dev);
     }
+
     // Pi 4 fallback: use V4L2 M2M codec directly if DRM hwaccel not available
     if (!hw_dev && hwaccel_path == "v4l2m2m" && vp->codec_id == AV_CODEC_ID_HEVC) {
         vc = avcodec_find_decoder_by_name("hevc_v4l2m2m");
@@ -350,7 +360,10 @@ void VideoDecoder::decode_loop() {
     }
     AVCodecContext* vcc = avcodec_alloc_context3(vc);
     avcodec_parameters_to_context(vcc, vp);
-    if (hw_dev) vcc->hw_device_ctx = av_buffer_ref(hw_dev);
+    if (hw_dev) {
+        vcc->hw_device_ctx = av_buffer_ref(hw_dev);
+        vcc->get_format = get_hw_format;
+    }
     // Enable multi-threaded decoding based on codec capabilities
     {
         int threads = std::thread::hardware_concurrency();
