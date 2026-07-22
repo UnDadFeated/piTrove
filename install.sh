@@ -99,31 +99,49 @@ show_spinner() {
     local i=0
     local last_status=""
     local max_width=68
-    
+    local start_time
+    start_time=$(date +%s)
+
     tput civis 2>/dev/null || echo -ne "\033[?25l"
-    
+
     while kill -0 "$pid" 2>/dev/null; do
         local char="${spin_chars[i]}"
-        
+
         # Update status line from log file every few ticks
-        if [[ -n "$log_file" && -f "$log_file" && $((i % 4)) -eq 0 ]]; then
+        if [[ -n "$log_file" && -f "$log_file" ]]; then
             local new_status
             new_status=$(tail -n 1 "$log_file" 2>/dev/null | tr -d '\033' | sed 's/\x1b\[[0-9;]*m//g' | head -c "$max_width" || true)
             if [[ "$new_status" != "$last_status" && -n "$new_status" ]]; then
                 last_status="$new_status"
             fi
         fi
-        
+
+        # Calculate elapsed time
+        local elapsed=$(( $(date +%s) - start_time ))
+        local elapsed_str
+        if [[ $elapsed -ge 60 ]]; then
+            elapsed_str="$(( elapsed / 60 ))m $(( elapsed % 60 ))s"
+        else
+            elapsed_str="${elapsed}s"
+        fi
+
+        # Grey subline: show log status if available, otherwise show elapsed time
+        local subline
+        if [[ -n "$last_status" ]]; then
+            subline="${last_status}"
+        else
+            subline="running for ${elapsed_str}..."
+        fi
+
         # Print spinner line, always two lines so cursor stays fixed
-        status_text="${last_status:-}"
         printf "\r\033[K   ${CYAN}[%s]${NC}  %s...                        \n" "$char" "$label"
-        printf "\r\033[K      ${GRAY}▸ %s${NC}" "$status_text"
+        printf "\r\033[K      ${GRAY}▸ %s${NC}" "$subline"
         printf "\033[1A"
-        
+
         i=$(( (i + 1) % 10 ))
         sleep $delay
     done
-    
+
     true # ensure exit code 0
     tput cnorm 2>/dev/null || echo -ne "\033[?25h"
     printf "\r\033[K"
