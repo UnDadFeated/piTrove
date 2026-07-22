@@ -1459,6 +1459,7 @@ int main(int argc, char** argv) {
     g_logger.info("Loading splash screen...");
     g_renderer.load_splash(splash_file);
     g_logger.info("Splash loaded");
+    g_renderer.render_splash(1, 0, 0, 0, "INIT", 0, nullptr, false);
 
     // --- Fast-path: skip scan+cache if DB already exists ---
     std::string db_path = cache_dir + "/cache.db";

@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(piTrove VERSION 17.0.6 LANGUAGES CXX)
+project(piTrove VERSION 17.0.7 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
