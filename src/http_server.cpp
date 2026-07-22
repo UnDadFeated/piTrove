@@ -1354,6 +1354,7 @@ static std::string get_dashboard_html() {
 
         let logInterval = null;
         let lastFilename = "";
+        let lastPaused = null;
         function switchTab(tabId) {
             document.querySelectorAll('.tab-content').forEach(el => el.style.display = 'none');
             document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
