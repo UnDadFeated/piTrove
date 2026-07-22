@@ -271,7 +271,6 @@ void Renderer::calculate_fit_rect(int img_w, int img_h, SDL_Rect& out_rect) {
         out_rect.y = screen_h / 2;
         return;
     }
-    [[assume(screen_w > 0 && screen_h > 0)]]
 
     bool has_matting = false;
     std::string border_mode = "off";
@@ -934,7 +933,6 @@ void Renderer::draw_bias_lighting(const SDL_Rect& fit_rect, Uint8 avg_r, Uint8 a
         int bias_strength, float item_timer, float anim_speed, const std::string& style, int border_width, int glow_depth) {
     if (!sdl_renderer) return;
     int sw = screen_w, sh = screen_h;
-    int bw = border_width;
     int bw_top = border_width;
     int bw_left = border_width;
     int bw_right = border_width;

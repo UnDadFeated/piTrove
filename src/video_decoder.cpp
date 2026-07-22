@@ -52,19 +52,30 @@ static bool video_within_budget(AVFormatContext* fmt, const VideoLimits& limits)
 
 // Runtime Pi 4/5 detection
 static std::string hwaccel_path = "none";
+static bool is_pi5() {
+    static bool detected = false;
+    static bool result = false;
+    if (!detected) {
+        std::ifstream f("/proc/device-tree/model");
+        std::string m((std::istreambuf_iterator<char>(f)), {});
+        result = m.find("Raspberry Pi 5") != std::string::npos;
+        detected = true;
+    }
+    return result;
+}
 static AVBufferRef* create_hw_device() {
     AVBufferRef* hw_device_ctx = nullptr;
     if (av_hwdevice_ctx_create(&hw_device_ctx,
                                AV_HWDEVICE_TYPE_DRM,
                                nullptr, nullptr, 0) >= 0) {
-        hwaccel_path = "pi5_drm";
+        hwaccel_path = "drm";
         return hw_device_ctx;
     }
     // V4L2 M2M fallback: only if DRM hwaccel failed (Pi 4)
     if (!hw_device_ctx &&
         (avcodec_find_decoder_by_name("hevc_v4l2m2m") ||
          avcodec_find_decoder_by_name("h264_v4l2m2m"))) {
-        hwaccel_path = "pi4_v4l2";
+        hwaccel_path = "v4l2m2m";
     }
     return nullptr;
 }
@@ -312,11 +323,17 @@ void VideoDecoder::decode_loop() {
     // DRM hwaccel for V4L2 stateless decode (Pi 5 HEVC, Pi 4/5 H264)
     AVBufferRef* hw_dev = create_hw_device();
     const AVCodec* vc = avcodec_find_decoder(vp->codec_id);
+    // Pi 5 V4L2 HEVC stateless decoder is unreliable (dst buffer failures → stalls)
+    // Skip HW accel for HEVC on Pi 5, use software decoder instead
+    if (hw_dev && is_pi5() && vp->codec_id == AV_CODEC_ID_HEVC) {
+        g_logger.info("VIDEO_DEC: Skipping HW accel for HEVC on Pi 5, using software decoder");
+        av_buffer_unref(&hw_dev);
+    }
     // Pi 4 fallback: use V4L2 M2M codec directly if DRM hwaccel not available
-    if (!hw_dev && hwaccel_path == "pi4_v4l2" && vp->codec_id == AV_CODEC_ID_HEVC) {
+    if (!hw_dev && hwaccel_path == "v4l2m2m" && vp->codec_id == AV_CODEC_ID_HEVC) {
         vc = avcodec_find_decoder_by_name("hevc_v4l2m2m");
     }
-    if (!hw_dev && hwaccel_path == "pi4_v4l2" && vp->codec_id == AV_CODEC_ID_H264) {
+    if (!hw_dev && hwaccel_path == "v4l2m2m" && vp->codec_id == AV_CODEC_ID_H264) {
         vc = avcodec_find_decoder_by_name("h264_v4l2m2m");
     }
     if (vc && hw_dev) {
@@ -452,7 +469,7 @@ void VideoDecoder::decode_loop() {
 
     decode_start_time.store(av_gettime_relative() / 1000000.0, std::memory_order_relaxed);
     bool eof = false;
-    int vf_count = 0, af_count = 0, pkt_count = 0, ret = 0;
+    int vf_count = 0, af_count = 0, ret = 0;
     // Stall detection: if no video frame produced within this many ms, abort
     static constexpr long long STALL_TIMEOUT_US = 30000000; // 30 seconds in microseconds
     long long last_frame_ms = av_gettime_relative();

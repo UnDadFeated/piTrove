@@ -304,7 +304,6 @@ void CacheManager::upsert(MediaItem mi, int bad, int preprocessed) {
     [[unlikely]]
             trigger_error(402); // E402: SQLITE_LOCK_TIMEOUT
         } else {
-    [[unlikely]]
             trigger_error(408); // E408: DISK_WRITE_FAIL
         }
         g_logger.error("Failed to execute upsert for: {} (error code: {})", mi.path.c_str(), step_ret);
@@ -331,7 +330,6 @@ void CacheManager::mark_shown(const std::string& path) {
     [[unlikely]]
             trigger_error(402); // E402: SQLITE_LOCK_TIMEOUT
         } else {
-    [[unlikely]]
             trigger_error(408); // E408: DISK_WRITE_FAIL
         }
         g_logger.error("Failed to execute mark_shown for: {} (error code: {})", path.c_str(), step_ret);
