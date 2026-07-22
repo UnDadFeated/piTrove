@@ -15,8 +15,8 @@
     <style>
         :root {
             --bg-dark: #090d16;
-            --bg-card: rgba(15, 23, 42, 0.75);
-            --border: rgba(56, 189, 248, 0.15);
+            --bg-card: rgba(15, 23, 42, 0.85);
+            --border: rgba(56, 189, 248, 0.18);
             --border-hover: rgba(56, 189, 248, 0.4);
             --text-primary: #f8fafc;
             --text-secondary: #94a3b8;
@@ -36,12 +36,11 @@
             background-color: var(--bg-dark);
             background-image: 
                 radial-gradient(at 0% 0%, rgba(225, 29, 72, 0.12) 0px, transparent 50%),
-                radial-gradient(at 100% 0%, rgba(6, 182, 212, 0.15) 0px, transparent 50%),
-                radial-gradient(at 50% 100%, rgba(168, 85, 247, 0.1) 0px, transparent 50%);
+                radial-gradient(at 100% 0%, rgba(6, 182, 212, 0.15) 0px, transparent 50%);
             background-attachment: fixed;
             color: var(--text-primary);
             font-family: var(--font-sans);
-            line-height: 1.5;
+            line-height: 1.45;
             min-height: 100vh;
             display: flex;
             flex-direction: column;
@@ -49,15 +48,15 @@
 
         .container {
             width: 100%;
-            max-width: 1000px;
+            max-width: 920px;
             margin: 0 auto;
-            padding: 0 20px;
+            padding: 0 16px;
         }
 
         header {
             border-bottom: 1px solid var(--border);
             backdrop-filter: blur(12px);
-            background: rgba(9, 13, 22, 0.8);
+            background: rgba(9, 13, 22, 0.9);
             position: sticky;
             top: 0;
             z-index: 100;
@@ -66,25 +65,25 @@
             display: flex;
             justify-content: space-between;
             align-items: center;
-            height: 64px;
+            height: 54px;
         }
         .brand {
             display: flex;
             align-items: center;
-            gap: 10px;
+            gap: 8px;
             font-family: var(--font-mono);
             font-weight: 700;
-            font-size: 1.25rem;
+            font-size: 1.15rem;
             color: var(--text-primary);
         }
         .brand .pi-icon {
             color: var(--raspberry);
-            font-size: 1.5rem;
+            font-size: 1.35rem;
         }
         .brand .ver-tag {
-            font-size: 0.75rem;
-            padding: 2px 8px;
-            border-radius: 12px;
+            font-size: 0.7rem;
+            padding: 1px 7px;
+            border-radius: 10px;
             background: rgba(6, 182, 212, 0.15);
             color: var(--cyan);
             border: 1px solid rgba(6, 182, 212, 0.3);
@@ -92,13 +91,13 @@
         }
         nav {
             display: flex;
-            gap: 20px;
+            gap: 16px;
             align-items: center;
         }
         nav a {
             color: var(--text-secondary);
             text-decoration: none;
-            font-size: 0.9rem;
+            font-size: 0.85rem;
             font-weight: 500;
             transition: all 0.2s;
         }
@@ -108,9 +107,9 @@
         .nav-btn {
             display: inline-flex;
             align-items: center;
-            gap: 6px;
-            padding: 6px 14px;
-            border-radius: 8px;
+            gap: 5px;
+            padding: 5px 12px;
+            border-radius: 6px;
             background: rgba(255, 255, 255, 0.05);
             border: 1px solid var(--border);
             color: var(--text-primary);
@@ -122,52 +121,38 @@
         }
 
         .hero {
-            padding: 48px 0 32px;
+            padding: 24px 0 16px;
             text-align: center;
         }
-        .hero-badge {
-            display: inline-flex;
-            align-items: center;
-            gap: 8px;
-            padding: 4px 14px;
-            border-radius: 20px;
-            background: rgba(34, 197, 94, 0.1);
-            border: 1px solid rgba(34, 197, 94, 0.3);
-            color: var(--green);
-            font-family: var(--font-mono);
-            font-size: 0.82rem;
-            font-weight: 600;
-            margin-bottom: 20px;
-        }
         .hero h1 {
-            font-size: 2.5rem;
+            font-size: 2rem;
             font-weight: 800;
             line-height: 1.2;
             letter-spacing: -0.02em;
             background: linear-gradient(135deg, #ffffff 0%, #cbd5e1 50%, var(--cyan) 100%);
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
-            margin-bottom: 16px;
+            margin-bottom: 8px;
         }
         .hero p {
-            font-size: 1.05rem;
+            font-size: 0.95rem;
             color: var(--text-secondary);
-            max-width: 680px;
-            margin: 0 auto 24px;
+            max-width: 640px;
+            margin: 0 auto;
         }
 
         .terminal-box {
-            background: rgba(15, 23, 42, 0.85);
+            background: var(--bg-card);
             border: 1px solid var(--border);
-            border-radius: 12px;
+            border-radius: 10px;
             overflow: hidden;
-            box-shadow: 0 20px 40px -15px rgba(0,0,0,0.5);
+            box-shadow: 0 12px 30px -10px rgba(0,0,0,0.5);
             backdrop-filter: blur(16px);
-            margin-bottom: 40px;
+            margin: 16px 0 24px;
         }
         .terminal-header {
             background: rgba(30, 41, 59, 0.7);
-            padding: 10px 16px;
+            padding: 8px 14px;
             display: flex;
             align-items: center;
             justify-content: space-between;
@@ -178,8 +163,8 @@
             gap: 6px;
         }
         .dot {
-            width: 10px;
-            height: 10px;
+            width: 9px;
+            height: 9px;
             border-radius: 50%;
         }
         .dot.red { background: #ef4444; }
@@ -187,85 +172,88 @@
         .dot.green { background: #10b981; }
         .terminal-title {
             font-family: var(--font-mono);
-            font-size: 0.8rem;
+            font-size: 0.75rem;
             color: var(--text-muted);
         }
         .terminal-body {
-            padding: 24px;
+            padding: 16px;
         }
         
-        .cmd-line {
+        .cmd-container {
             background: #020617;
-            border: 1px solid rgba(6, 182, 212, 0.3);
+            border: 1px solid rgba(6, 182, 212, 0.35);
             border-radius: 8px;
-            padding: 14px 18px;
+            padding: 12px 14px;
             display: flex;
             align-items: center;
             justify-content: space-between;
             gap: 12px;
-            font-family: var(--font-mono);
-            font-size: 0.9rem;
-            margin-bottom: 24px;
+            margin-bottom: 16px;
             box-shadow: inset 0 2px 4px rgba(0,0,0,0.5);
         }
         .cmd-text {
+            font-family: var(--font-mono);
+            font-size: 0.85rem;
             color: var(--cyan);
-            overflow-x: auto;
-            white-space: nowrap;
+            word-break: break-all;
+            white-space: normal;
+            line-height: 1.4;
             display: flex;
-            align-items: center;
+            align-items: flex-start;
             gap: 8px;
         }
         .cmd-text .prompt {
             color: var(--green);
             font-weight: 700;
             user-select: none;
+            flex-shrink: 0;
         }
         .copy-btn {
             background: rgba(6, 182, 212, 0.15);
-            border: 1px solid rgba(6, 182, 212, 0.3);
+            border: 1px solid rgba(6, 182, 212, 0.35);
             color: var(--cyan);
             border-radius: 6px;
-            padding: 8px 12px;
+            padding: 7px 12px;
             cursor: pointer;
             font-family: var(--font-mono);
-            font-size: 0.8rem;
+            font-size: 0.78rem;
             font-weight: 600;
-            display: flex;
+            display: inline-flex;
             align-items: center;
             gap: 6px;
             transition: all 0.2s;
             flex-shrink: 0;
+            white-space: nowrap;
         }
         .copy-btn:hover {
             background: var(--cyan);
             color: #090d16;
-            box-shadow: 0 0 12px rgba(6, 182, 212, 0.4);
+            box-shadow: 0 0 10px rgba(6, 182, 212, 0.4);
         }
 
         .instructions-heading {
             font-family: var(--font-mono);
-            font-size: 0.85rem;
+            font-size: 0.78rem;
             text-transform: uppercase;
             letter-spacing: 0.05em;
             color: var(--text-muted);
-            margin-bottom: 14px;
+            margin-bottom: 10px;
             display: flex;
             align-items: center;
-            gap: 8px;
+            gap: 6px;
         }
         .instructions-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-            gap: 16px;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 10px;
         }
         .step-card {
             background: rgba(30, 41, 59, 0.4);
             border: 1px solid rgba(255, 255, 255, 0.05);
-            border-radius: 8px;
-            padding: 14px 16px;
+            border-radius: 6px;
+            padding: 10px 12px;
             display: flex;
-            gap: 12px;
+            gap: 10px;
             align-items: flex-start;
         }
         .step-num {
@@ -274,50 +262,52 @@
             border: 1px solid rgba(6, 182, 212, 0.3);
             font-family: var(--font-mono);
             font-weight: 700;
-            font-size: 0.85rem;
-            width: 24px;
-            height: 24px;
-            border-radius: 6px;
+            font-size: 0.78rem;
+            width: 20px;
+            height: 20px;
+            border-radius: 4px;
             display: flex;
             align-items: center;
             justify-content: center;
             flex-shrink: 0;
+            margin-top: 1px;
         }
         .step-content {
-            font-size: 0.88rem;
+            font-size: 0.82rem;
             color: var(--text-secondary);
+            line-height: 1.35;
         }
         .step-content strong {
             color: var(--text-primary);
         }
         .step-content code {
             font-family: var(--font-mono);
-            background: rgba(0,0,0,0.4);
+            background: rgba(0,0,0,0.5);
             color: var(--green);
-            padding: 2px 6px;
-            border-radius: 4px;
-            font-size: 0.8rem;
+            padding: 1px 5px;
+            border-radius: 3px;
+            font-size: 0.75rem;
             border: 1px solid rgba(255,255,255,0.08);
         }
 
         .video-section {
-            margin-bottom: 40px;
+            margin-bottom: 24px;
         }
         .video-card {
-            background: rgba(15, 23, 42, 0.85);
+            background: var(--bg-card);
             border: 1px solid var(--border);
-            border-radius: 12px;
+            border-radius: 10px;
             overflow: hidden;
-            box-shadow: 0 20px 40px -15px rgba(0,0,0,0.5);
+            box-shadow: 0 12px 30px -10px rgba(0,0,0,0.5);
         }
         .video-header {
             background: rgba(30, 41, 59, 0.7);
-            padding: 10px 16px;
+            padding: 8px 14px;
             display: flex;
             align-items: center;
             gap: 8px;
             font-family: var(--font-mono);
-            font-size: 0.85rem;
+            font-size: 0.78rem;
             color: var(--text-secondary);
             border-bottom: 1px solid rgba(255, 255, 255, 0.05);
         }
@@ -339,47 +329,42 @@
         }
 
         .features-section {
-            margin-bottom: 48px;
+            margin-bottom: 32px;
         }
         .section-title {
             text-align: center;
-            margin-bottom: 24px;
+            margin-bottom: 16px;
         }
         .section-title h2 {
-            font-size: 1.75rem;
+            font-size: 1.35rem;
             font-weight: 700;
             color: var(--text-primary);
         }
-        .section-title p {
-            color: var(--text-muted);
-            font-size: 0.95rem;
-        }
         .features-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-            gap: 16px;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 12px;
         }
         .feature-item {
             background: var(--bg-card);
             border: 1px solid var(--border);
-            border-radius: 10px;
-            padding: 20px;
+            border-radius: 8px;
+            padding: 14px;
             transition: all 0.2s;
         }
         .feature-item:hover {
             border-color: var(--border-hover);
             transform: translateY(-2px);
-            background: rgba(15, 23, 42, 0.95);
         }
         .feature-icon {
-            width: 38px;
-            height: 38px;
-            border-radius: 8px;
+            width: 32px;
+            height: 32px;
+            border-radius: 6px;
             display: flex;
             align-items: center;
             justify-content: center;
-            font-size: 1.25rem;
-            margin-bottom: 12px;
+            font-size: 1.1rem;
+            margin-bottom: 10px;
         }
         .icon-cyan { background: rgba(6, 182, 212, 0.15); color: var(--cyan); }
         .icon-green { background: rgba(34, 197, 94, 0.15); color: var(--green); }
@@ -388,49 +373,47 @@
         .icon-amber { background: rgba(245, 158, 11, 0.15); color: var(--amber); }
 
         .feature-item h3 {
-            font-size: 1.05rem;
+            font-size: 0.92rem;
             font-weight: 600;
-            margin-bottom: 6px;
+            margin-bottom: 4px;
             color: var(--text-primary);
         }
         .feature-item p {
-            font-size: 0.86rem;
+            font-size: 0.8rem;
             color: var(--text-secondary);
-            line-height: 1.5;
+            line-height: 1.4;
         }
 
         footer {
             margin-top: auto;
             border-top: 1px solid var(--border);
-            padding: 24px 0;
+            padding: 16px 0;
             background: rgba(9, 13, 22, 0.95);
-            font-size: 0.85rem;
+            font-size: 0.8rem;
             color: var(--text-muted);
             text-align: center;
         }
         footer a {
             color: var(--text-secondary);
             text-decoration: none;
-            margin: 0 8px;
+            margin: 0 6px;
         }
         footer a:hover {
             color: var(--cyan);
         }
 
         @media (max-width: 768px) {
-            .hero { padding: 32px 0 24px; }
-            .hero h1 { font-size: 1.8rem; }
-            .hero p { font-size: 0.95rem; }
-            .cmd-line {
+            .hero { padding: 18px 0 12px; }
+            .hero h1 { font-size: 1.5rem; }
+            .hero p { font-size: 0.85rem; }
+            .cmd-container {
                 flex-direction: column;
                 align-items: stretch;
                 gap: 10px;
-                padding: 12px;
+                padding: 10px;
             }
             .cmd-text {
                 font-size: 0.78rem;
-                overflow-x: auto;
-                padding-bottom: 4px;
             }
             .copy-btn {
                 justify-content: center;
@@ -443,7 +426,7 @@
                 grid-template-columns: 1fr;
             }
             .terminal-body {
-                padding: 16px;
+                padding: 12px;
             }
         }
     </style>
@@ -470,11 +453,8 @@
     <main class="container">
         <!-- Hero Section -->
         <section class="hero">
-            <div class="hero-badge">
-                <i class="ti ti-terminal-2"></i> PITROVE ARCHITECTURE
-            </div>
-            <h1>C++ Digital Picture &amp; Video Frame<br>for Raspberry Pi</h1>
-            <p>High-performance slideshow engine built with C++23 &amp; SDL3. Direct DRM/KMS hardware acceleration, in-process FFmpeg video decoding, NAS auto-mounting, and zero-touch updates.</p>
+            <h1>C++ Digital Picture &amp; Video Frame</h1>
+            <p>High-performance slideshow engine for Raspberry Pi with direct DRM/KMS hardware acceleration, in-process FFmpeg video decoding, NAS auto-mounting, &amp; zero-touch updates.</p>
         </section>
 
         <!-- Terminal Window & Quick Install -->
@@ -485,18 +465,18 @@
                     <span class="dot yellow"></span>
                     <span class="dot green"></span>
                 </div>
-                <div class="terminal-title">piTrove-installer ~ bash</div>
+                <div class="terminal-title">install.sh ~ bash</div>
                 <div></div>
             </div>
             <div class="terminal-body">
-                <div class="cmd-line">
+                <div class="cmd-container">
                     <div class="cmd-text">
                         <span class="prompt">❯</span>
                         <span>wget -qO- https://raw.githubusercontent.com/UnDadFeated/piTrove/main/install.sh | sudo bash</span>
                     </div>
                     <button class="copy-btn" onclick="copyInstallCmd()" id="copyBtn">
                         <i class="ti ti-copy" id="copyIcon"></i>
-                        <span id="copyText">Copy Command</span>
+                        <span id="copyText">Copy</span>
                     </button>
                 </div>
 
@@ -513,19 +493,19 @@
                     <div class="step-card">
                         <div class="step-num">2</div>
                         <div class="step-content">
-                            Boot the Pi, connect to your network, and SSH in: <code>ssh pi@&lt;pi-ip&gt;</code>
+                            Boot the Pi, connect to network, &amp; SSH in: <code>ssh pi@&lt;pi-ip&gt;</code>
                         </div>
                     </div>
                     <div class="step-card">
                         <div class="step-num">3</div>
                         <div class="step-content">
-                            Run the one-line command above — Docker, NAS mounts, &amp; systemd service auto-configure.
+                            Run the 1-line command above — Docker, NAS mounts, &amp; service auto-configure.
                         </div>
                     </div>
                     <div class="step-card">
                         <div class="step-num">4</div>
                         <div class="step-content">
-                            Open web dashboard at <code>http://&lt;pi-ip&gt;:9000</code> to control playback &amp; settings.
+                            Access web dashboard at <code>http://&lt;pi-ip&gt;:9000</code> to control playback.
                         </div>
                     </div>
                 </div>
@@ -536,7 +516,7 @@
         <section class="video-section" id="demo">
             <div class="video-card">
                 <div class="video-header">
-                    <i class="ti ti-brand-youtube"></i> Live Hardware Demo &amp; Overview
+                    <i class="ti ti-brand-youtube"></i> Live Hardware Demo &amp; Video Overview
                 </div>
                 <div class="responsive-video">
                     <iframe src="https://www.youtube-nocookie.com/embed/Blg8EHAL3RY" 
@@ -552,7 +532,6 @@
         <section class="features-section" id="features">
             <div class="section-title">
                 <h2>Built for 24/7 Unattended Reliability</h2>
-                <p>Designed to run continuously without maintenance or intervention.</p>
             </div>
             <div class="features-grid">
                 <div class="feature-item">
@@ -563,7 +542,7 @@
                 <div class="feature-item">
                     <div class="feature-icon icon-cyan"><i class="ti ti-video"></i></div>
                     <h3>In-Process Video Engine</h3>
-                    <p>Seamless H.264/H.265/AV1 decode via FFmpeg with Pi 4/5 hardware acceleration and gapless photo-to-video transitions.</p>
+                    <p>Seamless H.264/H.265/AV1 decode via FFmpeg with Pi 4/5 hardware acceleration and gapless transitions.</p>
                 </div>
                 <div class="feature-item">
                     <div class="feature-icon icon-green"><i class="ti ti-server"></i></div>
@@ -573,17 +552,17 @@
                 <div class="feature-item">
                     <div class="feature-icon icon-purple"><i class="ti ti-brand-apple"></i></div>
                     <h3>Integrations &amp; Web Remote</h3>
-                    <p>Home Assistant MQTT auto-discovery, Google Photos cloud sync, PIN protection, and glassmorphic Web UI dashboard.</p>
+                    <p>Home Assistant MQTT auto-discovery, Google Photos cloud sync, PIN protection, &amp; glassmorphic Web UI.</p>
                 </div>
                 <div class="feature-item">
                     <div class="feature-icon icon-amber"><i class="ti ti-cpu"></i></div>
                     <h3>Smart Media Engine</h3>
-                    <p>SQLite3 WAL metadata persistence, On-This-Day anniversary pairing, seasonal windowing, and async preloading.</p>
+                    <p>SQLite3 WAL metadata persistence, On-This-Day anniversary pairing, seasonal windowing, &amp; async preloading.</p>
                 </div>
                 <div class="feature-item">
                     <div class="feature-icon icon-cyan"><i class="ti ti-shield-check"></i></div>
                     <h3>Self-Healing System</h3>
-                    <p>Docker container isolation, 3-layer watchdog recovery, crash signal traps, and zero-touch automatic daily updates.</p>
+                    <p>Docker container isolation, 3-layer watchdog recovery, crash signal traps, &amp; zero-touch daily auto-updates.</p>
                 </div>
             </div>
         </section>
@@ -615,7 +594,7 @@
                 
                 setTimeout(() => {
                     icon.className = 'ti ti-copy';
-                    text.textContent = 'Copy Command';
+                    text.textContent = 'Copy';
                     btn.style.borderColor = '';
                     btn.style.color = '';
                     btn.style.background = '';
