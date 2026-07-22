@@ -1037,5 +1037,7 @@ void config_wizard(const std::string& config_path) {
     }
 
     restore_termios();
-    printf("\033[0m\033[?1049l");
+    tcflush(STDIN_FILENO, TCIFLUSH);
+    printf("\033[0m\033[?25h\033[?1049l\r\n");
+    fflush(stdout);
 }
