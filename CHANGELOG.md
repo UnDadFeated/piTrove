@@ -1,15 +1,7 @@
-# Changelog
-## v17.0.3 — Installer UI Overhaul (July 21, 2026)
-### Installer
-- Complete UI overhaul: clean single-line boxes throughout (no more double-box borders)
-- All dialogs simplified: branch selection, storage mode, protocol, mount fail, config wizard, success card
-- Config wizard `docker exec -it` crash fixed (removed TTY flags for scripted execution)
-- Container wait timeout extended to 90s with live progress indicator
-- Consistent unicode symbols (✔, ✘, ⚠) across all status messages
-
-## v17.0.2 — Web Dashboard Telemetry & Installer Fixes (July 21, 2026)
-### Web Dashboard
-- Added system telemetry: uptime, memory usage, disk usage to Remote panel
+## v17.0.4 — Corrupt Video Handling (July 22, 2026)
+### Core
+- Detect corrupted videos (moov atom not found) and mark as preprocessed with default dimensions
+- Corrupted files stay playable (bad=0) but stop retrying forever
 - MQTT status now shows actual enabled/disconnected state
 - Diagnostic log viewer expanded from 420px to 55vh (fills more screen)
 - Preview image refreshes on pause/resume state changes
