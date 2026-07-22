@@ -116,7 +116,7 @@ show_spinner() {
         
         # Print spinner + status on two fixed lines
         if [[ -n "$last_status" ]]; then
-            printf "\r\033[K   ${CYAN}[%s]${NC}  %s...                        \n\r\033[K      ${GRAY}▸ %s${NC}" "$char" "$label" "$last_status"
+            printf "\r\033[K   ${CYAN}[%s]${NC}  %s...                        \r\033[K      ${GRAY}▸ %s${NC}" "$char" "$label" "$last_status"
             # Move cursor back up one line so next \r starts at spinner line
             printf "\033[1A"
         else
@@ -129,7 +129,7 @@ show_spinner() {
     
     true # ensure exit code 0
     tput cnorm 2>/dev/null || echo -ne "\033[?25h"
-    printf "\r\033[K\n"
+    printf "\r\033[K"
 }
 
 run_with_spinner() {
