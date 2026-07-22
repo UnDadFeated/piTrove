@@ -1465,6 +1465,9 @@ show_help() {
 
 case "$1" in
     config)
+        if [[ ! -t 0 ]] && { true < /dev/tty; } 2>/dev/null; then
+            exec 0< /dev/tty
+        fi
         docker exec -it piTrove /app/piTrove --config-wizard /app/config/config.toml || G_EXIT_CODE=2
         ;;
     restart)
@@ -1568,16 +1571,19 @@ while [[ $wait_count -lt $max_wait ]]; do
         break
     fi
     elapsed=$(( wait_count ))
-    printf "   ${GRAY}▸ %ds elapsed - container initializing...${NC}" "$elapsed"
+    printf "
+   ${GRAY}▸ %ds elapsed - container initializing...${NC}" "$elapsed"
     sleep 1
     wait_count=$(( wait_count + 1 ))
 done
 
 if [[ $container_ready -eq 1 ]]; then
-    printf "[K"
+    printf "
+[K"
     ok "Container started successfully (status: ${GREEN}running${NC})"
 else
-    printf "[K"
+    printf "
+[K"
     warn "Container initialization timed out, but systemd service is active in background"
 fi
 
@@ -1603,6 +1609,9 @@ if [[ "$next_action" == "1" ]]; then
 
     if [[ $container_ready -eq 1 ]]; then
         info "Launching 11-category interactive terminal config wizard..."
+        if [[ ! -t 0 ]] && { true < /dev/tty; } 2>/dev/null; then
+            exec 0< /dev/tty
+        fi
         docker exec -it piTrove /app/piTrove --config-wizard /app/config/config.toml || G_EXIT_CODE=2
     else
         warn "Container is still initializing. Launch wizard manually once ready with: ${CYAN}pitrove config${NC}"
