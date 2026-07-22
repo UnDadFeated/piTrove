@@ -41,13 +41,19 @@ static bool get_image_metadata_fast(const std::string& path, int& out_w, int& ou
 
 static bool get_video_metadata_ffprobe(const std::string& path, int& out_w, int& out_h, double& out_duration) {
     std::string cmd = "ffprobe -v error -select_streams v:0 -show_entries stream=width,height -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 '" + escape_shell_arg(path) + "'";
-    FILE* raw_pipe = popen((cmd + " 2>/dev/null").c_str(), "r");
+    FILE* raw_pipe = popen((cmd + " 2>&1").c_str(), "r");
     if (!raw_pipe) return false;
     std::shared_ptr<FILE> pipe(raw_pipe, pclose);
-    char buffer[128];
+    char buffer[1024];
     std::vector<std::string> lines;
     while (fgets(buffer, sizeof(buffer), pipe.get()) != nullptr) {
-        lines.push_back(trim(buffer));
+        std::string line = trim(buffer);
+        if (line.find("moov atom not found") != std::string::npos ||
+            line.find("Invalid data found") != std::string::npos) {
+            out_w = -1;
+            return false;
+        }
+        lines.push_back(line);
     }
     if (lines.size() < 3) return false;
     try {
@@ -157,7 +163,12 @@ static void preprocess_loop() {
                         g_cache->upsert(pr->item, 0, 1);
                     }
                 } else {
-                    g_logger.warn("Preprocess: Failed to extract metadata for '{}'. Marking bad.", path.c_str());
+                    if (g_cache && pr->item.width == -1) {
+                        g_logger.warn("Preprocess: Video file corrupted (bad container). Marking '{}' as bad.", path.c_str());
+                        g_cache->upsert(pr->item, 1, 1);
+                    } else {
+                        g_logger.warn("Preprocess: Failed to extract metadata for '{}'.", path.c_str());
+                    }
                 }
             } else {
                 g_logger.warn("Preprocess: Timeout (10s) extracting metadata for '{}' -- skipping.", path.c_str());
