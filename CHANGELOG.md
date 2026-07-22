@@ -1,3 +1,10 @@
+## v17.0.9 — Honor `[collage] enabled` Config Gate for Twin-Portrait Layouts (July 22, 2026)
+
+### Fixed
+- **Collage Mode Config Enforcement**:
+  - Fixed `should_be_twin_portrait()` in `src/main.cpp` to respect `[collage] enabled = 0` in `config.toml`.
+  - Previously, `should_be_twin_portrait()` only checked `twin_portrait_enabled` and ignored `collage_enabled`, causing side-by-side portrait collages to display even when collage mode was disabled in configuration.
+
 ## v17.0.8 — CIFS Automount Stability & Watchdog Recovery Improvements (July 22, 2026)
 
 ### Fixed & Improved

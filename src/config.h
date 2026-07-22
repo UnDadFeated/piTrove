@@ -115,7 +115,7 @@ struct Config {
     std::string pin_hash{""};
 
     // [collage]
-    bool    collage_enabled{false};
+    bool    collage_enabled{true};
     int     collage_cols{2};
     int     collage_rows{2};
 
