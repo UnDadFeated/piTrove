@@ -1469,6 +1469,9 @@ case "$1" in
             exec 0< /dev/tty
         fi
         docker exec -it piTrove /app/piTrove --config-wizard /app/config/config.toml || G_EXIT_CODE=2
+        stty sane 2>/dev/null || true
+        tput cnorm 2>/dev/null || true
+        echo
         ;;
     restart)
         echo -e "${YELLOW}[▸] Restarting piTrove service...${NC}"
@@ -1613,6 +1616,9 @@ if [[ "$next_action" == "1" ]]; then
             exec 0< /dev/tty
         fi
         docker exec -it piTrove /app/piTrove --config-wizard /app/config/config.toml || G_EXIT_CODE=2
+        stty sane 2>/dev/null || true
+        tput cnorm 2>/dev/null || true
+        echo
     else
         warn "Container is still initializing. Launch wizard manually once ready with: ${CYAN}pitrove config${NC}"
     fi
