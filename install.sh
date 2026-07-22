@@ -1617,32 +1617,30 @@ print_success_card() {
     echo -e "${GREEN}║${NC}  ${BOLD}${GREEN}✔  INSTALLATION COMPLETED SUCCESSFULLY!                       ${NC}  ${GREEN}║${NC}"
     echo -e "${GREEN}╠════════════════════════════════════════════════════════════════╣${NC}"
     echo -e "${GREEN}║${NC}  ${BOLD}${WHITE}Path Locations:${NC}                                               ${GREEN}║${NC}"
-    echo -e "${GREEN}║${NC}   • Container Base:  ${CYAN}$PRIMARY_HOME/piTrove/${NC}                      ${GREEN}║${NC}"
-    echo -e "${GREEN}║${NC}   • Configuration:   ${CYAN}config/config.toml${NC}                        ${GREEN}║${NC}"
-    echo -e "${GREEN}║${NC}   • SQLite Cache:    ${CYAN}cache/cache.db${NC}                            ${GREEN}║${NC}"
-    echo -e "${GREEN}║${NC}   • Service Logs:    ${CYAN}logs/piTrove_*.log${NC}                        ${GREEN}║${NC}"
+    echo -e "${GREEN}║${NC}   • Container Base:  ${CYAN}/home/pi/piTrove/${NC}                                ${GREEN}║${NC}"
+    echo -e "${GREEN}║${NC}   • Configuration:   ${CYAN}config/config.toml${NC}                         ${GREEN}║${NC}"
+    echo -e "${GREEN}║${NC}   • SQLite Cache:    ${CYAN}cache/cache.db${NC}                           ${GREEN}║${NC}"
+    echo -e "${GREEN}║${NC}   • Service Logs:    ${CYAN}logs/piTrove_*.log${NC}                         ${GREEN}║${NC}"
     echo -e "${GREEN}║${NC}                                                                ${GREEN}║${NC}"
     echo -e "${GREEN}║${NC}  ${BOLD}${WHITE}Web Remote Dashboard & MQTT HUD URL:${NC}                          ${GREEN}║${NC}"
-    echo -e "${GREEN}║${NC}   • URL: ${CYAN}$url${NC}                                                       ${GREEN}║${NC}"
+    echo -e "${GREEN}║${NC}   • URL: ${CYAN}http://$(hostname -I | awk '{print $1}'):9000/${NC}                           ${GREEN}║${NC}"
     echo -e "${GREEN}║${NC}     Click to view MQTT telemetry, control the screen physically,   ${GREEN}║${NC}"
-    echo -e "${GREEN}║${NC}     and trigger motion simulation sweeps remotely.                 ${GREEN}║${NC}"
+    echo -e "${GREEN}║${NC}     and trigger motion simulation sweeps remotely.                ${GREEN}║${NC}"
     echo -e "${GREEN}║${NC}                                                                ${GREEN}║${NC}"
     echo -e "${GREEN}║${NC}  ${BOLD}${WHITE}How to Manage & Control (New CLI Wrapper):${NC}                    ${GREEN}║${NC}"
-    echo -e "${GREEN}║${NC}   • ${BOLD}${YELLOW}pitrove config${NC}   Runs the interactive settings wizard.    ${GREEN}║${NC}"
-    echo -e "${GREEN}║${NC}   • ${BOLD}${YELLOW}pitrove restart${NC}  Restarts the background service.         ${GREEN}║${NC}"
-    echo -e "${GREEN}║${NC}   • ${BOLD}${YELLOW}pitrove logs${NC}     Tails rendering logs in real-time.       ${GREEN}║${NC}"
-    echo -e "${GREEN}║${NC}   • ${BOLD}${YELLOW}pitrove status${NC}   Checks background container status.      ${GREEN}║${NC}"
+    echo -e "${GREEN}║${NC}   • ${BOLD}${YELLOW}pitrove config${NC}   Runs the interactive settings wizard.  ${GREEN}║${NC}"
+    echo -e "${GREEN}║${NC}   • ${BOLD}${YELLOW}pitrove restart${NC}  Restarts the background service.        ${GREEN}║${NC}"
+    echo -e "${GREEN}║${NC}   • ${BOLD}${YELLOW}pitrove logs${NC}     Tails rendering logs in real-time.      ${GREEN}║${NC}"
+    echo -e "${GREEN}║${NC}   • ${BOLD}${YELLOW}pitrove status${NC}   Checks background container status.     ${GREEN}║${NC}"
     echo -e "${GREEN}║${NC}                                                                ${GREEN}║${NC}"
     echo -e "${GREEN}║${NC}  ${BOLD}${WHITE}Service Status:${NC}                                               ${GREEN}║${NC}"
-    echo -e "${GREEN}║${NC}   • Systemd unit is installed (starts on first launch).       ${GREEN}║${NC}"
+    echo -e "${GREEN}║${NC}   • Systemd unit is installed (starts on first launch).         ${GREEN}║${NC}"
     echo -e "${GREEN}║${NC}                                                                ${GREEN}║${NC}"
     echo -e "${GREEN}╚════════════════════════════════════════════════════════════════╝${NC}"
 }
-
 print_success_card
 
-
-# ── Start piTrove Prompt ─────────────────────────────────────────────────────
+# ── Start piTrove Prompt ───────────────────────────────────────────────────────
 echo
 echo -e "  ${BOLD}${CYAN}What would you like to do next?${NC}"
 echo
@@ -1652,7 +1650,6 @@ echo
 echo -n -e "  ▸ Choice [1/2]: "
 safe_read -r next_action || true
 next_action="${next_action:-1}"
-
 if [[ "$next_action" == "1" ]]; then
     echo
     echo -e "  ${GREEN}Starting piTrove...${NC}"
@@ -1660,18 +1657,15 @@ if [[ "$next_action" == "1" ]]; then
     systemctl start piTrove.service &>/dev/null || true
 
     # Wait for container to be ready with progress feedback
-    local wait_count=0
-    local max_wait=90
+    wait_count=0
+    max_wait=90
     echo -e "  ${GRAY}Waiting for container to start...${NC}"
     while [[ $wait_count -lt $max_wait ]]; do
-        local container_status
         container_status=$(docker inspect --format="{{.State.Status}}" piTrove 2>/dev/null)
         if [[ "$container_status" == "running" || "$container_status" == "healthy" ]]; then
             break
         fi
-
-        # Show progress with elapsed time
-        local elapsed=$(( wait_count ))
+        elapsed=$(( wait_count ))
         printf "\r  ${GRAY}▸ %ds elapsed - container starting...${NC}" "$elapsed"
         sleep 1
         wait_count=$(( wait_count + 1 ))
@@ -1702,8 +1696,6 @@ if [[ "$next_action" == "1" ]]; then
     if [[ "$launch_config" =~ ^[Yy]$ ]]; then
         echo
         echo -e "  ${GREEN}Launching config wizard...${NC}"
-        # Find the actual container name (may be random if service restarts)
-        local container_name
         container_name=$(docker ps --filter "ancestor=pitrove-pitrove" --format "{{.Names}}" | head -1)
         if [[ -n "$container_name" ]]; then
             docker exec -it "$container_name" /app/piTrove --config /app/config/config.toml
@@ -1717,26 +1709,3 @@ if [[ "$next_action" == "1" ]]; then
 fi
 
 # ── Ordered Next-Steps Checklist ────────────────────────────────────────────────
-echo
-echo -e "${MAGENTA}╔════════════════════════════════════════════════════════════════╗${NC}"
-echo -e "${MAGENTA}║${NC}  ${BOLD}${WHITE}                  What to Do Next (Quick Start)              ${NC}  ${MAGENTA}║${NC}"
-echo -e "${MAGENTA}╚════════════════════════════════════════════════════════════════╝${NC}"
-echo
-echo -e "  ${BOLD}${YELLOW}1.${NC} ${BOLD}Open the Dashboard${NC}  —  ${CYAN}$url${NC}"
-echo -e "     Browse your library, control playback, and adjust settings."
-echo
-echo -e "  ${BOLD}${YELLOW}2.${NC} ${BOLD}Configure the Frame${NC}  —  ${CYAN}pitrove config${NC}"
-echo -e "     Tweak transitions, overlays, WiFi setup, MQTT, and more."
-echo
-echo -e "  ${BOLD}${YELLOW}3.${NC} ${BOLD}Add Photos & Videos${NC}"
-echo -e "     Place media in your NAS mount or ${CYAN}${PRIMARY_HOME}/piTrove/media/${NC}"
-echo -e "     Supported: JPG, PNG, WebP, HEIC, MP4 (H.264/H.265)"
-echo
-echo -e "  ${BOLD}${YELLOW}4.${NC} ${BOLD}Check Status${NC}  —  ${CYAN}pitrove status${NC}  or  ${CYAN}pitrove logs${NC}"
-echo -e "     View live rendering logs and container health."
-echo
-echo -e "  ${BOLD}${YELLOW}5.${NC} ${BOLD}Join the Community${NC}  —  ${CYAN}https://reddit.com/r/piTrove${NC}"
-echo -e "     Share your setup, ask questions, and suggest features."
-echo
-
-exit $G_EXIT_CODE
