@@ -1593,6 +1593,7 @@ fi
 # ── Post-Install Media Check ────────────────────────────────────────────────────
 check_media_directory() {
     local media_root="$SHARE_MOUNT"
+    echo -e "  Scanning: ${GRAY}$media_root${NC}"
     if [[ ! -d "$media_root" ]]; then
         echo -e "${YELLOW}  ⚠  Media directory not found at: $media_root${NC}"
 
@@ -1600,6 +1601,7 @@ check_media_directory() {
         return
     fi
     local count
+    echo -ne "  Counting: ${GRAY}scanning files...${NC}\r"
     count=$(find "$media_root" -type f \( -iname "*.jpg" -o -iname "*.jpeg" -o -iname "*.png" -o -iname "*.webp" -o -iname "*.mp4" -o -iname "*.heic" -o -iname "*.mov" \) 2>/dev/null | wc -l)
     if [[ "$count" -gt 0 ]]; then
         echo -e "${GREEN}  ✓  Media directory contains ${BOLD}${count}${NC}${GREEN} photos/videos${NC}"
