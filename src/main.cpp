@@ -202,7 +202,7 @@ static bool should_be_twin_portrait(std::vector<MediaItem>& eligible, int idx) {
     bool twin_enabled = false;
     {
         std::lock_guard lock(g_config_mtx);
-        twin_enabled = g_cfg.twin_portrait_enabled;
+        twin_enabled = g_cfg.twin_portrait_enabled && g_cfg.collage_enabled;
     }
     int size = std::ssize(eligible);
     if (!twin_enabled || size < 2) return false;
