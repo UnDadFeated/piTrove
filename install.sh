@@ -49,10 +49,10 @@ draw_line() {
 
 banner() {
     clear 2>/dev/null || true
-    echo -e "${CYAN}╔════════════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${CYAN}║${NC}  ${BOLD}${WHITE}                    piTrove Installation                    ${NC}  ${CYAN}║${NC}"
-    echo -e "${CYAN}║${NC}  ${MAGENTA}               The Ultra-Premium Picture Frame              ${NC}  ${CYAN}║${NC}"
-    echo -e "${CYAN}╚════════════════════════════════════════════════════════════════╝${NC}"
+    echo -e "${CYAN}╔════════════════════════════════════════════════════════════════${NC}"
+    echo -e "${CYAN}║${NC}  ${BOLD}${WHITE}                    piTrove Installation${NC}  ${CYAN}v17.0.3${NC}  "
+    echo -e "${CYAN}║${NC}  ${MAGENTA}               The Ultra-Premium Picture Frame              ${NC}"
+    echo -e "${CYAN}╚════════════════════════════════════════════════════════════════${NC}"
     echo
 }
 
@@ -62,9 +62,9 @@ ok()    { echo -e "   ${GREEN}[ ✓ ]${NC}  $*"; }
 
 fail()  { 
     echo
-    echo -e "${RED}╔════════════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${RED}╔════════════════════════════════════════════════════════════════${NC}"
     echo -e "${RED}║${NC}  ${BOLD}${RED}[ ✘ ] ERROR: $*${NC}"
-    echo -e "${RED}╚════════════════════════════════════════════════════════════════╝${NC}"
+    echo -e "${RED}╚════════════════════════════════════════════════════════════════${NC}"
     echo
     exit 1
 }
@@ -363,9 +363,9 @@ if [[ "$1" == "--organize" ]]; then
         fail "Folder does not exist: $2"
     fi
     
-    echo -e "${CYAN}╔════════════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${CYAN}║${NC}  ${BOLD}${WHITE}         piTrove Media Archive Reorganization Option        ${NC}  ${CYAN}║${NC}"
-    echo -e "${CYAN}╚════════════════════════════════════════════════════════════════╝${NC}"
+    echo -e "${CYAN}╔════════════════════════════════════════════════════════════════${NC}"
+    echo -e "${CYAN}║${NC}  ${BOLD}${WHITE}         piTrove Media Archive Reorganization Option        ${NC}"
+    echo -e "${CYAN}╚════════════════════════════════════════════════════════════════${NC}"
     echo -e "   Target directory: ${GREEN}$TARGET_DIR${NC}"
     echo
     echo -e "   Please select an organization strategy:"
@@ -541,9 +541,9 @@ if [[ "$1" == "--update" ]]; then
     fi
     
     echo
-    echo -e "${GREEN}╔════════════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${GREEN}║${NC}  ${BOLD}${GREEN}✔  piTrove UPDATED AND DEPLOYED SUCCESSFULLY!                ${NC}  ${GREEN}║${NC}"
-    echo -e "${GREEN}╚════════════════════════════════════════════════════════════════╝${NC}"
+    echo -e "${GREEN}╔════════════════════════════════════════════════════════════════${NC}"
+    echo -e "${GREEN}║${NC}  ${BOLD}${GREEN}✔  piTrove UPDATED AND DEPLOYED SUCCESSFULLY!                ${NC}"
+    echo -e "${GREEN}╚════════════════════════════════════════════════════════════════${NC}"
     echo
     exit 0
 fi
@@ -657,18 +657,18 @@ ok "Configured persistent driver-level Wi-Fi power-saving overrides"
 
 # ── Branch Selection Dialog ────────────────────────────────────────────────────
 echo
-echo -e "${CYAN}╔════════════════════════════════════════════════════════════════╗${NC}"
-echo -e "${CYAN}║${NC}  ${BOLD}${WHITE}               SELECT INSTALLATION BRANCH                   ${NC}  ${CYAN}║${NC}"
-echo -e "${CYAN}╠════════════════════════════════════════════════════════════════╣${NC}"
-echo -e "${CYAN}║${NC}  ${BOLD}${GREEN}1)${NC} ${WHITE}main${NC} (Recommended) — Stable production release           ${CYAN}║${NC}"
-echo -e "${CYAN}║${NC}     - Production-ready, tested and verified                    ${CYAN}║${NC}"
-echo -e "${CYAN}║${NC}                                                                ${CYAN}║${NC}"
-echo -e "${CYAN}║${NC}  ${BOLD}${GREEN}2)${NC} ${WHITE}develop${NC} — Active development, features under test        ${CYAN}║${NC}"
-echo -e "${CYAN}║${NC}     - Cutting-edge updates, may contain experimental features  ${CYAN}║${NC}"
-echo -e "${CYAN}║${NC}                                                                ${CYAN}║${NC}"
-echo -e "${CYAN}║${NC}  ${BOLD}${GREEN}3)${NC} ${WHITE}Use currently checked-out branch                         ${CYAN}║${NC}"
-echo -e "${CYAN}║${NC}     - Use whatever branch is already checked out locally       ${CYAN}║${NC}"
-echo -e "${CYAN}╚════════════════════════════════════════════════════════════════╝${NC}"
+echo -e "${CYAN}╔════════════════════════════════════════════════════════════════${NC}"
+echo -e "${CYAN}║${NC}  ${BOLD}${WHITE}               SELECT INSTALLATION BRANCH                   ${NC}"
+echo -e "${CYAN}╠════════════════════════════════════════════════════════════════${NC}"
+echo -e "${CYAN}║${NC}  ${BOLD}${GREEN}1)${NC} ${WHITE}main${NC} (Recommended) — Stable production release          "
+echo -e "${CYAN}║${NC}     - Production-ready, tested and verified                   "
+echo -e "${CYAN}║${NC}                                                               "
+echo -e "${CYAN}║${NC}  ${BOLD}${GREEN}2)${NC} ${WHITE}develop${NC} — Active development, features under test        "
+echo -e "${CYAN}║${NC}     - Cutting-edge updates, may contain experimental features  "
+echo -e "${CYAN}║${NC}                                                               "
+echo -e "${CYAN}║${NC}  ${BOLD}${GREEN}3)${NC} ${WHITE}Use currently checked-out branch                         "
+echo -e "${CYAN}║${NC}     - Use whatever branch is already checked out locally       "
+echo -e "${CYAN}╚════════════════════════════════════════════════════════════════${NC}"
 echo
 info "${BOLD}Default: main${NC} (press Enter to accept)"
 echo -n -e "   ${BOLD}${YELLOW}▸ Enter your choice [1-3]:${NC} "
@@ -848,18 +848,18 @@ while true; do
     SHARE_PROTOCOL="cifs"
 
     echo
-    echo -e "${CYAN}╔════════════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${CYAN}║${NC}  ${BOLD}${WHITE}               SELECT STORAGE MODE                          ${NC}  ${CYAN}║${NC}"
-    echo -e "${CYAN}╠════════════════════════════════════════════════════════════════╣${NC}"
-    echo -e "${CYAN}║${NC}  ${BOLD}${GREEN}1)${NC} ${WHITE}NAS (SMB/CIFS Network Share)${NC}                             ${CYAN}║${NC}"
-    echo -e "${CYAN}║${NC}     - Mounts your remote server's archive to /mnt/nas           ${CYAN}║${NC}"
-    echo -e "${CYAN}║${NC}                                                                ${CYAN}║${NC}"
-    echo -e "${CYAN}║${NC}  ${BOLD}${GREEN}2)${NC} ${WHITE}Local Drive (USB / MicroSD)${NC}                              ${CYAN}║${NC}"
-    echo -e "${CYAN}║${NC}     - Keeps all assets stored locally on the Pi                 ${CYAN}║${NC}"
-    echo -e "${CYAN}║${NC}                                                                ${CYAN}║${NC}"
-    echo -e "${CYAN}║${NC}  ${BOLD}${GREEN}3)${NC} ${WHITE}Other Network Drive (NFS/Custom)${NC}                          ${CYAN}║${NC}"
-    echo -e "${CYAN}║${NC}     - Custom setup options for NFS or other mounts              ${CYAN}║${NC}"
-    echo -e "${CYAN}╚════════════════════════════════════════════════════════════════╝${NC}"
+    echo -e "${CYAN}╔════════════════════════════════════════════════════════════════${NC}"
+    echo -e "${CYAN}║${NC}  ${BOLD}${WHITE}               SELECT STORAGE MODE                          ${NC}"
+    echo -e "${CYAN}╠════════════════════════════════════════════════════════════════${NC}"
+    echo -e "${CYAN}║${NC}  ${BOLD}${GREEN}1)${NC} ${WHITE}NAS (SMB/CIFS Network Share)${NC}                             "
+    echo -e "${CYAN}║${NC}     - Mounts your remote server's archive to /mnt/nas          "
+    echo -e "${CYAN}║${NC}                                                               "
+    echo -e "${CYAN}║${NC}  ${BOLD}${GREEN}2)${NC} ${WHITE}Local Drive (USB / MicroSD)${NC}                              "
+    echo -e "${CYAN}║${NC}     - Keeps all assets stored locally on the Pi                "
+    echo -e "${CYAN}║${NC}                                                               "
+    echo -e "${CYAN}║${NC}  ${BOLD}${GREEN}3)${NC} ${WHITE}Other Network Drive (NFS/Custom)${NC}                          "
+    echo -e "${CYAN}║${NC}     - Custom setup options for NFS or other mounts             "
+    echo -e "${CYAN}╚════════════════════════════════════════════════════════════════${NC}"
     echo
     if [[ -n "$STORAGE_CHOICE" ]]; then
         storage_choice="$STORAGE_CHOICE"
@@ -908,12 +908,12 @@ while true; do
             ;;
         3)
             echo
-            echo -e "   ${CYAN}╔════════════════════════════════════════════════════════════════╗${NC}"
-            echo -e "   ${CYAN}║${NC}  ${BOLD}${WHITE}               SELECT PROTOCOL                              ${NC}  ${CYAN}║${NC}"
-            echo -e "   ${CYAN}╠════════════════════════════════════════════════════════════════╣${NC}"
-            echo -e "   ${CYAN}║${NC}  ${BOLD}${GREEN}a)${NC} ${WHITE}SMB/CIFS Network Share${NC}                                   ${CYAN}║${NC}"
-            echo -e "   ${CYAN}║${NC}  ${BOLD}${GREEN}b)${NC} ${WHITE}NFS Network Share${NC}                                        ${CYAN}║${NC}"
-            echo -e "   ${CYAN}╚════════════════════════════════════════════════════════════════╝${NC}"
+            echo -e "   ${CYAN}╔════════════════════════════════════════════════════════════════${NC}"
+            echo -e "   ${CYAN}║${NC}  ${BOLD}${WHITE}               SELECT PROTOCOL                              ${NC}"
+            echo -e "   ${CYAN}╠════════════════════════════════════════════════════════════════${NC}"
+            echo -e "   ${CYAN}║${NC}  ${BOLD}${GREEN}a)${NC} ${WHITE}SMB/CIFS Network Share${NC}                                   "
+            echo -e "   ${CYAN}║${NC}  ${BOLD}${GREEN}b)${NC} ${WHITE}NFS Network Share${NC}                                        "
+            echo -e "   ${CYAN}╚════════════════════════════════════════════════════════════════${NC}"
             echo
             echo -n -e "      ${BOLD}${YELLOW}▸ Select protocol [a-b]:${NC} "
             safe_read -r proto_choice 
@@ -1064,14 +1064,14 @@ $SHARE_IP:$SHARE_PATH $SHARE_MOUNT $SHARE_PROTOCOL defaults,_netdev,timeo=10,ret
                 echo
                 if [[ "$MOUNT_ATTEMPTS" -eq 3 ]]; then
                     warn "Cannot mount network share automatically."
-                    echo -e "   ${CYAN}╔════════════════════════════════════════════════════════════════╗${NC}"
-                    echo -e "   ${CYAN}║${NC}  ${BOLD}${WHITE}               MOUNT FAIL OPTIONS                           ${NC}  ${CYAN}║${NC}"
-                    echo -e "   ${CYAN}╠════════════════════════════════════════════════════════════════╣${NC}"
-                    echo -e "   ${CYAN}║${NC}  ${BOLD}${GREEN}1)${NC} Retry connection                                       ${CYAN}║${NC}"
-                    echo -e "   ${CYAN}║${NC}  ${BOLD}${GREEN}2)${NC} Re-enter path configuration                             ${CYAN}║${NC}"
-                    echo -e "   ${CYAN}║${NC}  ${BOLD}${GREEN}3)${NC} Re-enter username & password                            ${CYAN}║${NC}"
-                    echo -e "   ${CYAN}║${NC}  ${BOLD}${GREEN}4)${NC} Skip and mount manually later                           ${CYAN}║${NC}"
-                    echo -e "   ${CYAN}╚════════════════════════════════════════════════════════════════╝${NC}"
+                    echo -e "   ${CYAN}╔════════════════════════════════════════════════════════════════${NC}"
+                    echo -e "   ${CYAN}║${NC}  ${BOLD}${WHITE}               MOUNT FAIL OPTIONS                           ${NC}"
+                    echo -e "   ${CYAN}╠════════════════════════════════════════════════════════════════${NC}"
+                    echo -e "   ${CYAN}║${NC}  ${BOLD}${GREEN}1)${NC} Retry connection                                       "
+                    echo -e "   ${CYAN}║${NC}  ${BOLD}${GREEN}2)${NC} Re-enter path configuration                             "
+                    echo -e "   ${CYAN}║${NC}  ${BOLD}${GREEN}3)${NC} Re-enter username & password                            "
+                    echo -e "   ${CYAN}║${NC}  ${BOLD}${GREEN}4)${NC} Skip and mount manually later                           "
+                    echo -e "   ${CYAN}╚════════════════════════════════════════════════════════════════${NC}"
                     echo
                     echo -n -e "      ${BOLD}${YELLOW}▸ Choose option [1-4]:${NC} "
                     safe_read -r mount_opt 
@@ -1164,9 +1164,9 @@ done
 
 # ── Media Archive Prefix Detection ───────────────────────────────────────────
 echo
-echo -e "${CYAN}╔════════════════════════════════════════════════════════════════╗${NC}"
-echo -e "${CYAN}║${NC}  ${BOLD}${WHITE}         piTrove Media Archive Prefix Detection             ${NC}  ${CYAN}║${NC}"
-echo -e "${CYAN}╚════════════════════════════════════════════════════════════════╝${NC}"
+echo -e "${CYAN}╔════════════════════════════════════════════════════════════════${NC}"
+echo -e "${CYAN}║${NC}  ${BOLD}${WHITE}         piTrove Media Archive Prefix Detection             ${NC}"
+echo -e "${CYAN}╚════════════════════════════════════════════════════════════════${NC}"
 echo -e "   Target archive directory: ${GREEN}$SHARE_MOUNT${NC}"
 
 HAS_PREFIX=0
@@ -1616,34 +1616,31 @@ print_success_card() {
     local url="http://$(hostname -I | awk '{print $1}' 2>/dev/null || ip route get 8.8.8.8 2>/dev/null | awk '{print $7}' || echo "127.0.0.1"):9000/"
     if [[ "$url" == "http://:9000/" ]]; then url="http://127.0.0.1:9000/"; fi
 
-    echo -e "${GREEN}╔════════════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${GREEN}║${NC}  ${BOLD}${GREEN}✔  INSTALLATION COMPLETED SUCCESSFULLY!                       ${NC}  ${GREEN}║${NC}"
-    echo -e "${GREEN}╠════════════════════════════════════════════════════════════════╣${NC}"
-    echo -e "${GREEN}║${NC}  ${BOLD}${WHITE}Path Locations:${NC}                                               ${GREEN}║${NC}"
-    echo -e "${GREEN}║${NC}   • Container Base:  ${CYAN}/home/pi/piTrove/${NC}                                ${GREEN}║${NC}"
-    echo -e "${GREEN}║${NC}   • Configuration:   ${CYAN}config/config.toml${NC}                         ${GREEN}║${NC}"
-    echo -e "${GREEN}║${NC}   • SQLite Cache:    ${CYAN}cache/cache.db${NC}                           ${GREEN}║${NC}"
-    echo -e "${GREEN}║${NC}   • Service Logs:    ${CYAN}logs/piTrove_*.log${NC}                         ${GREEN}║${NC}"
-    echo -e "${GREEN}║${NC}                                                                ${GREEN}║${NC}"
-    echo -e "${GREEN}║${NC}  ${BOLD}${WHITE}Web Remote Dashboard & MQTT HUD URL:${NC}                          ${GREEN}║${NC}"
+    echo -e "${GREEN}╔════════════════════════════════════════════════════════════════${NC}"
+    echo -e "${GREEN}║${NC}  ${BOLD}${GREEN}✔  INSTALLATION COMPLETED SUCCESSFULLY!                       ${NC}"
+    echo -e "${GREEN}╠════════════════════════════════════════════════════════════════${NC}"
+    echo -e "${GREEN}║${NC}  ${BOLD}${WHITE}Path Locations:${NC}                                              "
+    echo -e "${GREEN}║${NC}   • Container Base:  ${CYAN}/home/pi/piTrove/${NC}                               "
+    echo -e "${GREEN}║${NC}   • Configuration:   ${CYAN}config/config.toml${NC}                         "
+    echo -e "${GREEN}║${NC}   • SQLite Cache:    ${CYAN}cache/cache.db${NC}                           "
+    echo -e "${GREEN}║${NC}   • Service Logs:    ${CYAN}logs/piTrove_*.log${NC}                         "
+    echo -e "${GREEN}║${NC}                                                              "
+    echo -e "${GREEN}║${NC}  ${BOLD}${WHITE}Web Remote Dashboard & MQTT HUD URL:${NC}                         "
     local url_text="   • URL: $url"
-    local url_pad=$(( 64 - ${#url_text} ))
-    local url_spaces=""
-    if [[ $url_pad -gt 0 ]]; then url_spaces=$(printf '%*s' "$url_pad" ""); fi
-    echo -e "${GREEN}║${NC}${BOLD}${CYAN}${url_text}${NC}${url_spaces}${GREEN}║${NC}"
-    echo -e "${GREEN}║${NC}     Click to view MQTT telemetry, control the screen physically,   ${GREEN}║${NC}"
-    echo -e "${GREEN}║${NC}     and trigger motion simulation sweeps remotely.                ${GREEN}║${NC}"
-    echo -e "${GREEN}║${NC}                                                                ${GREEN}║${NC}"
-    echo -e "${GREEN}║${NC}  ${BOLD}${WHITE}How to Manage & Control (New CLI Wrapper):${NC}                    ${GREEN}║${NC}"
-    echo -e "${GREEN}║${NC}   • ${BOLD}${YELLOW}pitrove config${NC}   Runs the interactive settings wizard.  ${GREEN}║${NC}"
-    echo -e "${GREEN}║${NC}   • ${BOLD}${YELLOW}pitrove restart${NC}  Restarts the background service.        ${GREEN}║${NC}"
-    echo -e "${GREEN}║${NC}   • ${BOLD}${YELLOW}pitrove logs${NC}     Tails rendering logs in real-time.      ${GREEN}║${NC}"
-    echo -e "${GREEN}║${NC}   • ${BOLD}${YELLOW}pitrove status${NC}   Checks background container status.     ${GREEN}║${NC}"
-    echo -e "${GREEN}║${NC}                                                                ${GREEN}║${NC}"
-    echo -e "${GREEN}║${NC}  ${BOLD}${WHITE}Service Status:${NC}                                               ${GREEN}║${NC}"
-    echo -e "${GREEN}║${NC}   • Systemd unit is installed (starts on first launch).         ${GREEN}║${NC}"
-    echo -e "${GREEN}║${NC}                                                                ${GREEN}║${NC}"
-    echo -e "${GREEN}╚════════════════════════════════════════════════════════════════╝${NC}"
+    echo -e "${GREEN}║${NC}${BOLD}${CYAN}${url_text}${NC}"
+    echo -e "${GREEN}║${NC}     Click to view MQTT telemetry, control the screen physically,  "
+    echo -e "${GREEN}║${NC}     and trigger motion simulation sweeps remotely.               "
+    echo -e "${GREEN}║${NC}                                                              "
+    echo -e "${GREEN}║${NC}  ${BOLD}${WHITE}How to Manage & Control (New CLI Wrapper):${NC}                   "
+    echo -e "${GREEN}║${NC}   • ${BOLD}${YELLOW}pitrove config${NC}   Runs the interactive settings wizard. "
+    echo -e "${GREEN}║${NC}   • ${BOLD}${YELLOW}pitrove restart${NC}  Restarts the background service.       "
+    echo -e "${GREEN}║${NC}   • ${BOLD}${YELLOW}pitrove logs${NC}     Tails rendering logs in real-time.     "
+    echo -e "${GREEN}║${NC}   • ${BOLD}${YELLOW}pitrove status${NC}   Checks background container status.    "
+    echo -e "${GREEN}║${NC}                                                              "
+    echo -e "${GREEN}║${NC}  ${BOLD}${WHITE}Service Status:${NC}                                              "
+    echo -e "${GREEN}║${NC}   • Systemd unit is installed (starts on first launch).        "
+    echo -e "${GREEN}║${NC}                                                              "
+    echo -e "${GREEN}╚════════════════════════════════════════════════════════════════${NC}"
 }
 print_success_card
 
@@ -1687,9 +1684,9 @@ if [[ "$next_action" == "1" ]]; then
     fi
 
     # ── Launch Config Wizard Prompt ──────────────────────────────────────────
-    echo -e "${CYAN}╔════════════════════════════════════════════════════════════════╗${NC}"
-    echo -e "${CYAN}║${NC}  ${BOLD}${WHITE}              First-Time Configuration Wizard               ${NC}  ${CYAN}║${NC}"
-    echo -e "${CYAN}╚════════════════════════════════════════════════════════════════╝${NC}"
+    echo -e "${CYAN}╔════════════════════════════════════════════════════════════════${NC}"
+    echo -e "${CYAN}║${NC}  ${BOLD}${WHITE}              First-Time Configuration Wizard               ${NC}"
+    echo -e "${CYAN}╚════════════════════════════════════════════════════════════════${NC}"
     echo
     echo -e "  ${WHITE}Would you like to launch the interactive settings wizard now?${NC}"
     echo -e "  ${GRAY}You can always run it later with: ${CYAN}pitrove config${NC}${NC}"
@@ -1705,13 +1702,10 @@ if [[ "$next_action" == "1" ]]; then
         echo -e "  ${GREEN}Launching config wizard...${NC}"
         container_name=$(docker ps --filter "ancestor=pitrove-pitrove" --format "{{.Names}}" | head -1)
         if [[ -n "$container_name" ]]; then
-            docker exec -it "$container_name" /app/piTrove --config /app/config/config.toml
+            docker exec "$container_name" /app/piTrove --config /app/config/config.toml
         else
             echo -e "  ${YELLOW}Container not found. Run later with: pitrove config${NC}"
         fi
-    else
-        echo
-        echo -e "  ${GRAY}Config wizard skipped.${NC}"
     fi
 fi
 
