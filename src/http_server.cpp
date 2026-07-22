@@ -1232,6 +1232,7 @@ static std::string get_dashboard_html() {
                         <button id="btn-pause" class="btn btn-accent" onclick="sendCommand('/api/pause')" style="flex: 1.5; padding: 0.75rem; border-radius: 12px; font-size: 0.9rem; flex-direction: row; gap: 0.2rem;"><span id="icon-pause" class="btn-icon">⏸</span><span id="txt-pause">Pause</span></button>
                         <button class="btn btn-blue" onclick="sendCommand('/api/next')" style="flex: 1; padding: 0.75rem; border-radius: 12px; font-size: 0.9rem; flex-direction: row; gap: 0.2rem;"><span class="btn-icon">⏭</span></button>
                         <button id="btn-shuffle" class="btn btn-toggle" onclick="sendCommand('/api/toggle_shuffle')" style="flex: 1; padding: 0.75rem; border-radius: 12px; font-size: 0.9rem; flex-direction: row; gap: 0.2rem;"><span class="btn-icon">🔀</span><span><strong id="lbl-shuffle">ON</strong></span></button>
+                        <button class="btn btn-blue" onclick="sendCommand('/api/play_video')" style="flex: 1; padding: 0.75rem; border-radius: 12px; font-size: 0.9rem; flex-direction: row; gap: 0.2rem;"><span class="btn-icon">🎬</span><span><strong>Video</strong></span></button>
                     </div>
                 </div>
 
@@ -2504,6 +2505,18 @@ static void handle_client(int client_fd) {
                 }
             });
             send_response(client_fd, "HTTP/1.1 200 OK", "application/json", "{\"status\":\"ok\"}");
+        }
+        else if (request.rfind("GET /api/play_video", 0) == 0) {
+            if (!is_authorized(request, client_fd)) return;
+            static std::atomic<int64_t> last_video_ms{0};
+            int64_t now_ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
+            if (now_ms - last_video_ms.load() < 500) {
+                send_response(client_fd, "HTTP/1.1 429 Too Many Requests", "text/plain", "Rate limited");
+                return;
+            }
+            last_video_ms.store(now_ms);
+            g_remote_command.store(5);
+            send_response(client_fd, "HTTP/1.1 200 OK", "application/json", "{\"status\":\"forcing_next_video\"}");
         }
         else {
             send_response(client_fd, "HTTP/1.1 404 Not Found", "text/plain", "Not Found");
