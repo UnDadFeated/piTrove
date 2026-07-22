@@ -1322,7 +1322,8 @@ int main(int argc, char** argv) {
         keep_count = g_cfg.log_keep_count;
     }
     g_crash_cache_dir = cache_dir;
-    std::strncpy(g_crash_cache_dir_safe, cache_dir.c_str(), sizeof(g_crash_cache_dir_safe));
+    std::strncpy(g_crash_cache_dir_safe, cache_dir.c_str(), sizeof(g_crash_cache_dir_safe) - 1);
+    g_crash_cache_dir_safe[sizeof(g_crash_cache_dir_safe) - 1] = '\0';
 
     g_logger.init(log_dir, LogLevel::DEBUG, keep_count);
     g_logger.info("Media dir: {}, Cache dir: {}", media_dir.c_str(), cache_dir.c_str());
