@@ -1550,67 +1550,67 @@ print_success_card() {
 }
 print_success_card
 
-# ── Start piTrove Prompt ───────────────────────────────────────────────────────
+# ── Auto-Start piTrove Background Service & Container ───────────────────────
+echo
+info "Auto-starting piTrove background service & container..."
+systemctl enable piTrove.service &>/dev/null || true
+systemctl start piTrove.service &>/dev/null || true
+
+wait_count=0
+max_wait=90
+info "Waiting for background container to start..."
+
+container_ready=0
+while [[ $wait_count -lt $max_wait ]]; do
+    container_status=$(docker inspect --format="{{.State.Status}}" piTrove 2>/dev/null || echo "")
+    if [[ "$container_status" == "running" || "$container_status" == "healthy" ]]; then
+        container_ready=1
+        break
+    fi
+    elapsed=$(( wait_count ))
+    printf "   ${GRAY}▸ %ds elapsed - container initializing...${NC}" "$elapsed"
+    sleep 1
+    wait_count=$(( wait_count + 1 ))
+done
+
+if [[ $container_ready -eq 1 ]]; then
+    printf "[K"
+    ok "Container started successfully (status: ${GREEN}running${NC})"
+else
+    printf "[K"
+    warn "Container initialization timed out, but systemd service is active in background"
+fi
+
+# ── Next Steps Prompt ─────────────────────────────────────────────────────────
 echo
 echo -e " ${BOLD}${CYAN}What would you like to do next?${NC}"
 echo
-echo -e " ${BOLD}${GREEN}[1]${NC} Start piTrove now"
-echo -e " ${BOLD}${GRAY}[2]${NC} Drop to terminal (run '${CYAN}pitrove start${NC}' later)"
+echo -e " ${BOLD}${GREEN}[1]${NC} Launch First-Time Configuration Wizard now"
+echo -e " ${BOLD}${GRAY}[2]${NC} Exit to terminal (piTrove is running in background)"
 echo
 echo -n -e " ▸ Choice [1/2]: "
 safe_read -r next_action || true
 next_action="${next_action:-1}"
+
 if [[ "$next_action" == "1" ]]; then
     echo
-    echo -e "  ${GREEN}Starting piTrove...${NC}"
-    systemctl enable piTrove.service &>/dev/null
-    systemctl start piTrove.service &>/dev/null || true
-
-    # Wait for container to be ready with progress feedback
-    wait_count=0
-    max_wait=90
-    echo -e "  ${GRAY}Waiting for container to start...${NC}"
-    while [[ $wait_count -lt $max_wait ]]; do
-        container_status=$(docker inspect --format="{{.State.Status}}" piTrove 2>/dev/null)
+    if [[ $container_ready -eq 0 ]]; then
+        container_status=$(docker inspect --format="{{.State.Status}}" piTrove 2>/dev/null || echo "")
         if [[ "$container_status" == "running" || "$container_status" == "healthy" ]]; then
-            break
+            container_ready=1
         fi
-        elapsed=$(( wait_count ))
-        printf "\r  ${GRAY}▸ %ds elapsed - container starting...${NC}" "$elapsed"
-        sleep 1
-        wait_count=$(( wait_count + 1 ))
-    done
+    fi
 
-    if [[ $wait_count -lt $max_wait ]]; then
-        echo
-        echo -e "  ${GREEN}Container is running.${NC}"
+    if [[ $container_ready -eq 1 ]]; then
+        info "Launching 11-category interactive terminal config wizard..."
+        docker exec -it piTrove /app/piTrove --config-wizard /app/config/config.toml || G_EXIT_CODE=2
     else
-        echo
-        echo -e "  ${YELLOW}Container start timed out, but service is starting in background.${NC}"
+        warn "Container is still initializing. Launch wizard manually once ready with: ${CYAN}pitrove config${NC}"
     fi
-
-    # ── Launch Config Wizard Prompt ──────────────────────────────────────────
+else
     echo
-    echo -e " ${BOLD}${WHITE}First-Time Configuration Wizard${NC}"
-    echo
-    echo -e " ${WHITE}Would you like to launch the interactive settings wizard now?${NC}"
-    echo -e " ${GRAY}You can always run it later with: ${CYAN}pitrove config${NC}"
-    echo
-    echo -e " ${BOLD}${GREEN}[Y]${NC} Yes, launch the config wizard now"
-    echo -e " ${BOLD}${GRAY}[N]${NC} No, skip (frame is already running with defaults)"
-    echo
-    echo -n -e " ▸ Choice [Y/n]: "
-    launch_config="${launch_config:-Y}"
-    if [[ "$launch_config" =~ ^[Yy]$ ]]; then
-        echo
-        echo -e "  ${GREEN}Launching config wizard...${NC}"
-        container_name=$(docker ps --filter "ancestor=pitrove-pitrove" --format "{{.Names}}" | head -1)
-        if [[ -n "$container_name" ]]; then
-            docker exec "$container_name" /app/piTrove --config /app/config/config.toml
-        else
-            echo -e "  ${YELLOW}Container not found. Run later with: pitrove config${NC}"
-        fi
-    fi
+    ok "Exited to terminal. piTrove is running in background."
+    info "You can access the config wizard anytime with: ${CYAN}pitrove config${NC}"
 fi
 
 # ── Ordered Next-Steps Checklist ────────────────────────────────────────────────
