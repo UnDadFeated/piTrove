@@ -1424,8 +1424,8 @@ probe_timeout = 5
 
 [dashboard]
 weather_enabled = 0
-weather_lat = -999.0
-weather_lon = -999.0
+weather_lat = 34.05
+weather_lon = -118.24
 
 [remote]
 http_enabled = 1
