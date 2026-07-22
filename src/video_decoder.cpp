@@ -6,6 +6,7 @@
 #include "util.h"
 #include "config.h"
 
+#include <fstream>
 extern Logger g_logger;
 
 extern "C" {
@@ -16,7 +17,6 @@ extern "C" {
 #include <libavutil/opt.h>
 #include <libavutil/imgutils.h>
 #include <libavutil/time.h>
-#include <fstream>
 
 
 struct VideoLimits {
