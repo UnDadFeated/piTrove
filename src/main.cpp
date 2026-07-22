@@ -40,6 +40,7 @@
 #include <filesystem>
 #include <fstream>
 #include <glob.h>
+#include <format>
 
 static TransitionEngine* g_transition = nullptr;
 
@@ -99,7 +100,7 @@ std::vector<MediaItem> g_eligible;
 int current_idx = 0;
 SDL_Texture* g_video_tex = nullptr;
 int g_video_tex_w = 0, g_video_tex_h = 0;
-static std::thread g_watchman_thread;
+static std::jthread g_watchman_thread;
 static std::atomic<bool> g_watchman_running{false};
 static std::atomic<bool> g_watchman_finished{false};
 static std::chrono::steady_clock::time_point g_watchdog_last_time;
@@ -203,7 +204,7 @@ static bool should_be_twin_portrait(std::vector<MediaItem>& eligible, int idx) {
         std::lock_guard lock(g_config_mtx);
         twin_enabled = g_cfg.twin_portrait_enabled;
     }
-    int size = (int)eligible.size();
+    int size = std::ssize(eligible);
     if (!twin_enabled || size < 2) return false;
 
     // Check if the current item is portrait
@@ -226,7 +227,7 @@ static bool should_be_twin_portrait(std::vector<MediaItem>& eligible, int idx) {
         if (candidate.type == "image" && candidate.height > candidate.width && candidate.height > 0) {
             // Swap candidate into the adjacent slot (idx + 1)
             std::swap(eligible[idx + 1], eligible[j]);
-            g_logger.info("Twin-Portrait: Dynamically paired portrait at index %d by bringing forward portrait from index %d", idx, j);
+            g_logger.info("Twin-Portrait: Dynamically paired portrait at index {} by bringing forward portrait from index {}", idx, j);
             return true;
         }
     }
@@ -479,7 +480,7 @@ static std::vector<MediaItem> filter_playlist(const std::vector<MediaItem>& item
         }
 
         if (!anniversary_items.empty()) {
-            g_logger.info("ON_THIS_DAY: Found %zu anniversary items for month=%d day=%d!", anniversary_items.size(), today_m, today_d);
+            g_logger.info("ON_THIS_DAY: Found {} anniversary items for month={} day={}!", anniversary_items.size(), today_m, today_d);
             std::vector<MediaItem> anniversary_filtered;
             for (const auto& item : anniversary_items) {
                 if (item.type != "video") {
@@ -507,7 +508,7 @@ static std::vector<MediaItem> filter_playlist(const std::vector<MediaItem>& item
             }
             g_logger.warn("ON_THIS_DAY: Anniversary items were all filtered out by category toggles. Falling back to normal playlist.");
         } else {
-            g_logger.info("ON_THIS_DAY: No anniversary items matching today's month=%d day=%d. Falling back to normal playlist.", today_m, today_d);
+            g_logger.info("ON_THIS_DAY: No anniversary items matching today's month={} day={}. Falling back to normal playlist.", today_m, today_d);
         }
     }
 
@@ -565,7 +566,7 @@ static std::vector<MediaItem> filter_playlist(const std::vector<MediaItem>& item
             filtered.push_back(item);
         }
         
-        if ((int)filtered.size() >= target_min || current_cooldown <= 0) {
+        if (std::ssize(filtered) >= target_min || current_cooldown <= 0) {
             break;
         }
         
@@ -575,7 +576,7 @@ static std::vector<MediaItem> filter_playlist(const std::vector<MediaItem>& item
         } else {
             current_cooldown = next_cooldown;
         }
-        g_logger.info("filter_playlist: Cooldown of %d days resulted in only %zu items. Degrading to %d days to maintain variety.",
+        g_logger.info("filter_playlist: Cooldown of {} days resulted in only {} items. Degrading to {} days to maintain variety.",
             cooldown_days, filtered.size(), current_cooldown);
     }
     
@@ -666,7 +667,7 @@ static void organize_playlist(std::vector<MediaItem>& eligible, int videos_per_p
             }
         }
 
-        g_logger.info("Playlist organized: %zu photos + %zu videos = %zu total (configured ratio: %d videos per 10 photos, spacing: %.2f photos per video)",
+        g_logger.info("Playlist organized: {} photos + {} videos = {} total (configured ratio: {} videos per 10 photos, spacing: {:.2f} photos per video)",
             final_photos_size, final_videos_size, eligible.size(), videos_per_photos, photos_per_video);
     }
 }
@@ -700,7 +701,7 @@ static void advance_playlist(int step) {
     
     if (step > 0) {
         int next_idx = current_idx + step;
-        if (next_idx >= (int)g_eligible.size()) {
+        if (next_idx >= std::ssize(g_eligible)) {
             g_logger.info("Playlist reached end. Re-filtering and re-shuffling to prevent repetition...");
             
             int cooldown_days = 330;
@@ -736,7 +737,7 @@ static void advance_playlist(int step) {
             current_idx = next_idx;
         }
     } else {
-        int n = (int)g_eligible.size();
+        int n = std::ssize(g_eligible);
         current_idx = ((current_idx + step) % n + n) % n;
     }
 }
@@ -767,7 +768,7 @@ static void watchman_loop() {
                 g_logger.warn("Watchman: System is in Offline Recovery Mode. Skipping midnight temporal window shift.");
                 continue;
             }
-            g_logger.info("Watchman: Midnight detected! Shifting temporal window. Old day=%d, New day=%d", last_yday, curr_tm.tm_yday);
+            g_logger.info("Watchman: Midnight detected! Shifting temporal window. Old day={}, New day={}", last_yday, curr_tm.tm_yday);
             
             // Validate media directory readability and accessibility to handle network drops gracefully
             std::string media_dir;
@@ -781,7 +782,7 @@ static void watchman_loop() {
             }
             struct stat st;
             if (stat(media_dir.c_str(), &st) != 0 || !S_ISDIR(st.st_mode) || access(media_dir.c_str(), R_OK) != 0) {
-                g_logger.error("Watchman: Media directory '%s' is not readable/accessible (mount failure or permission error). Delaying seasonal window swap.", media_dir.c_str());
+                g_logger.error("Watchman: Media directory '{}' is not readable/accessible (mount failure or permission error). Delaying seasonal window swap.", media_dir.c_str());
                 continue;
             }
 
@@ -798,7 +799,7 @@ static void watchman_loop() {
                 screen_h = g_cfg.screen_h;
             }
             scan_directory(media_dir, depth, scanned, nullptr);
-            g_logger.info("Watchman: Background scan complete. Scanned %zu items. Caching metadata...", scanned.size());
+            g_logger.info("Watchman: Background scan complete. Scanned {} items. Caching metadata...", scanned.size());
 
             if (g_cache) {
                 g_cache->begin_transaction();
@@ -831,7 +832,7 @@ static void watchman_loop() {
                 bool shuffle_enabled = g_cfg.shuffle;
                 
                 std::vector<MediaItem> new_eligible = filter_playlist(g_scanned_items, cooldown_days, window_days);
-                g_logger.info("Watchman: New seasonal window calculation: %zu / %zu items eligible", new_eligible.size(), g_scanned_items.size());
+                g_logger.info("Watchman: New seasonal window calculation: {} / {} items eligible", new_eligible.size(), g_scanned_items.size());
                 
                 if (!new_eligible.empty()) {
                     bool play_just_photos = g_cfg.play_just_photos;
@@ -841,7 +842,7 @@ static void watchman_loop() {
                     
                     // Try to preserve current playing item
                     std::string current_path = "";
-                    if (current_idx >= 0 && current_idx < (int)g_eligible.size()) {
+                    if (current_idx >= 0 && current_idx < std::ssize(g_eligible)) {
                         current_path = g_eligible[current_idx].path;
                     }
                     
@@ -850,7 +851,7 @@ static void watchman_loop() {
                     // Find if current path is in new playlist
                     int new_idx = 0;
                     if (!current_path.empty()) {
-                        for (int idx = 0; idx < (int)g_eligible.size(); idx++) {
+                        for (int idx = 0; idx < std::ssize(g_eligible); idx++) {
                             if (g_eligible[idx].path == current_path) {
                                 new_idx = idx;
                                 break;
@@ -858,7 +859,7 @@ static void watchman_loop() {
                         }
                     }
                     current_idx = new_idx;
-                    g_logger.info("Watchman: Playlist swapped seamlessly. New size=%zu, current_idx=%d", g_eligible.size(), current_idx);
+                    g_logger.info("Watchman: Playlist swapped seamlessly. New size={}, current_idx={}", g_eligible.size(), current_idx);
                 } else {
                     g_logger.warn("Watchman: New playlist is empty. Keeping old playlist to prevent interruption.");
                 }
@@ -869,7 +870,7 @@ static void watchman_loop() {
     g_logger.info("Watchman: Background watchman thread exiting.");
 }
 
-static std::thread g_watchdog_thread;
+static std::jthread g_watchdog_thread;
 static std::atomic<bool> g_watchdog_running{false};
 
 static FILE* g_event_log = nullptr;
@@ -889,7 +890,7 @@ static void watchdog_loop() {
         {
             std::lock_guard<std::mutex> lk(g_playlist_mtx);
             empty = g_eligible.empty();
-            if (!empty && current_idx >= 0 && current_idx < (int)g_eligible.size()) {
+            if (!empty && current_idx >= 0 && current_idx < std::ssize(g_eligible)) {
                 is_video = (g_eligible[current_idx].type == "video");
             }
         }
@@ -912,7 +913,7 @@ static void watchdog_loop() {
         auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(now - g_watchdog_last_time).count();
         int64_t max_silent_time = std::max((int64_t)45, (int64_t)(delay * 3));
         if (elapsed > max_silent_time) {
-            g_logger.error("[WATCHDOG] CRITICAL: Slideshow loop frozen! Last heartbeat was %d seconds ago. Forcing restart...", (int)elapsed);
+            g_logger.error("[WATCHDOG] CRITICAL: Slideshow loop frozen! Last heartbeat was {} seconds ago. Forcing restart...", (int)elapsed);
             if (g_event_log) {
                 fprintf(g_event_log, "WATCHDOG_TRIP: elapsed=%lds item=%d\n", (long)elapsed, current_idx);
                 fflush(g_event_log);
@@ -928,7 +929,7 @@ static void watchdog_loop() {
     g_logger.info("Watchdog: Software watchdog thread exiting.");
 }
 
-static std::thread g_keepalive_thread;
+static std::jthread g_keepalive_thread;
 static std::atomic<bool> g_keepalive_running{false};
 
 static void keepalive_loop() {
@@ -950,7 +951,7 @@ static void keepalive_loop() {
         return;
     }
     
-    g_logger.info("Keepalive: Monitoring connection to %s on %s every %d seconds.", 
+    g_logger.info("Keepalive: Monitoring connection to {} on {} every {} seconds.", 
                   gateway.c_str(), interface.c_str(), interval_secs);
                   
     int64_t network_lost_time = 0;
@@ -976,10 +977,10 @@ static void keepalive_loop() {
             if (network_lost_time != 0) {
                 WifiStats ws = read_wifi_stats(interface);
                 if (ws.has_data) {
-                    g_logger.info("Keepalive: Gateway %s is reachable and NAS mount is healthy. WiFi: quality=%d/%d, signal=%ddBm, noise=%ddBm.",
+                    g_logger.info("Keepalive: Gateway {} is reachable and NAS mount is healthy. WiFi: quality={}/{}, signal={}dBm, noise={}dBm.",
                                   gateway.c_str(), ws.quality, 255, ws.signal_dbm, ws.noise_dbm);
                 } else {
-                    g_logger.info("Keepalive: Gateway %s is reachable and NAS mount is healthy. Connection restored.", gateway.c_str());
+                    g_logger.info("Keepalive: Gateway {} is reachable and NAS mount is healthy. Connection restored.", gateway.c_str());
                 }
                 network_lost_time = 0;
                 last_wifi_reset_time = 0;
@@ -999,10 +1000,10 @@ static void keepalive_loop() {
                 }
                 
                 if (ws.has_data) {
-                    g_logger.warn("Keepalive: %s. WiFi: quality=%d/%d, signal=%ddBm, noise=%ddBm, missed_beacons=%lu.",
+                    g_logger.warn("Keepalive: {}. WiFi: quality={}/{}, signal={}dBm, noise={}dBm, missed_beacons={}u.",
                                   reason.c_str(), ws.quality, 255, ws.signal_dbm, ws.noise_dbm, ws.missed_beacons);
                 } else {
-                    g_logger.warn("Keepalive: %s. Start tracking downtime.", reason.c_str());
+                    g_logger.warn("Keepalive: {}. Start tracking downtime.", reason.c_str());
                 }
                 
                 // Capture kernel WiFi driver logs at the moment of network loss
@@ -1011,7 +1012,7 @@ static void keepalive_loop() {
                     char line[512];
                     g_logger.warn("Keepalive: === Kernel WiFi logs at network loss ===");
                     while (fgets(line, sizeof(line), dmesg_fp)) {
-                        g_logger.warn("  %s", line);
+                        g_logger.warn("  {}", line);
                     }
                     g_logger.warn("Keepalive: === End kernel WiFi logs ===");
                     pclose(dmesg_fp);
@@ -1019,12 +1020,12 @@ static void keepalive_loop() {
             }
             
             int64_t offline_duration = now - network_lost_time;
-            g_logger.warn("Keepalive: Network is offline. Duration: %d seconds. Interface: %s", 
+            g_logger.warn("Keepalive: Network is offline. Duration: {} seconds. Interface: {}", 
                           (int)offline_duration, interface.c_str());
             
             // Check for 3-minute (180 seconds) timeout to force host reboot
             if (offline_duration >= 180) {
-                g_logger.error("Keepalive: CRITICAL: Gateway unreachable for %d seconds (>= 3 minutes). Forcing system reboot...", 
+                g_logger.error("Keepalive: CRITICAL: Gateway unreachable for {} seconds (>= 3 minutes). Forcing system reboot...", 
                                (int)offline_duration);
                 trigger_error(519);
 
@@ -1037,7 +1038,7 @@ static void keepalive_loop() {
                     char line[512];
                     g_logger.error("Keepalive: === Kernel WiFi logs pre-reboot ===");
                     while (fgets(line, sizeof(line), dmesg_fp2)) {
-                        g_logger.error("  %s", line);
+                        g_logger.error("  {}", line);
                     }
                     g_logger.error("Keepalive: === End kernel WiFi logs ===");
                     pclose(dmesg_fp2);
@@ -1065,27 +1066,27 @@ static void keepalive_loop() {
                 [[maybe_unused]] int nm_res = ::system(("nmcli device connect " + escape_shell_arg(interface) + " >/dev/null 2>&1").c_str());
                 if (nm_res != 0) {
                     // Step 2: Interface cycle via raw socket ioctl (still does NOT touch radio hardware)
-                    g_logger.warn("Keepalive: nmcli reconnect failed, cycling interface %s.", interface.c_str());
+                    g_logger.warn("Keepalive: nmcli reconnect failed, cycling interface {}.", interface.c_str());
                     if (set_interface_status(interface, false)) {
-                        g_logger.info("Keepalive: Interface %s set DOWN.", interface.c_str());
+                        g_logger.info("Keepalive: Interface {} set DOWN.", interface.c_str());
                         std::this_thread::sleep_for(std::chrono::seconds(2));
                         if (set_interface_status(interface, true)) {
-                            g_logger.info("Keepalive: Interface %s set UP.", interface.c_str());
+                            g_logger.info("Keepalive: Interface {} set UP.", interface.c_str());
                         } else {
-                            g_logger.error("Keepalive: ERROR: Failed to set interface %s UP during network recovery cycle!", interface.c_str());
+                            g_logger.error("Keepalive: ERROR: Failed to set interface {} UP during network recovery cycle!", interface.c_str());
                             trigger_error(521); // E521: INTERFACE_UP_FAILED
                         }
                     } else {
-                        g_logger.error("Keepalive: ERROR: Failed to set interface %s DOWN during network recovery cycle!", interface.c_str());
+                        g_logger.error("Keepalive: ERROR: Failed to set interface {} DOWN during network recovery cycle!", interface.c_str());
                         trigger_error(520); // E520: NETWORK_RECOVERY_FAILED
                     }
                 } else {
-                    g_logger.info("Keepalive: Re-associated to access point via %s.", interface.c_str());
+                    g_logger.info("Keepalive: Re-associated to access point via {}.", interface.c_str());
                 }
                 // Log WiFi signal state after recovery attempt
                 WifiStats ws2 = read_wifi_stats(interface);
                 if (ws2.has_data) {
-                    g_logger.info("Keepalive: Post-recovery WiFi: quality=%d/%d, signal=%ddBm, noise=%ddBm, missed_beacons=%lu.",
+                    g_logger.info("Keepalive: Post-recovery WiFi: quality={}/{}, signal={}dBm, noise={}dBm, missed_beacons={}u.",
                                   ws2.quality, 255, ws2.signal_dbm, ws2.noise_dbm, ws2.missed_beacons);
                 }
             }
@@ -1231,11 +1232,11 @@ int main(int argc, char** argv) {
     sigaction(SIGINT, &sa_term, nullptr);
     std::set_terminate(terminate_handler);
 
-    g_logger.info("=== piTrove v%s started %s ===", VERSION, get_timestamp().c_str());
+    g_logger.info("=== piTrove v{} started {} ===", VERSION, get_timestamp().c_str());
 
     // Start thermal monitoring thread
     static std::atomic<bool> thermal_running{true};
-    std::thread thermal_thread(pitrove::thermal::monitor_thread, std::ref(thermal_running));
+    std::jthread thermal_thread(pitrove::thermal::monitor_thread, std::ref(thermal_running));
 
     // --- Config ---
     g_cfg.parse_args(argc, argv);
@@ -1247,8 +1248,8 @@ int main(int argc, char** argv) {
         }
     }
     if (!config_path.empty()) {
-        g_logger.info("Loading config: %s", config_path.c_str());
-        if (!g_cfg.load(config_path)) g_logger.warn("Failed to load config from %s, using defaults", config_path.c_str());
+        g_logger.info("Loading config: {}", config_path.c_str());
+        if (!g_cfg.load(config_path)) g_logger.warn("Failed to load config from {}, using defaults", config_path.c_str());
     } else {
         g_logger.warn("No config file found, using defaults");
     }
@@ -1293,9 +1294,9 @@ int main(int argc, char** argv) {
             if (dir.empty()) return;
             struct stat st;
             if (stat(dir.c_str(), &st) != 0) {
-                g_logger.warn("Config directory '%s' (%s) does not exist - will create on first access", name.c_str(), dir.c_str());
+                g_logger.warn("Config directory '{}' ({}) does not exist - will create on first access", name.c_str(), dir.c_str());
             } else if (!S_ISDIR(st.st_mode)) {
-                g_logger.warn("Config '%s' path (%s) is not a directory", name.c_str(), dir.c_str());
+                g_logger.warn("Config '{}' path ({}) is not a directory", name.c_str(), dir.c_str());
             }
         };
         check_dir("media_dir", g_cfg.media_dir);
@@ -1321,10 +1322,10 @@ int main(int argc, char** argv) {
         keep_count = g_cfg.log_keep_count;
     }
     g_crash_cache_dir = cache_dir;
-    std::snprintf(g_crash_cache_dir_safe, sizeof(g_crash_cache_dir_safe), "%s", cache_dir.c_str());
+    std::strncpy(g_crash_cache_dir_safe, cache_dir.c_str(), sizeof(g_crash_cache_dir_safe));
 
     g_logger.init(log_dir, LogLevel::DEBUG, keep_count);
-    g_logger.info("Media dir: %s, Cache dir: %s", media_dir.c_str(), cache_dir.c_str());
+    g_logger.info("Media dir: {}, Cache dir: {}", media_dir.c_str(), cache_dir.c_str());
 
     // Verify cache directory available space (E403) and writability (E405)
     {
@@ -1386,9 +1387,9 @@ int main(int argc, char** argv) {
                 probed_card = card;
                 probed_card_index = card_idx;
                 probed_connector = conn;
-                g_logger.info("DRM Probe: Found active connected connector %s on %s (index %d)", conn.c_str(), card.c_str(), card_idx);
+                g_logger.info("DRM Probe: Found active connected connector {} on {} (index {})", conn.c_str(), card.c_str(), card_idx);
             } else {
-                g_logger.warn("DRM Probe: No connected connector found. Using default fallbacks: %s, connector: %s", probed_card.c_str(), probed_connector.c_str());
+                g_logger.warn("DRM Probe: No connected connector found. Using default fallbacks: {}, connector: {}", probed_card.c_str(), probed_connector.c_str());
             }
         }
 
@@ -1399,7 +1400,7 @@ int main(int argc, char** argv) {
 
         std::string index_str;
         if (g_cfg.drm_card == "auto") {
-            index_str = std::to_string(probed_card_index);
+            index_str = std::format("{}", probed_card_index);
         } else {
             size_t last_num = g_cfg.drm_card.find_last_of("0123456789");
             if (last_num != std::string::npos) {
@@ -1417,17 +1418,17 @@ int main(int argc, char** argv) {
         g_cfg.drm_card = final_card;
         g_cfg.drm_connector = final_connector;
 
-        g_logger.info("KMSDRM Auto-Config: Using card %s (index %s), connector %s", final_card.c_str(), index_str.c_str(), final_connector.c_str());
+        g_logger.info("KMSDRM Auto-Config: Using card {} (index {}), connector {}", final_card.c_str(), index_str.c_str(), final_connector.c_str());
     }
 
     // --- SDL3 Init ---
-    g_logger.info("Initializing SDL3 (%dx%d)...", g_cfg.screen_w, g_cfg.screen_h);
+    g_logger.info("Initializing SDL3 ({}x{})...", g_cfg.screen_w, g_cfg.screen_h);
     std::string splash_file = g_cfg.splash_file.empty() ? "src/splash.png" : g_cfg.splash_file;
 
     if (!g_renderer.init(g_cfg.screen_w, g_cfg.screen_h, g_cfg.fullscreen)) {
         g_logger.error("SDL3 initialization failed"); return 1;
     }
-    g_logger.info("SDL3 context created: %dx%d", g_renderer.screen_w, g_renderer.screen_h);
+    g_logger.info("SDL3 context created: {}x{}", g_renderer.screen_w, g_renderer.screen_h);
 
     // Render 3 black frames to initialize page flipping under KMSDRM before any textures are created
     g_logger.info("Initializing EGL page flipping sweeps...");
@@ -1435,16 +1436,16 @@ int main(int argc, char** argv) {
         g_renderer.clear(0, 0, 0, 255);
                         // Draw overlay on video frame BEFORE present
                         if (g_overlay) {
-                            double fallback_dur = (!g_eligible.empty() && current_idx >= 0 && current_idx < (int)g_eligible.size()) ? g_eligible[current_idx].duration : 0.0;
+                            double fallback_dur = (!g_eligible.empty() && current_idx >= 0 && current_idx < std::ssize(g_eligible)) ? g_eligible[current_idx].duration : 0.0;
                             double remaining = g_video_decoder.get_video_remaining(fallback_dur);
                             std::string remaining_str = "0:00";
-                            static int rem_cnt2=0; if(++rem_cnt2%60==0) g_logger.info("REM_TRACE2: remaining=%.1f is_run=%d has_f=%d", remaining, g_video_decoder.is_running(), g_video_decoder.has_frames());
+                            static int rem_cnt2=0; if(++rem_cnt2%60==0) g_logger.info("REM_TRACE2: remaining={:.1f} is_run={} has_f={}", remaining, g_video_decoder.is_running(), g_video_decoder.has_frames());
                             if (remaining > 0.0 && (g_video_decoder.is_running() || g_video_decoder.has_frames())) {
                                 int mins = (int)(remaining / 60.0);
                                 int secs = (int)(remaining - mins * 60.0);
-                                remaining_str = std::to_string(mins) + ":" + (secs < 10 ? "0" : "") + std::to_string(secs);
+                                remaining_str = std::format("{}:{:02d}", mins, secs);
                             }
-                            g_overlay->draw_all(current_idx, (int)g_eligible.size(),
+                            g_overlay->draw_all(current_idx, std::ssize(g_eligible),
                                 &g_eligible[current_idx],
                                 nullptr,
                                 0.0, true, 0.0, nullptr, nullptr, remaining_str);
@@ -1512,7 +1513,7 @@ int main(int argc, char** argv) {
 
             int photos = std::count_if(g_scanned_items.begin(), g_scanned_items.end(), [](const MediaItem& i){ return i.type == "image"; });
             int videos = std::count_if(g_scanned_items.begin(), g_scanned_items.end(), [](const MediaItem& i){ return i.type == "video"; });
-            g_logger.info("Loaded %d items from cache DB (photos=%d videos=%d)", (int)g_scanned_items.size(), photos, videos);
+            g_logger.info("Loaded {} items from cache DB (photos={} videos={})", std::ssize(g_scanned_items), photos, videos);
 
             if (photos > 0 || videos > 0) {
                 g_logger.info("Fast-path: skipping scan, going directly to slideshow");
@@ -1542,7 +1543,7 @@ int main(int argc, char** argv) {
 
     if (!do_scan) {
         // Cache loaded ? show item count briefly
-        int cached_total = (int)g_scanned_items.size();
+        int cached_total = std::ssize(g_scanned_items);
         g_renderer.render_splash(2, cached_total, cached_total, cached_total, "CACHE", 0, nullptr, false);
         SDL_Delay(800);
     } else {
@@ -1572,7 +1573,7 @@ int main(int argc, char** argv) {
         int depth = 10;
         { std::lock_guard lk(g_config_mtx); depth = g_cfg.scan_depth; }
 
-        std::thread scan_thread([&]() {
+        std::jthread scan_thread([&]() {
             scan_directory(media_dir, depth, g_scanned_items, safe_progress_callback);
             scan_done.store(true);
         });
@@ -1590,7 +1591,7 @@ int main(int argc, char** argv) {
 
         auto scan_end = std::chrono::steady_clock::now();
         auto scan_ms = std::chrono::duration_cast<std::chrono::milliseconds>(scan_end - scan_start).count();
-        g_logger.info("Scan complete: %d items in %ld ms", (int)g_scanned_items.size(), (long)scan_ms);
+        g_logger.info("Scan complete: {} items in {}d ms", std::ssize(g_scanned_items), (long)scan_ms);
 
         // --- PHASE 2: CACHE (bulk transaction, render at 0.1s intervals) ---
         g_logger.info("Phase 2: Caching metadata...");
@@ -1623,7 +1624,7 @@ int main(int argc, char** argv) {
         int cached = 0;
         auto last_render = std::chrono::steady_clock::now() - std::chrono::seconds(1);
 
-        int total_scanned = (int)g_scanned_items.size();
+        int total_scanned = std::ssize(g_scanned_items);
 
         for (int i = 0; i < total_scanned; i++) {
             auto& mi = g_scanned_items[i];
@@ -1654,7 +1655,7 @@ int main(int argc, char** argv) {
             }
         }
         g_cache->commit_transaction();
-        g_logger.info("Cache complete: %d items", cached);
+        g_logger.info("Cache complete: {} items", cached);
         int current_err = g_active_error_code.load();
         if (current_err == 401 || current_err == 413) {
             trigger_error(0);
@@ -1716,8 +1717,8 @@ int main(int argc, char** argv) {
         window_days = g_cfg.scan_window_days;
     }
     g_eligible = filter_playlist(g_scanned_items, cooldown_days, window_days);
-    g_logger.info("Initial Dynamic Playlist Setup: %d items eligible (cooldown=%d days, seasonal window=%d days)",
-        (int)g_eligible.size(), cooldown_days, window_days);
+    g_logger.info("Initial Dynamic Playlist Setup: {} items eligible (cooldown={} days, seasonal window={} days)",
+        std::ssize(g_eligible), cooldown_days, window_days);
 
     if (g_eligible.empty()) {
         g_logger.warn("No eligible items after dynamic filters");
@@ -1755,7 +1756,7 @@ int main(int argc, char** argv) {
             http_prt = g_cfg.http_port;
         }
         if (http_srv) {
-            g_logger.info("HTTP: Starting background web remote server on port %d...", http_prt);
+            g_logger.info("HTTP: Starting background web remote server on port {}...", http_prt);
             start_http_server(http_prt);
         }
     }
@@ -1768,7 +1769,7 @@ int main(int argc, char** argv) {
 
     // Start software watchdog thread
     g_watchdog_running.store(true);
-    g_watchdog_thread = std::thread(watchdog_loop);
+    g_watchdog_thread = std::jthread(watchdog_loop);
 
     // Start background Wi-Fi keep-alive thread if enabled
     bool keepalive_enabled = false;
@@ -1778,10 +1779,10 @@ int main(int argc, char** argv) {
     }
     if (keepalive_enabled) {
         g_keepalive_running.store(true);
-        g_keepalive_thread = std::thread(keepalive_loop);
+        g_keepalive_thread = std::jthread(keepalive_loop);
     }
 
-    g_logger.info("Starting slideshow with %zu items", g_eligible.size());
+    g_logger.info("Starting slideshow with {} items", g_eligible.size());
 
     g_transition = new TransitionEngine();
     g_transition->set_renderer(&g_renderer);
@@ -1805,7 +1806,7 @@ int main(int argc, char** argv) {
                 g_logger.warn("TOUCH_INPUT: Enabled in config, but SDL_GetTouchDevices detected 0 touch devices.");
                 trigger_error(619); // E619: TOUCHSCREEN_DEVICE_NOT_FOUND
             } else {
-                g_logger.info("TOUCH_INPUT: Found %d active touch input device(s).", touch_count);
+                g_logger.info("TOUCH_INPUT: Found {} active touch input device(s).", touch_count);
                 if (g_active_error_code.load() == 619) {
                     trigger_error(0);
                 }
@@ -1817,14 +1818,14 @@ int main(int argc, char** argv) {
     g_preload = new PreloadQueue(g_cfg.preload_capacity, g_cfg.preload_workers, g_renderer.sdl_renderer);
     g_preload->start();
 
-    g_logger.info("Starting slideshow loop with %zu items", g_eligible.size());
+    g_logger.info("Starting slideshow loop with {} items", g_eligible.size());
     // Randomize start position so each boot shows different initial photos
     if (!g_eligible.empty()) {
-        current_idx = (int)(make_entropy_seed() % g_eligible.size());
+        current_idx = (int)(make_entropy_seed() % std::ssize(g_eligible));
     } else {
         current_idx = 0;
     }
-    g_logger.info("Randomized start index: %d / %zu", current_idx, g_eligible.size());
+    g_logger.info("Randomized start index: {} / {}", current_idx, g_eligible.size());
     double item_timer = 0.0;
     auto last_frame_time = std::chrono::steady_clock::now();
 
@@ -1841,13 +1842,13 @@ int main(int argc, char** argv) {
     // Find the first valid item to display, skipping and removing bad/missing files
     int load_attempts = 0;
     std::unique_lock<std::mutex> playlist_lock(g_playlist_mtx);
-    while (load_attempts < (int)g_eligible.size() && load_attempts < 20) {
+    while (load_attempts < std::ssize(g_eligible) && load_attempts < 20) {
         std::string path = g_eligible[current_idx].path;
         playlist_lock.unlock();
         bool exists = file_exists(path);
         playlist_lock.lock();
         if (!exists) {
-            g_logger.warn("MISSING_FILE: First media file is missing/deleted from disk: %s", path.c_str());
+            g_logger.warn("MISSING_FILE: First media file is missing/deleted from disk: {}", path.c_str());
             if (is_media_dir_healthy(g_cfg.media_dir)) {
 
                 // Erase from g_scanned_items and g_eligible
@@ -1858,24 +1859,24 @@ int main(int argc, char** argv) {
                 }
                 g_eligible.erase(g_eligible.begin() + current_idx);
             } else {
-                g_logger.warn("Media directory is unhealthy/unmounted. Skipping removal of first item: %s", path.c_str());
+                g_logger.warn("Media directory is unhealthy/unmounted. Skipping removal of first item: {}", path.c_str());
             }
 
             if (g_eligible.empty()) break;
-            if (current_idx >= (int)g_eligible.size()) current_idx = 0;
+            if (current_idx >= std::ssize(g_eligible)) current_idx = 0;
             load_attempts++;
             continue;
         }
 
         if (g_eligible[current_idx].type == "video") {
             // First item is a video, let the main loop play it!
-            g_logger.info("First item in playlist is a video: %s", g_eligible[current_idx].path.c_str());
+            g_logger.info("First item in playlist is a video: {}", g_eligible[current_idx].path.c_str());
             break;
         } else {
             // First item is an image, check if should be twin portrait
             bool is_twin = should_be_twin_portrait(g_eligible, current_idx);
             if (is_twin) {
-                int next_idx = (current_idx + 1) % (int)g_eligible.size();
+                int next_idx = (current_idx + 1) % std::ssize(g_eligible);
                 std::string path_l = g_eligible[current_idx].path;
                 std::string path_r = g_eligible[next_idx].path;
 
@@ -1892,28 +1893,28 @@ int main(int argc, char** argv) {
 
                 // Re-validate indices since we unlocked
                 if (g_eligible.empty()) break;
-                if (current_idx >= (int)g_eligible.size()) current_idx = 0;
-                next_idx = (current_idx + 1) % (int)g_eligible.size();
+                if (current_idx >= std::ssize(g_eligible)) current_idx = 0;
+                next_idx = (current_idx + 1) % std::ssize(g_eligible);
                 path_l = g_eligible[current_idx].path;
                 path_r = g_eligible[next_idx].path;
 
                 if (!exists_l) {
-                    g_logger.warn("MISSING_FILE: Left twin file missing: %s", path_l.c_str());
+                    g_logger.warn("MISSING_FILE: Left twin file missing: {}", path_l.c_str());
                     if (is_media_dir_healthy(g_cfg.media_dir)) {
                         g_eligible.erase(g_eligible.begin() + current_idx);
                     }
                     if (g_eligible.empty()) break;
-                    if (current_idx >= (int)g_eligible.size()) current_idx = 0;
+                    if (current_idx >= std::ssize(g_eligible)) current_idx = 0;
                     load_attempts++;
                     continue;
                 }
                 if (!exists_r) {
-                    g_logger.warn("MISSING_FILE: Right twin file missing: %s", path_r.c_str());
+                    g_logger.warn("MISSING_FILE: Right twin file missing: {}", path_r.c_str());
                     if (is_media_dir_healthy(g_cfg.media_dir)) {
                         g_eligible.erase(g_eligible.begin() + next_idx);
                     }
                     if (g_eligible.empty()) break;
-                    if (current_idx >= (int)g_eligible.size()) current_idx = 0;
+                    if (current_idx >= std::ssize(g_eligible)) current_idx = 0;
                     load_attempts++;
                     continue;
                 }
@@ -1946,7 +1947,7 @@ int main(int argc, char** argv) {
                         g_cache->upsert(g_eligible[next_idx], 0, 1);
                     }
 
-                    g_logger.info("First item is twin-portrait, loaded successfully: %s and %s", path_l.c_str(), path_r.c_str());
+                    g_logger.info("First item is twin-portrait, loaded successfully: {} and {}", path_l.c_str(), path_r.c_str());
                     break;
                 } else {
                     if (!current_data || !current_data->valid) {
@@ -1961,7 +1962,7 @@ int main(int argc, char** argv) {
                     current_data = nullptr;
                     current_twin_data = nullptr;
                     if (g_eligible.empty()) break;
-                    if (current_idx >= (int)g_eligible.size()) current_idx = 0;
+                    if (current_idx >= std::ssize(g_eligible)) current_idx = 0;
                     load_attempts++;
                 }
             } else {
@@ -1971,7 +1972,7 @@ int main(int argc, char** argv) {
                 playlist_lock.lock();
 
                 if (g_eligible.empty()) break;
-                if (current_idx >= (int)g_eligible.size()) current_idx = 0;
+                if (current_idx >= std::ssize(g_eligible)) current_idx = 0;
 
                 current_data = single_data;
                 if (current_data && current_data->valid) {
@@ -1999,17 +2000,17 @@ int main(int argc, char** argv) {
                     if (g_cache) g_cache->upsert(g_eligible[current_idx], 0, 1);
 
                     g_renderer.calculate_fit_rect(g_eligible[current_idx].width, g_eligible[current_idx].height, fit_rect);
-                    g_logger.info("First item is an image, loaded successfully: %s (%dx%d)", g_eligible[current_idx].path.c_str(), g_eligible[current_idx].width, g_eligible[current_idx].height);
+                    g_logger.info("First item is an image, loaded successfully: {} ({}x{})", g_eligible[current_idx].path.c_str(), g_eligible[current_idx].width, g_eligible[current_idx].height);
                     break;
                 } else {
                     if (is_media_dir_healthy(g_cfg.media_dir) && (!single_data || !single_data->transient_error)) {
-                        g_logger.warn("Bad first image, skipping: %s", g_eligible[current_idx].path.c_str());
+                        g_logger.warn("Bad first image, skipping: {}", g_eligible[current_idx].path.c_str());
                         g_eligible.erase(g_eligible.begin() + current_idx);
                     } else {
-                        g_logger.warn("Failed to load first image due to network/unmounted media dir: %s", g_eligible[current_idx].path.c_str());
+                        g_logger.warn("Failed to load first image due to network/unmounted media dir: {}", g_eligible[current_idx].path.c_str());
                     }
                     if (g_eligible.empty()) break;
-                    if (current_idx >= (int)g_eligible.size()) current_idx = 0;
+                    if (current_idx >= std::ssize(g_eligible)) current_idx = 0;
                     load_attempts++;
                 }
             }
@@ -2023,7 +2024,7 @@ int main(int argc, char** argv) {
 
     // --- Start Background Watchman Thread ---
     g_watchman_running.store(true);
-    g_watchman_thread = std::thread(watchman_loop);
+    g_watchman_thread = std::jthread(watchman_loop);
     g_logger.info("Watchman: Background watchman thread spawned successfully.");
 
     // --- Start Background Preprocess Thread ---
@@ -2102,7 +2103,7 @@ int main(int argc, char** argv) {
             switch (selection) {
                 case 0:
                     g_slideshow_paused = !g_slideshow_paused.load();
-                    g_logger.info("SLIDESHOW: Play/pause toggled via pop-up menu. Paused = %s", g_slideshow_paused.load() ? "YES" : "NO");
+                    g_logger.info("SLIDESHOW: Play/pause toggled via pop-up menu. Paused = {}", g_slideshow_paused.load() ? "YES" : "NO");
                     break;
                 case 1:
                     {
@@ -2286,7 +2287,7 @@ int main(int argc, char** argv) {
                 int64_t now_ts = static_cast<int64_t>(std::time(nullptr));
                 int64_t last_motion = g_last_motion_time.load();
                 if (last_motion > 0 && (now_ts - last_motion >= cooldown)) {
-                    g_logger.info("Motion sensor cooldown threshold reached (%d seconds). Blanking screen.", cooldown);
+                    g_logger.info("Motion sensor cooldown threshold reached ({} seconds). Blanking screen.", cooldown);
                     if (!g_screen_blanked.load()) {
                         g_screen_blanked.store(true);
                         set_display_power(false);
@@ -2319,12 +2320,12 @@ int main(int argc, char** argv) {
         // Apply Pause Toggle command
         if (cmd == 3) {
             g_slideshow_paused = !g_slideshow_paused.load();
-            g_logger.info("SLIDESHOW: Pause toggled remotely. Current pause state = %s", g_slideshow_paused.load() ? "PAUSED" : "PLAYING");
+            g_logger.info("SLIDESHOW: Pause toggled remotely. Current pause state = {}", g_slideshow_paused.load() ? "PAUSED" : "PLAYING");
         }
 
         // Validate current_idx (skip stat() to avoid CIFS hang)
         if (!g_eligible.empty()) {
-            if (current_idx >= (int)g_eligible.size()) {
+            if (current_idx >= std::ssize(g_eligible)) {
                 current_idx = 0;
             }
         }
@@ -2337,7 +2338,7 @@ int main(int argc, char** argv) {
 
         // Handle Force Video Next command
         if (cmd == 5) {
-            int n = (int)g_eligible.size();
+            int n = std::ssize(g_eligible);
             int video_idx = -1;
             for (int i = 1; i < n; i++) {
                 int idx = (current_idx + i) % n;
@@ -2349,7 +2350,7 @@ int main(int argc, char** argv) {
             if (video_idx != -1) {
                 int next_idx = (current_idx + 1) % n;
                 std::swap(g_eligible[next_idx], g_eligible[video_idx]);
-                g_logger.info("FORCE VIDEO: Swapped video from index %d to next index %d: %s", video_idx, next_idx, g_eligible[next_idx].path.c_str());
+                g_logger.info("FORCE VIDEO: Swapped video from index {} to next index {}: {}", video_idx, next_idx, g_eligible[next_idx].path.c_str());
             } else {
                 g_logger.warn("FORCE VIDEO: No video found in the playlist to force next.");
             }
@@ -2406,7 +2407,7 @@ int main(int argc, char** argv) {
             SDL_Delay(200);
             continue;
         }
-        if (current_idx < 0 || current_idx >= (int)g_eligible.size()) {
+        if (current_idx < 0 || current_idx >= std::ssize(g_eligible)) {
             current_idx = 0;
         }
         if (g_eligible[current_idx].type == "video") {
@@ -2452,16 +2453,16 @@ int main(int argc, char** argv) {
                         SDL_RenderTexture(g_renderer.sdl_renderer, g_video_tex, nullptr, &dst_rect);
                         // FIX: Overlay rendering + draw overlays BEFORE present()
                         if (g_overlay) {
-                            double fallback_dur = (!g_eligible.empty() && current_idx >= 0 && current_idx < (int)g_eligible.size()) ? g_eligible[current_idx].duration : 0.0;
+                            double fallback_dur = (!g_eligible.empty() && current_idx >= 0 && current_idx < std::ssize(g_eligible)) ? g_eligible[current_idx].duration : 0.0;
                             double remaining = g_video_decoder.get_video_remaining(fallback_dur);
                             std::string remaining_str = "0:00";
-                            static int rem_cnt=0; if(++rem_cnt%60==0) g_logger.info("REM_TRACE: remaining=%.1f is_running=%d has_frames=%d", remaining, g_video_decoder.is_running(), g_video_decoder.has_frames());
+                            static int rem_cnt=0; if(++rem_cnt%60==0) g_logger.info("REM_TRACE: remaining={:.1f} is_running={} has_frames={}", remaining, g_video_decoder.is_running(), g_video_decoder.has_frames());
                             if (remaining > 0.0 && (g_video_decoder.is_running() || g_video_decoder.has_frames())) {
                                 int mins = (int)(remaining / 60.0);
                                 int secs = (int)(remaining - mins * 60.0);
-                                remaining_str = std::to_string(mins) + ":" + (secs < 10 ? "0" : "") + std::to_string(secs);
+                                remaining_str = std::format("{}:{:02d}", mins, secs);
                             }
-                            g_overlay->draw_all(current_idx, (int)g_eligible.size(),
+                            g_overlay->draw_all(current_idx, std::ssize(g_eligible),
                                 &g_eligible[current_idx],
                                 nullptr,
                                 0.0, true, 0, nullptr, nullptr, remaining_str);
@@ -2585,7 +2586,7 @@ int main(int argc, char** argv) {
                     playlist_lock.unlock();
                     continue;
                 }
-                g_logger.info("Playing video: %s", video_path.c_str());
+                g_logger.info("Playing video: {}", video_path.c_str());
 
                 int width, height;
                 { std::lock_guard lock(g_config_mtx); width = g_cfg.screen_w; height = g_cfg.screen_h; }
@@ -2609,7 +2610,7 @@ int main(int argc, char** argv) {
                 double video_fps = g_video_decoder.get_fps();
                 double video_duration = g_video_decoder.get_video_duration();
                 if (video_fps > 0 || video_duration > 0) {
-                    g_logger.info("Caching FPS=%.2f, duration=%.1fs for video: %s", video_fps, video_duration, g_eligible[current_idx].path.c_str());
+                    g_logger.info("Caching FPS={:.2f}, duration={:.1f}s for video: {}", video_fps, video_duration, g_eligible[current_idx].path.c_str());
                     g_eligible[current_idx].framerate = video_fps;
                     g_eligible[current_idx].duration = video_duration;
                     if (g_cache) {
@@ -2622,7 +2623,7 @@ int main(int argc, char** argv) {
             }
         }
         } catch (const std::exception& e) {
-            g_logger.error("VIDEO_DEC: Exception in main loop: %s", e.what());
+            g_logger.error("VIDEO_DEC: Exception in main loop: {}", e.what());
             g_video_decoder.stop();
             if (g_video_tex) { SDL_DestroyTexture(g_video_tex); g_video_tex = nullptr; g_video_tex_w = 0; g_video_tex_h = 0; }
             playlist_lock.unlock();
@@ -2642,14 +2643,14 @@ int main(int argc, char** argv) {
         if (transitioning) {
             // Load next_data exactly once at the beginning of the transition
             if (!next_data) {
-                int next_idx = current_idx % (int)g_eligible.size();
+                int next_idx = current_idx % std::ssize(g_eligible);
                 bool is_twin = should_be_twin_portrait(g_eligible, next_idx);
                 next_is_twin = is_twin;
 
                 int next_idx_twin = -1;
                 std::string next_path, next_path_twin;
                 if (is_twin) {
-                    next_idx_twin = (next_idx + 1) % (int)g_eligible.size();
+                    next_idx_twin = (next_idx + 1) % std::ssize(g_eligible);
                     next_path = g_eligible[next_idx].path;
                     next_path_twin = g_eligible[next_idx_twin].path;
                 } else {
@@ -2681,14 +2682,14 @@ int main(int argc, char** argv) {
                     next_data = nullptr;
                     next_twin_data = nullptr;
                 } else {
-                    if (next_idx >= (int)g_eligible.size()) next_idx = next_idx % (int)g_eligible.size();
-                    if (current_idx >= (int)g_eligible.size()) current_idx = current_idx % (int)g_eligible.size();
+                    if (next_idx >= std::ssize(g_eligible)) next_idx = next_idx % std::ssize(g_eligible);
+                    if (current_idx >= std::ssize(g_eligible)) current_idx = current_idx % std::ssize(g_eligible);
                 }
 
                 // Update metadata using path-safe lookups (indices may have shifted)
                 auto update_meta_safe = [&](const std::string& expected_path, const std::shared_ptr<ImageData>& data) {
                     int found = -1;
-                    for (int i = 0; i < (int)g_eligible.size(); i++) {
+                    for (int i = 0; i < std::ssize(g_eligible); i++) {
                         if (g_eligible[i].path == expected_path) { found = i; break; }
                     }
                     if (found != -1) {
@@ -2758,8 +2759,8 @@ int main(int argc, char** argv) {
                     g_transition->update(dt_scaled);
                     g_transition->render(transition_prev_target, transition_next_target, g_renderer.screen_w, g_renderer.screen_h);
                     if (g_overlay) {
-                        bool cur_is_video = (!g_eligible.empty() && current_idx >= 0 && current_idx < (int)g_eligible.size() && g_eligible[current_idx].type == "video");
-                        g_overlay->draw_all(current_idx, (int)g_eligible.size(),
+                        bool cur_is_video = (!g_eligible.empty() && current_idx >= 0 && current_idx < std::ssize(g_eligible) && g_eligible[current_idx].type == "video");
+                        g_overlay->draw_all(current_idx, std::ssize(g_eligible),
                             &g_eligible[current_idx],
                             nullptr,
                             0.0, cur_is_video, active_fps, next_data ? next_data.get() : nullptr, next_twin_data ? next_twin_data.get() : nullptr);
@@ -2785,7 +2786,7 @@ int main(int argc, char** argv) {
                         if (!is_video_transition) {
                             mark_item_shown(g_eligible[current_idx].path, false);
                             if (current_twin_data) {
-                                mark_item_shown(g_eligible[(current_idx + 1) % (int)g_eligible.size()].path, false);
+                                mark_item_shown(g_eligible[(current_idx + 1) % std::ssize(g_eligible)].path, false);
                             }
                         }
 
@@ -2822,7 +2823,7 @@ int main(int argc, char** argv) {
                         current_tex = current_data->texture;
                         mark_item_shown(g_eligible[current_idx].path, false);
                         if (current_twin_data) {
-                            mark_item_shown(g_eligible[(current_idx + 1) % (int)g_eligible.size()].path, false);
+                            mark_item_shown(g_eligible[(current_idx + 1) % std::ssize(g_eligible)].path, false);
                         }
 
                         // Update metadata
@@ -2851,7 +2852,7 @@ int main(int argc, char** argv) {
                 if (transition_next_target) { SDL_DestroyTexture(transition_next_target); transition_next_target = nullptr; }
 
                 g_consecutive_failures.fetch_add(1);
-                g_logger.warn("SLIDESHOW: Failed to load next media item. Consecutive failure count: %d", g_consecutive_failures.load());
+                g_logger.warn("SLIDESHOW: Failed to load next media item. Consecutive failure count: {}", g_consecutive_failures.load());
                 if (g_consecutive_failures.load() >= 3) {
                     if (!g_offline_mode.exchange(true)) {
                         g_logger.warn("SLIDESHOW: Entering Offline Recovery Mode due to multiple consecutive load failures.");
@@ -2898,7 +2899,7 @@ int main(int argc, char** argv) {
                         current_tex = current_data->texture;
                         mark_item_shown(g_eligible[current_idx].path, false);
                         if (current_twin_data) {
-                            mark_item_shown(g_eligible[(current_idx + 1) % (int)g_eligible.size()].path, false);
+                            mark_item_shown(g_eligible[(current_idx + 1) % std::ssize(g_eligible)].path, false);
                         }
 
                         // Update metadata
@@ -3082,10 +3083,10 @@ int main(int argc, char** argv) {
 
             if (rendered) {
                 if (g_overlay) {
-                    bool cur_is_video = (!g_eligible.empty() && current_idx >= 0 && current_idx < (int)g_eligible.size() && g_eligible[current_idx].type == "video");
-                    int twin_idx = (current_idx + 1) % (int)g_eligible.size();
+                    bool cur_is_video = (!g_eligible.empty() && current_idx >= 0 && current_idx < std::ssize(g_eligible) && g_eligible[current_idx].type == "video");
+                    int twin_idx = (current_idx + 1) % std::ssize(g_eligible);
                     const MediaItem* twin_item_ptr = (current_twin_data && !g_eligible.empty()) ? &g_eligible[twin_idx] : nullptr;
-                    g_overlay->draw_all(current_idx, (int)g_eligible.size(),
+                    g_overlay->draw_all(current_idx, std::ssize(g_eligible),
                         &g_eligible[current_idx],
                         twin_item_ptr,
                         item_timer, cur_is_video, active_fps, current_data.get(), current_twin_data.get());
@@ -3095,16 +3096,16 @@ int main(int argc, char** argv) {
 
             // Preload next items asynchronously while resting
             if (g_preload) {
-                int lookahead_idx = g_eligible.empty() ? 0 : (current_idx + (current_twin_data ? 2 : 1)) % (int)g_eligible.size();
+                int lookahead_idx = g_eligible.empty() ? 0 : (current_idx + (current_twin_data ? 2 : 1)) % std::ssize(g_eligible);
                 bool lookahead_is_twin = g_eligible.empty() ? false : should_be_twin_portrait(g_eligible, lookahead_idx);
                 
-                if (lookahead_idx >= 0 && lookahead_idx < (int)g_eligible.size()) {
+                if (lookahead_idx >= 0 && lookahead_idx < std::ssize(g_eligible)) {
                     if (g_eligible[lookahead_idx].type == "image") {
                         g_preload->enqueue(g_eligible[lookahead_idx].path);
                     }
                     if (lookahead_is_twin) {
-                        int lookahead_idx2 = (lookahead_idx + 1) % (int)g_eligible.size();
-                        if (lookahead_idx2 >= 0 && lookahead_idx2 < (int)g_eligible.size()) {
+                        int lookahead_idx2 = (lookahead_idx + 1) % std::ssize(g_eligible);
+                        if (lookahead_idx2 >= 0 && lookahead_idx2 < std::ssize(g_eligible)) {
                             if (g_eligible[lookahead_idx2].type == "image") {
                                 g_preload->enqueue(g_eligible[lookahead_idx2].path);
                             }
@@ -3115,8 +3116,8 @@ int main(int argc, char** argv) {
                 // Prefetch upcoming video files into OS page cache
                 if (!g_eligible.empty()) {
                     int scan_start = current_idx + (current_twin_data ? 2 : 1);
-                    for (int i = 0; i < 5 && i < (int)g_eligible.size(); i++) {
-                        int vi = (scan_start + i) % (int)g_eligible.size();
+                    for (int i = 0; i < 5 && i < std::ssize(g_eligible); i++) {
+                        int vi = (scan_start + i) % std::ssize(g_eligible);
                         if (g_eligible[vi].type == "video") {
                             prefetch_video(g_eligible[vi].path);
                         }
@@ -3241,6 +3242,6 @@ int main(int argc, char** argv) {
     // Clear crash state after stable runtime
     pitrove::safe_mode::clear();
 
-    g_logger.info("piTrove v%s shutdown complete", VERSION);
+    g_logger.info("piTrove v{} shutdown complete", VERSION);
     return 0;
 }

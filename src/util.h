@@ -1,7 +1,7 @@
 #ifndef PITROVE_UTIL_H
 #define PITROVE_UTIL_H
 
-#define VERSION "16.1.2"
+#define VERSION "17.0.3"
 #define APP_NAME "piTrove"
 
 #include <atomic>
@@ -54,6 +54,7 @@ struct LogMessage {
     std::string body;
 };
 
+std::string redact_secrets(const std::string& msg);
 struct Logger {
     LogLevel level{LogLevel::INFO};
     std::string log_dir;
@@ -65,7 +66,7 @@ struct Logger {
     std::condition_variable cv;
     std::vector<LogMessage> front_queue;
     std::vector<LogMessage> back_queue;
-    std::thread flush_thread;
+    std::jthread flush_thread;
     std::atomic<bool> flush_running{true};
     bool initialized{false};
 
@@ -73,16 +74,64 @@ struct Logger {
     void init(const std::string& path, LogLevel lvl, int keep_count = 5);
     void rotate_logs(const std::string& dir, int keep);
 
-    void log_v(LogLevel lvl, const char* fmt, va_list ap);
-    void info(const char* fmt, ...);
-    void warn(const char* fmt, ...);
-    void error(const char* fmt, ...);
-    void debug(const char* fmt, ...);
     void log_error_code(int code_num);
     bool is_initialized() const { return initialized; }
 
     Logger() = default;
     ~Logger();
+template<typename... Args>
+void info(const std::format_string<Args...> fmt, Args&&... args) {
+    if (LogLevel::INFO < level) return;
+    LogMessage msg;
+    msg.time = std::chrono::system_clock::now();
+    msg.level = LogLevel::INFO;
+    msg.body = redact_secrets(std::vformat(fmt.get(), std::make_format_args(args...)));
+    {
+        std::lock_guard<std::mutex> lock(queue_mtx);
+        front_queue.push_back(std::move(msg));
+    }
+    cv.notify_one();
+}
+template<typename... Args>
+void warn(const std::format_string<Args...> fmt, Args&&... args) {
+    if (LogLevel::WARN < level) return;
+    LogMessage msg;
+    msg.time = std::chrono::system_clock::now();
+    msg.level = LogLevel::WARN;
+    msg.body = redact_secrets(std::vformat(fmt.get(), std::make_format_args(args...)));
+    {
+        std::lock_guard<std::mutex> lock(queue_mtx);
+        front_queue.push_back(std::move(msg));
+    }
+    cv.notify_one();
+}
+template<typename... Args>
+void error(const std::format_string<Args...> fmt, Args&&... args) {
+    if (LogLevel::ERROR < level) return;
+    LogMessage msg;
+    msg.time = std::chrono::system_clock::now();
+    msg.level = LogLevel::ERROR;
+    msg.body = redact_secrets(std::vformat(fmt.get(), std::make_format_args(args...)));
+    {
+        std::lock_guard<std::mutex> lock(queue_mtx);
+        front_queue.push_back(std::move(msg));
+    }
+    cv.notify_one();
+}
+template<typename... Args>
+void debug(const std::format_string<Args...> fmt, Args&&... args) {
+    if (LogLevel::DEBUG < level) return;
+    LogMessage msg;
+    msg.time = std::chrono::system_clock::now();
+    msg.level = LogLevel::DEBUG;
+    msg.body = redact_secrets(std::vformat(fmt.get(), std::make_format_args(args...)));
+    {
+        std::lock_guard<std::mutex> lock(queue_mtx);
+        front_queue.push_back(std::move(msg));
+    }
+    cv.notify_one();
+}
+
 };
 
 inline Logger g_logger;

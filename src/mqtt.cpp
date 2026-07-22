@@ -18,8 +18,9 @@
 #include <sys/wait.h>
 #include <signal.h>
 #include <fcntl.h>
+#include <format>
 
-static std::thread g_mqtt_thread;
+static std::jthread g_mqtt_thread;
 static std::mutex g_mqtt_mtx;
 static pid_t g_mqtt_pid = -1;
 static int g_mqtt_pipe_fd = -1;
@@ -31,7 +32,7 @@ struct MqttPubRequest {
 static std::queue<MqttPubRequest> g_pub_queue;
 static std::mutex g_pub_mtx;
 static std::condition_variable g_pub_cv;
-static std::thread g_pub_worker_thread;
+static std::jthread g_pub_worker_thread;
 static std::atomic<bool> g_pub_worker_running{false};
 
 static void pub_worker_loop() {
@@ -55,7 +56,7 @@ static void pub_worker_loop() {
                 size_t written = fwrite(req.payload.data(), 1, req.payload.size(), fp);
                 int status = pclose(fp);
                 if (status != 0) {
-                    g_logger.warn("MQTT Publisher: mosquitto_pub exit code %d (%zu/%zu bytes written)", status, written, req.payload.size());
+                    g_logger.warn("MQTT Publisher: mosquitto_pub exit code {} ({}/{} bytes written)", status, written, req.payload.size());
                 }
             } else {
                 g_logger.error("MQTT Publisher: popen failed to start publish helper.");
@@ -73,7 +74,7 @@ static void ensure_pub_worker_running() {
             g_pub_worker_thread.join();
         }
         g_pub_worker_running.store(true);
-        g_pub_worker_thread = std::thread(pub_worker_loop);
+        g_pub_worker_thread = std::jthread(pub_worker_loop);
     }
 }
 
@@ -93,7 +94,7 @@ void mqtt_publish(const std::string& topic, const std::string& payload, bool ret
     if (!enabled) return;
 
     std::string cmd = "mosquitto_pub -h '" + escape_shell_arg(broker) + "'" +
-                      " -p " + std::to_string(port);
+                      " -p " + std::format("{}", port);
     if (!user.empty()) {
         cmd += " -u '" + escape_shell_arg(user) + "'";
     }
@@ -109,7 +110,7 @@ void mqtt_publish(const std::string& topic, const std::string& payload, bool ret
     {
         std::lock_guard<std::mutex> lk(g_pub_mtx);
         if (g_pub_queue.size() >= 50) {
-            g_logger.warn("MQTT: Outbound queue cap reached (50). Dropping publish request for topic '%s'", topic.c_str());
+            g_logger.warn("MQTT: Outbound queue cap reached (50). Dropping publish request for topic '{}'", topic.c_str());
             return;
         }
         g_pub_queue.push({cmd, payload});
@@ -203,7 +204,7 @@ void start_mqtt_client() {
         if (g_mqtt_thread.joinable()) return;
     }
     
-    g_mqtt_thread = std::thread([]() {
+    g_mqtt_thread = std::jthread([]() {
         while (g_running.load()) {
             std::string broker, prefix, sensor_topic;
             int port = 1883;
@@ -215,7 +216,7 @@ void start_mqtt_client() {
                 sensor_topic = g_cfg.mqtt_motionsensor_topic;
             }
             
-            std::vector<std::string> args = {"mosquitto_sub", "-h", broker, "-p", std::to_string(port)};
+            std::vector<std::string> args = {"mosquitto_sub", "-h", broker, "-p", std::format("{}", port)};
             std::string user, pass;
             {
                 std::shared_lock<std::shared_mutex> lk(g_config_mtx);
@@ -361,7 +362,7 @@ std::vector<char*> argv;
                 std::string topic = line.substr(0, colon);
                 std::string payload = line.substr(colon + 1);
 
-                g_logger.info("MQTT Received on [%s]: %s", topic.c_str(), payload.c_str());
+                g_logger.info("MQTT Received on [{}]: {}", topic.c_str(), payload.c_str());
 
                 if (topic == sensor_topic) {
                     if (payload == "ON" || payload == "1" || payload == "true" || payload == "motion") {
@@ -455,7 +456,7 @@ void stop_mqtt_client() {
     }
     
     // Stop the publisher worker thread cleanly
-    std::thread to_join;
+    std::jthread to_join;
     {
         std::lock_guard<std::mutex> lk(g_pub_mtx);
         if (g_pub_worker_running.load()) {

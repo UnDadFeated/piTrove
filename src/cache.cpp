@@ -8,18 +8,20 @@
 #include <cstring>
 #include <cstdio>
 #include <climits>
+#include <format>
 
 bool CacheManager::open(const std::string& dir) {
-    g_logger.info("[TRACE] CacheManager::open dir=%s", dir.c_str());
+    g_logger.info("[TRACE] CacheManager::open dir={}", dir.c_str());
     std::error_code ec;
     std::filesystem::create_directories(dir, ec);
+    [[unlikely]]
     if (ec) {
-        g_logger.error("CacheManager: Failed to create directories %s: %s", dir.c_str(), ec.message().c_str());
+        g_logger.error("CacheManager: Failed to create directories {}: {}", dir.c_str(), ec.message().c_str());
     }
 
     std::string path = dir + "/cache.db";
     if (std::filesystem::exists(path, ec) && !ec && !verify_database(path)) {
-        g_logger.warn("Cache database at %s has an outdated schema or is corrupt. Purging to rebuild...", path.c_str());
+        g_logger.warn("Cache database at {} has an outdated schema or is corrupt. Purging to rebuild...", path.c_str());
         std::filesystem::remove(path, ec);
         std::filesystem::remove(path + "-wal", ec);
         std::filesystem::remove(path + "-shm", ec);
@@ -28,6 +30,7 @@ bool CacheManager::open(const std::string& dir) {
     int flags = SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_FULLMUTEX;
     if (sqlite3_open_v2(path.c_str(), &db, flags, nullptr) != SQLITE_OK) {
         if (db) { sqlite3_close(db); db = nullptr; }
+    [[unlikely]]
         trigger_error(413); // E413: SQLITE_OPEN_FAILED
         return false;
     }
@@ -39,6 +42,7 @@ bool CacheManager::open(const std::string& dir) {
         if (sqlite3_step(stmt) == SQLITE_ROW) {
             const char* result = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0));
             if (result && std::string(result) != "ok") {
+    [[unlikely]]
                 trigger_error(401); // E401: SQLITE_DB_CORRUPTED
                 sqlite3_finalize(stmt);
                 stmt = nullptr;
@@ -51,6 +55,7 @@ bool CacheManager::open(const std::string& dir) {
                 std::remove(shm.c_str());
                 if (sqlite3_open_v2(path.c_str(), &db, flags, nullptr) != SQLITE_OK) {
                     if (db) { sqlite3_close(db); db = nullptr; }
+    [[unlikely]]
                     trigger_error(413); // E413: SQLITE_OPEN_FAILED
                     return false;
                 }
@@ -64,26 +69,25 @@ bool CacheManager::open(const std::string& dir) {
 
     char* err = nullptr;
     if (sqlite3_exec(db, "PRAGMA journal_mode=WAL;", nullptr, nullptr, &err) != SQLITE_OK) {
-        g_logger.warn("Failed to set WAL mode: %s", err ? err : "unknown");
+        g_logger.warn("Failed to set WAL mode: {}", err ? err : "unknown");
         if (err) sqlite3_free(err);
         close();
         return false;
     }
     if (sqlite3_exec(db, "PRAGMA synchronous=NORMAL;", nullptr, nullptr, &err) != SQLITE_OK) {
-        g_logger.warn("Failed to set synchronous=NORMAL: %s", err ? err : "unknown");
+        g_logger.warn("Failed to set synchronous=NORMAL: {}", err ? err : "unknown");
         if (err) sqlite3_free(err);
         close();
         return false;
     }
-    char mmap_sql[64];
     long long mmap_val = 0;
     {
         std::shared_lock lk(g_config_mtx);
         mmap_val = (long long)g_cfg.cache_mmap_size;
     }
-    snprintf(mmap_sql, sizeof(mmap_sql), "PRAGMA mmap_size=%lld", mmap_val);
-    if (sqlite3_exec(db, mmap_sql, nullptr, nullptr, &err) != SQLITE_OK) {
-        g_logger.warn("Failed to set mmap_size=%lld: %s", mmap_val, err ? err : "unknown");
+    std::string mmap_sql = std::format("PRAGMA mmap_size={}", mmap_val);
+    if (sqlite3_exec(db, mmap_sql.c_str(), nullptr, nullptr, &err) != SQLITE_OK) {
+        g_logger.warn("Failed to set mmap_size={}ld: {}", mmap_val, err ? err : "unknown");
         if (err) sqlite3_free(err);
     }
 
@@ -93,6 +97,7 @@ bool CacheManager::open(const std::string& dir) {
     "framerate REAL DEFAULT 0, "
         "exif INT, bad INT DEFAULT 0, last_shown INTEGER DEFAULT 0, timestamp INTEGER DEFAULT 0, is_camera INT DEFAULT -1, creation_time INTEGER DEFAULT 0, preprocessed INT DEFAULT 0"
         ")", nullptr, nullptr, &err) != SQLITE_OK) {
+    [[unlikely]]
         trigger_error(407); // E407: SQLITE_MIGRATION_FAILED
         if (err) sqlite3_free(err);
         close();
@@ -133,6 +138,7 @@ bool CacheManager::open(const std::string& dir) {
         "duration=excluded.duration, framerate=excluded.framerate, bad=excluded.bad, "
         "last_shown=MAX(cache.last_shown, excluded.last_shown), timestamp=excluded.timestamp, is_camera=excluded.is_camera, creation_time=excluded.creation_time, preprocessed=excluded.preprocessed",
         -1, &stmt_upsert, nullptr) != SQLITE_OK) {
+    [[unlikely]]
         trigger_error(410); // E410: SQLITE_PREPARE_STMT_FAIL
         close();
         return false;
@@ -268,7 +274,7 @@ void CacheManager::upsert(MediaItem mi, int bad, int preprocessed) {
         } else if (!in_transaction) {
             std::vector<uint8_t> buffer = ImageLoader::read_file_to_buffer(mi.path);
             if (!buffer.empty()) {
-                ImageMetadata meta = ImageLoader::read_metadata_from_memory(buffer.data(), (unsigned int)buffer.size());
+                ImageMetadata meta = ImageLoader::read_metadata_from_memory(buffer);
                 mi.is_camera = meta.is_camera ? 1 : 0;
                 mi.creation_time = meta.creation_time;
             } else {
@@ -292,15 +298,19 @@ void CacheManager::upsert(MediaItem mi, int bad, int preprocessed) {
     sqlite3_bind_int64(stmt_upsert, 12, mi.creation_time);
     sqlite3_bind_int(stmt_upsert, 13, preprocessed);
     int step_ret = sqlite3_step(stmt_upsert);
+    [[unlikely]]
     if (step_ret != SQLITE_DONE) {
         if (step_ret == SQLITE_BUSY || step_ret == SQLITE_LOCKED) {
+    [[unlikely]]
             trigger_error(402); // E402: SQLITE_LOCK_TIMEOUT
         } else {
+    [[unlikely]]
             trigger_error(408); // E408: DISK_WRITE_FAIL
         }
-        g_logger.error("Failed to execute upsert for: %s (error code: %d)", mi.path.c_str(), step_ret);
+        g_logger.error("Failed to execute upsert for: {} (error code: {})", mi.path.c_str(), step_ret);
     } else {
         if (g_active_error_code.load() == 402 || g_active_error_code.load() == 408) {
+    [[unlikely]]
             trigger_error(0);
         }
     }
@@ -309,21 +319,25 @@ void CacheManager::upsert(MediaItem mi, int bad, int preprocessed) {
 }
 
 void CacheManager::mark_shown(const std::string& path) {
-    g_logger.info("[TRACE] CacheManager::mark_shown path=%s", path.c_str());
+    g_logger.info("[TRACE] CacheManager::mark_shown path={}", path.c_str());
     if (!stmt_mark) return;
     std::lock_guard<std::mutex> lk(db_mutex);
     sqlite3_bind_int64(stmt_mark, 1, time(nullptr));
     sqlite3_bind_text(stmt_mark, 2, path.c_str(), -1, SQLITE_TRANSIENT);
     int step_ret = sqlite3_step(stmt_mark);
+    [[unlikely]]
     if (step_ret != SQLITE_DONE) {
         if (step_ret == SQLITE_BUSY || step_ret == SQLITE_LOCKED) {
+    [[unlikely]]
             trigger_error(402); // E402: SQLITE_LOCK_TIMEOUT
         } else {
+    [[unlikely]]
             trigger_error(408); // E408: DISK_WRITE_FAIL
         }
-        g_logger.error("Failed to execute mark_shown for: %s (error code: %d)", path.c_str(), step_ret);
+        g_logger.error("Failed to execute mark_shown for: {} (error code: {})", path.c_str(), step_ret);
     } else {
         if (g_active_error_code.load() == 402 || g_active_error_code.load() == 408) {
+    [[unlikely]]
             trigger_error(0);
         }
     }
@@ -332,7 +346,7 @@ void CacheManager::mark_shown(const std::string& path) {
 }
 
 void CacheManager::mark_bad(const std::string& filepath) {
-    g_logger.info("[TRACE] CacheManager::mark_bad path=%s", filepath.c_str());
+    g_logger.info("[TRACE] CacheManager::mark_bad path={}", filepath.c_str());
     if (!db) return;
     std::lock_guard<std::mutex> lk(db_mutex);
     const char* sql = "UPDATE cache SET bad = 1 WHERE path = ?;";
@@ -354,7 +368,7 @@ void CacheManager::begin_transaction() {
     char* err = nullptr;
     int rc = sqlite3_exec(db, "BEGIN TRANSACTION;", nullptr, nullptr, &err);
     if (rc != SQLITE_OK) {
-        g_logger.error("Failed to BEGIN TRANSACTION: %s", err ? err : "unknown error");
+        g_logger.error("Failed to BEGIN TRANSACTION: {}", err ? err : "unknown error");
         if (err) sqlite3_free(err);
     } else {
         in_transaction.store(true);
@@ -371,7 +385,7 @@ void CacheManager::commit_transaction() {
     char* err = nullptr;
     int rc = sqlite3_exec(db, "COMMIT;", nullptr, nullptr, &err);
     if (rc != SQLITE_OK) {
-        g_logger.error("Failed to COMMIT transaction: %s. Performing ROLLBACK...", err ? err : "unknown error");
+        g_logger.error("Failed to COMMIT transaction: {}. Performing ROLLBACK...", err ? err : "unknown error");
         if (err) sqlite3_free(err);
         sqlite3_exec(db, "ROLLBACK;", nullptr, nullptr, nullptr);
     }
@@ -384,7 +398,7 @@ void CacheManager::reset_all_cooldowns() {
     char* err = nullptr;
     int rc = sqlite3_exec(db, "UPDATE cache SET last_shown = 0;", nullptr, nullptr, &err);
     if (rc != SQLITE_OK) {
-        g_logger.error("Failed to reset shown history cooldowns: %s", err ? err : "unknown error");
+        g_logger.error("Failed to reset shown history cooldowns: {}", err ? err : "unknown error");
         if (err) sqlite3_free(err);
     } else {
         g_logger.info("Successfully reset shown history cooldowns inside database.");
@@ -428,7 +442,7 @@ void CacheManager::seed_error_catalog() {
         "CREATE TABLE IF NOT EXISTS error_catalog ("
         "code TEXT PRIMARY KEY, title TEXT, description TEXT, recovery TEXT"
         ");", nullptr, nullptr, &err) != SQLITE_OK) {
-        g_logger.error("Failed to create error_catalog table: %s", err ? err : "unknown");
+        g_logger.error("Failed to create error_catalog table: {}", err ? err : "unknown");
         if (err) sqlite3_free(err);
         return;
     }

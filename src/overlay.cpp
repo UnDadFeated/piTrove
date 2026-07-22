@@ -11,6 +11,7 @@
 #include <algorithm>
 #include <filesystem>
 #include <fstream>
+#include <format>
 
 
 // Cached clock texture to avoid re-rendering every frame
@@ -42,7 +43,7 @@ void OverlayManager::init() {
 
     if (font_path.empty() || !file_exists(font_path)) {
         if (!font_path.empty()) {
-            g_logger.warn("Configured font_path '%s' not found, falling back to defaults", font_path.c_str());
+            g_logger.warn("Configured font_path '{}' not found, falling back to defaults", font_path.c_str());
         }
         font_path = "/app/src/fonts/DejaVuSansMono-Bold.ttf";
         if (!file_exists(font_path)) {
@@ -63,7 +64,7 @@ void OverlayManager::init() {
         // Load default size 20, font_renderer load_font handles caching and resizing dynamically
         overlay_font = &font_renderer->load_font(font_path, 20);
         font_loaded = true;
-        g_logger.info("Overlay manager font loaded: %s", font_path.c_str());
+        g_logger.info("Overlay manager font loaded: {}", font_path.c_str());
     } else {
         g_logger.error("No suitable monospace font found for OSD overlays.");
         font_loaded = false;
@@ -160,19 +161,19 @@ void OverlayManager::get_adaptive_colors(const ImageData* img, int x, int y, Gpu
     int min_d = std::min({d_top, d_bot, d_lft, d_rgt});
 
     uint8_t r = img->avg_r, g = img->avg_g, b = img->avg_b;
-    if (min_d == d_top && (int)img->edge_top_rgb.size() >= img->width * 3) {
+    if (min_d == d_top && std::ssize(img->edge_top_rgb) >= img->width * 3) {
         r = img->edge_top_rgb[img_x * 3 + 0];
         g = img->edge_top_rgb[img_x * 3 + 1];
         b = img->edge_top_rgb[img_x * 3 + 2];
-    } else if (min_d == d_bot && (int)img->edge_bot_rgb.size() >= img->width * 3) {
+    } else if (min_d == d_bot && std::ssize(img->edge_bot_rgb) >= img->width * 3) {
         r = img->edge_bot_rgb[img_x * 3 + 0];
         g = img->edge_bot_rgb[img_x * 3 + 1];
         b = img->edge_bot_rgb[img_x * 3 + 2];
-    } else if (min_d == d_lft && (int)img->edge_lft_rgb.size() >= img->height * 3) {
+    } else if (min_d == d_lft && std::ssize(img->edge_lft_rgb) >= img->height * 3) {
         r = img->edge_lft_rgb[img_y * 3 + 0];
         g = img->edge_lft_rgb[img_y * 3 + 1];
         b = img->edge_lft_rgb[img_y * 3 + 2];
-    } else if (min_d == d_rgt && (int)img->edge_rgt_rgb.size() >= img->height * 3) {
+    } else if (min_d == d_rgt && std::ssize(img->edge_rgt_rgb) >= img->height * 3) {
         r = img->edge_rgt_rgb[img_y * 3 + 0];
         g = img->edge_rgt_rgb[img_y * 3 + 1];
         b = img->edge_rgt_rgb[img_y * 3 + 2];
@@ -312,8 +313,7 @@ void OverlayManager::draw_all(int current_idx, int total_items, const MediaItem*
 
     // 3. Count Overlay
     if (count_enabled && total_items > 0) {
-        char cntbuf[128];
-        std::snprintf(cntbuf, sizeof(cntbuf), "%d / %d", current_idx + 1, total_items);
+        std::string cntbuf = std::format("{}/{}", current_idx + 1, total_items);
         int cx = pad + (int)((sw - pad * 2) * count_x);
         int cy = pad + (int)((sh - pad * 2) * count_y);
         FontHandle& font = font_renderer->load_font(overlay_font->path, count_size);
@@ -325,18 +325,17 @@ void OverlayManager::draw_all(int current_idx, int total_items, const MediaItem*
 
     // 4. Timer Overlay (photo countdown or video remaining)
     if (timer_enabled) {
-        char tbuf[32];
         int tx = pad + (int)((sw - pad * 2) * timer_x) + 25;
         int ty = pad + (int)((sh - pad * 2) * timer_y) - 10;
         FontHandle& font = font_renderer->load_font(overlay_font->path, timer_size);
         if (is_video && !video_remaining.empty()) {
             // Uncached draw for video timer to ensure countdown updates every frame
-            g_logger.debug("REM: remaining=%s", video_remaining.c_str());
+            g_logger.debug("REM: remaining={}", video_remaining.c_str());
             font_renderer->draw_text_uncached(tx + 2, ty + 2, font, video_remaining, 0, 0, 0, 180);
             font_renderer->draw_text_uncached(tx, ty, font, video_remaining, timer_col.r, timer_col.g, timer_col.b, timer_col.a);
         } else if (!is_video) {
             int rem = std::max(0, (int)(transition_delay - item_timer));
-            std::snprintf(tbuf, sizeof(tbuf), "%ds", rem);
+            std::string tbuf = std::format("{}s", rem);
             draw_contrast_text(tx, ty, font, tbuf, timer_col, current_data);
         }
     }
@@ -394,9 +393,9 @@ void OverlayManager::draw_all(int current_idx, int total_items, const MediaItem*
 
         std::string res_str = "N/A";
         if (item) {
-            res_str = std::to_string(item->width) + "x" + std::to_string(item->height);
+            res_str = std::format("{}x{}", item->width, item->height);
             if (twin_item) {
-                res_str += " | " + std::to_string(twin_item->width) + "x" + std::to_string(twin_item->height);
+                res_str += " | " + std::format("{}x{}", twin_item->width, twin_item->height);
             }
         }
 
@@ -409,10 +408,10 @@ void OverlayManager::draw_all(int current_idx, int total_items, const MediaItem*
 
         std::vector<std::string> lines;
         lines.push_back("--- TELEMETRY HUD ---");
-        lines.push_back("FPS     : " + std::to_string(active_fps));
-        lines.push_back("SOC TEMP: " + std::to_string((int)soc_temp) + " C");
-        lines.push_back("DB SIZE : " + std::to_string(db_size_kb) + " KB");
-        lines.push_back("ITEMS   : " + std::to_string(current_idx + 1) + " / " + std::to_string(total_items));
+        lines.push_back(std::format("FPS     : {}", active_fps));
+        lines.push_back(std::format("SOC TEMP: {} C", (int)soc_temp));
+        lines.push_back(std::format("DB SIZE : {} KB", db_size_kb));
+        lines.push_back(std::format("ITEMS   : {} / {}", current_idx + 1, total_items));
         lines.push_back("RES     : " + res_str);
         lines.push_back("TAGS    : " + tags);
         if (item) {
@@ -507,7 +506,7 @@ void OverlayManager::draw_all(int current_idx, int total_items, const MediaItem*
     }
 
     if (show_ribbon) {
-        std::string ribbon_text = "★ " + std::to_string(anniversary_years) + (anniversary_years == 1 ? " YEAR AGO TODAY ★" : " YEARS AGO TODAY ★");
+        std::string ribbon_text = std::format("★ {} {}", anniversary_years, anniversary_years == 1 ? " YEAR AGO TODAY" : " YEARS AGO TODAY");
         FontHandle& font = font_renderer->load_font(overlay_font->path, 22);
         int tw, th;
         font_renderer->measure(font, ribbon_text, tw, th);
@@ -537,9 +536,7 @@ void OverlayManager::draw_all(int current_idx, int total_items, const MediaItem*
             code_num = 101;
         }
 
-        char buf[16];
-        snprintf(buf, sizeof(buf), "E%d", code_num);
-        std::string code_str = buf;
+        std::string code_str = std::format("E{}", code_num);
 
         std::string title = "OFFLINE_MODE";
         std::string desc = "No network connection detected. Showing cached media library.";
@@ -756,7 +753,7 @@ void OverlayManager::draw_popup_menu() {
         font_renderer->draw_text(menu_x + 256, iy + 4, btn_font, "-", 244, 244, 245, 255);
 
         // Value button (click to type)
-        std::string val_str = std::to_string((int)delay) + "s";
+        std::string val_str = std::format("{}s", (int)delay);
         SDL_FRect r_val = { (float)(menu_x + 290), (float)iy, 140.0f, 26.0f };
         SDL_SetRenderDrawColor(renderer->sdl_renderer, 161, 161, 170, 15);
         SDL_RenderFillRect(renderer->sdl_renderer, &r_val);
@@ -789,7 +786,7 @@ void OverlayManager::draw_popup_menu() {
         font_renderer->draw_text(menu_x + 256, iy + 4, btn_font, "-", 244, 244, 245, 255);
 
         // Value button (click to type)
-        std::string val_str = std::to_string(volume) + "%";
+        std::string val_str = std::format("{}%", volume);
         SDL_FRect r_val = { (float)(menu_x + 290), (float)iy, 140.0f, 26.0f };
         SDL_SetRenderDrawColor(renderer->sdl_renderer, 161, 161, 170, 15);
         SDL_RenderFillRect(renderer->sdl_renderer, &r_val);
@@ -1035,7 +1032,7 @@ void OverlayManager::draw_pin_keypad() {
 
     if (locked) {
         int remaining = (int)((pin_locked_until - now) / 1000);
-        std::string lock_msg = "Locked for " + std::to_string(remaining) + "s";
+        std::string lock_msg = std::format("Locked for {}s", remaining);
         font_renderer->draw_text(mx + (modal_w - (int)lock_msg.length() * 10) / 2, my + 55, body_font, lock_msg, 255, 180, 80, 255);
         std::string hint = "Too many failed attempts";
         font_renderer->draw_text(mx + (modal_w - (int)hint.length() * 8) / 2, my + 80, body_font, hint, 180, 180, 180, 255);
@@ -1103,7 +1100,7 @@ void OverlayManager::draw_pin_keypad() {
     // Error / attempt count message
     if (pin_attempts > 0) {
         int remaining = 3 - pin_attempts;
-        std::string err = "Wrong PIN (" + std::to_string(remaining) + " left)";
+        std::string err = std::format("Wrong PIN ({} left)", remaining);
         font_renderer->draw_text(mx + (modal_w - (int)err.length() * 9) / 2, my + modal_h - 40, body_font, err, 255, 120, 120, 255);
     }
 }
@@ -1164,7 +1161,7 @@ bool OverlayManager::handle_touch_click(float x, float y) {
                     } else {
                         pin_attempts++;
                         pin_input.clear();
-                        g_logger.info("TOUCH_INPUT: Wrong PIN entered (attempt %d/3).", pin_attempts);
+                        g_logger.info("TOUCH_INPUT: Wrong PIN entered (attempt {}/3).", pin_attempts);
                         if (pin_attempts >= 3) {
                             pin_locked_until = SDL_GetTicks() + 60000;
                             pin_attempts = 0;
@@ -1273,7 +1270,7 @@ bool OverlayManager::handle_touch_click(float x, float y) {
                             g_cfg.save(g_cfg.loaded_path.c_str());
                         }
                         g_config_changed.store(true);
-                        g_logger.info("TOUCH_INPUT: Set transition delay to %d seconds.", val);
+                        g_logger.info("TOUCH_INPUT: Set transition delay to {} seconds.", val);
                     } else if (keyboard_target == 1) {
                         if (val < 0) val = 0;
                         if (val > 100) val = 100;
@@ -1283,7 +1280,7 @@ bool OverlayManager::handle_touch_click(float x, float y) {
                             g_cfg.save(g_cfg.loaded_path.c_str());
                         }
                         g_config_changed.store(true);
-                        g_logger.info("TOUCH_INPUT: Set video volume to %d%%.", val);
+                        g_logger.info("TOUCH_INPUT: Set video volume to {}%%.", val);
                     }
                     keyboard_active = false;
                     keyboard_input = "";
@@ -1334,7 +1331,7 @@ bool OverlayManager::handle_touch_click(float x, float y) {
             curr = g_cfg.shuffle;
         }
         g_config_changed.store(true);
-        g_logger.info("TOUCH_INPUT: Shuffle state set to %s.", curr ? "ON" : "OFF");
+        g_logger.info("TOUCH_INPUT: Shuffle state set to {}.", curr ? "ON" : "OFF");
         return true;
     }
 
@@ -1433,7 +1430,7 @@ bool OverlayManager::handle_touch_click(float x, float y) {
         std::string prefix;
         { std::lock_guard lk(g_config_mtx); prefix = g_cfg.mqtt_topic_prefix; }
         mqtt_publish(prefix + "/status/screen", g_screen_blanked.load() ? "OFF" : "ON", true);
-        g_logger.info("TOUCH_INPUT: Physical screen power toggled to %s via menu.", desired ? "OFF" : "ON");
+        g_logger.info("TOUCH_INPUT: Physical screen power toggled to {} via menu.", desired ? "OFF" : "ON");
         return true;
     }
 

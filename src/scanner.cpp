@@ -38,7 +38,7 @@ static void maybe_reset_leaked_thread_counter() {
     if (now - last > SCANNER_THREAD_RESET_INTERVAL_S) {
         int leaked = g_scanner_detached_threads.load();
         if (leaked > 0) {
-            g_logger.warn("Scanner: Resetting leaked detached-thread counter from %d to 0 (threads likely stuck on hung CIFS mount)", leaked);
+            g_logger.warn("Scanner: Resetting leaked detached-thread counter from {} to 0 (threads likely stuck on hung CIFS mount)", leaked);
             g_scanner_detached_threads.store(0);
         }
         g_scanner_last_reset_time.store(now);
@@ -68,7 +68,7 @@ std::vector<std::string> read_dir(const std::string& path) {
             entries.push_back(std::move(name));
         }
     } catch (...) {
-        g_logger.error("Scanner: Exception in read_dir for path %s", path.c_str());
+        g_logger.error("Scanner: Exception in read_dir for path {}", path.c_str());
     }
     return entries;
 }
@@ -76,7 +76,7 @@ std::vector<std::string> read_dir(const std::string& path) {
 std::vector<std::string> read_dir_timeout(const std::string& path, int timeout_ms) {
     maybe_reset_leaked_thread_counter();
     if (g_scanner_detached_threads.load() >= MAX_DETACHED_SCANNER_THREADS) {
-        g_logger.warn("Scanner: max detached threads limit reached (%d), skipping read_dir for %s",
+        g_logger.warn("Scanner: max detached threads limit reached ({}), skipping read_dir for {}",
                       g_scanner_detached_threads.load(), path.c_str());
         return {};
     }
@@ -88,7 +88,7 @@ std::vector<std::string> read_dir_timeout(const std::string& path, int timeout_m
 
     g_scanner_detached_threads++;
     std::string p(path);
-    std::thread([p, sr]() {
+    std::jthread([p, sr]() {
         sr->entries = read_dir(p);
         sr->done.store(true);
         g_scanner_detached_threads--;
@@ -99,7 +99,7 @@ std::vector<std::string> read_dir_timeout(const std::string& path, int timeout_m
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
     if (!sr->done.load()) {
-        g_logger.error("Scanner: read_dir timed out for path %s", path.c_str());
+        g_logger.error("Scanner: read_dir timed out for path {}", path.c_str());
         return {};
     }
     return sr->entries;
@@ -120,7 +120,7 @@ bool stat_timeout(const std::string& path, struct stat& st, int timeout_ms) {
 
     g_scanner_detached_threads++;
     std::string p(path);
-    std::thread([p, sr]() {
+    std::jthread([p, sr]() {
         int ret = stat(p.c_str(), &sr->data);
         if (ret != 0) memset(&sr->data, 0, sizeof(sr->data));
         sr->done.store(true);
@@ -265,7 +265,7 @@ std::vector<MediaItem> MediaScanner::scan(const std::string& directory,
     std::vector<MediaItem> all_items;
     std::mutex list_mutex;
 
-    g_logger.info("TRACE: scan start dir='%s' exts=%d window=%d depth=%d ignore=%d", directory.c_str(), (int)exts.size(), window_days, max_depth, (int)ignore_folders.size());
+    g_logger.info("TRACE: scan start dir='{}' exts={} window={} depth={} ignore={}", directory.c_str(), std::ssize(exts), window_days, max_depth, std::ssize(ignore_folders));
     std::vector<std::string> subdirs;
     std::vector<std::pair<std::string, struct stat>> root_files;
 
@@ -341,16 +341,16 @@ std::vector<MediaItem> MediaScanner::scan(const std::string& directory,
 
     // Use hardware threads (like legacy) for max throughput
     int hw_cores = std::max(1, (int)std::thread::hardware_concurrency());
-    int num_threads = std::min(hw_cores - 1, (int)subdirs.size());
+    int num_threads = std::min(hw_cores - 1, (int)std::ssize(subdirs));
     if (num_threads < 1) num_threads = 1;
 
-    g_logger.info("Media scanner starting with %d threads (hardware=%d)", num_threads, hw_cores);
+    g_logger.info("Media scanner starting with {} threads (hardware={})", num_threads, hw_cores);
 
-    int chunk = std::max(1, (int)subdirs.size() / num_threads);
-    std::vector<std::thread> threads;
+    int chunk = std::max((int)1, (int)(std::ssize(subdirs) / num_threads));
+    std::vector<std::jthread> threads;
     for (int t = 0; t < num_threads; t++) {
         int start = t * chunk;
-        int end = (t == num_threads - 1) ? (int)subdirs.size() : start + chunk;
+        int end = (t == num_threads - 1) ? std::ssize(subdirs) : start + chunk;
         threads.emplace_back(worker, start, end);
     }
     for (auto& th : threads) {
@@ -362,7 +362,7 @@ std::vector<MediaItem> MediaScanner::scan(const std::string& directory,
         if (progress) progress(live_found_count.load());
     }
 
-    g_logger.info("TRACE: scan threads joined, total=%d", (int)all_items.size());
+    g_logger.info("TRACE: scan threads joined, total={}", std::ssize(all_items));
     if (progress) progress(live_found_count.load());
     return all_items;
 }
@@ -398,7 +398,7 @@ void MediaScanner::process_entry(const std::string& path_str,
 void scan_directory(const std::string& dir, int depth,
                     std::vector<MediaItem>& items,
                     std::function<void(int)> progress) {
-    g_logger.info("TRACE: scan_directory dir='%s' depth=%d", dir.c_str(), depth);
+    g_logger.info("TRACE: scan_directory dir='{}' depth={}", dir.c_str(), depth);
     MediaScanner scanner;
     std::vector<std::string> exts = {".jpg", ".jpeg", ".png", ".webp", ".heic", ".heif", ".gif", ".bmp", ".tiff", ".mp4", ".mov", ".mkv", ".avi", ".webm"};
     int scan_days;
@@ -410,7 +410,7 @@ void scan_directory(const std::string& dir, int depth,
     }
 
     auto media_files = scanner.scan(dir, exts, scan_days, depth, ignore_f, progress);
-    g_logger.info("TRACE: scan returned %d media files", (int)media_files.size());
+    g_logger.info("TRACE: scan returned {} media files", std::ssize(media_files));
 
     items = std::move(media_files);
 }

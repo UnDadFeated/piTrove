@@ -25,18 +25,20 @@
 #include <filesystem>
 #include <iomanip>
 #include <poll.h>
+#include <cstdlib>
+#include <csignal>
 
 extern std::vector<MediaItem> g_eligible;
 extern int current_idx;
 extern std::mutex g_playlist_mtx;
 
-static std::thread g_server_thread;
+static std::jthread g_server_thread;
 static std::atomic<bool> g_server_running{false};
 static std::atomic<int> g_listen_fd{-1};
 static std::atomic<int> g_active_connections{0};
 
 struct TrackedThreadInfo {
-    std::thread thread;
+    std::jthread thread;
     std::shared_ptr<std::atomic<bool>> finished;
 };
 static std::vector<TrackedThreadInfo> g_http_client_threads;
@@ -64,7 +66,7 @@ static void unregister_client_fd(int fd) {
 
 static void spawn_tracked_thread(std::function<void()> func) {
     auto finished = std::make_shared<std::atomic<bool>>(false);
-    std::thread t([func, finished]() {
+    std::jthread t([func, finished]() {
         try { func(); } catch (...) {}
         finished->store(true);
     });
@@ -232,7 +234,7 @@ static std::string get_host_header(const std::string& request) {
         std::shared_lock<std::shared_mutex> lk(g_config_mtx);
         port = g_cfg.http_port;
     }
-    std::string default_host = "192.168.4.110:" + std::to_string(port);
+    std::string default_host = std::format("192.168.4.110:{}", port);
     if (pos == std::string::npos) return default_host;
     pos += 6;
     size_t end = request.find_first_of("\r\n", pos);
@@ -1106,7 +1108,7 @@ static std::string get_dashboard_html() {
             font-family: 'JetBrains Mono', monospace;
             font-size: 0.65rem;
             color: #4ade80;
-            height: 320px;
+            height: 55vh;
             overflow-y: auto;
             white-space: pre-wrap;
             line-height: 1.4;
@@ -1150,10 +1152,41 @@ static std::string get_dashboard_html() {
             transform: translateY(-2px);
             box-shadow: 0 0 15px var(--accent-glow);
         }
-
         @media (max-width: 480px) {
             h1 { font-size: 1.5rem; }
             .form-grid { grid-template-columns: 1fr; }
+            .playback-controls-row {
+                flex-wrap: wrap;
+            }
+            .playback-controls-row .btn {
+                flex: 1 1 calc(50% - 0.25rem);
+                min-width: 0;
+                padding: 0.6rem;
+                font-size: 0.85rem;
+                border-radius: 12px;
+            }
+            .action-buttons-row {
+                flex-wrap: wrap;
+            }
+            .action-buttons-row .btn {
+                flex: 1 1 calc(33.33% - 0.33rem);
+                min-width: 0;
+                padding: 0.6rem;
+                font-size: 0.85rem;
+            }
+            .preview-container {
+                border-radius: 16px;
+            }
+            .telemetry-grid {
+                grid-template-columns: repeat(2, 1fr) !important;
+            }
+            .telemetry-item[style*="grid-column: span 3"] {
+                grid-column: span 2 !important;
+            }
+            .tabs {
+                padding: 0.25rem;
+            }
+        }
         }
     </style>
 </head>
@@ -1198,7 +1231,6 @@ static std::string get_dashboard_html() {
                         <button class="btn btn-blue" onclick="sendCommand('/api/prev')" style="flex: 1; padding: 0.75rem; border-radius: 12px; font-size: 0.9rem; flex-direction: row; gap: 0.2rem;"><span class="btn-icon">⏮</span></button>
                         <button id="btn-pause" class="btn btn-accent" onclick="sendCommand('/api/pause')" style="flex: 1.5; padding: 0.75rem; border-radius: 12px; font-size: 0.9rem; flex-direction: row; gap: 0.2rem;"><span id="icon-pause" class="btn-icon">⏸</span><span id="txt-pause">Pause</span></button>
                         <button class="btn btn-blue" onclick="sendCommand('/api/next')" style="flex: 1; padding: 0.75rem; border-radius: 12px; font-size: 0.9rem; flex-direction: row; gap: 0.2rem;"><span class="btn-icon">⏭</span></button>
-                        <button class="btn btn-blue" onclick="sendCommand('/api/force_video_next')" style="flex: 1.5; padding: 0.75rem; border-radius: 12px; font-size: 0.9rem; flex-direction: row; gap: 0.2rem;"><span class="btn-icon">🎬</span><span>Force Video</span></button>
                         <button id="btn-shuffle" class="btn btn-toggle" onclick="sendCommand('/api/toggle_shuffle')" style="flex: 1; padding: 0.75rem; border-radius: 12px; font-size: 0.9rem; flex-direction: row; gap: 0.2rem;"><span class="btn-icon">🔀</span><span><strong id="lbl-shuffle">ON</strong></span></button>
                     </div>
                 </div>
@@ -1207,8 +1239,20 @@ static std::string get_dashboard_html() {
                     <div class="telemetry-title">System & Automation</div>
                     <div class="telemetry-grid" style="grid-template-columns: repeat(3, 1fr); gap: 0.5rem; margin-bottom: 0.75rem;">
                         <div class="telemetry-item">
+                            <span class="telemetry-label">Uptime</span>
+                            <span id="stat-uptime" class="telemetry-value">--</span>
+                        </div>
+                        <div class="telemetry-item">
                             <span class="telemetry-label">CPU Temp</span>
                             <span id="stat-temp" class="telemetry-value">--°C</span>
+                        </div>
+                        <div class="telemetry-item">
+                            <span class="telemetry-label">Memory</span>
+                            <span id="stat-mem" class="telemetry-value">--</span>
+                        </div>
+                        <div class="telemetry-item">
+                            <span class="telemetry-label">Disk</span>
+                            <span id="stat-disk" class="telemetry-value">--</span>
                         </div>
                         <div class="telemetry-item">
                             <span class="telemetry-label">Cache DB</span>
@@ -1219,14 +1263,13 @@ static std::string get_dashboard_html() {
                             <span id="stat-queue" class="telemetry-value">--</span>
                         </div>
                         <div class="telemetry-item" style="grid-column: span 3; border-top: 1px solid var(--border-color); padding-top: 0.4rem; margin-top: 0.2rem;">
-                            <span class="telemetry-label">MQTT Connection Status</span>
+                            <span class="telemetry-label">MQTT</span>
                             <span id="stat-mqtt-status" class="telemetry-value" style="font-size: 0.95rem; font-family: inherit;">Disabled</span>
-                            <span id="stat-mqtt-broker" style="font-size: 0.75rem; color: var(--text-muted); display: block; margin-top: 0.1rem;">Broker: --</span>
+                            <span id="stat-mqtt-broker" style="font-size: 0.75rem; color: var(--text-muted); display: block; margin-top: 0.1rem;">--</span>
                         </div>
                     </div>
                     <div class="action-buttons-row" style="display: flex; gap: 0.5rem; width: 100%;">
                         <button id="btn-screen" class="btn btn-toggle" onclick="sendCommand('/api/toggle_screen')" style="flex: 1.2; padding: 0.6rem; border-radius: 12px; font-size: 0.85rem; flex-direction: row; gap: 0.4rem;"><span class="btn-icon" style="font-size: 1rem;">📺</span><span>Screen: <strong id="lbl-screen">ON</strong></span></button>
-                        <button class="btn btn-blue" onclick="sendCommand('/api/trigger_motion')" style="flex: 1; padding: 0.6rem; border-radius: 12px; font-size: 0.85rem; flex-direction: row; gap: 0.4rem;"><span class="btn-icon" style="font-size: 1rem;">🏃</span><span>Motion</span></button>
                         <button class="btn btn-danger" onclick="confirmRestart()" style="flex: 1; padding: 0.6rem; border-radius: 12px; font-size: 0.85rem; flex-direction: row; gap: 0.4rem;"><span class="btn-icon" style="font-size: 1rem;">🔄</span><span>Restart</span></button>
                     </div>
                 </div>
@@ -1311,6 +1354,7 @@ static std::string get_dashboard_html() {
 
         let logInterval = null;
         let lastFilename = "";
+        let lastPaused = null;
         function switchTab(tabId) {
             document.querySelectorAll('.tab-content').forEach(el => el.style.display = 'none');
             document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
@@ -1449,6 +1493,9 @@ static std::string get_dashboard_html() {
                         loadingEl.innerText = "Syncing...";
                         loadingEl.style.opacity = '1';
                         document.getElementById('preview').src = "/api/preview?t=" + new Date().getTime();
+                    } else if (status.paused !== lastPaused) {
+                        lastPaused = status.paused;
+                        document.getElementById('preview').src = "/api/preview?t=" + new Date().getTime();
                     }
                     
                     document.getElementById('media-title').innerText = status.filename;
@@ -1482,21 +1529,24 @@ static std::string get_dashboard_html() {
                     }
 
                     // Update stats telemetry
+                    document.getElementById('stat-uptime').innerText = status.uptime;
                     document.getElementById('stat-temp').innerText = status.temp;
+                    document.getElementById('stat-mem').innerText = status.mem;
+                    document.getElementById('stat-disk').innerText = status.disk;
                     document.getElementById('stat-db').innerText = status.db_size;
                     document.getElementById('stat-queue').innerText = status.total;
 
                     // Update MQTT details
                     const mqttStatusEl = document.getElementById('stat-mqtt-status');
                     const mqttBrokerEl = document.getElementById('stat-mqtt-broker');
-                    if (status.mqtt_enabled) {
+                    if (status.mqtt_status === "enabled") {
                         mqttStatusEl.innerText = "Connected";
                         mqttStatusEl.style.color = "#22c55e"; // green
-                        mqttBrokerEl.innerText = `Broker: ${status.mqtt_broker}:${status.mqtt_port}`;
+                        mqttBrokerEl.innerText = `${status.mqtt_broker}:${status.mqtt_port}`;
                     } else {
                         mqttStatusEl.innerText = "Disabled";
                         mqttStatusEl.style.color = "var(--text-muted)";
-                        mqttBrokerEl.innerText = "Broker: --";
+                        mqttBrokerEl.innerText = "--";
                     }
                 }
             } catch (err) {}
@@ -1527,25 +1577,26 @@ static std::string get_dashboard_html() {
 }
 
 static std::string escape_json(const std::string& s) {
-    std::ostringstream oss;
+    std::string result;
+    result.reserve(s.size());
     for (char c : s) {
         switch (c) {
-            case '"':  oss << "\\\""; break;
-            case '\\': oss << "\\\\"; break;
-            case '\b': oss << "\\b"; break;
-            case '\f': oss << "\\f"; break;
-            case '\n': oss << "\\n"; break;
-            case '\r': oss << "\\r"; break;
-            case '\t': oss << "\\t"; break;
+            case '"':  result += "\\\""; break;
+            case '\\': result += "\\\\"; break;
+            case '\b':  result += "\\b"; break;
+            case '\f':  result += "\\f"; break;
+            case '\n':  result += "\\n"; break;
+            case '\r':  result += "\\r"; break;
+            case '\t':  result += "\\t"; break;
             default:
                 if (static_cast<unsigned char>(c) <= 0x1f) {
-                    oss << "\\u" << std::hex << std::setw(4) << std::setfill('0') << (int)c;
+                    result += std::format("\\u{:04x}", static_cast<unsigned char>(c));
                 } else {
-                    oss << c;
+                    result += c;
                 }
         }
     }
-    return oss.str();
+    return result;
 }
 
 static std::string get_api_status() {
@@ -1559,7 +1610,7 @@ static std::string get_api_status() {
 
     {
         std::lock_guard<std::mutex> lk(g_playlist_mtx);
-        total = (int)g_eligible.size();
+        total = std::ssize(g_eligible);
         if (total > 0 && current_idx >= 0 && current_idx < total) {
             idx = current_idx;
             filename = g_eligible[current_idx].filename;
@@ -1607,72 +1658,158 @@ static std::string get_api_status() {
         }
     } catch (...) {}
 
-    std::ostringstream temp_stream;
-    if (temp_c > 0.0) {
-        temp_stream << std::fixed << std::setprecision(1) << temp_c << "°C";
-    } else {
-        temp_stream << "N/A";
+    std::string temp_str = temp_c > 0.0 ? std::format("{:.1f}\u00b0C", temp_c) : std::string("N/A");
+    std::string db_str = db_mb > 0.0 ? std::format("{:.2f} MB", db_mb) : std::string("0.00 MB");
+
+    // Query uptime
+    std::string uptime_str = "N/A";
+    {
+        std::ifstream uptime_file("/proc/uptime");
+        if (uptime_file.is_open()) {
+            double uptime_sec;
+            if (uptime_file >> uptime_sec) {
+                int days = static_cast<int>(uptime_sec) / 86400;
+                int hours = (static_cast<int>(uptime_sec) % 86400) / 3600;
+                int mins = (static_cast<int>(uptime_sec) % 3600) / 60;
+                if (days > 0) {
+                    uptime_str = std::format("{}d {}h", days, hours);
+                } else {
+                    uptime_str = std::format("{}h {}m", hours, mins);
+                }
+            }
+            uptime_file.close();
+        }
     }
 
-    std::ostringstream db_stream;
-    if (db_mb > 0.0) {
-        db_stream << std::fixed << std::setprecision(2) << db_mb << " MB";
-    } else {
-        db_stream << "0.00 MB";
+    // Query memory usage
+    std::string mem_str = "N/A";
+    {
+        std::ifstream meminfo("/proc/meminfo");
+        if (meminfo.is_open()) {
+            std::string line;
+            uint64_t mem_total = 0, mem_available = 0;
+            while (std::getline(meminfo, line)) {
+                if (line.find("MemTotal:") == 0) {
+                    mem_total = std::stoull(line.substr(9)) / 1024;
+                } else if (line.find("MemAvailable:") == 0) {
+                    mem_available = std::stoull(line.substr(13)) / 1024;
+                }
+            }
+            meminfo.close();
+            if (mem_total > 0) {
+                int used_mb = static_cast<int>(mem_total - mem_available);
+                int total_mb = static_cast<int>(mem_total);
+                int pct = static_cast<int>(100.0 * used_mb / total_mb);
+                mem_str = std::format("{}MB/{}MB ({}%)", used_mb, total_mb, pct);
+            }
+        }
     }
 
-    std::ostringstream oss;
-    oss << "{\n"
-        << "  \"index\": " << idx << ",\n"
-        << "  \"total\": " << total << ",\n"
-        << "  \"filename\": \"" << escape_json(filename) << "\",\n"
-        << "  \"is_video\": " << (type == "video" ? "true" : "false") << ",\n"
-        << "  \"shuffle\": " << (shuffle ? "true" : "false") << ",\n"
-        << "  \"paused\": " << (paused ? "true" : "false") << ",\n"
-        << "  \"temp\": \"" << temp_stream.str() << "\",\n"
-        << "  \"db_size\": \"" << db_stream.str() << "\",\n"
-        << "  \"mqtt_enabled\": " << (mqtt_enabled ? "true" : "false") << ",\n"
-        << "  \"mqtt_broker\": \"" << escape_json(mqtt_broker) << "\",\n"
-        << "  \"mqtt_port\": " << mqtt_port << ",\n"
-        << "  \"screen_blanked\": " << (screen_blanked ? "true" : "false") << ",\n"
-        << "  \"item_timer\": " << g_item_timer.load() << ",\n"
-        << "  \"transition_delay\": " << transition_delay << "\n"
-        << "}";
-    return oss.str();
+    // Query disk usage
+    std::string disk_str = "N/A";
+    {
+        std::string disk_out;
+        auto read_cmd = popen("df / --output=pcent 2>/dev/null | tail -1 | tr -d ' %'", "r");
+        if (read_cmd) {
+            char buf[256];
+            while (fgets(buf, sizeof(buf), read_cmd)) {
+                disk_out += buf;
+            }
+            pclose(read_cmd);
+            if (!disk_out.empty() && disk_out.back() == '\n') disk_out.pop_back();
+            if (!disk_out.empty()) {
+                disk_str = disk_out + "%";
+            }
+        }
+    }
+
+    // Determine MQTT status string
+    std::string mqtt_status = mqtt_enabled ? "enabled" : "disabled";
+
+    return std::format(R"JSON({{
+  "index": {},
+  "total": {},
+  "filename": "{}",
+  "is_video": {},
+  "shuffle": {},
+  "paused": {},
+  "uptime": "{}",
+  "temp": "{}",
+  "mem": "{}",
+  "disk": "{}",
+  "db_size": "{}",
+  "mqtt_status": "{}",
+  "mqtt_broker": "{}",
+  "mqtt_port": {},
+  "screen_blanked": {},
+  "item_timer": {},
+  "transition_delay": {}
+}})JSON", idx, total, escape_json(filename),
+        (type == "video" ? "true" : "false"),
+        (shuffle ? "true" : "false"),
+        (paused ? "true" : "false"),
+        uptime_str, temp_str, mem_str, disk_str, db_str,
+        mqtt_status, escape_json(mqtt_broker), mqtt_port,
+        (screen_blanked ? "true" : "false"),
+        g_item_timer.load(), transition_delay);
 }
 
 static std::string get_api_settings() {
     std::lock_guard lk(g_config_mtx);
-    std::ostringstream oss;
-    oss << "{\n"
-        << "  \"transition_delay\": " << g_cfg.transition_delay << ",\n"
-        << "  \"transition_duration\": " << g_cfg.transition_duration << ",\n"
-        << "  \"transition_effect\": \"" << escape_json(g_cfg.transition_effect) << "\",\n"
-        << "  \"ken_burns\": " << (g_cfg.ken_burns ? "true" : "false") << ",\n"
-        << "  \"ken_burns_speed\": " << g_cfg.ken_burns_speed << ",\n"
-        << "  \"shuffle\": " << (g_cfg.shuffle ? "true" : "false") << ",\n"
-        << "  \"play_just_photos\": " << (g_cfg.play_just_photos ? "true" : "false") << ",\n"
-        << "  \"play_just_videos\": " << (g_cfg.play_just_videos ? "true" : "false") << ",\n"
-        << "  \"twin_portrait_enabled\": " << (g_cfg.twin_portrait_enabled ? "true" : "false") << ",\n"
-        << "  \"video_volume\": " << g_cfg.video_volume << ",\n"
-        << "  \"timer_enabled\": " << (g_cfg.timer_enabled ? "true" : "false") << ",\n"
-        << "  \"filename_enabled\": " << (g_cfg.filename_enabled ? "true" : "false") << ",\n"
-        << "  \"count_enabled\": " << (g_cfg.count_enabled ? "true" : "false") << ",\n"
-        << "  \"date_overlay_enabled\": " << (g_cfg.date_overlay_enabled ? "true" : "false") << ",\n"
-        << "  \"clock_enabled\": " << (g_cfg.clock_enabled ? "true" : "false") << ",\n"
-        << "  \"blurred_background\": " << (g_cfg.blurred_background ? "true" : "false") << ",\n"
-        << "  \"color_matched_matte\": " << (g_cfg.color_matched_matte ? "true" : "false") << ",\n"
-        << "  \"mqtt_enabled\": " << (g_cfg.mqtt_enabled ? "true" : "false") << ",\n"
-        << "  \"mqtt_broker\": \"" << escape_json(g_cfg.mqtt_broker) << "\",\n"
-        << "  \"mqtt_port\": " << g_cfg.mqtt_port << ",\n"
-        << "  \"mqtt_topic_prefix\": \"" << escape_json(g_cfg.mqtt_topic_prefix) << "\",\n"
-        << "  \"google_photos_enabled\": " << (g_cfg.google_photos_enabled ? "true" : "false") << ",\n"
-        << "  \"google_photos_album_id\": \"" << escape_json(g_cfg.google_photos_album_id) << "\",\n"
-        << "  \"google_photos_sync_interval\": " << g_cfg.google_photos_sync_interval << ",\n"
-        << "  \"api_key_set\": " << (!g_cfg.http_api_key.empty() ? "true" : "false") << ",\n"
-        << "  \"touch_enabled\": " << (g_cfg.touch_enabled ? "true" : "false") << "\n"
-        << "}";
-    return oss.str();
+    return std::format(R"JSON({{
+  "transition_delay": {},
+  "transition_duration": {},
+  "transition_effect": "{}",
+  "ken_burns": {},
+  "ken_burns_speed": {},
+  "shuffle": {},
+  "play_just_photos": {},
+  "play_just_videos": {},
+  "twin_portrait_enabled": {},
+  "video_volume": {},
+  "timer_enabled": {},
+  "filename_enabled": {},
+  "count_enabled": {},
+  "date_overlay_enabled": {},
+  "clock_enabled": {},
+  "blurred_background": {},
+  "color_matched_matte": {},
+  "mqtt_enabled": {},
+  "mqtt_broker": "{}",
+  "mqtt_port": {},
+  "mqtt_topic_prefix": "{}",
+  "google_photos_enabled": {},
+  "google_photos_album_id": "{}",
+  "google_photos_sync_interval": {},
+  "api_key_set": {},
+  "touch_enabled": {}
+}})JSON",
+        g_cfg.transition_delay,
+        g_cfg.transition_duration,
+        escape_json(g_cfg.transition_effect),
+        g_cfg.ken_burns,
+        g_cfg.ken_burns_speed,
+        g_cfg.shuffle,
+        g_cfg.play_just_photos,
+        g_cfg.play_just_videos,
+        g_cfg.twin_portrait_enabled,
+        g_cfg.video_volume,
+        g_cfg.timer_enabled,
+        g_cfg.filename_enabled,
+        g_cfg.count_enabled,
+        g_cfg.date_overlay_enabled,
+        g_cfg.clock_enabled,
+        g_cfg.blurred_background,
+        g_cfg.color_matched_matte,
+        g_cfg.mqtt_enabled,
+        escape_json(g_cfg.mqtt_broker),
+        g_cfg.mqtt_port,
+        escape_json(g_cfg.mqtt_topic_prefix),
+        g_cfg.google_photos_enabled,
+        escape_json(g_cfg.google_photos_album_id),
+        g_cfg.google_photos_sync_interval,
+        !g_cfg.http_api_key.empty(),
+        g_cfg.touch_enabled);
 }
 
 static const std::string VIDEO_FALLBACK_SVG = R"SVG(
@@ -1692,14 +1829,14 @@ static const std::string VIDEO_FALLBACK_SVG = R"SVG(
 )SVG";
 
 static void send_response(int fd, const std::string& status_line, const std::string& mime, const std::string& body) {
-    std::ostringstream oss;
-    oss << status_line << "\r\n"
-        << "Content-Type: " << mime << "\r\n"
-        << "Content-Length: " << body.size() << "\r\n"
-        << "Cache-Control: no-cache, no-store, must-revalidate\r\n"
-        << "Connection: close\r\n\r\n"
-        << body;
-    std::string response = oss.str();
+    std::string response = std::format(
+        "{}\r\n" 
+        "Content-Type: {}\r\n" 
+        "Content-Length: {}\r\n" 
+        "Cache-Control: no-cache, no-store, must-validate\r\n" 
+        "Connection: close\r\n\r\n" 
+        "{}",
+        status_line, mime, body.size(), body);
     ssize_t remain = response.size();
     const char* ptr = response.data();
     while (remain > 0) {
@@ -1716,7 +1853,7 @@ static void handle_preview(int fd) {
 
     {
         std::lock_guard<std::mutex> lk(g_playlist_mtx);
-        if (!g_eligible.empty() && current_idx >= 0 && current_idx < (int)g_eligible.size()) {
+        if (!g_eligible.empty() && current_idx >= 0 && current_idx < std::ssize(g_eligible)) {
             path = g_eligible[current_idx].path;
             type = g_eligible[current_idx].type;
         }
@@ -1750,13 +1887,13 @@ static void handle_preview(int fd) {
     file.seekg(0, std::ios::beg);
 
     // Send HTTP Headers
-    std::ostringstream oss;
-    oss << "HTTP/1.1 200 OK\r\n"
-        << "Content-Type: " << mime << "\r\n"
-        << "Content-Length: " << file_size << "\r\n"
-        << "Cache-Control: no-cache, no-store, must-revalidate\r\n"
-        << "Connection: close\r\n\r\n";
-    std::string headers = oss.str();
+    std::string headers = std::format(
+        "HTTP/1.1 200 OK\r\n" 
+        "Content-Type: {}\r\n" 
+        "Content-Length: {}\r\n" 
+        "Cache-Control: no-cache, no-store, must-validate\r\n" 
+        "Connection: close\r\n\r\n",
+        mime, file_size);
     (void)write(fd, headers.data(), headers.size());
 
     // Stream body in chunks
@@ -1939,11 +2076,11 @@ static void handle_client(int client_fd) {
                                        "access_type=offline&"
                                        "prompt=consent";
                                        
-                std::ostringstream redirect_headers;
-                redirect_headers << "HTTP/1.1 302 Found\r\n"
-                                 << "Location: " << auth_url << "\r\n"
-                                 << "Connection: close\r\n\r\n";
-                (void)write(client_fd, redirect_headers.str().data(), redirect_headers.str().size());
+                std::string redirect_headers = std::format(
+                    "HTTP/1.1 302 Found\r\n" 
+                    "Location: {}\r\n" 
+                    "Connection: close\r\n\r\n", auth_url);
+                (void)write(client_fd, redirect_headers.data(), redirect_headers.size());
             } else {
                 std::string host = get_host_header(request);
                 std::string redirect_uri = "http://" + host + "/google_photos_callback";
@@ -2188,12 +2325,8 @@ static void handle_client(int client_fd) {
             if (validation_failed) {
                 trigger_error(807); // E807: HTTP_SETTINGS_CLAMP_VIOLATION
                 g_logger.error("HTTP settings clamp violation: %s", err_msg.c_str());
-                std::ostringstream json_err;
-                json_err << "{\n"
-                         << "  \"status\": \"error\",\n"
-                         << "  \"message\": \"HTTP settings clamp violation: " << err_msg << "\"\n"
-                         << "}";
-                send_response(client_fd, "HTTP/1.1 400 Bad Request", "application/json", json_err.str());
+                std::string json_err = std::format("{{\n  \"status\": \"error\",\n  \"message\": \"HTTP settings clamp violation: {}\"\n}}", escape_json(err_msg));
+                send_response(client_fd, "HTTP/1.1 400 Bad Request", "application/json", json_err);
             } else {
                 if (is_error_active(807)) {
                     clear_error(807);
@@ -2250,11 +2383,8 @@ static void handle_client(int client_fd) {
                 }
             }
             
-            std::ostringstream json_oss;
-            json_oss << "{\n"
-                     << "  \"logs\": \"" << escape_json(log_content) << "\"\n"
-                     << "}";
-            send_response(client_fd, "HTTP/1.1 200 OK", "application/json", json_oss.str());
+            std::string json_oss = std::format("{{\n  \"logs\": \"{}\"\n}}", escape_json(log_content));
+            send_response(client_fd, "HTTP/1.1 200 OK", "application/json", json_oss);
                     }
         }
         else if (request.rfind("GET /api/status", 0) == 0) {
@@ -2315,18 +2445,6 @@ static void handle_client(int client_fd) {
             g_config_changed.store(true);
             send_response(client_fd, "HTTP/1.1 200 OK", "application/json", "{\"status\":\"ok\"}");
         } 
-        else if (request.rfind("GET /api/force_video_next", 0) == 0) {
-            if (!is_authorized(request, client_fd)) return;
-            static std::atomic<int64_t> last_force_video_ms{0};
-            int64_t now_ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
-            if (now_ms - last_force_video_ms.load() < 500) {
-                send_response(client_fd, "HTTP/1.1 429 Too Many Requests", "text/plain", "Rate limited");
-                return;
-            }
-            last_force_video_ms.store(now_ms);
-            g_remote_command.store(5);
-            send_response(client_fd, "HTTP/1.1 200 OK", "application/json", "{\"status\":\"ok\"}");
-        }
         else if (request.rfind("GET /api/restart", 0) == 0) {
             if (!is_authorized(request, client_fd)) return;
             static std::atomic<int64_t> last_restart_ms{0};
@@ -2525,7 +2643,7 @@ static void server_loop(int port) {
 void start_http_server(int port) {
     if (g_server_running.load()) return;
     g_server_running.store(true);
-    g_server_thread = std::thread(server_loop, port);
+    g_server_thread = std::jthread(server_loop, port);
 }
 
 void stop_http_server() {

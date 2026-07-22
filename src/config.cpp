@@ -253,7 +253,7 @@ bool Config::load(const std::string& path) {
         }
         else {
             if (g_logger.is_initialized())
-                g_logger.warn("UNRECOGNIZED_KEY: [%s] '%s' in config.toml", section.c_str(), key.c_str());
+                g_logger.warn("UNRECOGNIZED_KEY: [{}] '{}' in config.toml", section.c_str(), key.c_str());
         }
         } // else (eq != npos)
     }
@@ -524,7 +524,7 @@ bool Config::save(const std::string& path) {
         return false;
     }
     if (std::rename(tmp_path.c_str(), path.c_str()) != 0) {
-        g_logger.error("Config::save: rename failed: %s", std::strerror(errno));
+        g_logger.error("Config::save: rename failed: {}", std::strerror(errno));
         std::remove(tmp_path.c_str());
         return false;
     }

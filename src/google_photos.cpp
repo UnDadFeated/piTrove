@@ -1,3 +1,4 @@
+#include <thread>
 #include "google_photos.h"
 #include <fcntl.h>
 #include <unistd.h>
@@ -30,7 +31,7 @@ void GooglePhotosManager::start() {
     return;
   running.store(true);
 
-  sync_thread = std::thread([this]() {
+  sync_thread = std::jthread([this]() {
     g_logger.info("GooglePhotos: Background sync thread started.");
 
     while (running.load()) {
@@ -46,7 +47,7 @@ void GooglePhotosManager::start() {
         try {
           sync_now();
         } catch (const std::exception &e) {
-          g_logger.error("GooglePhotos: Sync failed with exception: %s",
+          g_logger.error("GooglePhotos: Sync failed with exception: {}",
                          e.what());
         } catch (...) {
           g_logger.error("GooglePhotos: Sync failed with unknown exception.");
@@ -95,7 +96,7 @@ void GooglePhotosManager::sync_now() {
   auto space_info = std::filesystem::space(cache_dir, space_ec);
   if (!space_ec && space_info.available < 50 * 1024 * 1024) {
     trigger_error(403); // E403: DISK_SPACE_CRITICAL
-    g_logger.error("GooglePhotos: Storage space critically low (<50MB) on cache drive '%s'. Skipping sync.", cache_dir.c_str());
+    g_logger.error("GooglePhotos: Storage space critically low (<50MB) on cache drive '{}'. Skipping sync.", cache_dir.c_str());
     return;
   } else {
     if (is_error_active(403)) {
@@ -290,7 +291,7 @@ void GooglePhotosManager::download_media(const std::string &access_token) {
 
         // Validate URL to prevent SSRF/unauthorized requests
         if (download_url.rfind("https://", 0) != 0) {
-          g_logger.error("GooglePhotos: Invalid URL protocol for download: %s", download_url.c_str());
+          g_logger.error("GooglePhotos: Invalid URL protocol for download: {}", download_url.c_str());
           continue;
         }
         size_t host_start = 8; // length of "https://"
@@ -308,11 +309,11 @@ void GooglePhotosManager::download_media(const std::string &access_token) {
           domain_valid = true;
         }
         if (!domain_valid) {
-          g_logger.error("GooglePhotos: Security warning: download URL host '%s' is not a Google Photos domain. Skipping download.", host.c_str());
+          g_logger.error("GooglePhotos: Security warning: download URL host '{}' is not a Google Photos domain. Skipping download.", host.c_str());
           continue;
         }
 
-        g_logger.info("GooglePhotos: Downloading new %s: %s",
+        g_logger.info("GooglePhotos: Downloading new {}: {}",
                       (is_video ? "video" : "photo"), original_filename.c_str());
 
         // Build the curl download command with -- to prevent option injection
@@ -325,7 +326,7 @@ void GooglePhotosManager::download_media(const std::string &access_token) {
             std::filesystem::file_size(local_path) >= 1024) {
           items_downloaded++;
         } else {
-          g_logger.error("GooglePhotos: Failed to download item: %s",
+          g_logger.error("GooglePhotos: Failed to download item: {}",
                          original_filename.c_str());
           std::filesystem::remove(local_path);
         }
@@ -340,7 +341,7 @@ void GooglePhotosManager::download_media(const std::string &access_token) {
     page_token = parse_json_value(json, "nextPageToken");
   } while (!page_token.empty());
 
-  g_logger.info("GooglePhotos: Sync complete. Downloaded=%d, Skipped=%d",
+  g_logger.info("GooglePhotos: Sync complete. Downloaded={}, Skipped={}",
                 items_downloaded, items_skipped);
 
   // Clear Google Photos E301-E318 errors if sync finishes successfully
