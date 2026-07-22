@@ -1695,6 +1695,58 @@ print_success_card() {
 print_success_card
 
 
+# ── Start piTrove Prompt ─────────────────────────────────────────────────────
+echo
+echo -e "  ${BOLD}${CYAN}What would you like to do next?${NC}"
+echo
+echo -e "  ${BOLD}${GREEN}[1]${NC} Start piTrove now"
+echo -e "  ${BOLD}${GRAY}[2]${NC} Drop to terminal (run '${CYAN}pitrove start${NC}' later)"
+echo
+echo -n -e "  ▸ Choice [1/2]: "
+safe_read -r next_action || true
+next_action="${next_action:-1}"
+
+if [[ "$next_action" == "1" ]]; then
+    echo
+    echo -e "  ${GREEN}Starting piTrove...${NC}"
+    systemctl enable piTrove.service &>/dev/null
+    systemctl start piTrove.service &>/dev/null || true
+
+    # Wait for container to be ready before offering config wizard
+    echo -e "  ${GRAY}Waiting for container to start...${NC}"
+    for wait_i in 1 2 3 4 5; do
+        if docker inspect --format="{{.State.Status}}" piTrove 2>/dev/null | grep -qE "running|healthy"; then
+            break
+        fi
+        echo -ne "  ${GRAY}waiting...${NC}\r"
+        sleep 1
+    done
+    echo -e "  ${GREEN}Container is running.${NC}"
+
+    # ── Launch Config Wizard Prompt ──────────────────────────────────────────
+    echo -e "${CYAN}╔════════════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${CYAN}║${NC}  ${BOLD}${WHITE}              First-Time Configuration Wizard               ${NC}  ${CYAN}║${NC}"
+    echo -e "${CYAN}╚════════════════════════════════════════════════════════════════╝${NC}"
+    echo
+    echo -e "  ${WHITE}Would you like to launch the interactive settings wizard now?${NC}"
+    echo -e "  ${GRAY}You can always run it later with: ${CYAN}pitrove config${NC}${NC}"
+    echo
+    echo -e "  ${BOLD}${GREEN}[Y]${NC} Yes, launch the config wizard now"
+    echo -e "  ${BOLD}${GRAY}[N]${NC} No, skip (frame is already running with defaults)"
+    echo
+    echo -n -e "  ▸ Choice [Y/n]: "
+    safe_read -r launch_config || true
+    launch_config="${launch_config:-Y}"
+    if [[ "$launch_config" =~ ^[Yy]$ ]]; then
+        echo
+        echo -e "  ${GREEN}Launching config wizard...${NC}"
+        docker exec -it piTrove /app/piTrove --config /app/config/config.toml
+    else
+        echo
+        echo -e "  ${GRAY}Config wizard skipped.${NC}"
+    fi
+fi
+
 # ── Ordered Next-Steps Checklist ────────────────────────────────────────────────
 echo
 echo -e "${MAGENTA}╔════════════════════════════════════════════════════════════════╗${NC}"
@@ -1718,45 +1770,4 @@ echo -e "  ${BOLD}${YELLOW}5.${NC} ${BOLD}Join the Community${NC}  —  ${CYAN}h
 echo -e "     Share your setup, ask questions, and suggest features."
 echo
 
-# ── Launch Config Wizard Prompt ────────────────────────────────────────────────
-echo -e "${CYAN}╔════════════════════════════════════════════════════════════════╗${NC}"
-echo -e "${CYAN}║${NC}  ${BOLD}${WHITE}              First-Time Configuration Wizard               ${NC}  ${CYAN}║${NC}"
-echo -e "${CYAN}╚════════════════════════════════════════════════════════════════╝${NC}"
-echo
-echo -e "  ${WHITE}Would you like to launch the interactive settings wizard now?${NC}"
-echo -e "  ${GRAY}You can always run it later with: ${CYAN}pitrove config${NC}${NC}"
-echo
-echo -e "  ${BOLD}${GREEN}[Y]${NC} Yes, launch the config wizard now"
-echo -e "  ${BOLD}${GRAY}[N]${NC} No, skip (frame is already running with defaults)"
-echo
-echo -n -e "  ▸ Choice [Y/n]: "
-safe_read -r launch_config || true
-launch_config="${launch_config:-Y}"
-if [[ "$launch_config" =~ ^[Yy]$ ]]; then
-    echo
-    echo -e "  ${YELLOW}Container not yet running. Skipping config wizard.${NC}"
-    echo -e "  ${GRAY}Run it later with: pitrove config${NC}"
-fi
-
-echo
-echo -e "  ${BOLD}${CYAN}What would you like to do next?${NC}"
-echo
-echo -e "  ${BOLD}${GREEN}[1]${NC} Start piTrove now"
-echo -e "  ${BOLD}${GRAY}[2]${NC} Drop to terminal (run '${CYAN}pitrove start${NC}' later)"
-echo
-echo -n -e "  ▸ Choice [1/2]: "
-safe_read -r next_action || true
-next_action="${next_action:-1}"
-if [[ "$next_action" == "1" ]]; then
-    echo
-    echo -e "  ${GREEN}Starting piTrove...${NC}"
-    echo -e "  ${GRAY}Press Ctrl+C to stop at any time${NC}"
-    echo
-    systemctl enable piTrove.service &>/dev/null
-    systemctl start piTrove.service &>/dev/null || true
-    sleep 3
-    docker exec -it piTrove /app/piTrove
-fi
-
-echo
 exit $G_EXIT_CODE
