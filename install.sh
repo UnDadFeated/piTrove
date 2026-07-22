@@ -1613,14 +1613,8 @@ clear 2>/dev/null || true
 banner
 
 print_success_card() {
-    local IP_ADDR
-    IP_ADDR=$(hostname -I | awk '{print $1}' || echo "127.0.0.1")
-    if [[ -z "$IP_ADDR" ]]; then
-        IP_ADDR="127.0.0.1"
-    fi
-    local url="http://${IP_ADDR}:9000/"
-    local has_qr=false
-    command -v qrencode &>/dev/null && has_qr=true || true
+    local url="http://$(hostname -I | awk '{print $1}' 2>/dev/null || ip route get 8.8.8.8 2>/dev/null | awk '{print $7}' || echo "127.0.0.1"):9000/"
+    if [[ "$url" == "http://:9000/" ]]; then url="http://127.0.0.1:9000/"; fi
 
     echo -e "${GREEN}╔════════════════════════════════════════════════════════════════╗${NC}"
     echo -e "${GREEN}║${NC}  ${BOLD}${GREEN}✔  INSTALLATION COMPLETED SUCCESSFULLY!                       ${NC}  ${GREEN}║${NC}"
@@ -1639,23 +1633,7 @@ print_success_card() {
     echo -e "${GREEN}║${NC}${BOLD}${CYAN}${url_text}${NC}${url_spaces}${GREEN}║${NC}"
     echo -e "${GREEN}║${NC}     Click to view MQTT telemetry, control the screen physically,   ${GREEN}║${NC}"
     echo -e "${GREEN}║${NC}     and trigger motion simulation sweeps remotely.                ${GREEN}║${NC}"
-    if $has_qr; then
-        local qr_tmp
-        qr_tmp=$(mktemp)
-        qrencode -t UTF8 -s 1 -S 1 "$url" 2>/dev/null > "$qr_tmp" || true
-        if [[ -s "$qr_tmp" ]]; then
-            echo -e "${GREEN}║${NC}  ${BOLD}${WHITE}Scan QR Code to Open Dashboard:${NC}                                 ${GREEN}║${NC}"
-            while IFS= read -r qr_line; do
-                local qr_text="   $qr_line"
-                local qr_pad=$(( 64 - ${#qr_text} ))
-                local qr_spaces=""
-                if [[ $qr_pad -gt 0 ]]; then qr_spaces=$(printf '%*s' "$qr_pad" ""); fi
-                echo -e "${GREEN}║${NC}${DARK_GRAY}${qr_text}${NC}${qr_spaces}${GREEN}║${NC}"
-            done < "$qr_tmp"
-            rm -f "$qr_tmp"
-        fi
-        echo -e "${GREEN}║${NC}                                                                ${GREEN}║${NC}"
-    fi
+    echo -e "${GREEN}║${NC}                                                                ${GREEN}║${NC}"
     echo -e "${GREEN}║${NC}  ${BOLD}${WHITE}How to Manage & Control (New CLI Wrapper):${NC}                    ${GREEN}║${NC}"
     echo -e "${GREEN}║${NC}   • ${BOLD}${YELLOW}pitrove config${NC}   Runs the interactive settings wizard.  ${GREEN}║${NC}"
     echo -e "${GREEN}║${NC}   • ${BOLD}${YELLOW}pitrove restart${NC}  Restarts the background service.        ${GREEN}║${NC}"
