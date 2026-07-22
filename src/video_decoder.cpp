@@ -311,6 +311,13 @@ void VideoDecoder::decode_loop() {
     AVCodecParameters* vp = fmt_ctx->streams[video_stream_idx]->codecpar;
     // DRM hwaccel for V4L2 stateless decode (Pi 5 HEVC, Pi 4/5 H264)
     AVBufferRef* hw_dev = create_hw_device();
+    // Pi 5 V4L2 HEVC stateless decoder is unreliable (dst buffer failures → stalls)
+    // Skip HW accel for HEVC on Pi 5, use software decoder instead
+    if (hw_dev && hwaccel_path == "pi5_drm" && vp->codec_id == AV_CODEC_ID_HEVC) {
+        g_logger.info("VIDEO_DEC: Skipping HW accel for HEVC on Pi 5, using software decoder");
+        av_buffer_unref(&hw_dev);
+        hwaccel_path = "none";
+    }
     const AVCodec* vc = avcodec_find_decoder(vp->codec_id);
     // Pi 4 fallback: use V4L2 M2M codec directly if DRM hwaccel not available
     if (!hw_dev && hwaccel_path == "pi4_v4l2" && vp->codec_id == AV_CODEC_ID_HEVC) {
