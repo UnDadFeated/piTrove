@@ -41,12 +41,6 @@ trap cleanup_terminal EXIT INT TERM
 
 # ── Visual Helper Functions ───────────────────────────────────────────────────
 
-draw_line() {
-    local char=${1:-"═"}
-    local len=${2:-60}
-    for ((i=0; i<len; i++)); do echo -n "$char"; done
-}
-
 banner() {
     clear 2>/dev/null || true
     echo -e " ${BOLD}${WHITE}piTrove${NC}  ${CYAN}v17.0.4${NC} ${GRAY}──────────────────────────${NC} ${BOLD}${GREEN}Installer${NC}"
@@ -184,77 +178,6 @@ run_with_spinner() {
     fi
 }
 
-
-# ── Compilation Progress Bar Monitor ───────────────────────────────────────────
-run_compilation_with_progress() {
-    local build_dir="$1"
-    local log_file="/tmp/pitrove_compile.log"
-    rm -f "$log_file"
-    
-    cd "$build_dir"
-    
-    # Run cmake generation
-    cmake -B build -DCMAKE_BUILD_TYPE=Release > "$log_file" 2>&1 &
-    local cmake_pid=$!
-    show_spinner "$cmake_pid" "Configuring CMake build system"
-    wait "$cmake_pid"
-    local status=$?
-    if [[ "$status" -ne 0 ]]; then
-        echo -e "   ${RED}[ ✘ ]  CMake configuration failed!${NC}"
-        echo -e "   ${YELLOW}─────── CMAKE LOG: ───────${NC}"
-        tail -n 20 "$log_file" | sed 's/^/   /'
-        fail "CMake configuration failed."
-    fi
-    
-    # Start compilation in background
-    cmake --build build -j3 > "$log_file" 2>&1 &
-    local pid=$!
-    
-    local last_percent=0
-    tput civis 2>/dev/null || echo -ne "\033[?25l"
-    
-    while kill -0 "$pid" 2>/dev/null; do
-        # Extract the last percent from log file
-        local percent=$(grep -o -E "\[[ 0-9]{1,3}%\]" "$log_file" 2>/dev/null | tail -n 1 | tr -d '[]% ' || echo "")
-        if [[ -n "$percent" && "$percent" =~ ^[0-9]+$ ]]; then
-            last_percent="$percent"
-        fi
-        
-        # Draw the progress bar
-        local width=40
-        local completed=$(( last_percent * width / 100 ))
-        local remaining=$(( width - completed ))
-        
-        local bar_filled=""
-        for ((k=0; k<completed; k++)); do bar_filled="${bar_filled}█"; done
-        local bar_empty=""
-        for ((k=0; k<remaining; k++)); do bar_empty="${bar_empty}░"; done
-        
-        printf "\r   ${MAGENTA}[%3d%%]${NC} [${GREEN}%s${NC}${DARK_GRAY}%s${NC}] Compiling piTrove core..." "$last_percent" "$bar_filled" "$bar_empty"
-        sleep 0.15
-    done
-    
-    wait "$pid"
-    local status=$?
-    
-    tput cnorm 2>/dev/null || echo -ne "\033[?25h"
-    printf "\r                                                                                    \r"
-    
-    if [[ "$status" -ne 0 ]]; then
-        echo -e "   ${RED}[ ✘ ]  piTrove compilation failed!${NC}"
-        echo -e "   ${YELLOW}─────── COMPILATION ERRORS: ───────${NC}"
-        grep -E "error:|warning:" "$log_file" | tail -n 20 | sed 's/^/   /' || tail -n 20 "$log_file" | sed 's/^/   /'
-        echo -e "   ${YELLOW}───────────────────────────────────${NC}"
-        fail "piTrove build failed. Check ${log_file} for full details."
-    else
-        # 100% complete bar
-        local width=40
-        local bar_filled=""
-        for ((k=0; k<width; k++)); do bar_filled="${bar_filled}█"; done
-        printf "   ${GREEN}[100%%] [${GREEN}%s${NC}] piTrove compilation completed!${NC}\n" "$bar_filled"
-        rm -f "$log_file"
-    fi
-}
 
 # ── Render Initial Screen ─────────────────────────────────────────────────────
 banner
@@ -606,14 +529,19 @@ run_with_spinner "Adding $PRIMARY_USER to video, render, and docker groups for h
 # ── DRM/KMS firmware configuration (Pi 4/5) ───────────────────────────────────
 BOOT_CFG="/boot/firmware/config.txt"
 if [[ -f "$BOOT_CFG" ]]; then
-    if ! grep -q "dtoverlay=vc4-kms-v3d" "$BOOT_CFG"; then
-        echo "" >> "$BOOT_CFG"
-        echo "# piTrove DRM/KMS Display Configuration" >> "$BOOT_CFG"
-        echo "dtoverlay=vc4-kms-v3d,cma-256" >> "$BOOT_CFG"
-        echo "gpu_mem=128" >> "$BOOT_CFG"
-        ok "Configured vc4-kms-v3d overlay & gpu_mem in $BOOT_CFG"
+    if ! grep -q "cma-" "$BOOT_CFG"; then
+        if ! grep -q "dtoverlay=vc4-kms-v3d" "$BOOT_CFG"; then
+            echo "" >> "$BOOT_CFG"
+            echo "# piTrove DRM/KMS Display Configuration" >> "$BOOT_CFG"
+            echo "dtoverlay=vc4-kms-v3d,cma-512" >> "$BOOT_CFG"
+            echo "gpu_mem=128" >> "$BOOT_CFG"
+            ok "Configured vc4-kms-v3d overlay & cma-512 in $BOOT_CFG"
+        else
+            sed -i s/dtoverlay=vc4-kms-v3d.*/dtoverlay=vc4-kms-v3d,cma-512/ "$BOOT_CFG"
+            ok "Updated vc4-kms-v3d overlay with cma-512 in $BOOT_CFG"
+        fi
     else
-        ok "vc4-kms-v3d already configured in $BOOT_CFG"
+        ok "CMA memory overlay already configured in $BOOT_CFG"
     fi
 else
     warn "$BOOT_CFG not found. Manually verify vc4-kms-v3d overlay is loaded."
