@@ -114,14 +114,11 @@ show_spinner() {
             fi
         fi
         
-        # Print spinner + status on two fixed lines
-        if [[ -n "$last_status" ]]; then
-            printf "\r\033[K   ${CYAN}[%s]${NC}  %s...                        \r\033[K      ${GRAY}▸ %s${NC}" "$char" "$label" "$last_status"
-            # Move cursor back up one line so next \r starts at spinner line
-            printf "\033[1A"
-        else
-            printf "\r\033[K   ${CYAN}[%s]${NC}  %s... " "$char" "$label"
-        fi
+        # Print spinner line, always two lines so cursor stays fixed
+        status_text="${last_status:-}"
+        printf "\r\033[K   ${CYAN}[%s]${NC}  %s...                        \n" "$char" "$label"
+        printf "\r\033[K      ${GRAY}▸ %s${NC}" "$status_text"
+        printf "\033[1A"
         
         i=$(( (i + 1) % 10 ))
         sleep $delay
@@ -1675,7 +1672,7 @@ print_success_card() {
     echo -e "${GREEN}║${NC}   • ${BOLD}${YELLOW}pitrove status${NC}   Checks background container status.      ${GREEN}║${NC}"
     echo -e "${GREEN}║${NC}                                                                ${GREEN}║${NC}"
     echo -e "${GREEN}║${NC}  ${BOLD}${WHITE}Service Status:${NC}                                               ${GREEN}║${NC}"
-    echo -e "${GREEN}║${NC}   • Systemd unit is installed and set to launch on boot.       ${GREEN}║${NC}"
+    echo -e "${GREEN}║${NC}   • Systemd unit is installed (starts on first launch).       ${GREEN}║${NC}"
     
     if [[ "$storage_choice" == "2" ]]; then
         echo -e "${GREEN}║${NC}   • Storage: ${CYAN}Local drive mode enabled.${NC}                        ${GREEN}║${NC}"
@@ -1722,7 +1719,7 @@ echo
 echo -e "${CYAN}╔════════════════════════════════════════════════════════════════╗${NC}"
 echo -e "${CYAN}║${NC}  ${BOLD}${WHITE}                    Media Library Check                       ${NC}  ${CYAN}║${NC}"
 echo -e "${CYAN}╚════════════════════════════════════════════════════════════════╝${NC}"
-check_media_directory
+check_media_directory || true
 
 # ── Ordered Next-Steps Checklist ────────────────────────────────────────────────
 echo
@@ -1759,7 +1756,7 @@ echo -e "  ${BOLD}${GREEN}[Y]${NC} Yes, launch the config wizard now"
 echo -e "  ${BOLD}${GRAY}[N]${NC} No, skip (frame is already running with defaults)"
 echo
 echo -n -e "  ▸ Choice [Y/n]: "
-safe_read -r launch_config
+safe_read -r launch_config || true
 launch_config="${launch_config:-Y}"
 if [[ "$launch_config" =~ ^[Yy]$ ]]; then
     echo
@@ -1774,7 +1771,7 @@ echo -e "  ${BOLD}${GREEN}[1]${NC} Start piTrove now"
 echo -e "  ${BOLD}${GRAY}[2]${NC} Drop to terminal (run '${CYAN}pitrove start${NC}' later)"
 echo
 echo -n -e "  ▸ Choice [1/2]: "
-safe_read -r next_action
+safe_read -r next_action || true
 next_action="${next_action:-1}"
 if [[ "$next_action" == "1" ]]; then
     echo
