@@ -1748,6 +1748,14 @@ echo -e "     Share your setup, ask questions, and suggest features."
 echo
 
 # ── Launch Config Wizard Prompt ─────────────────────────────────────────────────
+# Wait for container to be ready before asking about config
+info "Waiting for piTrove container to start..."
+for wait_i in $(seq 1 30); do
+    if docker inspect --format="\{{.State.Status\}}" piTrove 2>/dev/null | grep -qE "running|healthy"; then
+        break
+    fi
+    sleep 1
+done
 echo -e "${CYAN}╔════════════════════════════════════════════════════════════════╗${NC}"
 echo -e "${CYAN}║${NC}  ${BOLD}${WHITE}              First-Time Configuration Wizard               ${NC}  ${CYAN}║${NC}"
 echo -e "${CYAN}╚════════════════════════════════════════════════════════════════╝${NC}"
