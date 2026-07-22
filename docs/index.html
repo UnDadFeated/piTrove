@@ -185,14 +185,17 @@
         }
         .cmd-text {
             font-family: var(--font-mono);
-            font-size: 0.75rem;
+            font-size: 0.65rem;
             color: var(--cyan);
-            word-break: break-all;
-            white-space: normal;
-            line-height: 1.4;
+            white-space: nowrap;
             display: flex;
-            align-items: flex-start;
+            align-items: center;
             gap: 8px;
+            overflow-x: auto;
+            scrollbar-width: none; /* Firefox */
+        }
+        .cmd-text::-webkit-scrollbar {
+            display: none; /* Safari and Chrome */
         }
         .cmd-text .prompt {
             color: var(--green);
@@ -405,7 +408,8 @@
                 padding: 10px;
             }
             .cmd-text {
-                font-size: 0.68rem;
+                font-size: 0.60rem;
+                white-space: nowrap;
             }
             .copy-btn {
                 justify-content: center;
