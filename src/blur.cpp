@@ -117,8 +117,6 @@ RawImage box_blur(const RawImage& src, int radius) {
     out.valid = false;
 
     if (!src.valid || src.width <= 0 || src.height <= 0) return out;
-    [[assume(src.width > 0 && src.height > 0)]]
-
     static constexpr int MAX_DIM = 480;
     // Scale radius down proportionally to match downsampled resolution
     if (src.width > MAX_DIM || src.height > MAX_DIM) {
