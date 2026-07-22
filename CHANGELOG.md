@@ -3,7 +3,7 @@
 ### Added & Improved
 - **Minor Release Milestone (`v17.1.0`)**:
   - Comprehensive system, database, kernel mount, and codebase audit.
-  - Verified zero memory leaks, zero swap bloat, 6.9 GB free RAM, and 100% database integrity across 72,810 indexed media items.
+  - Verified zero memory leaks, zero swap bloat, 6.9 GB free RAM, and 100% database integrity across large indexed media collections.
 - **Dead Code & Config Bloat Removal**:
   - Removed unreferenced `collage_cols` and `collage_rows` configuration parameters from `src/config.h`, `src/config.cpp`, and `src/config.toml`.
 - **Collage Mode Gate Enforcement**:
