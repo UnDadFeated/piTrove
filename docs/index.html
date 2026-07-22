@@ -1,298 +1,626 @@
 <!DOCTYPE html>
-<html lang="en" data-bs-theme="dark">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>piTrove — Digital Picture &amp; Video Frame for Raspberry Pi</title>
-    <meta name="description" content="Professional-grade C++ digital picture and video frame for Raspberry Pi with hardware-accelerated DRM/KMS rendering, NAS support, and zero-touch auto-updates.">
-    <meta name="keywords" content="piTrove, Raspberry Pi, digital picture frame, video frame, C++, DRM/KMS, SDL3, smart home, Home Assistant">
-    <meta property="og:title" content="piTrove — Digital Picture &amp; Video Frame for Raspberry Pi">
-    <meta property="og:description" content="Professional-grade C++ digital picture and video frame with hardware-accelerated rendering, NAS storage, and Docker deployment.">
-    <meta property="og:type" content="website">
-    <meta property="og:url" content="https://undadfeated.github.io/piTrove/">
+    <title>piTrove — C++ Digital Picture & Video Frame for Raspberry Pi</title>
+    <meta name="description" content="Professional-grade C++23/SDL3 digital picture frame for Raspberry Pi with hardware-accelerated DRM/KMS, NAS auto-mounting, and zero-touch updates.">
+    <!-- Google Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
-    <link href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/tabler-icons.min.css" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;600;700&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <!-- Tabler Icons -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/tabler-icons.min.css">
+    
     <style>
         :root {
-            --tblr-primary: #2065d6;
-            --tblr-success: #2fb344;
-            --tblr-muted: #6b7a8d;
-            --tblr-gray-100: #f6f8fb;
-            --tblr-gray-800: #212a3a;
-            --tblr-gray-900: #1b2436;
-            --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-            --font-mono: "JetBrains Mono", monospace;
+            --bg-dark: #090d16;
+            --bg-card: rgba(15, 23, 42, 0.75);
+            --border: rgba(56, 189, 248, 0.15);
+            --border-hover: rgba(56, 189, 248, 0.4);
+            --text-primary: #f8fafc;
+            --text-secondary: #94a3b8;
+            --text-muted: #64748b;
+            --cyan: #06b6d4;
+            --green: #22c55e;
+            --raspberry: #e11d48;
+            --purple: #a855f7;
+            --amber: #f59e0b;
+            --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
+            --font-mono: 'Fira Code', ui-monospace, monospace;
         }
-        [data-bs-theme="dark"] {
-            --body-bg: #1b2436;
-            --body-color: #ccd6e2;
-            --card-bg: #212a3a;
-            --card-border: #2c3649;
-            --input-bg: #1b2436;
-        }
-        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-        html { scroll-behavior: smooth; }
-        body {
-            font-family: var(--font-sans);
-            background: var(--body-bg);
-            color: var(--body-color);
-            line-height: 1.6;
-            -webkit-font-smoothing: antialiased;
-        }
-        a { color: var(--tblr-primary); text-decoration: none; }
-        a:hover { text-decoration: underline; }
-        .container { max-width: 1100px; margin: 0 auto; padding: 0 24px; }
 
-        /* Header */
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        
+        body {
+            background-color: var(--bg-dark);
+            background-image: 
+                radial-gradient(at 0% 0%, rgba(225, 29, 72, 0.12) 0px, transparent 50%),
+                radial-gradient(at 100% 0%, rgba(6, 182, 212, 0.15) 0px, transparent 50%),
+                radial-gradient(at 50% 100%, rgba(168, 85, 247, 0.1) 0px, transparent 50%);
+            background-attachment: fixed;
+            color: var(--text-primary);
+            font-family: var(--font-sans);
+            line-height: 1.5;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 1000px;
+            margin: 0 auto;
+            padding: 0 20px;
+        }
+
         header {
-            border-bottom: 1px solid var(--card-border);
-            background: rgba(27,36,54,0.85);
+            border-bottom: 1px solid var(--border);
             backdrop-filter: blur(12px);
-            position: sticky; top: 0; z-index: 100;
+            background: rgba(9, 13, 22, 0.8);
+            position: sticky;
+            top: 0;
+            z-index: 100;
         }
         .header-inner {
-            display: flex; align-items: center; justify-content: space-between;
-            padding: 12px 24px; max-width: 1100px; margin: 0 auto;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            height: 64px;
         }
         .brand {
-            font-size: 1.25rem; font-weight: 700; color: #fff; display: flex; align-items: center; gap: 8px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-family: var(--font-mono);
+            font-weight: 700;
+            font-size: 1.25rem;
+            color: var(--text-primary);
         }
-        .brand .ti { font-size: 1.5rem; }
-        nav { display: flex; gap: 20px; }
-        nav a { color: var(--tblr-muted); font-size: 0.9rem; font-weight: 500; }
-        nav a:hover { color: #fff; text-decoration: none; }
+        .brand .pi-icon {
+            color: var(--raspberry);
+            font-size: 1.5rem;
+        }
+        .brand .ver-tag {
+            font-size: 0.75rem;
+            padding: 2px 8px;
+            border-radius: 12px;
+            background: rgba(6, 182, 212, 0.15);
+            color: var(--cyan);
+            border: 1px solid rgba(6, 182, 212, 0.3);
+            font-weight: 600;
+        }
+        nav {
+            display: flex;
+            gap: 20px;
+            align-items: center;
+        }
+        nav a {
+            color: var(--text-secondary);
+            text-decoration: none;
+            font-size: 0.9rem;
+            font-weight: 500;
+            transition: all 0.2s;
+        }
+        nav a:hover {
+            color: var(--cyan);
+        }
+        .nav-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 14px;
+            border-radius: 8px;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid var(--border);
+            color: var(--text-primary);
+        }
+        .nav-btn:hover {
+            background: rgba(56, 189, 248, 0.15);
+            border-color: var(--cyan);
+            color: #fff;
+        }
 
-        /* Hero */
         .hero {
-            text-align: center; padding: 80px 24px 60px;
+            padding: 48px 0 32px;
+            text-align: center;
+        }
+        .hero-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 4px 14px;
+            border-radius: 20px;
+            background: rgba(34, 197, 94, 0.1);
+            border: 1px solid rgba(34, 197, 94, 0.3);
+            color: var(--green);
+            font-family: var(--font-mono);
+            font-size: 0.82rem;
+            font-weight: 600;
+            margin-bottom: 20px;
         }
         .hero h1 {
-            font-size: clamp(2rem, 5vw, 3.2rem);
-            font-weight: 700; color: #fff; line-height: 1.2; margin-bottom: 16px;
+            font-size: 2.5rem;
+            font-weight: 800;
+            line-height: 1.2;
+            letter-spacing: -0.02em;
+            background: linear-gradient(135deg, #ffffff 0%, #cbd5e1 50%, var(--cyan) 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 16px;
         }
         .hero p {
-            font-size: clamp(1rem, 2.5vw, 1.2rem);
-            color: var(--tblr-muted); max-width: 640px; margin: 0 auto 12px;
-        }
-        .hero-ver {
-            font-size: 0.85rem; color: var(--tblr-muted);
-            font-family: var(--font-mono); margin-top: 8px;
+            font-size: 1.05rem;
+            color: var(--text-secondary);
+            max-width: 680px;
+            margin: 0 auto 24px;
         }
 
-        /* Install */
-        .install { padding: 40px 0; }
-        .install h2 { font-size: 1.5rem; color: #fff; margin-bottom: 8px; }
-        .install > p { color: var(--tblr-muted); margin-bottom: 20px; }
-        .install-box {
-            background: var(--card-bg); border: 1px solid var(--card-border);
-            border-radius: 12px; padding: 24px;
+        .terminal-box {
+            background: rgba(15, 23, 42, 0.85);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: 0 20px 40px -15px rgba(0,0,0,0.5);
+            backdrop-filter: blur(16px);
+            margin-bottom: 40px;
         }
-        .install-cmd {
-            display: flex; align-items: center; gap: 8px;
-            background: var(--tblr-gray-900); border-radius: 8px;
-            padding: 12px 16px; margin-bottom: 20px;
-            font-family: var(--font-mono); font-size: 0.9rem;
+        .terminal-header {
+            background: rgba(30, 41, 59, 0.7);
+            padding: 10px 16px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+        }
+        .terminal-dots {
+            display: flex;
+            gap: 6px;
+        }
+        .dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+        }
+        .dot.red { background: #ef4444; }
+        .dot.yellow { background: #f59e0b; }
+        .dot.green { background: #10b981; }
+        .terminal-title {
+            font-family: var(--font-mono);
+            font-size: 0.8rem;
+            color: var(--text-muted);
+        }
+        .terminal-body {
+            padding: 24px;
+        }
+        
+        .cmd-line {
+            background: #020617;
+            border: 1px solid rgba(6, 182, 212, 0.3);
+            border-radius: 8px;
+            padding: 14px 18px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            font-family: var(--font-mono);
+            font-size: 0.9rem;
+            margin-bottom: 24px;
+            box-shadow: inset 0 2px 4px rgba(0,0,0,0.5);
+        }
+        .cmd-text {
+            color: var(--cyan);
             overflow-x: auto;
+            white-space: nowrap;
+            display: flex;
+            align-items: center;
+            gap: 8px;
         }
-        .install-cmd .prompt { color: var(--tblr-success); }
-        .install-cmd .cmd { color: #fff; flex: 1; }
+        .cmd-text .prompt {
+            color: var(--green);
+            font-weight: 700;
+            user-select: none;
+        }
         .copy-btn {
-            background: none; border: none; color: var(--tblr-muted);
-            cursor: pointer; font-size: 1.1rem; padding: 4px;
+            background: rgba(6, 182, 212, 0.15);
+            border: 1px solid rgba(6, 182, 212, 0.3);
+            color: var(--cyan);
+            border-radius: 6px;
+            padding: 8px 12px;
+            cursor: pointer;
+            font-family: var(--font-mono);
+            font-size: 0.8rem;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            transition: all 0.2s;
+            flex-shrink: 0;
         }
-        .copy-btn:hover { color: #fff; }
-        .install-steps {
-            list-style: none; counter-reset: step;
-        }
-        .install-step {
-            display: flex; align-items: flex-start; gap: 12px;
-            padding: 10px 0; counter-increment: step;
-        }
-        .install-step::before {
-            content: counter(step);
-            background: var(--tblr-primary); color: #fff;
-            width: 28px; height: 28px; border-radius: 50%;
-            display: flex; align-items: center; justify-content: center;
-            font-size: 0.8rem; font-weight: 600; flex-shrink: 0;
-        }
-        .install-step code {
-            background: var(--tblr-gray-900); padding: 2px 6px;
-            border-radius: 4px; font-size: 0.85rem;
+        .copy-btn:hover {
+            background: var(--cyan);
+            color: #090d16;
+            box-shadow: 0 0 12px rgba(6, 182, 212, 0.4);
         }
 
-        /* Video */
-        .video-wrapper { padding: 40px 0; }
-        .video-container {
-            position: relative; width: 100%; max-width: 800px;
-            margin: 0 auto; border-radius: 12px; overflow: hidden;
-            border: 1px solid var(--card-border);
+        .instructions-heading {
+            font-family: var(--font-mono);
+            font-size: 0.85rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: var(--text-muted);
+            margin-bottom: 14px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
         }
-        .video-container iframe {
-            width: 100%; aspect-ratio: 16/9; border: none; display: block;
+        .instructions-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 16px;
+        }
+        .step-card {
+            background: rgba(30, 41, 59, 0.4);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            border-radius: 8px;
+            padding: 14px 16px;
+            display: flex;
+            gap: 12px;
+            align-items: flex-start;
+        }
+        .step-num {
+            background: rgba(6, 182, 212, 0.15);
+            color: var(--cyan);
+            border: 1px solid rgba(6, 182, 212, 0.3);
+            font-family: var(--font-mono);
+            font-weight: 700;
+            font-size: 0.85rem;
+            width: 24px;
+            height: 24px;
+            border-radius: 6px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+        }
+        .step-content {
+            font-size: 0.88rem;
+            color: var(--text-secondary);
+        }
+        .step-content strong {
+            color: var(--text-primary);
+        }
+        .step-content code {
+            font-family: var(--font-mono);
+            background: rgba(0,0,0,0.4);
+            color: var(--green);
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 0.8rem;
+            border: 1px solid rgba(255,255,255,0.08);
         }
 
-        /* Features */
-        .features { padding: 40px 0; }
-        .features h2 { font-size: 1.5rem; color: #fff; margin-bottom: 8px; }
-        .features > p { color: var(--tblr-muted); margin-bottom: 24px; }
+        .video-section {
+            margin-bottom: 40px;
+        }
+        .video-card {
+            background: rgba(15, 23, 42, 0.85);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: 0 20px 40px -15px rgba(0,0,0,0.5);
+        }
+        .video-header {
+            background: rgba(30, 41, 59, 0.7);
+            padding: 10px 16px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-family: var(--font-mono);
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+        }
+        .video-header i { color: var(--raspberry); }
+        .responsive-video {
+            position: relative;
+            padding-bottom: 56.25%;
+            height: 0;
+            overflow: hidden;
+            background: #000;
+        }
+        .responsive-video iframe {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            border: 0;
+        }
+
+        .features-section {
+            margin-bottom: 48px;
+        }
+        .section-title {
+            text-align: center;
+            margin-bottom: 24px;
+        }
+        .section-title h2 {
+            font-size: 1.75rem;
+            font-weight: 700;
+            color: var(--text-primary);
+        }
+        .section-title p {
+            color: var(--text-muted);
+            font-size: 0.95rem;
+        }
         .features-grid {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
             gap: 16px;
         }
-        .feature-card {
-            background: var(--card-bg); border: 1px solid var(--card-border);
-            border-radius: 10px; padding: 20px;
-            transition: border-color 0.2s;
+        .feature-item {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 20px;
+            transition: all 0.2s;
         }
-        .feature-card:hover { border-color: var(--tblr-primary); }
-        .feature-card-icon {
-            width: 40px; height: 40px; border-radius: 8px;
-            display: flex; align-items: center; justify-content: center;
-            font-size: 1.3rem; margin-bottom: 12px;
+        .feature-item:hover {
+            border-color: var(--border-hover);
+            transform: translateY(-2px);
+            background: rgba(15, 23, 42, 0.95);
         }
-        .feature-card h3 {
-            font-size: 1rem; color: #fff; margin-bottom: 8px; font-weight: 600;
+        .feature-icon {
+            width: 38px;
+            height: 38px;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.25rem;
+            margin-bottom: 12px;
         }
-        .feature-card p {
-            font-size: 0.88rem; color: var(--tblr-muted); line-height: 1.5;
-        }
-        .icon-media { background: rgba(214,57,57,0.15); color: #d63939; }
-        .icon-storage { background: rgba(47,179,68,0.15); color: #2fb344; }
-        .icon-integration { background: rgba(32,101,214,0.15); color: #2065d6; }
-        .icon-system { background: rgba(165,94,234,0.15); color: #a55eea; }
-        .icon-reliability { background: rgba(23,162,184,0.15); color: #17a2b8; }
+        .icon-cyan { background: rgba(6, 182, 212, 0.15); color: var(--cyan); }
+        .icon-green { background: rgba(34, 197, 94, 0.15); color: var(--green); }
+        .icon-raspberry { background: rgba(225, 29, 72, 0.15); color: var(--raspberry); }
+        .icon-purple { background: rgba(168, 85, 247, 0.15); color: var(--purple); }
+        .icon-amber { background: rgba(245, 158, 11, 0.15); color: var(--amber); }
 
-        /* Footer */
+        .feature-item h3 {
+            font-size: 1.05rem;
+            font-weight: 600;
+            margin-bottom: 6px;
+            color: var(--text-primary);
+        }
+        .feature-item p {
+            font-size: 0.86rem;
+            color: var(--text-secondary);
+            line-height: 1.5;
+        }
+
         footer {
-            border-top: 1px solid var(--card-border);
-            padding: 24px 0; text-align: center;
-            font-size: 0.85rem; color: var(--tblr-muted);
+            margin-top: auto;
+            border-top: 1px solid var(--border);
+            padding: 24px 0;
+            background: rgba(9, 13, 22, 0.95);
+            font-size: 0.85rem;
+            color: var(--text-muted);
+            text-align: center;
         }
-        footer a { color: var(--tblr-muted); }
-        footer a:hover { color: #fff; }
+        footer a {
+            color: var(--text-secondary);
+            text-decoration: none;
+            margin: 0 8px;
+        }
+        footer a:hover {
+            color: var(--cyan);
+        }
 
-        /* Mobile */
-        @media (max-width: 600px) {
-            .hero { padding: 50px 16px 40px; }
-            .header-inner { padding: 10px 16px; }
-            nav { gap: 14px; }
-            .install-box { padding: 16px; }
-            .install-cmd { font-size: 0.75rem; padding: 10px 12px; }
-            .features-grid { grid-template-columns: 1fr; }
+        @media (max-width: 768px) {
+            .hero { padding: 32px 0 24px; }
+            .hero h1 { font-size: 1.8rem; }
+            .hero p { font-size: 0.95rem; }
+            .cmd-line {
+                flex-direction: column;
+                align-items: stretch;
+                gap: 10px;
+                padding: 12px;
+            }
+            .cmd-text {
+                font-size: 0.78rem;
+                overflow-x: auto;
+                padding-bottom: 4px;
+            }
+            .copy-btn {
+                justify-content: center;
+                width: 100%;
+            }
+            .instructions-grid {
+                grid-template-columns: 1fr;
+            }
+            .features-grid {
+                grid-template-columns: 1fr;
+            }
+            .terminal-body {
+                padding: 16px;
+            }
         }
     </style>
 </head>
 <body>
     <header>
-        <div class="header-inner">
+        <div class="container header-inner">
             <div class="brand">
-                <span class="ti ti-device-tv-old"></span>
+                <i class="ti ti-device-tv-old pi-icon"></i>
                 piTrove
+                <span class="ver-tag">v17.1.0</span>
             </div>
             <nav>
-                <a href="#install">Install</a>
+                <a href="#install">Installer</a>
+                <a href="#demo">Demo</a>
                 <a href="#features">Features</a>
-                <a href="https://github.com/UnDadFeated/piTrove" target="_blank">GitHub</a>
+                <a href="https://github.com/UnDadFeated/piTrove" target="_blank" class="nav-btn">
+                    <i class="ti ti-brand-github"></i> GitHub
+                </a>
             </nav>
         </div>
     </header>
-    <main>
-        <div class="container">
-            <section class="hero">
-                <h1>C++ Digital Picture &amp; Video Frame<br>for Raspberry Pi</h1>
-                <p>Professional-grade slideshow engine with hardware-accelerated DRM/KMS rendering, in-process video decoding, NAS storage, and zero-touch auto-updates.</p>
-                <p class="hero-ver">v17.1.0 &middot; C++23 &middot; SDL3 &middot; Docker &middot; DRM/KMS &middot; Pi 4 &amp; 5</p>
-            </section>
 
-            <section class="install" id="install">
-                <h2>Get started</h2>
-                <p>One command. Fully containerized. Runs on boot.</p>
-                <div class="install-box">
-                    <div class="install-cmd">
-                        <span class="prompt">$</span>
-                        <span class="cmd">wget -qO- https://raw.githubusercontent.com/UnDadFeated/piTrove/main/install.sh | sudo bash</span>
-                        <button class="copy-btn" onclick="copyInstallCmd()" title="Copy">
-                            <span class="ti ti-copy"></span>
-                        </button>
-                    </div>
-                    <ol class="install-steps">
-                        <li class="install-step">Flash <strong>Raspberry Pi OS Lite 64-bit</strong> via the Pi Imager.</li>
-                        <li class="install-step">Boot, connect to network, and SSH in: <code>ssh pi@&lt;pi-ip&gt;</code></li>
-                        <li class="install-step">Run the install command above — Docker, NAS mounts, and systemd unit are configured automatically.</li>
-                        <li class="install-step">Access the web dashboard at <code>http://&lt;pi-ip&gt;:9000</code>.</li>
-                    </ol>
+    <main class="container">
+        <!-- Hero Section -->
+        <section class="hero">
+            <div class="hero-badge">
+                <i class="ti ti-terminal-2"></i> OH-MY-PI ARCHITECTURE
+            </div>
+            <h1>C++ Digital Picture &amp; Video Frame<br>for Raspberry Pi</h1>
+            <p>High-performance slideshow engine built with C++23 &amp; SDL3. Direct DRM/KMS hardware acceleration, in-process FFmpeg video decoding, NAS auto-mounting, and zero-touch updates.</p>
+        </section>
+
+        <!-- Terminal Window & Quick Install -->
+        <section class="terminal-box" id="install">
+            <div class="terminal-header">
+                <div class="terminal-dots">
+                    <span class="dot red"></span>
+                    <span class="dot yellow"></span>
+                    <span class="dot green"></span>
                 </div>
-            </section>
-
-            <section class="video-wrapper">
-                <div class="video-container">
-                    <iframe src="https://www.youtube-nocookie.com/embed/Blg8EHAL3RY"
-                            title="piTrove Digital Picture Frame"
-                            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                            allowfullscreen loading="lazy"></iframe>
+                <div class="terminal-title">piTrove-installer ~ bash</div>
+                <div></div>
+            </div>
+            <div class="terminal-body">
+                <div class="cmd-line">
+                    <div class="cmd-text">
+                        <span class="prompt">❯</span>
+                        <span>wget -qO- https://raw.githubusercontent.com/UnDadFeated/piTrove/main/install.sh | sudo bash</span>
+                    </div>
+                    <button class="copy-btn" onclick="copyInstallCmd()" id="copyBtn">
+                        <i class="ti ti-copy" id="copyIcon"></i>
+                        <span id="copyText">Copy Command</span>
+                    </button>
                 </div>
-            </section>
 
-            <section class="features" id="features">
-                <h2>Built for reliability</h2>
-                <p>Every component designed to run unattended for months without intervention.</p>
-                <div class="features-grid">
-                    <div class="feature-card">
-                        <div class="feature-card-icon icon-media"><span class="ti ti-device-tv-old"></span></div>
-                        <h3>Media Engine</h3>
-                        <p>DRM/KMS GPU rendering via SDL3 with no desktop required. H.264/H.265/AV1 video playback with Pi 4/5 auto-detected hardware acceleration. JPEG, PNG, HEIC, WebP, TIFF support. Professional transitions, Ken Burns, bias lighting, and adaptive overlays.</p>
+                <div class="instructions-heading">
+                    <i class="ti ti-list-check"></i> Setup Instructions
+                </div>
+                <div class="instructions-grid">
+                    <div class="step-card">
+                        <div class="step-num">1</div>
+                        <div class="step-content">
+                            Flash <strong>Raspberry Pi OS Lite (64-bit)</strong> onto an SD card via Raspberry Pi Imager.
+                        </div>
                     </div>
-                    <div class="feature-card">
-                        <div class="feature-card-icon icon-storage"><span class="ti ti-server"></span></div>
-                        <h3>Smart Scanning</h3>
-                        <p>NAS-optimized scanning with CIFS hang prevention. SQLite3 WAL persistence for zero redundant scans. Seasonal window filtering, On-This-Day anniversary matching, content filtering for documents, and multi-threaded async preloading.</p>
+                    <div class="step-card">
+                        <div class="step-num">2</div>
+                        <div class="step-content">
+                            Boot the Pi, connect to your network, and SSH in: <code>ssh pi@&lt;pi-ip&gt;</code>
+                        </div>
                     </div>
-                    <div class="feature-card">
-                        <div class="feature-card-icon icon-integration"><span class="ti ti-brand-apple"></span></div>
-                        <h3>Integrations</h3>
-                        <p>MQTT with Home Assistant auto-discovery for remote controls and motion sensing. Google Photos cloud sync. Glassmorphic web dashboard with live telemetry. Native touchscreen input via evdev.</p>
+                    <div class="step-card">
+                        <div class="step-num">3</div>
+                        <div class="step-content">
+                            Run the one-line command above — Docker, NAS mounts, &amp; systemd service auto-configure.
+                        </div>
                     </div>
-                    <div class="feature-card">
-                        <div class="feature-card-icon icon-system"><span class="ti ti-settings"></span></div>
-                        <h3>System &amp; Controls</h3>
-                        <p>11-category TUI configuration wizard. PIN-protected dashboard. Scheduled sleep/wake. Diagnostics HUD with real-time telemetry. Adaptive text contrast. OLED burn-in prevention. CLI management tool.</p>
-                    </div>
-                    <div class="feature-card">
-                        <div class="feature-card-icon icon-reliability"><span class="ti ti-heartbeat"></span></div>
-                        <h3>Reliability</h3>
-                        <p>Docker containerized isolation. Three-layer auto-recovery watchdog. Network monitoring with automatic Wi-Fi reset. Video stall detection with forced recovery. Async-signal-safe crash handlers. Daily zero-touch auto-updates.</p>
-                    </div>
-                    <div class="feature-card">
-                        <div class="feature-card-icon icon-media"><span class="ti ti-code"></span></div>
-                        <h3>Architecture</h3>
-                        <p>C++23 with SDL3, FFmpeg, SQLite3, and libexif. Multi-stage Docker builds. Runtime Pi 4/5 hardware detection. 40+ source modules with comprehensive error database and diagnostic codes.</p>
+                    <div class="step-card">
+                        <div class="step-num">4</div>
+                        <div class="step-content">
+                            Open web dashboard at <code>http://&lt;pi-ip&gt;:9000</code> to control playback &amp; settings.
+                        </div>
                     </div>
                 </div>
-            </section>
-        </div>
+            </div>
+        </section>
+
+        <!-- Video Demo Section -->
+        <section class="video-section" id="demo">
+            <div class="video-card">
+                <div class="video-header">
+                    <i class="ti ti-brand-youtube"></i> Live Hardware Demo &amp; Overview
+                </div>
+                <div class="responsive-video">
+                    <iframe src="https://www.youtube-nocookie.com/embed/Blg8EHAL3RY" 
+                            title="piTrove Digital Picture Frame" 
+                            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" 
+                            allowfullscreen 
+                            loading="lazy"></iframe>
+                </div>
+            </div>
+        </section>
+
+        <!-- Features Grid -->
+        <section class="features-section" id="features">
+            <div class="section-title">
+                <h2>Built for 24/7 Unattended Reliability</h2>
+                <p>Designed to run continuously without maintenance or intervention.</p>
+            </div>
+            <div class="features-grid">
+                <div class="feature-item">
+                    <div class="feature-icon icon-raspberry"><i class="ti ti-device-tv"></i></div>
+                    <h3>Direct DRM/KMS Rendering</h3>
+                    <p>SDL3 GPU rendering straight to Linux kernel DRM display buffers with zero desktop environment overhead.</p>
+                </div>
+                <div class="feature-item">
+                    <div class="feature-icon icon-cyan"><i class="ti ti-video"></i></div>
+                    <h3>In-Process Video Engine</h3>
+                    <p>Seamless H.264/H.265/AV1 decode via FFmpeg with Pi 4/5 hardware acceleration and gapless photo-to-video transitions.</p>
+                </div>
+                <div class="feature-item">
+                    <div class="feature-icon icon-green"><i class="ti ti-server"></i></div>
+                    <h3>NAS &amp; CIFS Resilience</h3>
+                    <p>Automount watchdog with autofs directory probing, I/O throttle protection, and instant network auto-recovery.</p>
+                </div>
+                <div class="feature-item">
+                    <div class="feature-icon icon-purple"><i class="ti ti-brand-apple"></i></div>
+                    <h3>Integrations &amp; Web Remote</h3>
+                    <p>Home Assistant MQTT auto-discovery, Google Photos cloud sync, PIN protection, and glassmorphic Web UI dashboard.</p>
+                </div>
+                <div class="feature-item">
+                    <div class="feature-icon icon-amber"><i class="ti ti-cpu"></i></div>
+                    <h3>Smart Media Engine</h3>
+                    <p>SQLite3 WAL metadata persistence, On-This-Day anniversary pairing, seasonal windowing, and async preloading.</p>
+                </div>
+                <div class="feature-item">
+                    <div class="feature-icon icon-cyan"><i class="ti ti-shield-check"></i></div>
+                    <h3>Self-Healing System</h3>
+                    <p>Docker container isolation, 3-layer watchdog recovery, crash signal traps, and zero-touch automatic daily updates.</p>
+                </div>
+            </div>
+        </section>
     </main>
+
     <footer>
         <div class="container">
-            <span>&copy; 2026 piTrove &middot; GNU GPLv3</span>
+            <span>&copy; 2026 piTrove &middot; Open Source GNU GPLv3</span>
             &middot;
             <a href="https://github.com/UnDadFeated/piTrove" target="_blank">GitHub</a>
             &middot;
-            <a href="https://www.reddit.com/r/piTrove/" target="_blank">Subreddit</a>
+            <a href="https://www.reddit.com/r/piTrove/" target="_blank">Reddit</a>
         </div>
     </footer>
+
     <script>
         function copyInstallCmd() {
-            navigator.clipboard.writeText('wget -qO- https://raw.githubusercontent.com/UnDadFeated/piTrove/main/install.sh | sudo bash')
-                .then(() => {
-                    const btn = document.querySelector('.copy-btn');
-                    if (btn) {
-                        btn.innerHTML = '<span class="ti ti-check"></span>';
-                        setTimeout(() => { btn.innerHTML = '<span class="ti ti-copy"></span>'; }, 2000);
-                    }
-                });
+            const cmd = 'wget -qO- https://raw.githubusercontent.com/UnDadFeated/piTrove/main/install.sh | sudo bash';
+            navigator.clipboard.writeText(cmd).then(() => {
+                const icon = document.getElementById('copyIcon');
+                const text = document.getElementById('copyText');
+                const btn = document.getElementById('copyBtn');
+                
+                icon.className = 'ti ti-check';
+                text.textContent = 'Copied!';
+                btn.style.borderColor = 'var(--green)';
+                btn.style.color = 'var(--green)';
+                btn.style.background = 'rgba(34, 197, 94, 0.15)';
+                
+                setTimeout(() => {
+                    icon.className = 'ti ti-copy';
+                    text.textContent = 'Copy Command';
+                    btn.style.borderColor = '';
+                    btn.style.color = '';
+                    btn.style.background = '';
+                }, 2500);
+            });
         }
     </script>
 </body>
