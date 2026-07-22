@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# install.sh — piTrove v17.0.7 Premium Graphical Installer
+# install.sh — piTrove v17.0.8 Premium Graphical Installer
 # Target: Debian Trixie (13) 64-bit on Raspberry Pi 4/5
 
 set -eo pipefail
@@ -43,7 +43,7 @@ trap cleanup_terminal EXIT INT TERM
 
 banner() {
     clear 2>/dev/null || true
-    echo -e " ${BOLD}${WHITE}piTrove${NC}  ${CYAN}v17.0.7${NC} ${GRAY}──────────────────────────${NC} ${BOLD}${GREEN}Installer${NC}"
+    echo -e " ${BOLD}${WHITE}piTrove${NC}  ${CYAN}v17.0.8${NC} ${GRAY}──────────────────────────${NC} ${BOLD}${GREEN}Installer${NC}"
     echo -e " ${MAGENTA}The Ultra-Premium Picture Frame${NC}"
     echo
 }
@@ -918,7 +918,7 @@ while true; do
         generate_fstab_line() {
             if [[ "$SHARE_PROTOCOL" == "cifs" ]]; then
                 FSTAB_LINE="# piTrove Network Share
-//$SHARE_IP/${SHARE_PATH#/} $SHARE_MOUNT cifs credentials=$PRIMARY_HOME/nas.cred,ro,uid=1000,gid=1000,vers=3.0,_netdev,nofail,x-systemd.automount,x-systemd.mount-timeout=10,soft,echo_interval=6,actimeo=0 0 0"
+//$SHARE_IP/${SHARE_PATH#/} $SHARE_MOUNT cifs credentials=$PRIMARY_HOME/nas.cred,ro,uid=1000,gid=1000,vers=3.0,_netdev,nofail,x-systemd.automount,x-systemd.idle-timeout=120,x-systemd.mount-timeout=10,soft,actimeo=2 0 0"
             elif [[ "$SHARE_PROTOCOL" == "nfs" ]]; then
                 FSTAB_LINE="# piTrove Network Share
 $SHARE_IP:$SHARE_PATH $SHARE_MOUNT $SHARE_PROTOCOL defaults,_netdev,timeo=10,retrans=3,nofail,x-systemd.automount,x-systemd.mount-timeout=10,soft 0 0"
