@@ -1,4 +1,4 @@
-## v17.1.0 — Minor Release: Codebase Audit, Dead Code Elimination & Collage Config Gate (July 22, 2026)
+## v17.1.0 — Minor Release: Codebase Audit & Dead Code Elimination (July 22, 2026)
 
 ### Added & Improved
 - **Minor Release Milestone (`v17.1.0`)**:
@@ -6,8 +6,13 @@
   - Verified zero memory leaks, zero swap bloat, 6.9 GB free RAM, and 100% database integrity across large indexed media collections.
 - **Dead Code & Config Bloat Removal**:
   - Removed unreferenced `collage_cols` and `collage_rows` configuration parameters from `src/config.h`, `src/config.cpp`, and `src/config.toml`.
-- **Collage Mode Gate Enforcement**:
-  - Fixed `should_be_twin_portrait()` in `src/main.cpp` to respect `[collage] enabled = 0` configuration gate, ensuring single-photo mode is strictly honored when collages are disabled.
+
+## v17.0.9 — Honor `[collage] enabled` Config Gate for Twin-Portrait Layouts (July 22, 2026)
+
+### Fixed
+- **Collage Mode Config Enforcement**:
+  - Fixed `should_be_twin_portrait()` in `src/main.cpp` to respect `[collage] enabled = 0` in `config.toml`.
+  - Previously, `should_be_twin_portrait()` only checked `twin_portrait_enabled` and ignored `collage_enabled`, causing side-by-side portrait collages to display even when collage mode was disabled in configuration.
 
 ## v17.0.8 — CIFS Automount Stability & Watchdog Recovery Improvements (July 22, 2026)
 
