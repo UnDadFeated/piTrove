@@ -454,11 +454,11 @@ void VideoDecoder::decode_loop() {
     bool eof = false;
     int vf_count = 0, af_count = 0, pkt_count = 0, ret = 0;
     // Stall detection: if no video frame produced within this many ms, abort
-    static constexpr long long STALL_TIMEOUT_MS = 30000;
+    static constexpr long long STALL_TIMEOUT_US = 30000000; // 30 seconds in microseconds
     long long last_frame_ms = av_gettime_relative();
     while (is_running() && !eof) {
         // Stall detection: abort if no frame produced for too long
-        if (video_stream_idx >= 0 && (av_gettime_relative() - last_frame_ms) > STALL_TIMEOUT_MS) {
+        if (video_stream_idx >= 0 && (av_gettime_relative() - last_frame_ms) > STALL_TIMEOUT_US) {
             g_logger.warn("VIDEO_DEC: Decoder stalled for {}s, aborting decode of {}", (av_gettime_relative() - last_frame_ms) / 1000000, m_path.c_str());
             break;
         }
