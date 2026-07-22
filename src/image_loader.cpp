@@ -2,6 +2,7 @@
 #define _GNU_SOURCE
 #endif
 #include "image_loader.h"
+#include <span>
 extern "C" {
 #include <jpeglib.h>
 #include <setjmp.h>
@@ -20,6 +21,7 @@ static void jpeg_error_exit(j_common_ptr cinfo) {
 
 SDL_Surface* load_jpeg_scaled(const std::string& path, int max_w, int max_h) {
     FILE* fp = std::fopen(path.c_str(), "rb");
+    [[unlikely]]
     if (!fp) return nullptr;
 
     jpeg_decompress_struct cinfo;
@@ -106,6 +108,7 @@ SDL_Surface* load_jpeg_scaled(const std::string& path, int max_w, int max_h) {
 std::vector<uint8_t> ImageLoader::read_file_to_buffer(const std::string& path) {
     std::vector<uint8_t> buffer;
     FILE* f = fopen(path.c_str(), "rb");
+    [[unlikely]]
     if (!f) {
         return buffer;
     }
@@ -136,10 +139,11 @@ std::vector<uint8_t> ImageLoader::read_file_to_buffer(const std::string& path) {
     return buffer;
 }
 
-int ImageLoader::read_exif_rotation_from_memory(const uint8_t* buffer, unsigned int size) {
+int ImageLoader::read_exif_rotation_from_memory(std::span<const uint8_t> buffer) {
     int rotation = 1;
-    if (!buffer || size == 0) return rotation;
-    ExifData* ed = exif_data_new_from_data(buffer, size);
+    if (buffer.empty()) return rotation;
+    ExifData* ed = exif_data_new_from_data(buffer.data(), buffer.size());
+    [[unlikely]]
     if (!ed) return rotation;
 
     ExifEntry* entry = exif_content_get_entry(ed->ifd[EXIF_IFD_0], EXIF_TAG_ORIENTATION);
@@ -172,7 +176,7 @@ std::shared_ptr<ImageData> ImageLoader::load(const std::string& path) {
         int err = errno;
         if (err != 0 && err != ENOENT) {
             result->transient_error = true;
-            g_logger.warn("ImageLoader: Detected network/IO error (errno=%d: %s) for path: %s", err, strerror(err), path.c_str());
+            g_logger.warn("ImageLoader: Detected network/IO error (errno={}: {}) for path: {}", err, strerror(err), path.c_str());
             trigger_error(101); // E101: NAS_MOUNT_FAILED
         } else {
             trigger_error(201); // E201: IMAGE_LOAD_ERROR
@@ -181,7 +185,8 @@ std::shared_ptr<ImageData> ImageLoader::load(const std::string& path) {
     }
 
     int w = 0, h = 0, ch = 0;
-    uint8_t* pixels = stbi_load_from_memory(buffer.data(), (int)buffer.size(), &w, &h, &ch, 4);
+    uint8_t* pixels = stbi_load_from_memory(buffer.data(), std::ssize(buffer), &w, &h, &ch, 4);
+    [[unlikely]]
     if (!pixels || w <= 0 || h <= 0) {
         trigger_error(201); // E201: IMAGE_LOAD_ERROR
         return result;
@@ -201,7 +206,7 @@ std::shared_ptr<ImageData> ImageLoader::load(const std::string& path) {
     }
     stbi_image_free(pixels);
 
-    ImageMetadata meta = read_metadata_from_memory(buffer.data(), (unsigned int)buffer.size());
+    ImageMetadata meta = read_metadata_from_memory(buffer);
     int exif = meta.rotation;
     if (exif >= 2 && exif <= 8) {
         SDL_Surface* rotated = apply_exif_rotation(surf, exif);
@@ -324,7 +329,7 @@ std::shared_ptr<ImageData> ImageLoader::load(const std::string& path) {
 }
 
 void ImageLoader::load_texture(ImageData* data, SDL_Renderer* renderer) {
-    g_logger.info("[TRACE] ImageLoader::load_texture data=%p surface=%p renderer=%p", (void*)data, data ? (void*)data->surface : nullptr, (void*)renderer);
+    g_logger.info("[TRACE] ImageLoader::load_texture data={} surface={} renderer={}", (void*)data, data ? (void*)data->surface : nullptr, (void*)renderer);
     if (!data || !data->surface || !renderer || data->texture || data->width <= 0 || data->height <= 0) return;
 
     int max_dim = 1920;
@@ -353,7 +358,7 @@ void ImageLoader::load_texture(ImageData* data, SDL_Renderer* renderer) {
 
     data->texture = SDL_CreateTextureFromSurface(renderer, data->surface);
     if (!data->texture) {
-        g_logger.error("Failed to create texture from surface: %s", SDL_GetError());
+        g_logger.error("Failed to create texture from surface: {}", SDL_GetError());
     } else {
         SDL_SetTextureScaleMode(data->texture, SDL_SCALEMODE_LINEAR);
     }
@@ -371,7 +376,7 @@ void ImageLoader::load_texture(ImageData* data, SDL_Renderer* renderer) {
             }
             data->blur_texture = SDL_CreateTextureFromSurface(renderer, bsurf);
             if (!data->blur_texture) {
-                g_logger.error("Failed to create blur texture from surface: %s", SDL_GetError());
+                g_logger.error("Failed to create blur texture from surface: {}", SDL_GetError());
             } else {
                 SDL_SetTextureScaleMode(data->blur_texture, SDL_SCALEMODE_LINEAR);
             }
@@ -394,6 +399,7 @@ void ImageLoader::load_texture(ImageData* data, SDL_Renderer* renderer) {
 
 bool ImageLoader::has_camera_exif(const char* path) {
     ExifData* ed = exif_data_new_from_file(path);
+    [[unlikely]]
     if (!ed) return false;
 
     // Optical EXIF tags — only real cameras have these, screenshots never do
@@ -410,6 +416,7 @@ bool ImageLoader::has_camera_exif(const char* path) {
 }
 
 SDL_Surface* ImageLoader::apply_exif_rotation(SDL_Surface* surface, int exif) {
+    [[unlikely]]
     if (!surface || exif < 2 || exif > 8) return nullptr;
     SDL_Surface* rotated = nullptr;
     switch (exif) {
@@ -533,6 +540,7 @@ SDL_Surface* ImageLoader::apply_exif_rotation(SDL_Surface* surface, int exif) {
 
 int64_t ImageLoader::get_creation_time(std::string_view path) {
     ExifData* ed = exif_data_new_from_file(std::string(path).c_str());
+    [[unlikely]]
     if (!ed) return 0;
 
     ExifEntry* datetime = exif_content_get_entry(ed->ifd[EXIF_IFD_EXIF], EXIF_TAG_DATE_TIME_ORIGINAL);
@@ -583,11 +591,12 @@ int64_t ImageLoader::get_creation_time(std::string_view path) {
     return result;
 }
 
-ImageMetadata ImageLoader::read_metadata_from_memory(const uint8_t* buffer, unsigned int size) {
+ImageMetadata ImageLoader::read_metadata_from_memory(std::span<const uint8_t> buffer) {
     ImageMetadata meta;
-    if (!buffer || size == 0) return meta;
+    if (buffer.empty()) return meta;
 
-    ExifData* ed = exif_data_new_from_data(buffer, size);
+    ExifData* ed = exif_data_new_from_data(buffer.data(), buffer.size());
+    [[unlikely]]
     if (!ed) return meta;
 
     // 1. Orientation/Rotation

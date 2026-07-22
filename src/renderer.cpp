@@ -12,6 +12,7 @@
 #include <unistd.h>
 #include <cstring>
 #include <ctime>
+#include <format>
 
 static float read_ram_usage() {
     static float cached_val = 0.0f;
@@ -150,9 +151,9 @@ Renderer::~Renderer() {
 }
 
 bool Renderer::init(int w, int h, bool fullscreen) {
-    g_logger.info("[TRACE] Renderer::init w=%d h=%d fullscreen=%d", w, h, fullscreen);
+    g_logger.info("[TRACE] Renderer::init w={} h={} fullscreen={}", w, h, fullscreen);
     if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO)) {
-        g_logger.error("SDL_Init failed: %s", SDL_GetError());
+        g_logger.error("SDL_Init failed: {}", SDL_GetError());
         return false;
     }
     g_logger.info("[TRACE] SDL_Init OK");
@@ -162,7 +163,7 @@ bool Renderer::init(int w, int h, bool fullscreen) {
         flags |= SDL_WINDOW_FULLSCREEN;
     }
     const char* driver = SDL_GetCurrentVideoDriver();
-    g_logger.info("SDL Selected Video Driver: %s", driver ? driver : "UNKNOWN");
+    g_logger.info("SDL Selected Video Driver: {}", driver ? driver : "UNKNOWN");
 
     window = SDL_CreateWindow(
         APP_NAME " v" VERSION,
@@ -172,24 +173,24 @@ bool Renderer::init(int w, int h, bool fullscreen) {
     );
 
     if (!window) {
-        g_logger.error("SDL_CreateWindow failed: %s", SDL_GetError());
+        g_logger.error("SDL_CreateWindow failed: {}", SDL_GetError());
         SDL_Quit();
         return false;
     }
-    g_logger.info("[TRACE] SDL_CreateWindow OK window=%p", (void*)window);
+    g_logger.info("[TRACE] SDL_CreateWindow OK window={}", (void*)window);
 
     SDL_GetWindowSize(window, &screen_w, &screen_h);
-    g_logger.info("SDL Context & Window created successfully (%dx%d)", screen_w, screen_h);
+    g_logger.info("SDL Context & Window created successfully ({}x{})", screen_w, screen_h);
 
     sdl_renderer = SDL_CreateRenderer(window, nullptr);
     if (!sdl_renderer) {
-        g_logger.error("SDL_CreateRenderer failed: %s", SDL_GetError());
+        g_logger.error("SDL_CreateRenderer failed: {}", SDL_GetError());
         SDL_DestroyWindow(window);
         window = nullptr;
         SDL_Quit();
         return false;
     }
-    g_logger.info("[TRACE] SDL_CreateRenderer OK renderer=%p", (void*)sdl_renderer);
+    g_logger.info("[TRACE] SDL_CreateRenderer OK renderer={}", (void*)sdl_renderer);
 
     SDL_SetRenderDrawBlendMode(sdl_renderer, SDL_BLENDMODE_BLEND);
     g_logger.info("[TRACE] Renderer::init complete");
@@ -270,6 +271,7 @@ void Renderer::calculate_fit_rect(int img_w, int img_h, SDL_Rect& out_rect) {
         out_rect.y = screen_h / 2;
         return;
     }
+    [[assume(screen_w > 0 && screen_h > 0)]]
 
     bool has_matting = false;
     std::string border_mode = "off";
@@ -1323,7 +1325,7 @@ float Renderer::read_sys_f(const char* path, float divisor) {
 
 
 void Renderer::load_splash(const std::string& path) {
-    g_logger.info("[TRACE] Renderer::load_splash path=%s", path.c_str());
+    g_logger.info("[TRACE] Renderer::load_splash path={}", path.c_str());
     cleanup_splash();
 
     std::string exe_dir = get_exe_dir();
@@ -1362,25 +1364,25 @@ void Renderer::load_splash(const std::string& path) {
                 }
                 splash_logo = SDL_CreateTextureFromSurface(sdl_renderer, surface);
                 if (!splash_logo) {
-                    g_logger.error("SDL_CreateTextureFromSurface failed for splash: %s", SDL_GetError());
+                    g_logger.error("SDL_CreateTextureFromSurface failed for splash: {}", SDL_GetError());
                 } else {
                     splash_logo_w = w;
                     splash_logo_h = h;
                     splash_logo_loaded = true;
-                    g_logger.info("Splash image loaded: %s (%dx%d)", splash_path.c_str(), splash_logo_w, splash_logo_h);
+                    g_logger.info("Splash image loaded: {} ({}x{})", splash_path.c_str(), splash_logo_w, splash_logo_h);
                 }
                 SDL_DestroySurface(surface);
             } else {
-                g_logger.error("SDL_CreateSurface failed for splash: %s", SDL_GetError());
+                g_logger.error("SDL_CreateSurface failed for splash: {}", SDL_GetError());
             }
             stbi_image_free(pixels);
         } else {
-            g_logger.error("stbi_load failed for splash logo: %s %s", splash_path.c_str(), stbi_failure_reason());
+            g_logger.error("stbi_load failed for splash logo: {} {}", splash_path.c_str(), stbi_failure_reason());
         }
     }
 
     if (!splash_logo_loaded) {
-        g_logger.warn("Splash image not found/loaded: %s, using fallback green terminal screen", splash_path.c_str());
+        g_logger.warn("Splash image not found/loaded: {}, using fallback green terminal screen", splash_path.c_str());
     }
 
     // FontRenderer now uses SDL_Renderer
@@ -1395,7 +1397,7 @@ void Renderer::load_splash(const std::string& path) {
 
     if (font_path.empty() || !file_exists(font_path)) {
         if (!font_path.empty()) {
-            g_logger.warn("Configured font_path '%s' not found, falling back to defaults", font_path.c_str());
+            g_logger.warn("Configured font_path '{}' not found, falling back to defaults", font_path.c_str());
         }
         font_path = "/app/src/fonts/DejaVuSansMono-Bold.ttf";
         if (!file_exists(font_path)) {
@@ -1415,7 +1417,7 @@ void Renderer::load_splash(const std::string& path) {
     if (file_exists(font_path)) {
         crt_font = &font_renderer->load_font(font_path, 15);
         font_loaded = true;
-        g_logger.info("Loaded splash terminal font: %s", font_path.c_str());
+        g_logger.info("Loaded splash terminal font: {}", font_path.c_str());
     } else {
         g_logger.error("No suitable monospace font found for splash terminal.");
         font_loaded = false;
@@ -1640,20 +1642,18 @@ void Renderer::render_splash(int phase, int progress, int total, int done, [[may
     if (phase <= 2) {
         draw_splash_text("SYS_STAT : SCAN_ACTIVE" + dot_str, text_x, row_start_y, 16, {0, 200, 0, 240});
         
-        char fnd_buf[64];
-        std::snprintf(fnd_buf, sizeof(fnd_buf), "FILES FND: %d", progress);
+        std::string fnd_buf = std::format("FILES FND: {}", progress);
         draw_splash_text(fnd_buf, text_x, (int)(row_start_y + row_space * 1.2f), 18, {0, 200, 0, 240});
 
-        std::snprintf(fnd_buf, sizeof(fnd_buf), "I/O SPEED: %d nodes/s", speed);
+        fnd_buf = std::format("I/O SPEED: {} nodes/s", speed);
         draw_splash_text(fnd_buf, text_x, (int)(row_start_y + row_space * 2.5f), 14, {0, 130, 0, 220});
 
-        std::snprintf(fnd_buf, sizeof(fnd_buf), "LATENCY  : %d ms", latency);
+        fnd_buf = std::format("LATENCY  : {} ms", latency);
         draw_splash_text(fnd_buf, text_x, (int)(row_start_y + row_space * 3.5f), 14, {0, 130, 0, 220});
     } else {
         draw_splash_text("SYS_STAT : SCAN_COMPLETE", text_x, row_start_y, 16, {0, 130, 0, 220});
         
-        char fnd_buf[64];
-        std::snprintf(fnd_buf, sizeof(fnd_buf), "FILES FND: %d", progress);
+        std::string fnd_buf = std::format("FILES FND: {}", progress);
         draw_splash_text(fnd_buf, text_x, (int)(row_start_y + row_space * 1.2f), 18, {0, 130, 0, 220});
         draw_splash_text("I/O SPEED: 0 nodes/s", text_x, (int)(row_start_y + row_space * 2.5f), 14, {0, 130, 0, 220});
         draw_splash_text("LATENCY  : 0 ms", text_x, (int)(row_start_y + row_space * 3.5f), 14, {0, 130, 0, 220});
@@ -1670,40 +1670,39 @@ void Renderer::render_splash(int phase, int progress, int total, int done, [[may
         telemetry_ts = now;
     }
 
-    char sys_buf[128];
-    std::snprintf(sys_buf, sizeof(sys_buf), "PID      : %d", getpid());
+    std::string sys_buf = std::format("PID      : {}", getpid());
     draw_splash_text(sys_buf, col2_x, row_start_y, 14, {0, 130, 0, 220});
 
-    std::snprintf(sys_buf, sizeof(sys_buf), "RAM AVAIL: %d MB", mem_mb);
+    sys_buf = std::format("RAM AVAIL: {} MB", mem_mb);
     draw_splash_text(sys_buf, col2_x, (int)(row_start_y + row_space), 14, {0, 130, 0, 220});
 
-    std::snprintf(sys_buf, sizeof(sys_buf), "RAM USAGE: %.1f%%", ram_usage);
+    sys_buf = std::format("RAM USAGE: {:.1f}%", ram_usage);
     draw_splash_text(sys_buf, col2_x, (int)(row_start_y + row_space * 2.2f), 14, {0, 130, 0, 220});
 
-    std::snprintf(sys_buf, sizeof(sys_buf), "UPTIME   : %.0f s", sys_uptime);
+    sys_buf = std::format("UPTIME   : {:.0f} s", sys_uptime);
     draw_splash_text(sys_buf, col2_x, (int)(row_start_y + row_space * 3.5f), 14, {0, 130, 0, 220});
 
     // Column 3: CPU & Hardware Info
-    std::snprintf(sys_buf, sizeof(sys_buf), "SOC TEMP : %.1f C", telemetry_temp);
+    sys_buf = std::format("SOC TEMP : {:.1f} C", telemetry_temp);
     draw_splash_text(sys_buf, col3_x, row_start_y, 14, {0, 130, 0, 220});
 
-    std::snprintf(sys_buf, sizeof(sys_buf), "CPU USAGE: %.1f%%", cpu_usage);
+    sys_buf = std::format("CPU USAGE: {:.1f}%", cpu_usage);
     draw_splash_text(sys_buf, col3_x, (int)(row_start_y + row_space), 14, {0, 130, 0, 220});
 
-    std::snprintf(sys_buf, sizeof(sys_buf), "CPU FREQ : %.1f MHz", cpu_freq);
+    sys_buf = std::format("CPU FREQ : {:.1f} MHz", cpu_freq);
     draw_splash_text(sys_buf, col3_x, (int)(row_start_y + row_space * 2.2f), 14, {0, 130, 0, 220});
 
-    std::snprintf(sys_buf, sizeof(sys_buf), "CORES    : %d", std::thread::hardware_concurrency());
+    sys_buf = std::format("CORES    : {}", std::thread::hardware_concurrency());
     draw_splash_text(sys_buf, col3_x, (int)(row_start_y + row_space * 3.5f), 14, {0, 130, 0, 220});
 
     // Column 4: Storage & Renderer info
     draw_splash_text("HW_DECODE: READY", col4_x, row_start_y, 14, {0, 130, 0, 220});
     draw_splash_text("RENDERER : SDL3", col4_x, (int)(row_start_y + row_space), 14, {0, 130, 0, 220});
 
-    std::snprintf(sys_buf, sizeof(sys_buf), "I/O SPEED: %d ops/s", speed);
+    sys_buf = std::format("I/O SPEED: {} ops/s", speed);
     draw_splash_text(sys_buf, col4_x, (int)(row_start_y + row_space * 2.2f), 14, {0, 130, 0, 220});
 
-    std::snprintf(sys_buf, sizeof(sys_buf), "LATENCY  : %d ms", latency);
+    sys_buf = std::format("LATENCY  : {} ms", latency);
     draw_splash_text(sys_buf, col4_x, (int)(row_start_y + row_space * 3.5f), 14, {0, 130, 0, 220});
 
     // BOTTOM HALF: CACHER
@@ -1732,17 +1731,16 @@ void Renderer::render_splash(int phase, int progress, int total, int done, [[may
         // Col 1: DB Status
         draw_splash_text("DB_STAT  : BULK_INSERT" + dot_str, text_x, bot_row_start_y, 16, theme_color);
         
-        char cache_buf[64];
-        std::snprintf(cache_buf, sizeof(cache_buf), "CACHED   : %d", done);
+        std::string cache_buf = std::format("CACHED   : {}", done);
         draw_splash_text(cache_buf, text_x, bot_row_start_y + (int)(bot_row_space * 1.2f), 18, theme_color);
 
-        std::snprintf(cache_buf, sizeof(cache_buf), "I/O SPEED: %d ops/s", speed + (rand() % 35 + 10));
+        cache_buf = std::format("I/O SPEED: {} ops/s", speed + (rand() % 35 + 10));
         draw_splash_text(cache_buf, text_x, bot_row_start_y + (int)(bot_row_space * 2.5f), 14, theme_dim);
 
         // Col 2: SQLite details
         draw_splash_text("VFS_MODE : WAL | NORMAL", col2_x, bot_row_start_y, 14, theme_dim);
 
-        std::snprintf(cache_buf, sizeof(cache_buf), "PG_CACHE : %d KB", 4096 + (done % 1024));
+        cache_buf = std::format("PG_CACHE : {} KB", 4096 + (done % 1024));
         draw_splash_text(cache_buf, col2_x, bot_row_start_y + bot_row_space, 14, theme_dim);
 
         float mmap_mb = 0.0f;
@@ -1750,7 +1748,7 @@ void Renderer::render_splash(int phase, int progress, int total, int done, [[may
             std::shared_lock lock(g_config_mtx);
             mmap_mb = (float)g_cfg.cache_mmap_size / (1024.0f * 1024.0f);
         }
-        std::snprintf(cache_buf, sizeof(cache_buf), "MMAP_SIZE: %.0f MB", mmap_mb);
+        cache_buf = std::format("MMAP_SIZE: {:.0f} MB", mmap_mb);
         draw_splash_text(cache_buf, col2_x, bot_row_start_y + bot_row_space * 2, 14, theme_dim);
 
         // Col 3: Metadata extractor details
@@ -1758,19 +1756,19 @@ void Renderer::render_splash(int phase, int progress, int total, int done, [[may
         const char* parse_op = (done % 2 == 0) ? "JPEG_MARKER" : "MP4_MOOV_ATOM";
         draw_splash_text("EXTRACTOR: ACTIVE", col3_x, bot_row_start_y, 14, theme_dim);
         
-        std::snprintf(cache_buf, sizeof(cache_buf), "EXEC     : %s", ext_op);
+        cache_buf = std::format("EXEC     : {}", ext_op);
         draw_splash_text(cache_buf, col3_x, bot_row_start_y + bot_row_space, 14, theme_dim);
 
-        std::snprintf(cache_buf, sizeof(cache_buf), "META_TAG : %s", parse_op);
+        cache_buf = std::format("META_TAG : {}", parse_op);
         draw_splash_text(cache_buf, col3_x, bot_row_start_y + bot_row_space * 2, 14, theme_dim);
 
         // Col 4: Commit Q
         draw_splash_text("PIPE_STAT: BUFFER_FILL", col4_x, bot_row_start_y, 14, theme_dim);
         
-        std::snprintf(cache_buf, sizeof(cache_buf), "TRANSACT : PENDING Q=%d", rand() % 15 + 1);
+        cache_buf = std::format("TRANSACT : PENDING Q={}", rand() % 15 + 1);
         draw_splash_text(cache_buf, col4_x, bot_row_start_y + bot_row_space, 14, theme_dim);
 
-        std::snprintf(cache_buf, sizeof(cache_buf), "COMMIT_ID: %s", VERSION);
+        cache_buf = std::format("COMMIT_ID: {}", VERSION);
         draw_splash_text(cache_buf, col4_x, bot_row_start_y + bot_row_space * 2, 14, theme_dim);
 
         // Live Log Streams
@@ -1806,8 +1804,7 @@ void Renderer::render_splash(int phase, int progress, int total, int done, [[may
                 SDL_RenderFillRect(sdl_renderer, &chunk_rect);
             }
 
-            char pct_buf[32];
-            std::snprintf(pct_buf, sizeof(pct_buf), "[%3d%%]", (int)(pct * 100));
+            std::string pct_buf = std::format("[{:>3d}%", (int)(pct * 100));
             draw_splash_text(pct_buf, text_x + bar_w + 15, bar_y, 16, theme_color);
 
             if (!current_cache_file.empty()) {

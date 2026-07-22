@@ -1,4 +1,8 @@
 # Changelog
+## v17.0.1 — http_server.cpp C++23 Completion (July 21, 2026)
+### Code
+- Completed C++23 migration for http_server.cpp (reverted during build fix): std::thread → std::jthread, std::to_string → std::format, std::ostringstream → std::format, (int).size() → std::ssize
+- Zero C++17 patterns remaining outside documented async-signal-safe exclusion
 ## v17.0.0 — C++23 Modernization & Logger Rewrite (July 21, 2026)
 ### C++23 Migration
 - **Build Standard** — C++17 → C++23, enabling std::jthread, std::format, std::span, std::ssize, concepts, attributes

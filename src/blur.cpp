@@ -1,10 +1,11 @@
 #include "blur.h"
 #include <algorithm>
 #include <cmath>
+#include <span>
 
 // 3-pass separable box blur operating on raw RGBA pixels
 // Pass 1: horizontal, Pass 2: vertical, Pass 3: horizontal
-static void separable_box_blur(uint8_t* pixels, int width, int height, int radius) {
+static void separable_box_blur(std::span<uint8_t> pixels, int width, int height, int radius) {
     size_t buf_size = (size_t)width * height * 4;
     uint8_t* tmp = (uint8_t*)malloc(buf_size);
     if (!tmp) return;
@@ -16,7 +17,7 @@ static void separable_box_blur(uint8_t* pixels, int width, int height, int radiu
             for (int k = -radius; k <= radius; k++) {
                 int sx = x + k;
                 if (sx < 0 || sx >= width) continue;
-                const uint8_t* p = pixels + y * width * 4 + sx * 4;
+                const uint8_t* p = pixels.data() + y * width * 4 + sx * 4;
                 sum_r += p[0]; sum_g += p[1]; sum_b += p[2]; sum_a += p[3];
                 count++;
             }
@@ -72,14 +73,14 @@ static void separable_box_blur(uint8_t* pixels, int width, int height, int radiu
     }
 
     // Copy tmp → pixels
-    memcpy(pixels, tmp, buf_size);
+    memcpy(pixels.data(), tmp, buf_size);
 
     free(tmp);
     free(out);
 }
 
 // Downsample image to max_dim using nearest-neighbor, writes to new allocation
-static uint8_t* downsample_image(const uint8_t* src_pixels, int src_w, int src_h,
+static uint8_t* downsample_image(std::span<const uint8_t> src_pixels, int src_w, int src_h,
                                   int& dst_w, int& dst_h, int max_dim) {
     if (src_w <= max_dim && src_h <= max_dim) {
         dst_w = src_w;
@@ -103,7 +104,7 @@ static uint8_t* downsample_image(const uint8_t* src_pixels, int src_w, int src_h
             if (sx >= src_w) sx = src_w - 1;
             if (sy < 0) sy = 0;
             if (sy >= src_h) sy = src_h - 1;
-            const uint8_t* src_px = src_pixels + sy * src_w * 4 + sx * 4;
+            const uint8_t* src_px = src_pixels.data() + sy * src_w * 4 + sx * 4;
             uint8_t* dst_px = dst + y * dst_w * 4 + x * 4;
             for (int c = 0; c < 4; c++) dst_px[c] = src_px[c];
         }
@@ -116,6 +117,7 @@ RawImage box_blur(const RawImage& src, int radius) {
     out.valid = false;
 
     if (!src.valid || src.width <= 0 || src.height <= 0) return out;
+    [[assume(src.width > 0 && src.height > 0)]]
 
     const int MAX_DIM = 480;
     // Scale radius down proportionally to match downsampled resolution
@@ -126,7 +128,7 @@ RawImage box_blur(const RawImage& src, int radius) {
     radius = std::max(1, std::min(radius, 24));
 
     int dw = src.width, dh = src.height;
-    uint8_t* work = downsample_image(src.pixels, src.width, src.height, dw, dh, MAX_DIM);
+    uint8_t* work = downsample_image(std::span<const uint8_t>(src.pixels, (size_t)src.width * src.height * 4), src.width, src.height, dw, dh, MAX_DIM);
     if (!work) {
         // No downsample needed, but we MUST copy the pixels so we don't modify/free the original sharp pixels!
         size_t buf_size = (size_t)src.width * src.height * 4;
@@ -145,7 +147,7 @@ RawImage box_blur(const RawImage& src, int radius) {
     out.pixels = work;
 
     // Run blur in-place on the working buffer
-    separable_box_blur(out.pixels, dw, dh, radius);
+    separable_box_blur(std::span<uint8_t>(out.pixels, (size_t)dw * dh * 4), dw, dh, radius);
 
     return out;
 }

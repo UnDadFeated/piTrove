@@ -63,7 +63,7 @@ class PreloadQueue {
 private:
     std::shared_ptr<PreloadState> state;
     int num_threads;
-    std::vector<std::thread> threads;
+    std::vector<std::jthread> threads;
     SDL_Renderer* sdl_renderer;
 
 public:
