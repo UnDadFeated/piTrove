@@ -1,4 +1,16 @@
 # Changelog
+## v17.0.2 — Web Dashboard Telemetry & Installer Fixes (July 21, 2026)
+### Web Dashboard
+- Added system telemetry: uptime, memory usage, disk usage to Remote panel
+- MQTT status now shows actual enabled/disconnected state
+- Diagnostic log viewer expanded from 420px to 55vh (fills more screen)
+- Preview image refreshes on pause/resume state changes
+- Removed Motion simulation button from dashboard
+### Installer
+- Verbose spinner now shows live build output status line
+- QR code reduced to half size (UTF8 instead of ANSIUTF8)
+- Config wizard no longer crashes when stdin is not a TTY
+
 ## v17.0.1 — http_server.cpp C++23 Completion (July 21, 2026)
 ### Code
 - Completed C++23 migration for http_server.cpp (reverted during build fix): std::thread → std::jthread, std::to_string → std::format, std::ostringstream → std::format, (int).size() → std::ssize
