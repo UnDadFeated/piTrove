@@ -1,4 +1,12 @@
 # Changelog
+## v17.0.3 — Installer UI Overhaul (July 21, 2026)
+### Installer
+- Complete UI overhaul: clean single-line boxes throughout (no more double-box borders)
+- All dialogs simplified: branch selection, storage mode, protocol, mount fail, config wizard, success card
+- Config wizard `docker exec -it` crash fixed (removed TTY flags for scripted execution)
+- Container wait timeout extended to 90s with live progress indicator
+- Consistent unicode symbols (✔, ✘, ⚠) across all status messages
+
 ## v17.0.2 — Web Dashboard Telemetry & Installer Fixes (July 21, 2026)
 ### Web Dashboard
 - Added system telemetry: uptime, memory usage, disk usage to Remote panel
