@@ -604,7 +604,7 @@ void config_wizard(const std::string& config_path) {
             printf("\033[1;31m|\033[0m  %-*s\033[1;31m|\033[0m\n", draw_cols-6, " is clearly visible.");
             printf("\033[1;31m|\033[0m  %-*s\033[1;31m|\033[0m\n", draw_cols-6, "");
             std::string sz_buf = std::format(" Current Terminal size:  {}x{}", cur_cols, cur_rows);
-            printf("\033[1;31m|\033[0m  %-*s\033[1;31m|\033[0m\n", draw_cols-6, sz_buf);
+            printf("\033[1;31m|\033[0m  %-*s\033[1;31m|\033[0m\n", draw_cols-6, sz_buf.c_str());
             printf("\033[1;31m|\033[0m  %-*s\033[1;31m|\033[0m\n", draw_cols-6, " Minimum Required size:  80x24");
             printf("\033[1;31m|\033[0m  %-*s\033[1;31m|\033[0m\n", draw_cols-6, "");
             printf("\033[1;31m+"); for(int i=0; i<draw_cols-2; i++) printf("-"); printf("+\033[0m\n");
