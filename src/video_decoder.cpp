@@ -311,13 +311,6 @@ void VideoDecoder::decode_loop() {
     AVCodecParameters* vp = fmt_ctx->streams[video_stream_idx]->codecpar;
     // DRM hwaccel for V4L2 stateless decode (Pi 5 HEVC, Pi 4/5 H264)
     AVBufferRef* hw_dev = create_hw_device();
-    // Pi 5 V4L2 HEVC stateless decoder is unreliable (dst buffer failures → stalls)
-    // Skip HW accel for HEVC on Pi 5, use software decoder instead
-    if (hw_dev && hwaccel_path == "pi5_drm" && vp->codec_id == AV_CODEC_ID_HEVC) {
-        g_logger.info("VIDEO_DEC: Skipping HW accel for HEVC on Pi 5, using software decoder");
-        av_buffer_unref(&hw_dev);
-        hwaccel_path = "none";
-    }
     const AVCodec* vc = avcodec_find_decoder(vp->codec_id);
     // Pi 4 fallback: use V4L2 M2M codec directly if DRM hwaccel not available
     if (!hw_dev && hwaccel_path == "pi4_v4l2" && vp->codec_id == AV_CODEC_ID_HEVC) {
@@ -459,12 +452,18 @@ void VideoDecoder::decode_loop() {
 
     decode_start_time.store(av_gettime_relative() / 1000000.0, std::memory_order_relaxed);
     bool eof = false;
-    int vf_count = 0, af_count = 0, pkt_count = 0;
+    int vf_count = 0, af_count = 0, pkt_count = 0, ret = 0;
+    // Stall detection: if no video frame produced within this many ms, abort
+    static constexpr long long STALL_TIMEOUT_MS = 30000;
+    long long last_frame_ms = av_gettime_relative();
     while (is_running() && !eof) {
+        // Stall detection: abort if no frame produced for too long
+        if (video_stream_idx >= 0 && (av_gettime_relative() - last_frame_ms) > STALL_TIMEOUT_MS) {
+            g_logger.warn("VIDEO_DEC: Decoder stalled for {}s, aborting decode of {}", (av_gettime_relative() - last_frame_ms) / 1000000, m_path.c_str());
+            break;
+        }
         io_data.start_time = av_gettime_relative();
-        int ret = av_read_frame(fmt_ctx, pkt);
-        // hot-path debug log omitted
-        pkt_count++;
+        ret = av_read_frame(fmt_ctx, pkt);
         [[unlikely]]
             if (ret < 0) {
             g_logger.info("VIDEO_DEC: av_read_frame error ret={} (AVERROR_EOF={}, AVERROR(EAGAIN)={})", ret, AVERROR_EOF, AVERROR(EAGAIN));
@@ -506,14 +505,15 @@ void VideoDecoder::decode_loop() {
                             break;
                         }
                         vf_count++;
+                        last_frame_ms = av_gettime_relative();
                         m_decoded_frames.fetch_add(1, std::memory_order_relaxed);
-                        // Transfer HW frames during flush
                         AVFrame* sw_frame2 = frame;
                         AVFrame* tmp_sw2 = nullptr;
                         if (frame->format == AV_PIX_FMT_DRM_PRIME || frame->hw_frames_ctx) {
                             tmp_sw2 = av_frame_alloc();
                             if (av_hwframe_transfer_data(tmp_sw2, frame, 0) >= 0) {
                                 sw_frame2 = tmp_sw2;
+                                av_frame_unref(frame);
                             } else {
                                 g_logger.warn("VIDEO_DEC: flush hw transfer failed, skipping");
                                 av_frame_free(&tmp_sw2);
@@ -521,7 +521,6 @@ void VideoDecoder::decode_loop() {
                                 continue;
                             }
                         }
-                        // Deferred scaler for flush path
                         AVPixelFormat flush_fmt = (AVPixelFormat)sw_frame2->format;
                         if (!sws || flush_fmt != actual_pix_fmt) {
                             if (sws) sws_freeContext(sws);
@@ -594,6 +593,7 @@ void VideoDecoder::decode_loop() {
             }
 
             vf_count++;
+            last_frame_ms = av_gettime_relative(); // Stall detection
             // Transfer HW frames (DRM_PRIME/V4L2) to CPU-accessible format before scaling
             AVFrame* sw_frame = frame;
             AVFrame* tmp_sw = nullptr;
@@ -601,6 +601,7 @@ void VideoDecoder::decode_loop() {
                 tmp_sw = av_frame_alloc();
                 if (av_hwframe_transfer_data(tmp_sw, frame, 0) >= 0) {
                     sw_frame = tmp_sw;
+                    av_frame_unref(frame); // Release V4L2 output buffer immediately to prevent DPB overflow
                 } else {
                     g_logger.warn("VIDEO_DEC: av_hwframe_transfer_data failed, skipping frame");
                     av_frame_free(&tmp_sw);
@@ -689,6 +690,7 @@ void VideoDecoder::decode_loop() {
     // Mark decoder as stopped immediately so the render loop stops spinning
     // on "decoder already running" while we clean up FFmpeg resources below
     m_running.store(false);
+    m_eof.store(true); // Mark EOF so render loop transitions to next item (even on stall)
 
     try {
     av_frame_free(&rgba);
