@@ -126,7 +126,7 @@ void publish_ha_discovery() {
     std::string device_json = "\"device\":{"
         "\"identifiers\":[\"piTrove_frame\"],"
         "\"name\":\"piTrove Picture Frame\","
-        "\"model\":\"v11.x Modular Frame\","
+        "\"model\":\"v17.x Modular Frame\","
         "\"manufacturer\":\"UnDadFeated\""
         "}";
 
