@@ -107,17 +107,25 @@ while true; do
             fi
             WAS_OFFLINE=false
         fi
+refresh_nas_mount() {
+    log "Refreshing network storage mount at $CIFS_MOUNT..."
+    SYSTEMD_AUTOMOUNT=$(systemd-escape -p --suffix=automount "$CIFS_MOUNT")
+    SYSTEMD_MOUNT=$(systemd-escape -p --suffix=mount "$CIFS_MOUNT")
+    systemctl restart "$SYSTEMD_AUTOMOUNT" 2>/dev/null || systemctl restart "$SYSTEMD_MOUNT" 2>/dev/null || true
+    # Access directory to trigger systemd autofs CIFS mount before Docker starts
+    ls "$CIFS_MOUNT" >/dev/null 2>&1 || true
+    sleep 1
+}
+
         # Verify piTrove application service & container health when network is online
         if ! systemctl is-active --quiet piTrove.service 2>/dev/null; then
             log "Service check: piTrove.service is inactive! Refreshing NAS mount and auto-reviving service..."
-            SYSTEMD_MOUNT=$(systemd-escape -p --suffix=mount "$CIFS_MOUNT")
-            systemctl restart "$SYSTEMD_MOUNT" 2>/dev/null || true
+            refresh_nas_mount
             systemctl reset-failed piTrove.service 2>/dev/null || true
             systemctl restart piTrove.service 2>/dev/null || true
         elif docker inspect --format='{{.State.Health.Status}}' "$DOCKER_CONTAINER" 2>/dev/null | grep -q "unhealthy"; then
             log "Health check: piTrove container reported UNHEALTHY! Refreshing NAS mount and restarting service..."
-            SYSTEMD_MOUNT=$(systemd-escape -p --suffix=mount "$CIFS_MOUNT")
-            systemctl restart "$SYSTEMD_MOUNT" 2>/dev/null || true
+            refresh_nas_mount
             systemctl reset-failed piTrove.service 2>/dev/null || true
             systemctl restart piTrove.service 2>/dev/null || true
         fi
