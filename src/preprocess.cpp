@@ -164,8 +164,10 @@ static void preprocess_loop() {
                     }
                 } else {
                     if (g_cache && pr->item.width == -1) {
-                        g_logger.warn("Preprocess: Video file corrupted (bad container). Marking '{}' as bad.", path.c_str());
-                        g_cache->upsert(pr->item, 1, 1);
+                        pr->item.width = 1920;
+                        pr->item.height = 1080;
+                        g_logger.warn("Preprocess: Video file corrupted (bad container). Marking preprocessed with defaults.", path.c_str());
+                        g_cache->upsert(pr->item, 0, 1);
                     } else {
                         g_logger.warn("Preprocess: Failed to extract metadata for '{}'.", path.c_str());
                     }
