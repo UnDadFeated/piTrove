@@ -1414,6 +1414,7 @@ Type=simple
 User=$PRIMARY_USER
 Group=$PRIMARY_USER
 WorkingDirectory=$PRIMARY_HOME/piTrove
+ExecStartPre=-/bin/bash -c "ls /mnt/nas >/dev/null 2>&1 || true"
 ExecStartPre=-/usr/bin/docker compose down
 ExecStart=/usr/bin/docker compose up
 ExecStop=/usr/bin/docker compose down
