@@ -1,3 +1,15 @@
+## v17.0.8 — CIFS Automount Stability & Watchdog Recovery Improvements (July 22, 2026)
+
+### Fixed & Improved
+- **CIFS Mount Options in `/etc/fstab` & `install.sh`**:
+  - Removed `echo_interval=6` which caused aggressive SMB reconnect storms during Wi-Fi latency spikes.
+  - Set `actimeo=2` to cache file metadata briefly, preventing synchronous `stat()` lockups during minor network blips.
+  - Added `x-systemd.idle-timeout=120` to allow systemd automount to cleanly reset stale SMB sessions after 2 minutes of inactivity.
+- **Network Watchdog (`pitrove-watchdog.sh`)**:
+  - Fixed Watchdog recovery sequence: now triggers an explicit `autofs` directory probe (`ls "$CIFS_MOUNT"`) when reviving `piTrove.service` or recovering from unhealthy container states.
+  - Ensures systemd autofs actually mounts CIFS to `/mnt/nas` before Docker container creation (`runc`), preventing container `no such device` bind-mount failures.
+  - Fixed `docker inspect` health check command formatting to properly target `$DOCKER_CONTAINER`.
+
 ## v17.0.7 — Instant Splash Screen, TTY Fix & End-of-Install Clean Exit (July 22, 2026)
 ### Core
 - Added instant splash screen render call in main.cpp immediately upon asset load so splash image and telemetry render at startup step 0
