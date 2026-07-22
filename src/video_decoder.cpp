@@ -53,7 +53,7 @@ static bool video_within_budget(AVFormatContext* fmt, const VideoLimits& limits)
 
 // Runtime Pi 4/5 detection
 static std::string hwaccel_path = "none";
-static bool is_pi5() {
+[[maybe_unused]] static bool is_pi5() {
     static bool detected = false;
     static bool result = false;
     if (!detected) {
