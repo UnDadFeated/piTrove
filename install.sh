@@ -1503,9 +1503,9 @@ WantedBy=multi-user.target
 EOF
 
 systemctl daemon-reload
-systemctl enable piTrove.service &>/dev/null
-systemctl start piTrove.service &>/dev/null || true
-ok "piTrove.service successfully registered, enabled & started"
+# systemctl enable piTrove.service   # deferred until user starts it &>/dev/null
+# systemctl start piTrove.service   # deferred until user starts it &>/dev/null || true
+ok "piTrove.service registered (starts on first launch)"
 
 # ── Configure Auto-Update Cron Job ─────────────────────────────────────────────
 info "Configuring auto-update cron job..."
@@ -1747,15 +1747,7 @@ echo -e "  ${BOLD}${YELLOW}5.${NC} ${BOLD}Join the Community${NC}  —  ${CYAN}h
 echo -e "     Share your setup, ask questions, and suggest features."
 echo
 
-# ── Launch Config Wizard Prompt ─────────────────────────────────────────────────
-# Wait for container to be ready before asking about config
-info "Waiting for piTrove container to start..."
-for wait_i in $(seq 1 30); do
-    if docker inspect --format="\{{.State.Status\}}" piTrove 2>/dev/null | grep -qE "running|healthy"; then
-        break
-    fi
-    sleep 1
-done
+# ── Launch Config Wizard Prompt ────────────────────────────────────────────────
 echo -e "${CYAN}╔════════════════════════════════════════════════════════════════╗${NC}"
 echo -e "${CYAN}║${NC}  ${BOLD}${WHITE}              First-Time Configuration Wizard               ${NC}  ${CYAN}║${NC}"
 echo -e "${CYAN}╚════════════════════════════════════════════════════════════════╝${NC}"
@@ -1771,13 +1763,8 @@ safe_read -r launch_config
 launch_config="${launch_config:-Y}"
 if [[ "$launch_config" =~ ^[Yy]$ ]]; then
     echo
-    echo -e "  ${GREEN}Launching configuration wizard...${NC}"
-    echo
-    if [[ -t 0 ]]; then
-        docker exec -it piTrove /app/piTrove --config-wizard /app/config/config.toml
-    else
-        docker exec -i piTrove /app/piTrove --config-wizard /app/config/config.toml || true
-    fi
+    echo -e "  ${YELLOW}Container not yet running. Skipping config wizard.${NC}"
+    echo -e "  ${GRAY}Run it later with: pitrove config${NC}"
 fi
 
 echo
@@ -1794,6 +1781,9 @@ if [[ "$next_action" == "1" ]]; then
     echo -e "  ${GREEN}Starting piTrove...${NC}"
     echo -e "  ${GRAY}Press Ctrl+C to stop at any time${NC}"
     echo
+    systemctl enable piTrove.service &>/dev/null
+    systemctl start piTrove.service &>/dev/null || true
+    sleep 3
     docker exec -it piTrove /app/piTrove
 fi
 
