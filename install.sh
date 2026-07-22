@@ -150,7 +150,7 @@ run_with_spinner() {
         fi
     else
         # Interactive mode, show spinner
-        "$@" > "$log_file" 2>&1 &
+        stdbuf -oL -eL "$@" > "$log_file" 2>&1 &
         local pid=$!
         
         show_spinner "$pid" "$label" "$log_file"
@@ -1648,7 +1648,7 @@ print_success_card() {
     if $has_qr; then
         local qr_tmp
         qr_tmp=$(mktemp)
-        qrencode -t UTF8 -s 1 -S 1 "$url" 2>/dev/null > "$qr_tmp"
+        qrencode -t UTF8 -s 1 -S 1 "$url" 2>/dev/null > "$qr_tmp" || true
         if [[ -s "$qr_tmp" ]]; then
             echo -e "${GREEN}║${NC}  ${BOLD}${WHITE}Scan QR Code to Open Dashboard:${NC}                                 ${GREEN}║${NC}"
             while IFS= read -r qr_line; do
