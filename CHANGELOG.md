@@ -1,3 +1,10 @@
+## v17.0.6 — Code Audit & CMA Memory Auto-Configuration (July 22, 2026)
+### Installer
+- Configured cma-512 auto-detection in install.sh to automatically allocate 512 MB CMA memory for Pi 5 hardware video decoding
+- Removed 65+ lines of dead unreferenced functions (draw_line, run_compilation_with_progress)
+### Code
+- Added [[maybe_unused]] attribute to is_pi5() in video_decoder.cpp for zero-warning builds
+
 ## v17.0.5 — Video Playback Speed & GPU Hardware Decoding (July 22, 2026)
 ### Core
 - Fixed 0.5x video playback speed bug by removing forced 40ms sleep penalty when behind schedule in main.cpp
