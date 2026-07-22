@@ -57,9 +57,9 @@ static bool is_pi5() {
     static bool detected = false;
     static bool result = false;
     if (!detected) {
-        std::ifstream f("/proc/device-tree/model");
+        std::ifstream f("/proc/cpuinfo");
         std::string m((std::istreambuf_iterator<char>(f)), {});
-        result = m.find("Raspberry Pi 5") != std::string::npos;
+        result = m.find("Cortex-A76") != std::string::npos;
         detected = true;
     }
     return result;
