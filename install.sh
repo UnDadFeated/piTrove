@@ -1138,8 +1138,7 @@ $SHARE_IP:$SHARE_PATH $SHARE_MOUNT $SHARE_PROTOCOL defaults,_netdev,timeo=10,ret
         fi
     else
         warn "Target directory does not exist or is not a folder: $SHARE_MOUNT"
-        safe_read -p "▸ Create and use this directory anyway? (Y/n): " create_dir
-        if [[ ! "$create_dir" =~ ^[Nn]$ ]]; then
+        if yesno "Create and use this directory anyway?"; then
             mkdir -p "$SHARE_MOUNT"
             break
         fi
