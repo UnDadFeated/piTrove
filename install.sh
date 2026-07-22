@@ -1772,8 +1772,21 @@ if [[ "$launch_config" =~ ^[Yy]$ ]]; then
 fi
 
 echo
-echo -e "  ${YELLOW}Note: If you plan to run 'docker' commands directly without sudo,${NC}"
-echo -e "        please log out and log back in (or run 'newgrp docker') for the group membership to take effect.${NC}"
+echo -e "  ${BOLD}${CYAN}What would you like to do next?${NC}"
 echo
+echo -e "  ${BOLD}${GREEN}[1]${NC} Start piTrove now"
+echo -e "  ${BOLD}${GRAY}[2]${NC} Drop to terminal (run '${CYAN}pitrove start${NC}' later)"
+echo
+echo -n -e "  ▸ Choice [1/2]: "
+safe_read -r next_action
+next_action="${next_action:-1}"
+if [[ "$next_action" == "1" ]]; then
+    echo
+    echo -e "  ${GREEN}Starting piTrove...${NC}"
+    echo -e "  ${GRAY}Press Ctrl+C to stop at any time${NC}"
+    echo
+    docker exec -it piTrove /app/piTrove
+fi
 
+echo
 exit $G_EXIT_CODE
