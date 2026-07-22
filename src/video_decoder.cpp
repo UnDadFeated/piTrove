@@ -58,6 +58,7 @@ static bool is_pi5() {
     static bool result = false;
     if (!detected) {
         std::ifstream f("/proc/cpuinfo");
+        std::string m((std::istreambuf_iterator<char>(f)), {});
         result = m.find("Cortex-A76") != std::string::npos || m.find("0xd0b") != std::string::npos;
         detected = true;
     }
