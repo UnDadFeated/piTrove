@@ -88,7 +88,7 @@ show_spinner() {
     local spin_chars=("⠋" "⠙" "⠹" "⠸" "⠼" "⠴" "⠦" "⠧" "⠇" "⠏")
     local i=0
     local last_status=""
-    local max_width=68
+    local max_width=64
     local start_time
     start_time=$(date +%s)
 
@@ -97,11 +97,11 @@ show_spinner() {
     while kill -0 "$pid" 2>/dev/null; do
         local char="${spin_chars[i]}"
 
-        # Update status line from log file every few ticks
+        # Update status line from log file every tick
         if [[ -n "$log_file" && -f "$log_file" ]]; then
             local new_status
-            new_status=$(tail -n 1 "$log_file" 2>/dev/null | tr -d '\033' | sed 's/\x1b\[[0-9;]*m//g' | head -c "$max_width" || true)
-            if [[ "$new_status" != "$last_status" && -n "$new_status" ]]; then
+            new_status=$(tr "\r" "\n" < "$log_file" 2>/dev/null | grep -v "^[[:space:]]*$" | sed "s/\x1b\[[0-9;]*m//g" | tail -n 1 | tr -d "\n\r" | head -c "$max_width" || true)
+            if [[ -n "$new_status" ]]; then
                 last_status="$new_status"
             fi
         fi
@@ -115,12 +115,12 @@ show_spinner() {
             elapsed_str="${elapsed}s"
         fi
 
-        # Grey subline: show log status if available, otherwise show elapsed time
+        # Grey subline: show elapsed time AND latest verbose log activity
         local subline
         if [[ -n "$last_status" ]]; then
-            subline="${last_status}"
+            subline="${elapsed_str} elapsed | ${last_status}"
         else
-            subline="running for ${elapsed_str}..."
+            subline="${elapsed_str} elapsed..."
         fi
 
         # Print spinner line, always two lines so cursor stays fixed
@@ -134,7 +134,7 @@ show_spinner() {
 
     true # ensure exit code 0
     tput cnorm 2>/dev/null || echo -ne "\033[?25h"
-    printf "\r\033[K"
+    printf "\r\033[K\n\r\033[K\033[1A"
 }
 
 run_with_spinner() {
