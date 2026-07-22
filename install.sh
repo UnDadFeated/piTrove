@@ -1621,47 +1621,11 @@ print_success_card() {
     echo -e "${GREEN}║${NC}   • Configuration:   ${CYAN}config/config.toml${NC}                        ${GREEN}║${NC}"
     echo -e "${GREEN}║${NC}   • SQLite Cache:    ${CYAN}cache/cache.db${NC}                            ${GREEN}║${NC}"
     echo -e "${GREEN}║${NC}   • Service Logs:    ${CYAN}logs/piTrove_*.log${NC}                        ${GREEN}║${NC}"
-    
-    # Probe active IP address
-    local IP_ADDR
-    IP_ADDR=$(hostname -I | awk '{print $1}' || echo "127.0.0.1")
-    if [[ -z "$IP_ADDR" ]]; then
-        IP_ADDR="127.0.0.1"
-    fi
-    local url="http://${IP_ADDR}:9000/"
-    local has_qr=false
-    command -v qrencode &>/dev/null && has_qr=true || true
-    local text="   • URL: $url"
-    local pad=$(( 64 - ${#text} ))
-    local spaces=""
-    if [[ $pad -gt 0 ]]; then
-        spaces=$(printf '%*s' "$pad" "")
-    fi
-
     echo -e "${GREEN}║${NC}                                                                ${GREEN}║${NC}"
     echo -e "${GREEN}║${NC}  ${BOLD}${WHITE}Web Remote Dashboard & MQTT HUD URL:${NC}                          ${GREEN}║${NC}"
-    echo -e "${GREEN}║${NC}${BOLD}${CYAN}${text}${NC}${spaces}${GREEN}║${NC}"
+    echo -e "${GREEN}║${NC}   • URL: ${CYAN}$url${NC}                                                       ${GREEN}║${NC}"
     echo -e "${GREEN}║${NC}     Click to view MQTT telemetry, control the screen physically,   ${GREEN}║${NC}"
     echo -e "${GREEN}║${NC}     and trigger motion simulation sweeps remotely.                 ${GREEN}║${NC}"
-    if $has_qr; then
-        local qr_tmp
-        qr_tmp=$(mktemp)
-        qrencode -t UTF8 -s 1 -S 1 "$url" 2>/dev/null > "$qr_tmp" || true
-        if [[ -s "$qr_tmp" ]]; then
-            echo -e "${GREEN}║${NC}  ${BOLD}${WHITE}Scan QR Code to Open Dashboard:${NC}                                 ${GREEN}║${NC}"
-            while IFS= read -r qr_line; do
-                local qr_text="   $qr_line"
-                local qr_pad=$(( 64 - ${#qr_text} ))
-                local qr_spaces=""
-                if [[ $qr_pad -gt 0 ]]; then
-                    qr_spaces=$(printf '%*s' "$qr_pad" "")
-                fi
-                echo -e "${GREEN}║${NC}${DARK_GRAY}${qr_text}${NC}${qr_spaces}${GREEN}║${NC}"
-            done < "$qr_tmp"
-            rm -f "$qr_tmp"
-        fi
-        echo -e "${GREEN}║${NC}                                                                ${GREEN}║${NC}"
-    fi
     echo -e "${GREEN}║${NC}                                                                ${GREEN}║${NC}"
     echo -e "${GREEN}║${NC}  ${BOLD}${WHITE}How to Manage & Control (New CLI Wrapper):${NC}                    ${GREEN}║${NC}"
     echo -e "${GREEN}║${NC}   • ${BOLD}${YELLOW}pitrove config${NC}   Runs the interactive settings wizard.    ${GREEN}║${NC}"
@@ -1671,42 +1635,7 @@ print_success_card() {
     echo -e "${GREEN}║${NC}                                                                ${GREEN}║${NC}"
     echo -e "${GREEN}║${NC}  ${BOLD}${WHITE}Service Status:${NC}                                               ${GREEN}║${NC}"
     echo -e "${GREEN}║${NC}   • Systemd unit is installed (starts on first launch).       ${GREEN}║${NC}"
-    
-    if [[ "$storage_choice" == "2" ]]; then
-        echo -e "${GREEN}║${NC}   • Storage: ${CYAN}Local drive mode enabled.${NC}                        ${GREEN}║${NC}"
-    elif [[ "$USE_NAS" -eq 1 || "$storage_choice" == "3" ]]; then
-        if [[ "$NAS_MOUNT_SUCCESS" -eq 1 ]]; then
-            local storage_text="   • Storage: NAS Share successfully mounted at $SHARE_MOUNT."
-            local storage_pad=$(( 64 - ${#storage_text} ))
-            local storage_spaces=""
-            if [[ $storage_pad -gt 0 ]]; then
-                storage_spaces=$(printf '%*s' "$storage_pad" "")
-            fi
-            echo -e "${GREEN}║${NC}${CYAN}${storage_text}${NC}${storage_spaces}${GREEN}║${NC}"
-        else
-            local warn_text="   • Storage Warning: NAS mount failed."
-            local warn_pad=$(( 64 - ${#warn_text} ))
-            local warn_spaces=""
-            if [[ $warn_pad -gt 0 ]]; then
-                warn_spaces=$(printf '%*s' "$warn_pad" "")
-            fi
-            echo -e "${GREEN}║${NC}${RED}${warn_text}${NC}${warn_spaces}${GREEN}║${NC}"
-            echo -e "${GREEN}║${NC}     Manually add to /etc/fstab and run 'sudo mount -a'         ${GREEN}║${NC}"
-        fi
-    fi
-
-    if [[ "$GOOGLE_PHOTOS_ENABLED" -eq 1 ]]; then
-        echo -e "${GREEN}║${NC}                                                                ${GREEN}║${NC}"
-        echo -e "${GREEN}║${NC}  ${BOLD}${YELLOW}Google Photos Authorization Required:${NC}                         ${GREEN}║${NC}"
-        local gp_text="   • Nav to: http://${IP_ADDR}:9000/google_photos_setup"
-        local gp_pad=$(( 64 - ${#gp_text} ))
-        local gp_spaces=""
-        if [[ $gp_pad -gt 0 ]]; then
-            gp_spaces=$(printf '%*s' "$gp_pad" "")
-        fi
-        echo -e "${GREEN}║${NC}${CYAN}${gp_text}${NC}${gp_spaces}${GREEN}║${NC}"
-        echo -e "${GREEN}║${NC}   • Log in & grant consent to complete authentication.         ${GREEN}║${NC}"
-    fi
+    echo -e "${GREEN}║${NC}                                                                ${GREEN}║${NC}"
     echo -e "${GREEN}╚════════════════════════════════════════════════════════════════╝${NC}"
 }
 
