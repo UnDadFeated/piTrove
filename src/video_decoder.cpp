@@ -16,6 +16,7 @@ extern "C" {
 #include <libavutil/opt.h>
 #include <libavutil/imgutils.h>
 #include <libavutil/time.h>
+#include <fstream>
 
 
 struct VideoLimits {
