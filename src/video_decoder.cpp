@@ -463,8 +463,7 @@ void VideoDecoder::decode_loop() {
             break;
         }
         io_data.start_time = av_gettime_relative();
-        // hot-path debug log omitted
-        pkt_count++;
+        ret = av_read_frame(fmt_ctx, &pkt);
         [[unlikely]]
             if (ret < 0) {
             g_logger.info("VIDEO_DEC: av_read_frame error ret={} (AVERROR_EOF={}, AVERROR(EAGAIN)={})", ret, AVERROR_EOF, AVERROR(EAGAIN));
