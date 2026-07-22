@@ -1,3 +1,11 @@
+## v17.0.7 — Instant Splash Screen, TTY Fix & End-of-Install Clean Exit (July 22, 2026)
+### Core
+- Added instant splash screen render call in main.cpp immediately upon asset load so splash image and telemetry render at startup step 0
+### Installer
+- Added explicit clean exit 0 and terminal sanitization at conclusion of install.sh
+- Fixed stdin TTY reconnection for docker exec in piped installer execution (wget/curl | bash)
+- Verified repository clean state with zero redundant or temporary files
+
 ## v17.0.6 — Code Audit & CMA Memory Auto-Configuration (July 22, 2026)
 ### Installer
 - Configured cma-512 auto-detection in install.sh to automatically allocate 512 MB CMA memory for Pi 5 hardware video decoding
