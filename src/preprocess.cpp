@@ -147,6 +147,8 @@ static void preprocess_loop() {
                         pr->item.height = h;
                         pr->item.duration = dur;
                         pr->success = true;
+                    } else {
+                        pr->item.width = w;
                     }
                 }
                 pr->done.store(true);
