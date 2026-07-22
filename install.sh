@@ -1730,16 +1730,31 @@ if [[ "$next_action" == "1" ]]; then
     systemctl enable piTrove.service &>/dev/null
     systemctl start piTrove.service &>/dev/null || true
 
-    # Wait for container to be ready before offering config wizard
+    # Wait for container to be ready with progress feedback
+    local wait_count=0
+    local max_wait=90
     echo -e "  ${GRAY}Waiting for container to start...${NC}"
-    for wait_i in 1 2 3 4 5; do
-        if docker inspect --format="{{.State.Status}}" piTrove 2>/dev/null | grep -qE "running|healthy"; then
+    while [[ $wait_count -lt $max_wait ]]; do
+        local container_status
+        container_status=$(docker inspect --format="{{.State.Status}}" piTrove 2>/dev/null)
+        if [[ "$container_status" == "running" || "$container_status" == "healthy" ]]; then
             break
         fi
-        echo -ne "  ${GRAY}waiting...${NC}\r"
+
+        # Show progress with elapsed time
+        local elapsed=$(( wait_count ))
+        printf "\r  ${GRAY}▸ %ds elapsed - container starting...${NC}" "$elapsed"
         sleep 1
+        wait_count=$(( wait_count + 1 ))
     done
-    echo -e "  ${GREEN}Container is running.${NC}"
+
+    if [[ $wait_count -lt $max_wait ]]; then
+        echo
+        echo -e "  ${GREEN}Container is running.${NC}"
+    else
+        echo
+        echo -e "  ${YELLOW}Container start timed out, but service is starting in background.${NC}"
+    fi
 
     # ── Launch Config Wizard Prompt ──────────────────────────────────────────
     echo -e "${CYAN}╔════════════════════════════════════════════════════════════════╗${NC}"
@@ -1758,7 +1773,14 @@ if [[ "$next_action" == "1" ]]; then
     if [[ "$launch_config" =~ ^[Yy]$ ]]; then
         echo
         echo -e "  ${GREEN}Launching config wizard...${NC}"
-        docker exec -it piTrove /app/piTrove --config /app/config/config.toml
+        # Find the actual container name (may be random if service restarts)
+        local container_name
+        container_name=$(docker ps --filter "ancestor=pitrove-pitrove" --format "{{.Names}}" | head -1)
+        if [[ -n "$container_name" ]]; then
+            docker exec -it "$container_name" /app/piTrove --config /app/config/config.toml
+        else
+            echo -e "  ${YELLOW}Container not found. Run later with: pitrove config${NC}"
+        fi
     else
         echo
         echo -e "  ${GRAY}Config wizard skipped.${NC}"
