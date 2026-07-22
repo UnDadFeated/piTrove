@@ -127,8 +127,6 @@ bool Config::load(const std::string& path) {
         else if (key == "color" && section == "date_overlay")   this->date_color = val;
         else if (key == "enabled" && section == "touch")        this->touch_enabled = (val == "1" || val == "true");
         else if (key == "enabled" && section == "collage")      this->collage_enabled = (val == "1" || val == "true");
-        else if (key == "cols")              this->collage_cols = safe_stoi(val, this->collage_cols);
-        else if (key == "rows")              this->collage_rows = safe_stoi(val, this->collage_rows);
         else if (key == "transition_delay")  this->transition_delay = std::max(1.0, safe_stod(val, this->transition_delay));
         else if (key == "transition_duration") {
             double d = safe_stod(val, 1.5);
@@ -470,9 +468,7 @@ bool Config::save(const std::string& path) {
     f << "enabled = " << (this->touch_enabled ? "1" : "0") << "\n\n";
 
     f << "[collage]\n";
-    f << "enabled = " << (this->collage_enabled ? "1" : "0") << "\n";
-    f << "cols = " << this->collage_cols << "\n";
-    f << "rows = " << this->collage_rows << "\n\n";
+    f << "enabled = " << (this->collage_enabled ? "1" : "0") << "\n\n";
 
     f << "[log]\n";
     f << "level = \"" << (this->verbose ? "debug" : "info") << "\"\n";

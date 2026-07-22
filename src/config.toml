@@ -147,8 +147,6 @@ enabled = 0
 
 [collage]
 enabled = 0
-cols = 2
-rows = 2
 
 [mqtt]
 enabled = 0

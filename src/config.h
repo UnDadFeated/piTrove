@@ -116,8 +116,6 @@ struct Config {
 
     // [collage]
     bool    collage_enabled{true};
-    int     collage_cols{2};
-    int     collage_rows{2};
 
     // [display] advanced
     bool    auto_display_rotation{false}; // Deprecated/Ignored in Modesetting DRM pipeline
