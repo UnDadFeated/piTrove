@@ -93,21 +93,42 @@ yesno() {
 show_spinner() {
     local pid=$1
     local label="$2"
-    local delay=0.08
+    local log_file="${3:-}"
+    local delay=0.05
     local spin_chars=("⠋" "⠙" "⠹" "⠸" "⠼" "⠴" "⠦" "⠧" "⠇" "⠏")
     local i=0
+    local last_status=""
+    local max_width=68
     
     tput civis 2>/dev/null || echo -ne "\033[?25l"
     
     while kill -0 "$pid" 2>/dev/null; do
         local char="${spin_chars[i]}"
         printf "\r   ${CYAN}[%s]${NC}  %s... " "$char" "$label"
+        
+        # Update status line from log file every few ticks
+        if [[ -n "$log_file" && -f "$log_file" && $((i % 4)) -eq 0 ]]; then
+            local new_status
+            new_status=$(tail -n 1 "$log_file" 2>/dev/null | tr -d '\033' | sed 's/\x1b\[[0-9;]*m//g' | head -c "$max_width" || true)
+            if [[ "$new_status" != "$last_status" && -n "$new_status" ]]; then
+                last_status="$new_status"
+            fi
+        fi
+        
+        if [[ -n "$last_status" ]]; then
+            printf "\r   ${CYAN}[%s]${NC}  %s...                        \n" "$char" "$label"
+            printf "      ${GRAY}▸ %s${NC}" "$last_status"
+        fi
+        
         i=$(( (i + 1) % 10 ))
         sleep $delay
     done
     
     tput cnorm 2>/dev/null || echo -ne "\033[?25h"
     printf "\r                                                                                \r"
+    if [[ -n "$last_status" ]]; then
+        printf "\r                                                                                \r"
+    fi
 }
 
 run_with_spinner() {
@@ -134,7 +155,7 @@ run_with_spinner() {
         "$@" > "$log_file" 2>&1 &
         local pid=$!
         
-        show_spinner "$pid" "$label"
+        show_spinner "$pid" "$label" "$log_file"
         
         wait "$pid"
         local status=$?
@@ -1629,7 +1650,7 @@ print_success_card() {
     if $has_qr; then
         local qr_tmp
         qr_tmp=$(mktemp)
-        qrencode -t ANSIUTF8 "$url" 2>/dev/null > "$qr_tmp"
+        qrencode -t UTF8 "$url" 2>/dev/null > "$qr_tmp"
         if [[ -s "$qr_tmp" ]]; then
             echo -e "${GREEN}║${NC}  ${BOLD}${WHITE}Scan QR Code to Open Dashboard:${NC}                                 ${GREEN}║${NC}"
             while IFS= read -r qr_line; do
