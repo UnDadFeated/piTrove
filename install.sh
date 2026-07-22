@@ -104,7 +104,6 @@ show_spinner() {
     
     while kill -0 "$pid" 2>/dev/null; do
         local char="${spin_chars[i]}"
-        printf "\r   ${CYAN}[%s]${NC}  %s... " "$char" "$label"
         
         # Update status line from log file every few ticks
         if [[ -n "$log_file" && -f "$log_file" && $((i % 4)) -eq 0 ]]; then
@@ -115,20 +114,22 @@ show_spinner() {
             fi
         fi
         
+        # Print spinner + status on two fixed lines
         if [[ -n "$last_status" ]]; then
-            printf "\r   ${CYAN}[%s]${NC}  %s...                        \n" "$char" "$label"
-            printf "      ${GRAY}▸ %s${NC}" "$last_status"
+            printf "\r\033[K   ${CYAN}[%s]${NC}  %s...                        \n\r\033[K      ${GRAY}▸ %s${NC}" "$char" "$label" "$last_status"
+            # Move cursor back up one line so next \r starts at spinner line
+            printf "\033[1A"
+        else
+            printf "\r\033[K   ${CYAN}[%s]${NC}  %s... " "$char" "$label"
         fi
         
         i=$(( (i + 1) % 10 ))
         sleep $delay
     done
     
+    true # ensure exit code 0
     tput cnorm 2>/dev/null || echo -ne "\033[?25h"
-    printf "\r                                                                                \r"
-    if [[ -n "$last_status" ]]; then
-        printf "\r                                                                                \r"
-    fi
+    printf "\r\033[K\n"
 }
 
 run_with_spinner() {
