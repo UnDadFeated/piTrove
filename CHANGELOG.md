@@ -1,3 +1,13 @@
+## v17.1.2 — Hardware Cooling Fan Speed Control (July 28, 2026)
+
+### Added & Improved
+- **Hardware Fan Speed Control (`fan_speed`)**:
+  - Added configurable `fan_speed` setting (0=Auto, 1 to 100%, default **30%**) in `config.toml`, `config.h`, `config.cpp`, `install.sh`, and the Terminal UI (TUI) Hardware menu (`Fan Speed`).
+- **Sysfs PWM Integration & Thermal Safety Override**:
+  - Integrated direct sysfs PWM fan speed control (`/sys/class/hwmon/hwmon*/pwm1`) into `pitrove::thermal`.
+  - Added `- /sys:/sys` volume mapping in `docker-compose.yml` to grant container control of active cooling hardware.
+  - Implemented automatic safety override: if SoC temperature exceeds 75°C, fan speed automatically scales to 100% until the SoC cools down.
+
 ## v17.1.1 — Animated Background FPS Pacing & Thermal Optimization (July 28, 2026)
 
 ### Added & Improved

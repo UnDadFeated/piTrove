@@ -1,5 +1,6 @@
 #include "tui.h"
 #include "config.h"
+#include "thermal.h"
 #include "util.h"
 #include <iostream>
 #include <fstream>
@@ -207,7 +208,8 @@ void config_wizard(const std::string& config_path) {
         {"DRM Card", STR, "Parent GPU modesetting card path (e.g. '/dev/dri/card1' or 'auto')"},
         {"DRM Connector", STR, "Active connected display connector port (e.g. 'HDMI-A-1' or 'auto')"},
         {"Font Path", STR, "Custom path to TTF/OTF font file (or 'auto' for default search)"},
-        {"Audio Device", STR, "Custom audio device identifier for SDL3 video player (or 'auto')"}
+        {"Audio Device", STR, "Custom audio device identifier for SDL3 video player (or 'auto')"},
+        {"Fan Speed", INT, "Cooling fan speed percentage (0=auto, 1-100%, default 30%)"}
     };
     static const CI CI2[] = {
         {"Log Level", ENM, "Console verbosity (debug, info, warn, error)"},
@@ -357,6 +359,7 @@ void config_wizard(const std::string& config_path) {
             case 3: return g_cfg.drm_connector;
             case 4: return g_cfg.font_path;
             case 5: return g_cfg.video_audio_device;
+            case 6: return std::format("{}", g_cfg.fan_speed);
         }
         if (c == 8) switch(i) {
             case 0: return g_cfg.verbose?"debug":"info";
@@ -516,6 +519,7 @@ void config_wizard(const std::string& config_path) {
                 case 3:g_cfg.drm_connector=v;break;
                 case 4:g_cfg.font_path=v;break;
                 case 5:g_cfg.video_audio_device=v;break;
+                case 6:{ try { int val = std::stoi(v); g_cfg.fan_speed=std::clamp(val, 0, 100); pitrove::thermal::set_fan_speed_percent(g_cfg.fan_speed); } catch(...) {} break; }
             }
             else if(c==8) switch(i){
                 case 0:{ if(v=="debug") g_cfg.verbose=true; else g_cfg.verbose=false; }break;

@@ -177,3 +177,5 @@ enabled = 1
 interval_secs = 120
 gateway_ip = "192.168.4.1"
 wifi_interface = "wlan0"
+
+fan_speed = 30

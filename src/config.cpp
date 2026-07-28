@@ -105,6 +105,7 @@ bool Config::load(const std::string& path) {
         else if (key == "sleep_time")        this->sleep_time = val;
 
         else if (key == "wake_time")         this->wake_time = val;
+        else if (key == "fan_speed")          this->fan_speed = std::clamp(safe_stoi(val, this->fan_speed), 0, 100);
         else if (key == "weather_enabled")   this->weather_enabled = (val == "1" || val == "true");
         else if (key == "weather_lat")       this->weather_lat = safe_stof(val, this->weather_lat);
         else if (key == "weather_lon")       this->weather_lon = safe_stof(val, this->weather_lon);
@@ -414,6 +415,7 @@ bool Config::save(const std::string& path) {
     f << "keep_animals = " << (this->keep_animals ? "1" : "0") << "\n";
     f << "sleep_time = " << (this->sleep_time.empty() ? "\"\"" : "\"" + this->sleep_time + "\"") << "\n";
     f << "wake_time = " << (this->wake_time.empty() ? "\"\"" : "\"" + this->wake_time + "\"") << "\n";
+    f << "fan_speed = " << this->fan_speed << "\n";
     f << "filename_font_size = " << this->filename_font_size << "\n";
     f << "count_font_size = " << this->count_font_size << "\n";
     f << "progress_bar_enabled = " << (this->progress_bar_enabled ? "1" : "0") << "\n";

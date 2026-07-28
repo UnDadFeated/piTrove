@@ -63,6 +63,7 @@ services:
       - ./config:/app/config
       - ./logs:/app/logs
       - ./subtitles:/app/subtitles
+      - /sys:/sys
       - ${MEDIA_DIR:-/mnt/nas}:/app/media:ro
 
 volumes:
