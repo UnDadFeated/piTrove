@@ -1325,7 +1325,7 @@ int main(int argc, char** argv) {
     std::strncpy(g_crash_cache_dir_safe, cache_dir.c_str(), sizeof(g_crash_cache_dir_safe) - 1);
     g_crash_cache_dir_safe[sizeof(g_crash_cache_dir_safe) - 1] = '\0';
 
-    g_logger.init(log_dir, LogLevel::DEBUG, keep_count);
+    g_logger.init(log_dir, g_cfg.verbose ? LogLevel::DEBUG : LogLevel::INFO, keep_count);
     g_logger.info("Media dir: {}, Cache dir: {}", media_dir.c_str(), cache_dir.c_str());
 
     // Verify cache directory available space (E403) and writability (E405)
@@ -2060,6 +2060,49 @@ int main(int argc, char** argv) {
 
         g_watchdog_last_time = std::chrono::steady_clock::now();
         pitrove::health::heartbeat_tick();
+
+        
+        // Periodic HDMI sleep/wake schedule check (every 5 seconds)
+        static double sleep_schedule_timer = 0.0;
+        sleep_schedule_timer += dt;
+        if (sleep_schedule_timer >= 5.0) {
+            sleep_schedule_timer = 0.0;
+            std::string s_time, w_time;
+            {
+                std::shared_lock lk(g_config_mtx);
+                s_time = g_cfg.sleep_time;
+                w_time = g_cfg.wake_time;
+            }
+            if (!s_time.empty() && !w_time.empty()) {
+                int s_h = 0, s_m = 0, w_h = 0, w_m = 0;
+                if (sscanf(s_time.c_str(), "%d:%d", &s_h, &s_m) == 2 &&
+                    sscanf(w_time.c_str(), "%d:%d", &w_h, &w_m) == 2) {
+                    std::time_t t_now = std::time(nullptr);
+                    std::tm* tm_local = std::localtime(&t_now);
+                    int now_mins = tm_local->tm_hour * 60 + tm_local->tm_min;
+                    int sleep_mins = s_h * 60 + s_m;
+                    int wake_mins = w_h * 60 + w_m;
+
+                    bool inside_sleep_window = false;
+                    if (sleep_mins > wake_mins) { // e.g. 23:00 to 07:00
+                        inside_sleep_window = (now_mins >= sleep_mins || now_mins < wake_mins);
+                    } else if (sleep_mins < wake_mins) { // e.g. 13:00 to 15:00
+                        inside_sleep_window = (now_mins >= sleep_mins && now_mins < wake_mins);
+                    }
+
+                    static bool scheduled_asleep = false;
+                    if (inside_sleep_window && !scheduled_asleep) {
+                        scheduled_asleep = true;
+                        g_logger.info("SCHEDULE_SLEEP: Sleep time {} reached. Turning off display power.", s_time.c_str());
+                        set_display_power(false);
+                    } else if (!inside_sleep_window && scheduled_asleep) {
+                        scheduled_asleep = false;
+                        g_logger.info("SCHEDULE_WAKE: Wake time {} reached. Turning on display power.", w_time.c_str());
+                        set_display_power(true);
+                    }
+                }
+            }
+        }
 
         // Periodic touch screen check (every 5 seconds)
         static double touch_check_timer = 0.0;
