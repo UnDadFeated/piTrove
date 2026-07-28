@@ -2022,7 +2022,8 @@ int main(int argc, char** argv) {
 
     bool transitioning = false;
     std::string transition_effect;
-    { std::lock_guard lk(g_config_mtx); transition_effect = g_cfg.transition_effect; }
+    { std::lock_guard lk(g_config_mtx); transition_effect = g_cfg.transition_effect;
+                pitrove::thermal::set_fan_speed_percent(g_cfg.fan_speed); }
 
     // --- Start Background Watchman Thread ---
     g_watchman_running.store(true);

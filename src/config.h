@@ -86,6 +86,7 @@ struct Config {
     // [slideshow] advanced
     std::string sleep_time{""};
     std::string wake_time{""};
+    int     fan_speed{30};
 
     // [dashboard]
     bool    weather_enabled{false};

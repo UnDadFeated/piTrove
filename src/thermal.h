@@ -14,6 +14,7 @@ enum class Quality {
 Quality get_quality();
 void monitor_thread(std::atomic<bool>& running);
 int read_cpu_temp_c();
+void set_fan_speed_percent(int percent);
 
 }} // namespace pitrove::thermal
 

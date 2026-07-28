@@ -1328,6 +1328,7 @@ show_people_faces = 1
 keep_animals = 1
 sleep_time = ""
 wake_time = ""
+fan_speed = 30
 
 [date_overlay]
 enabled = 0
