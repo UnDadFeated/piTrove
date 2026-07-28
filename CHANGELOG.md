@@ -1,3 +1,12 @@
+## v17.1.1 — Animated Background FPS Pacing & Thermal Optimization (July 28, 2026)
+
+### Added & Improved
+- **Animated Background FPS Cap (`pattern_fps`)**:
+  - Added configurable `pattern_fps` setting (1 to 30 FPS, default 10 FPS) in `config.toml`, `config.h`, `config.cpp`, `install.sh`, and the Terminal UI (TUI) Display menu (`Pattern Animated FPS`).
+- **Dynamic Frame Pacing & Thermal Optimization**:
+  - Implemented dynamic frame rate pacing in `src/main.cpp`. Caps static slideshow photo and animated background pattern rendering to 10 FPS by default, reducing CPU/GPU rendering overhead by ~83% and lowering SoC thermal stress and cooling fan noise.
+  - Automatically dynamically boosts frame rate to 60 FPS during item transitions (crossfade, wipe, zoom) and video playback to maintain smooth visual animation.
+
 ## v17.1.0 — Minor Release: Codebase Audit & Dead Code Elimination (July 22, 2026)
 
 ### Added & Improved

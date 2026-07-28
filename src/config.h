@@ -133,6 +133,7 @@ struct Config {
        int     pattern_offset{45};
        std::string pattern_style{"random_animated"};
        int     pattern_blend_count{2};
+       int     pattern_fps{10};
       int     blur_radius{14};
      int     glow_depth{43};
      bool    edge_glow_shadow{true};

@@ -2041,6 +2041,7 @@ int main(int argc, char** argv) {
     Uint64 fade_start_time = 0;
 
     while (g_running.load()) {
+        Uint64 frame_start_ticks = SDL_GetTicks();
         if (g_config_changed.load()) {
             g_logger.info("MAIN_LOOP: Dynamic configuration reload triggered!");
             {
@@ -3149,7 +3150,21 @@ int main(int argc, char** argv) {
         }
 
         playlist_lock.unlock(); // Unlock before frame sleep throttling
-        SDL_Delay(16);
+
+        int target_fps = 60;
+        bool is_video_active = g_video_decoder.is_running();
+        if (!is_video_active && !transitioning && !first_photo_fade) {
+            std::shared_lock lk(g_config_mtx);
+            target_fps = std::clamp(g_cfg.pattern_fps, 1, 30);
+        }
+
+        Uint64 frame_elapsed = SDL_GetTicks() - frame_start_ticks;
+        Uint64 target_frame_ms = (Uint64)(1000 / target_fps);
+        if (frame_elapsed < target_frame_ms) {
+            SDL_Delay((Uint32)(target_frame_ms - frame_elapsed));
+        } else {
+            SDL_Delay(1);
+        }
     }
 
     // --- Cleanup ---

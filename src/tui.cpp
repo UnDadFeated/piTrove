@@ -125,7 +125,8 @@ void config_wizard(const std::string& config_path) {
         {"Background Style", ENM, "Background style option (photo, plain, pattern)"},
         {"Pattern Brightness", INT, "Contrast offset for animated pattern style (0 to 150)"},
         {"Pattern Style", ENM, "Design pattern type (combined, grid, waves, dots)"},
-        {"Pattern Blend Count", INT, "Number of design patterns to blend (1 to 3)"}
+        {"Pattern Blend Count", INT, "Number of design patterns to blend (1 to 3)"},
+        {"Pattern Animated FPS", INT, "Frame rate limit for animated background patterns (1 to 30 FPS)"}
     };
     static const CI CC[] = {
         {"Timer Enabled", TGL, "Show remaining photo/video duration overlay"},
@@ -274,6 +275,7 @@ void config_wizard(const std::string& config_path) {
             case 10: return std::format("{}", g_cfg.pattern_offset);
             case 11: return g_cfg.pattern_style;
             case 12: return std::format("{}", g_cfg.pattern_blend_count);
+            case 13: return std::format("{}", g_cfg.pattern_fps);
         }
         
         if (c == 2) switch(i) {
@@ -417,6 +419,7 @@ void config_wizard(const std::string& config_path) {
                 case 10:{ try { int val = std::stoi(v); g_cfg.pattern_offset=std::clamp(val, 0, 150); } catch(...) {} break; }
                 case 11:g_cfg.pattern_style=v;break;
                 case 12:{ try { int val = std::stoi(v); g_cfg.pattern_blend_count=std::clamp(val, 1, 3); } catch(...) {} break; }
+                case 13:{ try { int val = std::stoi(v); g_cfg.pattern_fps=std::clamp(val, 1, 30); } catch(...) {} break; }
             }
             
             else if(c==2) switch(i){
@@ -906,7 +909,7 @@ void config_wizard(const std::string& config_path) {
                             g_cfg.brightness_auto_min = 30; g_cfg.brightness_auto_max = 100;
                             g_cfg.border_mode = "white"; g_cfg.border_width = 25;
                             g_cfg.bg_style = "pattern"; g_cfg.pattern_offset = 75;
-                            g_cfg.pattern_style = "animated_combined"; g_cfg.pattern_blend_count = 2;
+                            g_cfg.pattern_style = "animated_combined"; g_cfg.pattern_blend_count = 2; g_cfg.pattern_fps = 10;
                         } else if (sel == 1) { // Slideshow
                             g_cfg.transition_delay = 10.0f; g_cfg.transition_duration = 0.8f;
                             g_cfg.transition_effect = "dissolve"; g_cfg.ken_burns = true;

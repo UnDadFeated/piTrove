@@ -1274,6 +1274,8 @@ splash_overlay_y = 0.5
 bg_style = "pattern"
 pattern_brightness = 45
 pattern_style = "random_animated"
+pattern_blend_count = 2
+pattern_fps = 10
 
 [slideshow]
 transition_delay = 120.0
