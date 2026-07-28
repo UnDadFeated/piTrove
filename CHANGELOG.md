@@ -1,8 +1,6 @@
-## v17.1.3 — Production Logging Defaults & HDMI Sleep Evaluator (July 28, 2026)
+## v17.1.3 — HDMI Sleep Schedule Evaluator (July 28, 2026)
 
 ### Added & Improved
-- **Production Logging Defaults**:
-  - Changed default startup log level from `DEBUG` to `INFO` for clean public release on Git. `DEBUG` mode can still be toggled dynamically via `level = "debug"` or TUI.
 - **HDMI Display Sleep Schedule Evaluator**:
   - Implemented real-time `sleep_time` and `wake_time` schedule evaluation loop in `src/main.cpp`. Automatically powers off display signal (`set_display_power(false)`) during configured sleep windows (e.g., 23:00 to 07:00) and powers it back on at wake time.
 - **Audit & Settings Verification**:
