@@ -26,6 +26,7 @@ bg_style = "pattern"
 pattern_brightness = 45
 pattern_style = "random_animated"
 pattern_blend_count = 2
+pattern_fps = 10
 blurred_background = 1
 color_matched_matte = 1
 matte_opacity = 0.5
