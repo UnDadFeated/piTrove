@@ -640,38 +640,54 @@ void VideoDecoder::decode_loop() {
                     continue;
                 }
             }
-            // Deferred scaler creation on first frame (actual format now known)
-            AVPixelFormat cur_fmt = (AVPixelFormat)sw_frame->format;
-            if (!sws || cur_fmt != actual_pix_fmt) {
-                if (sws) sws_freeContext(sws);
-                actual_pix_fmt = cur_fmt;
-                int scale_w = sw_frame->width;
-                int scale_h = sw_frame->height;
-                if (scale_w > 1920 && !is_hw) {
-                    float ar = (float)scale_h / (float)scale_w;
-                    scale_w = 1920;
-                    scale_h = (int)(1920.0f * ar);
-                }
-                sws = sws_getContext(sw_frame->width, sw_frame->height,
-                    actual_pix_fmt, dst_w, dst_h, AV_PIX_FMT_RGBA,
-                    SWS_BILINEAR, nullptr, nullptr, nullptr);
-                if (!sws) {
-                    g_logger.error("VIDEO_DEC: Failed to create scaler for fmt={}", (int)actual_pix_fmt);
-                    if (tmp_sw) av_frame_free(&tmp_sw);
-                    break;
-                }
-                g_logger.info("VIDEO_DEC: Created scaler for fmt={} ({}x{} -> {}x{})",
-                    (int)actual_pix_fmt, sw_frame->width, sw_frame->height, dst_w, dst_h);
-            }
-            sws_scale(sws, sw_frame->data, sw_frame->linesize, 0, sw_frame->height,
-                      rgba->data, rgba->linesize);
-            if (tmp_sw) av_frame_free(&tmp_sw);
-
             VideoFrame vf;
-            vf.width = dst_w;
-            vf.height = dst_h;
-            vf.data = new uint8_t[nbytes];
-            memcpy(vf.data, buf, nbytes);
+            vf.format = sw_frame->format;
+            vf.linesize_y = sw_frame->linesize[0];
+            vf.linesize_uv = sw_frame->linesize[1];
+
+            if (sw_frame->format == AV_PIX_FMT_NV12) {
+                vf.width = sw_frame->width;
+                vf.height = sw_frame->height;
+                vf.is_nv12 = true;
+                int size_y = vf.linesize_y * vf.height;
+                int size_uv = vf.linesize_uv * (vf.height / 2);
+                vf.data = new uint8_t[size_y];
+                vf.data_uv = new uint8_t[size_uv];
+                memcpy(vf.data, sw_frame->data[0], size_y);
+                memcpy(vf.data_uv, sw_frame->data[1], size_uv);
+                if (tmp_sw) av_frame_free(&tmp_sw);
+            } else {
+                AVPixelFormat cur_fmt = (AVPixelFormat)sw_frame->format;
+                if (!sws || cur_fmt != actual_pix_fmt) {
+                    if (sws) sws_freeContext(sws);
+                    actual_pix_fmt = cur_fmt;
+                    int scale_w = sw_frame->width;
+                    int scale_h = sw_frame->height;
+                    if (scale_w > 1920 && !is_hw) {
+                        float ar = (float)scale_h / (float)scale_w;
+                        scale_w = 1920;
+                        scale_h = (int)(1920.0f * ar);
+                    }
+                    sws = sws_getContext(sw_frame->width, sw_frame->height,
+                        actual_pix_fmt, dst_w, dst_h, AV_PIX_FMT_RGBA,
+                        SWS_BILINEAR, nullptr, nullptr, nullptr);
+                    if (!sws) {
+                        g_logger.error("VIDEO_DEC: Failed to create scaler for fmt={}", (int)actual_pix_fmt);
+                        if (tmp_sw) av_frame_free(&tmp_sw);
+                        break;
+                    }
+                    g_logger.info("VIDEO_DEC: Created scaler for fmt={} ({}x{} -> {}x{})",
+                        (int)actual_pix_fmt, sw_frame->width, sw_frame->height, dst_w, dst_h);
+                }
+                sws_scale(sws, sw_frame->data, sw_frame->linesize, 0, sw_frame->height,
+                          rgba->data, rgba->linesize);
+                if (tmp_sw) av_frame_free(&tmp_sw);
+
+                vf.width = dst_w;
+                vf.height = dst_h;
+                vf.data = new uint8_t[nbytes];
+                memcpy(vf.data, buf, nbytes);
+            }
             int64_t pts_raw2 = (frame->best_effort_timestamp != AV_NOPTS_VALUE) ? frame->best_effort_timestamp : (frame->pts != AV_NOPTS_VALUE ? frame->pts : frame->pkt_dts);
             if (pts_raw2 != AV_NOPTS_VALUE) {
                 vf.pts = av_q2d(fmt_ctx->streams[video_stream_idx]->time_base) * pts_raw2;
