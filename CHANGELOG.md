@@ -1,3 +1,11 @@
+## v17.2.0 — Zero-Copy GPU Hardware Video Pipeline (August 1, 2026)
+
+### Added & Improved
+- **Zero-Copy NV12 GPU Hardware Texture Pipeline**:
+  - Implemented direct  hardware texture uploading for video decoding streams. Bypasses CPU  RGBA matrix conversion, shifting color space conversion entirely onto VideoCore GPU fragment shaders.
+  - Optimized V4L2 capture buffer recycling: unreferences hardware frames instantly upon plane extraction, preventing kernel DMA queue starvation and completely eliminating 30-second  occurrences on hardware HEVC / H.264 playback.
+  - Maintained automatic fallback to streaming RGBA textures for software-decoded streams and non-NV12 formats.
+
 ## v17.1.3 — HDMI Sleep Schedule Evaluator (July 28, 2026)
 
 ### Added & Improved

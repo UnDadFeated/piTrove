@@ -100,6 +100,7 @@ std::vector<MediaItem> g_eligible;
 int current_idx = 0;
 SDL_Texture* g_video_tex = nullptr;
 int g_video_tex_w = 0, g_video_tex_h = 0;
+SDL_PixelFormat g_video_tex_fmt = SDL_PIXELFORMAT_UNKNOWN;
 static std::jthread g_watchman_thread;
 static std::atomic<bool> g_watchman_running{false};
 static std::atomic<bool> g_watchman_finished{false};
@@ -2248,7 +2249,7 @@ int main(int argc, char** argv) {
                             if ((g_video_decoder.is_running() || g_video_decoder.has_frames()) && g_video_decoder.is_eof()) {
                                 g_logger.info("Right-click during video: stopping decoder to open config menu.");
                                 g_video_decoder.stop();
-                                if (g_video_tex) { SDL_DestroyTexture(g_video_tex); g_video_tex = nullptr; g_video_tex_w = 0; g_video_tex_h = 0; }
+                                if (g_video_tex) { SDL_DestroyTexture(g_video_tex); g_video_tex = nullptr; g_video_tex_w = 0; g_video_tex_h = 0; g_video_tex_fmt = SDL_PIXELFORMAT_UNKNOWN; }
                             }
                             g_overlay->menu_active = !g_overlay->menu_active;
                         }
@@ -2351,7 +2352,7 @@ int main(int argc, char** argv) {
             if ((g_video_decoder.is_running() || g_video_decoder.has_frames()) && g_video_decoder.is_eof()) {
                 g_logger.info("Screen blanked: stopping video decoder.");
                 g_video_decoder.stop();
-                if (g_video_tex) { SDL_DestroyTexture(g_video_tex); g_video_tex = nullptr; g_video_tex_w = 0; g_video_tex_h = 0; }
+                if (g_video_tex) { SDL_DestroyTexture(g_video_tex); g_video_tex = nullptr; g_video_tex_w = 0; g_video_tex_h = 0; g_video_tex_fmt = SDL_PIXELFORMAT_UNKNOWN; }
             }
             g_renderer.clear(0, 0, 0, 255);
             g_renderer.present();
@@ -2411,7 +2412,7 @@ int main(int argc, char** argv) {
             if ((g_video_decoder.is_running() || g_video_decoder.has_frames()) && g_video_decoder.is_eof()) {
                 g_logger.info("Interrupted video playback via skip request: stopping decoder.");
                 g_video_decoder.stop();
-                if (g_video_tex) { SDL_DestroyTexture(g_video_tex); g_video_tex = nullptr; g_video_tex_w = 0; g_video_tex_h = 0; }
+                if (g_video_tex) { SDL_DestroyTexture(g_video_tex); g_video_tex = nullptr; g_video_tex_w = 0; g_video_tex_h = 0; g_video_tex_fmt = SDL_PIXELFORMAT_UNKNOWN; }
             }
             if (was_video) {
                 current_data = nullptr;
@@ -2467,15 +2468,23 @@ int main(int argc, char** argv) {
             if (g_video_decoder.is_running() || g_video_decoder.has_frames()) {
                 VideoFrame frame;
                 if (g_video_decoder.get_frame(frame)) {
-                    if (!g_video_tex || g_video_tex_w != frame.width || g_video_tex_h != frame.height) {
+                    SDL_PixelFormat target_fmt = frame.is_nv12 ? SDL_PIXELFORMAT_NV12 : SDL_PIXELFORMAT_RGBA32;
+                    if (!g_video_tex || g_video_tex_w != frame.width || g_video_tex_h != frame.height || g_video_tex_fmt != target_fmt) {
                         if (g_video_tex) SDL_DestroyTexture(g_video_tex);
-                        g_video_tex = SDL_CreateTexture(g_renderer.sdl_renderer, SDL_PIXELFORMAT_RGBA32,
+                        g_video_tex = SDL_CreateTexture(g_renderer.sdl_renderer, target_fmt,
                             SDL_TEXTUREACCESS_STREAMING, frame.width, frame.height);
                         g_video_tex_w = frame.width;
                         g_video_tex_h = frame.height;
+                        g_video_tex_fmt = target_fmt;
                     }
                     if (g_video_tex) {
-                        SDL_UpdateTexture(g_video_tex, nullptr, frame.data, frame.width * 4);
+                        if (frame.is_nv12) {
+                            SDL_UpdateNVTexture(g_video_tex, nullptr,
+                                frame.data, frame.linesize_y,
+                                frame.data_uv, frame.linesize_uv);
+                        } else {
+                            SDL_UpdateTexture(g_video_tex, nullptr, frame.data, frame.width * 4);
+                        }
                         g_renderer.clear(0, 0, 0, 255);
                         // Scale video to fill screen while maintaining aspect ratio
                         SDL_FRect dst_rect;
@@ -2579,7 +2588,7 @@ int main(int argc, char** argv) {
                         }
                         pitrove::health::heartbeat_tick();
                         g_video_decoder.stop();
-                        if (g_video_tex) { SDL_DestroyTexture(g_video_tex); g_video_tex = nullptr; g_video_tex_w = 0; g_video_tex_h = 0; }
+                        if (g_video_tex) { SDL_DestroyTexture(g_video_tex); g_video_tex = nullptr; g_video_tex_w = 0; g_video_tex_h = 0; g_video_tex_fmt = SDL_PIXELFORMAT_UNKNOWN; }
                         transitioning = true;
                         playlist_lock.unlock();
                         SDL_Delay(10);
@@ -2596,7 +2605,7 @@ int main(int argc, char** argv) {
                 if (!g_video_decoder.has_frames() && (!g_video_decoder.is_running() || g_video_decoder.is_eof())) {
                     g_logger.info("Video decoder finished (EOF), advancing playlist.");
                     g_video_decoder.stop();
-                    if (g_video_tex) { SDL_DestroyTexture(g_video_tex); g_video_tex = nullptr; g_video_tex_w = 0; g_video_tex_h = 0; }
+                    if (g_video_tex) { SDL_DestroyTexture(g_video_tex); g_video_tex = nullptr; g_video_tex_w = 0; g_video_tex_h = 0; g_video_tex_fmt = SDL_PIXELFORMAT_UNKNOWN; }
                     mark_item_shown(g_eligible[current_idx].path, false);
                     transitioning = true;
                     playlist_lock.unlock();
@@ -2663,13 +2672,13 @@ int main(int argc, char** argv) {
         } catch (const std::exception& e) {
             g_logger.error("VIDEO_DEC: Exception in main loop: {}", e.what());
             g_video_decoder.stop();
-            if (g_video_tex) { SDL_DestroyTexture(g_video_tex); g_video_tex = nullptr; g_video_tex_w = 0; g_video_tex_h = 0; }
+            if (g_video_tex) { SDL_DestroyTexture(g_video_tex); g_video_tex = nullptr; g_video_tex_w = 0; g_video_tex_h = 0; g_video_tex_fmt = SDL_PIXELFORMAT_UNKNOWN; }
             playlist_lock.unlock();
             continue;
         } catch (...) {
             g_logger.error("VIDEO_DEC: Unknown exception in main loop");
             g_video_decoder.stop();
-            if (g_video_tex) { SDL_DestroyTexture(g_video_tex); g_video_tex = nullptr; g_video_tex_w = 0; g_video_tex_h = 0; }
+            if (g_video_tex) { SDL_DestroyTexture(g_video_tex); g_video_tex = nullptr; g_video_tex_w = 0; g_video_tex_h = 0; g_video_tex_fmt = SDL_PIXELFORMAT_UNKNOWN; }
             playlist_lock.unlock();
             continue;
         }
@@ -3261,7 +3270,7 @@ int main(int argc, char** argv) {
     }
 
     if (g_video_decoder.is_running()) g_video_decoder.stop();
-    if (g_video_tex) { SDL_DestroyTexture(g_video_tex); g_video_tex = nullptr; g_video_tex_w = 0; g_video_tex_h = 0; }
+    if (g_video_tex) { SDL_DestroyTexture(g_video_tex); g_video_tex = nullptr; g_video_tex_w = 0; g_video_tex_h = 0; g_video_tex_fmt = SDL_PIXELFORMAT_UNKNOWN; }
     if (g_transition) { g_transition->reset(); delete g_transition; }
     if (g_overlay) { g_overlay->cleanup(); delete g_overlay; }
     if (g_preload) {

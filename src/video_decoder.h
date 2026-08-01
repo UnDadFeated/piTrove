@@ -15,25 +15,37 @@ struct VideoFrame {
     int linesize_y = 0;
     int linesize_uv = 0;
     int data_size = 0;       // Total bytes in data buffer
-    uint8_t* data = nullptr;
+    uint8_t* data = nullptr; // Y-plane for NV12 or RGBA buffer
+    uint8_t* data_uv = nullptr; // UV-plane for NV12
+    bool is_nv12 = false;
     double pts = 0.0;
 
     VideoFrame() = default;
-    ~VideoFrame() { delete[] data; }
+    ~VideoFrame() {
+        delete[] data;
+        delete[] data_uv;
+    }
     VideoFrame(const VideoFrame&) = delete;
     VideoFrame& operator=(const VideoFrame&) = delete;
     VideoFrame(VideoFrame&& o) noexcept
         : width(o.width), height(o.height), format(o.format),
           linesize_y(o.linesize_y), linesize_uv(o.linesize_uv),
-          data_size(o.data_size), data(o.data), pts(o.pts) {
+          data_size(o.data_size), data(o.data), data_uv(o.data_uv),
+          is_nv12(o.is_nv12), pts(o.pts) {
         o.data = nullptr;
+        o.data_uv = nullptr;
     }
     VideoFrame& operator=(VideoFrame&& o) noexcept {
-        delete[] data;
-        width = o.width; height = o.height; format = o.format;
-        linesize_y = o.linesize_y; linesize_uv = o.linesize_uv;
-        data_size = o.data_size; data = o.data; pts = o.pts;
-        o.data = nullptr;
+        if (this != &o) {
+            delete[] data;
+            delete[] data_uv;
+            width = o.width; height = o.height; format = o.format;
+            linesize_y = o.linesize_y; linesize_uv = o.linesize_uv;
+            data_size = o.data_size; data = o.data; data_uv = o.data_uv;
+            is_nv12 = o.is_nv12; pts = o.pts;
+            o.data = nullptr;
+            o.data_uv = nullptr;
+        }
         return *this;
     }
 };
