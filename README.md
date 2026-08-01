@@ -74,11 +74,18 @@ sudo ./install.sh --organize /path/to/archive
 
 ### 🛰 Integrations
 
-- **MQTT & Home Assistant**: Auto-discovery, remote controls, motion sensor integration
+- **MQTT & Home Assistant**: Auto-discovery, remote controls, and display wake-up support for popular motion sensors (HC-SR501, AM312, RCWL-0516, ESPHome/Tasmota ESP32 nodes, and Zigbee/Z-Wave sensors via Home Assistant / Zigbee2MQTT)
 - **Google Photos**: Cloud sync with OAuth2 refresh tokens
 - **HTTP Dashboard**: Glassmorphic web control panel with live telemetry
 - **Touchscreen Control**: Native evdev input with floating navigation
 - **Sleep/Wake Scheduling**: Automatic display power management
+
+
+### 📡 Motion Sensor & MQTT Integration
+
+piTrove includes native MQTT subscriber capabilities to automatically wake the display upon motion detection:
+- **Broad Sensor Compatibility**: Hardware-agnostic support for widely used PIR and microwave motion sensors including **HC-SR501**, **AM312**, **RCWL-0516**, ESP32/ESP8266 microcontrollers flashed with **ESPHome** or **Tasmota**, and Zigbee/Z-Wave sensors (via Home Assistant or Zigbee2MQTT).
+- **Home Assistant Auto-Discovery**: Automatically registers entities (`piTrove_screen`, skip/pause buttons, and binary motion sensor status `piTrove_motion`) with payload handling (`ON`, `1`, `true`, `motion`).
 
 ### 🛡 Reliability
 
