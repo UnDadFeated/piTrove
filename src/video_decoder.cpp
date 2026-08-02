@@ -251,6 +251,7 @@ void VideoDecoder::decode_loop() {
 
     AVFormatContext* fmt_ctx = avformat_alloc_context();
     if (!fmt_ctx) { m_running.store(false); return; }
+    fmt_ctx->flags |= AVFMT_FLAG_DISCARD_CORRUPT;
 
     static const int64_t IO_TIMEOUT_US = 30LL * 1000000LL;
     struct IOInterruptData { int64_t start_time; std::atomic<bool>* running; };
@@ -360,6 +361,8 @@ void VideoDecoder::decode_loop() {
     }
     AVCodecContext* vcc = avcodec_alloc_context3(vc);
     avcodec_parameters_to_context(vcc, vp);
+    vcc->err_recognition = AV_EF_IGNORE_ERR;
+    vcc->error_concealment = FF_EC_GUESS_MVS | FF_EC_DEBLOCK;
     if (hw_dev) {
         vcc->hw_device_ctx = av_buffer_ref(hw_dev);
         vcc->get_format = get_hw_format;
@@ -496,8 +499,14 @@ void VideoDecoder::decode_loop() {
         io_data.start_time = av_gettime_relative();
         ret = av_read_frame(fmt_ctx, pkt);
         [[unlikely]]
-            if (ret < 0) {
+        if (ret < 0) {
             g_logger.info("VIDEO_DEC: av_read_frame error ret={} (AVERROR_EOF={}, AVERROR(EAGAIN)={})", ret, AVERROR_EOF, AVERROR(EAGAIN));
+            if (ret != AVERROR_EOF && ret != AVERROR(EAGAIN)) {
+                g_logger.warn("VIDEO_DEC: [E527] av_read_frame error ret={}, bypassing corrupt packet", ret);
+                trigger_error(527);
+                av_packet_unref(pkt);
+                continue;
+            }
         }
         if (ret == AVERROR_EOF) {
             eof = true;
@@ -596,7 +605,9 @@ void VideoDecoder::decode_loop() {
             break;
         }
         [[unlikely]]
-            if (ret < 0) break;
+            if (ret < 0 && ret != AVERROR(EAGAIN)) {
+                if (ret == AVERROR_EOF) break;
+            }
 
         if (pkt->stream_index == video_stream_idx) {
             ret = avcodec_send_packet(vcc, pkt);
@@ -611,14 +622,16 @@ void VideoDecoder::decode_loop() {
             if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF) break;
             [[unlikely]]
             if (ret < 0) {
-                g_logger.warn("VIDEO_DEC: Bad frame ret={}, flushing decoder", ret);
-                avcodec_flush_buffers(vcc);
-                break;
+                g_logger.warn("VIDEO_DEC: [E527] Bad frame ret={}, skipping frame", ret);
+                trigger_error(527);
+                av_frame_unref(frame);
+                continue;
             }
 
             // Skip corrupted noise frames flagged by decoder
             if (frame->decode_error_flags != 0 || (frame->flags & AV_FRAME_FLAG_CORRUPT)) {
-                g_logger.warn("VIDEO_DEC: Skipping corrupt frame flags=0x{} error=0x{}", frame->flags, frame->decode_error_flags);
+                g_logger.warn("VIDEO_DEC: [E527] Skipping corrupt frame flags=0x{} error=0x{}", frame->flags, frame->decode_error_flags);
+                trigger_error(527);
                 av_frame_unref(frame);
                 continue;
             }

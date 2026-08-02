@@ -1203,7 +1203,7 @@ static std::string get_dashboard_html() {
                 <button onclick="toggleTheme()" id="theme-btn" style="background: var(--card-bg); color: var(--text-main); border: 1px solid var(--card-border); border-radius: 8px; padding: 0.25rem 0.5rem; font-size: 0.75rem; cursor: pointer; outline: none; color-scheme:dark;">🌙</button>
             </div>
             <h1>piTrove controller</h1>
-            <div class="subtitle">v17.2.0 glassmorphic system</div>
+            <div class="subtitle">v17.2.1 glassmorphic system</div>
         </header>
 
         <div class="tabs">
@@ -1568,7 +1568,7 @@ static std::string get_dashboard_html() {
 </body>
 </html>
 )HTML";
-    static const std::string placeholder = "v17.2.0 glassmorphic system";
+    static const std::string placeholder = "v17.2.1 glassmorphic system";
     size_t pos = html.find(placeholder);
     if (pos != std::string::npos) {
         html.replace(pos, placeholder.size(), std::string("v") + VERSION + " glassmorphic system");
