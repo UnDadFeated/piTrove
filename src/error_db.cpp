@@ -680,6 +680,12 @@ std::vector<ErrorSeed> get_all_error_seeds() {
             "No action required; software decoding will handle the video."
         },
         {
+            "E527",
+            "VIDEO_CORRUPT_FRAME_BYPASSED",
+            "Corrupted or malformed video packet/frame was detected and bypassed by the decoder.",
+            "Playback will continue automatically to the next valid frame without crashing."
+        },
+        {
             "E601", 
             "DRM_CONNECTOR_MISSING", 
             "The modesetting subsystem failed to discover any connected HDMI display ports.", 

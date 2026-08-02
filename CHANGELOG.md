@@ -1,3 +1,13 @@
+## v17.2.1 — Video Corruption Error Resilience & Frame Bypass (August 2, 2026)
+
+### Added & Improved
+- **FFmpeg Corrupt Video Frame Bypass & Error Resilience**:
+  - Enabled demuxer corrupt packet discard (`AVFMT_FLAG_DISCARD_CORRUPT`) to automatically filter out broken bitstream packets before decoding.
+  - Configured decoder error recognition (`AV_EF_IGNORE_ERR`) and macroblock motion-vector error concealment (`FF_EC_GUESS_MVS | FF_EC_DEBLOCK`) to bypass damaged video frames cleanly without crashing.
+  - Replaced destructive `avcodec_flush_buffers()` on bad frame errors with non-destructive frame skipping to preserve keyframe reference state.
+  - Updated `av_read_frame()` error handler to bypass corrupted stream packets instead of terminating playback.
+  - Added system error code `E527` (`VIDEO_CORRUPT_FRAME_BYPASSED`) for logging and error reporting when bad frames or packets are bypassed.
+
 ## v17.2.0 — Zero-Copy GPU Hardware Video Pipeline (August 1, 2026)
 
 ### Added & Improved
