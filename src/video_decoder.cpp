@@ -253,7 +253,7 @@ void VideoDecoder::decode_loop() {
     if (!fmt_ctx) { m_running.store(false); return; }
     fmt_ctx->flags |= AVFMT_FLAG_DISCARD_CORRUPT;
 
-    static const int64_t IO_TIMEOUT_US = 30LL * 1000000LL;
+    static const int64_t IO_TIMEOUT_US = 5LL * 1000000LL;
     struct IOInterruptData { int64_t start_time; std::atomic<bool>* running; };
     IOInterruptData io_data{av_gettime_relative(), &m_running};
 
@@ -488,8 +488,9 @@ void VideoDecoder::decode_loop() {
     bool eof = false;
     int vf_count = 0, af_count = 0, ret = 0;
     // Stall detection: if no video frame produced within this many ms, abort
-    static constexpr long long STALL_TIMEOUT_US = 30000000; // 30 seconds in microseconds
+    static constexpr long long STALL_TIMEOUT_US = 5000000; // 5 seconds in microseconds
     long long last_frame_ms = av_gettime_relative();
+    int consecutive_demux_fails = 0;
     while (is_running() && !eof) {
         // Stall detection: abort if no frame produced for too long
         if (video_stream_idx >= 0 && (av_gettime_relative() - last_frame_ms) > STALL_TIMEOUT_US) {
@@ -502,6 +503,11 @@ void VideoDecoder::decode_loop() {
         if (ret < 0) {
             g_logger.info("VIDEO_DEC: av_read_frame error ret={} (AVERROR_EOF={}, AVERROR(EAGAIN)={})", ret, AVERROR_EOF, AVERROR(EAGAIN));
             if (ret != AVERROR_EOF && ret != AVERROR(EAGAIN)) {
+                if (++consecutive_demux_fails > 50) {
+                    g_logger.warn("VIDEO_DEC: Packet starvation detected (50 consecutive failed reads), triggering EOF recovery for {}", m_path.c_str());
+                    eof = true;
+                    break;
+                }
                 g_logger.warn("VIDEO_DEC: [E527] av_read_frame error ret={}, bypassing corrupt packet", ret);
                 trigger_error(527);
                 av_packet_unref(pkt);
@@ -637,6 +643,7 @@ void VideoDecoder::decode_loop() {
             }
 
             vf_count++;
+            consecutive_demux_fails = 0;
             last_frame_ms = av_gettime_relative(); // Stall detection
             // Transfer HW frames (DRM_PRIME/V4L2) to CPU-accessible format before scaling
             AVFrame* sw_frame = frame;

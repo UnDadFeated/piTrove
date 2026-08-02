@@ -162,7 +162,7 @@ static void preprocess_loop() {
             if (pr->done.load()) {
                 if (pr->success) {
                     if (g_cache) {
-                        g_cache->upsert(pr->item, 0, 1);
+                        g_cache->upsert(pr->item, 1, 1);
                     }
                 } else {
                     if (g_cache && pr->item.width == -1) {
