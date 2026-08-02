@@ -1,3 +1,13 @@
+## v17.2.2 — 5-Second Video Stall Watchdog & Preprocess Validation (August 2, 2026)
+
+### Added & Improved
+- **5-Second I/O & Decoder Stall Timeouts**:
+  - Tightened demuxer I/O timeout (`IO_TIMEOUT_US`) and decoder stall watchdog (`STALL_TIMEOUT_US`) from 30s to **5s**, turning long freezes into 5-second seamless transitions.
+- **Packet Starvation Guard**:
+  - Added consecutive packet read failure tracking to instantly trigger EOF recovery after 50 failed demux attempts.
+- **Preprocess Video Index Quarantine**:
+  - Configured background preprocessor (`src/preprocess.cpp`) to mark corrupted video files with `bad=1` in SQLite database during indexing, quarantining damaged media before playback.
+
 ## v17.2.1 — Video Corruption Error Resilience & Frame Bypass (August 2, 2026)
 
 ### Added & Improved
