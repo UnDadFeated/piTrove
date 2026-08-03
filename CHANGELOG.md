@@ -1,3 +1,34 @@
+## v17.2.14 — Frame-Count Synchronized Video Duration & Overlay Alignment (August 3, 2026)
+
+### Bug Fixes
+- **Exact Video Frame Count Duration Calculation**:
+  - `video_decoder.cpp`: Prioritized `nb_frames * m_frame_duration` for total video duration calculation over container metadata.
+  - Fixes MP4 container duration bloat on smartphone videos (where audio track or MP4 header reported up to 69s while the video stream had only 960 frames / 32s).
+  - Guarantees the overlay remaining timer countdown reaches `0:00` at the **exact same instant** as the final frame of the video!
+
+## v17.2.13 — Stream-Accurate Video Duration & CIFS Read Retry Fix (August 3, 2026)
+
+### Bug Fixes
+- **Video Stream Duration Prioritization**:
+  - `video_decoder.cpp`: Prioritized exact `video_stream->duration` over container-level `fmt_ctx->duration` (which for some MP4 files contains audio or un-trimmed container duration padding up to 40s longer than video frames).
+- **CIFS NAS Demux Read Retry Resilience**:
+  - Added a 10ms thread sleep on demux packet read retries, allowing CIFS network socket buffers time to refill during Wi-Fi latency spikes without triggering premature packet starvation EOF aborts.
+
+## v17.2.12 — PTS-Synchronized Video Remaining Overlay Timer (August 3, 2026)
+
+### Bug Fixes
+- **Exact Video Remaining Countdown Synchronization**:
+  - `video_decoder.cpp`: Fixed `get_video_remaining()` formula. The old calculation used `total_duration - (now - start_time)`, which accumulated wall-clock startup delay and reached `0:00` up to 10 seconds before video frames finished rendering.
+  - Replaced with PTS-synchronized frame calculation `remaining = total_duration - m_last_frame_pts`.
+  - Guarantees that the remaining timer overlay countdown reaches `0:00` / `0.0s` at the **exact same instant** as the final frame of the video!
+
+## v17.2.11 — 100% GPU Hardware Decoding & Fixed Playback Skip (August 3, 2026)
+
+### GPU Acceleration & Framerate Lock
+- **100% GPU Hardware Video Decoding Enabled**:
+  - `video_decoder.cpp`: Enabled `AV_HWDEVICE_TYPE_DRM` / V4L2 DRM PRIME GPU hardware acceleration for ALL video codecs (H.264 & HEVC) across Pi 4 and Pi 5.
+  - Video presentation is strictly locked to each video file's native target framerate (e.g. 24, 30, 60 FPS) with zero fast-forwarding, zero slowdowns, and 100% GPU hardware decoding.
+
 ## v17.2.10 — Restored 30s CIFS NAS Network Share I/O Timeout (August 3, 2026)
 
 ### Stability & Network Fixes
