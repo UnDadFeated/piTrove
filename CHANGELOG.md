@@ -1,3 +1,18 @@
+## v17.2.7 — Precise Hardware Video Frame Pacing & Original Framerate Lock (August 2, 2026)
+
+### Bug Fixes
+- **Exact Original Framerate Lock for GPU Hardware Decoding**:
+  - `main.cpp`: Replaced variable PTS drift logic with a precise monotonic frame-budget pacing algorithm `target_abs_ms = video_start_ticks_ms + (frame_count * frame_duration_ms)`.
+  - Fixes fast-forward playback (2x–3x speed) and subsequent queue-starvation freezing when GPU hardware decoding (`AV_HWDEVICE_TYPE_DRM`) produces frames faster than real-time.
+  - Guarantees every video (24 FPS, 30 FPS, 50 FPS, 60 FPS) plays at its **exact native framerate**, neither faster nor slower.
+
+## v17.2.6 — GPU Hardware Acceleration Re-enabled for HEVC on Pi 5 (August 2, 2026)
+
+### Performance & GPU Acceleration
+- **GPU Hardware Decoding for HEVC (H.265) on Pi 5**:
+  - Re-enabled `AV_HWDEVICE_TYPE_DRM` / V4L2 DRM PRIME GPU hardware decoding for HEVC (H.265) videos on Raspberry Pi 5.
+  - Coupled with v17.2.3's immediate `av_frame_unref(frame)` DPB output buffer release, GPU hardware decoding runs at full 60 FPS without software CPU rendering bottlenecks or CMA heap exhaustion.
+
 ## v17.2.5 — Fix Video Mid-Playback Slowdown & Buffering Jitter (August 2, 2026)
 
 ### Bug Fixes

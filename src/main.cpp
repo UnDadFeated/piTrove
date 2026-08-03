@@ -2525,59 +2525,35 @@ int main(int argc, char** argv) {
                         }
                         g_renderer.present();
                     }
-                    // Frame pacing: PTS presentation timing with framerate budget fallback
+                    // Precise Video Frame Pacing: Locks GPU/CPU decoding to exact video framerate
                     static std::string pacing_video_path = "";
                     static uint64_t video_start_ticks_ms = 0;
-                    static uint64_t video_frame_target_ns = 0;
+                    static uint64_t video_frame_count = 0;
                     std::string cur_path = g_eligible[current_idx].path;
                     uint64_t now_ticks_ms = SDL_GetTicks();
 
-                    static double video_first_pts = -1.0;
                     if (pacing_video_path != cur_path) {
                         pacing_video_path = cur_path;
                         video_start_ticks_ms = now_ticks_ms;
-                        video_frame_target_ns = now_ticks_ms * 1000ULL;
-                        video_first_pts = -1.0;
+                        video_frame_count = 0;
                     }
 
-                    if (frame.pts >= 0.0) {
-                        if (video_first_pts < 0.0 || (frame.pts - video_first_pts) < 0.0) {
-                            video_first_pts = frame.pts;
-                            video_start_ticks_ms = now_ticks_ms;
-                        }
-                        double rel_pts = frame.pts - video_first_pts;
-                        double elapsed_sec = (double)(now_ticks_ms - video_start_ticks_ms) / 1000.0;
-                        double diff_sec = rel_pts - elapsed_sec;
+                    double frame_dur_s = g_video_decoder.get_frame_duration();
+                    if (frame_dur_s <= 0.0) frame_dur_s = 0.033333; // Default 30fps fallback
 
-                        // Resync PTS clock if drift exceeds 50ms (prevents slowdown / buffering oscillations)
-                        if (diff_sec < -0.05 || diff_sec > 0.05) {
-                            video_first_pts = frame.pts;
-                            video_start_ticks_ms = now_ticks_ms;
-                            diff_sec = 0.0;
-                        }
+                    double target_rel_ms = (double)video_frame_count * (frame_dur_s * 1000.0);
+                    uint64_t target_abs_ms = video_start_ticks_ms + (uint64_t)target_rel_ms;
 
-                        if (diff_sec > 0.002 && diff_sec <= 0.05) {
-                            uint32_t sleep_ms = (uint32_t)(diff_sec * 1000.0);
-                            sleep_ms = std::min(sleep_ms, (uint32_t)16); // Cap max frame sleep to 16ms (60fps tick)
-                            if (sleep_ms > 0) SDL_Delay(sleep_ms);
+                    if (now_ticks_ms < target_abs_ms) {
+                        uint32_t sleep_ms = (uint32_t)(target_abs_ms - now_ticks_ms);
+                        if (sleep_ms > 0 && sleep_ms < 500) {
+                            SDL_Delay(sleep_ms);
                         }
-                    } else {
-                        double cfps = g_eligible[current_idx].framerate;
-                        if (cfps <= 0) cfps = g_video_decoder.get_fps();
-                        if (cfps <= 0) cfps = 25.0;
-                        double frame_dur_ms = 1000.0 / cfps;
-                        uint64_t now_ns = SDL_GetTicks() * 1000ULL;
-                        uint64_t frame_budget_ns = (uint64_t)(frame_dur_ms * 1000.0);
-
-                        if (now_ns > video_frame_target_ns + frame_budget_ns * 2) {
-                            video_frame_target_ns = now_ns;
-                        }
-                        if (now_ns < video_frame_target_ns) {
-                            uint32_t sleep_ms = (uint32_t)((video_frame_target_ns - now_ns) / 1000ULL);
-                            if (sleep_ms > 1 && sleep_ms < 500) SDL_Delay(sleep_ms);
-                        }
-                        video_frame_target_ns += frame_budget_ns;
+                    } else if (now_ticks_ms > target_abs_ms + 200) {
+                        // Clock resync if presentation falls > 200ms behind real-time
+                        video_start_ticks_ms = now_ticks_ms - (uint64_t)target_rel_ms;
                     }
+                    video_frame_count++;
                 } else if (g_video_decoder.is_running() || g_video_decoder.has_frames()) {
                     // Queue empty but decoder still running - wait and retry
                     if (g_video_stall_ts == 0) g_video_stall_ts = SDL_GetTicks();

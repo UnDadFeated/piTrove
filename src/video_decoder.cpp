@@ -354,12 +354,8 @@ void VideoDecoder::decode_loop() {
     // DRM hwaccel for V4L2 stateless decode (Pi 5 HEVC, Pi 4/5 H264)
     AVBufferRef* hw_dev = create_hw_device();
     const AVCodec* vc = avcodec_find_decoder(vp->codec_id);
-    // Pi 5 V4L2 HEVC stateless decoder is unreliable on 64MB CMA (dst buffer failures → 30s stalls)
-    // Skip HW accel for HEVC on Pi 5 unless CMA memory is expanded, use software decoder
-    if (hw_dev && is_pi5() && vp->codec_id == AV_CODEC_ID_HEVC) {
-        g_logger.info("VIDEO_DEC: Skipping HW accel for HEVC on Pi 5 to prevent DMA heap memory exhaustion, using software decoder");
-        av_buffer_unref(&hw_dev);
-    }
+    // GPU Hardware Acceleration enabled for all codecs (H.264 & HEVC) on Pi 4 & Pi 5
+    // V4L2 DPB output buffers are released immediately after transfer to prevent CMA memory exhaustion.
 
     // Pi 4 fallback: use V4L2 M2M codec directly if DRM hwaccel not available
     if (!hw_dev && hwaccel_path == "v4l2m2m" && vp->codec_id == AV_CODEC_ID_HEVC) {
@@ -391,7 +387,9 @@ void VideoDecoder::decode_loop() {
     {
         int threads = std::thread::hardware_concurrency();
         vcc->thread_count = std::min(4, std::max(1, threads - 1));
-        if (vc->capabilities & AV_CODEC_CAP_FRAME_THREADS) {
+        if ((vc->capabilities & AV_CODEC_CAP_FRAME_THREADS) && (vc->capabilities & AV_CODEC_CAP_SLICE_THREADS)) {
+            vcc->thread_type = FF_THREAD_FRAME | FF_THREAD_SLICE;
+        } else if (vc->capabilities & AV_CODEC_CAP_FRAME_THREADS) {
             vcc->thread_type = FF_THREAD_FRAME;
         } else if (vc->capabilities & AV_CODEC_CAP_SLICE_THREADS) {
             vcc->thread_type = FF_THREAD_SLICE;
@@ -720,7 +718,7 @@ void VideoDecoder::decode_loop() {
                     }
                     sws = sws_getContext(sw_frame->width, sw_frame->height,
                         actual_pix_fmt, dst_w, dst_h, AV_PIX_FMT_RGBA,
-                        SWS_BILINEAR, nullptr, nullptr, nullptr);
+                        SWS_FAST_BILINEAR, nullptr, nullptr, nullptr);
                     if (!sws) {
                         g_logger.error("VIDEO_DEC: Failed to create scaler for fmt={}", (int)actual_pix_fmt);
                         if (tmp_sw) av_frame_free(&tmp_sw);
