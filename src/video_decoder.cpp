@@ -203,27 +203,21 @@ double VideoDecoder::get_video_remaining(double fallback_duration) const {
     if (m_eof.load(std::memory_order_relaxed)) return 0.0;
     double total = m_video_total_duration.load(std::memory_order_relaxed);
     if (total <= 0.0) total = fallback_duration;
+
+    double last_pts = m_last_frame_pts.load(std::memory_order_relaxed);
+    if (total > 0.0 && last_pts > 0.0) {
+        return std::max(0.0, total - last_pts);
+    }
+
     double start_t = decode_start_time.load(std::memory_order_relaxed);
     if (start_t <= 0.0) {
-        // start_time not set yet: return total as remaining
         return total;
     }
     double elapsed = (av_gettime_relative() / 1000000.0) - start_t;
     if (total > 0.0) {
         return std::max(0.0, total - elapsed);
     }
-    // Fallback: estimate duration from decoded frames
-    int frames = m_decoded_frames.load(std::memory_order_relaxed);
-    if (frames > 0 && m_frame_duration > 0) {
-        double est_total = frames * m_frame_duration;
-        return std::max(0.0, est_total - elapsed);
-    }
-    // Duration unknown: estimate from elapsed + buffered frames
-    double frame_dur = m_frame_duration;
-    if (frame_dur <= 0.0) frame_dur = 0.04;
-    size_t buffered = 0;
-    { std::lock_guard lk(m_queue_mtx); buffered = m_frame_queue.size(); }
-    return elapsed + buffered * frame_dur;
+    return 0.0;
 }
 
 
@@ -335,14 +329,19 @@ void VideoDecoder::decode_loop() {
         m_frame_duration = 0.033333; // fallback 30fps
         DEBUG_LOG("VIDEO_DEC: Could not detect framerate, using fallback 30fps");
     }
-    // Extract video duration with stream fallback
+    // Extract video duration (prioritize video frame count * frame_duration for exact stream sync)
     m_video_total_duration.store(0.0);
-    if (fmt_ctx->duration > 0 && (int64_t)fmt_ctx->duration != (int64_t)0x8000000000000000LL) {
-        m_video_total_duration.store(fmt_ctx->duration / 1000000.0);
-    }
-    if (m_video_total_duration.load() <= 0.0 && video_stream_idx >= 0 && fmt_ctx->streams[video_stream_idx]->duration > 0 && fmt_ctx->streams[video_stream_idx]->time_base.den > 0) {
-        double dur = fmt_ctx->streams[video_stream_idx]->duration * av_q2d(fmt_ctx->streams[video_stream_idx]->time_base);
+    AVStream* st = (video_stream_idx >= 0) ? fmt_ctx->streams[video_stream_idx] : nullptr;
+    if (st && st->nb_frames > 0 && m_frame_duration > 0.0) {
+        double dur = (double)st->nb_frames * m_frame_duration;
         m_video_total_duration.store(dur);
+    }
+    if (m_video_total_duration.load() <= 0.0 && st && st->duration > 0 && st->time_base.den > 0) {
+        double dur = st->duration * av_q2d(st->time_base);
+        m_video_total_duration.store(dur);
+    }
+    if (m_video_total_duration.load() <= 0.0 && fmt_ctx->duration > 0 && (int64_t)fmt_ctx->duration != (int64_t)0x8000000000000000LL) {
+        m_video_total_duration.store(fmt_ctx->duration / 1000000.0);
     }
 
 
@@ -355,12 +354,7 @@ void VideoDecoder::decode_loop() {
     AVBufferRef* hw_dev = create_hw_device();
     const AVCodec* vc = avcodec_find_decoder(vp->codec_id);
 
-    // Pi 5 kernel V4L2 HEVC stateless driver (/dev/video19) stalls after ~1600 frames due to kernel DPB ring buffer exhaustion.
-    // Skip HW accel for HEVC ONLY on Pi 5 to prevent kernel driver stall, use optimized multi-threaded NEON software decode.
-    if (hw_dev && is_pi5() && vp->codec_id == AV_CODEC_ID_HEVC) {
-        g_logger.info("VIDEO_DEC: Pi 5 HEVC detected — using multi-threaded NEON software decoder to prevent V4L2 kernel driver stall");
-        av_buffer_unref(&hw_dev);
-    }
+    // 100% GPU Hardware Acceleration enabled for all video codecs (H.264 & HEVC) on Pi 4 & Pi 5.
 
     // Pi 4 fallback: use V4L2 M2M codec directly if DRM hwaccel not available
     if (!hw_dev && hwaccel_path == "v4l2m2m" && vp->codec_id == AV_CODEC_ID_HEVC) {
@@ -529,8 +523,9 @@ void VideoDecoder::decode_loop() {
         if (ret < 0) {
             g_logger.info("VIDEO_DEC: av_read_frame error ret={} (AVERROR_EOF={}, AVERROR(EAGAIN)={})", ret, AVERROR_EOF, AVERROR(EAGAIN));
             if (ret != AVERROR_EOF && ret != AVERROR(EAGAIN)) {
-                if (++consecutive_demux_fails > 50) {
-                    g_logger.warn("VIDEO_DEC: Packet starvation detected (50 consecutive failed reads), triggering EOF recovery for {}", m_path.c_str());
+                std::this_thread::sleep_for(std::chrono::milliseconds(10));
+                if (++consecutive_demux_fails > 100) {
+                    g_logger.warn("VIDEO_DEC: Packet starvation detected (100 consecutive failed reads), triggering EOF recovery for {}", m_path.c_str());
                     eof = true;
                     break;
                 }
