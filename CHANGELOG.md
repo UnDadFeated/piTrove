@@ -1,3 +1,10 @@
+## v17.2.5 — Fix Video Mid-Playback Slowdown & Buffering Jitter (August 2, 2026)
+
+### Bug Fixes
+- **Eliminated Mid-Playback Video Slowdown & Buffering**:
+  - `main.cpp`: In `v17.2.3`, restoring valid PTS timestamps exposed an issue in the render loop's PTS pacing logic. The old code allowed `diff_sec` sleep delays of up to 500ms without resyncing, causing compounding sleep delays (stuttering down to 20 FPS) halfway through videos.
+  - Reduced PTS clock drift resync threshold from `±1.0s/5.0s` to a tight `±50ms` (`±0.05s`) window and capped maximum frame sleep to `16ms` (60Hz tick). Video playback now runs smoothly at full native speed without slowdowns.
+
 ## v17.2.4 — Video Startup Seamless Transition & 4K Software Watchdog Fix (August 2, 2026)
 
 ### Bug Fixes
