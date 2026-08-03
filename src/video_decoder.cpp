@@ -709,6 +709,34 @@ void VideoDecoder::decode_loop() {
                 memcpy(vf.data, sw_frame->data[0], size_y);
                 memcpy(vf.data_uv, sw_frame->data[1], size_uv);
                 if (tmp_sw) av_frame_free(&tmp_sw);
+            } else if (sw_frame->format == AV_PIX_FMT_YUV420P) {
+                vf.width = sw_frame->width;
+                vf.height = sw_frame->height;
+                vf.is_nv12 = true;
+                vf.linesize_y = sw_frame->linesize[0];
+                vf.linesize_uv = sw_frame->width;
+                int size_y = vf.linesize_y * vf.height;
+                int size_uv = vf.linesize_uv * (vf.height / 2);
+                vf.data = new uint8_t[size_y];
+                vf.data_uv = new uint8_t[size_uv];
+                memcpy(vf.data, sw_frame->data[0], size_y);
+
+                const uint8_t* u_plane = sw_frame->data[1];
+                const uint8_t* v_plane = sw_frame->data[2];
+                int uv_w = sw_frame->width / 2;
+                int uv_h = sw_frame->height / 2;
+                int u_stride = sw_frame->linesize[1];
+                int v_stride = sw_frame->linesize[2];
+                for (int y = 0; y < uv_h; y++) {
+                    const uint8_t* u_row = u_plane + y * u_stride;
+                    const uint8_t* v_row = v_plane + y * v_stride;
+                    uint8_t* out_row = vf.data_uv + y * vf.linesize_uv;
+                    for (int x = 0; x < uv_w; x++) {
+                        out_row[x * 2] = u_row[x];
+                        out_row[x * 2 + 1] = v_row[x];
+                    }
+                }
+                if (tmp_sw) av_frame_free(&tmp_sw);
             } else {
                 AVPixelFormat cur_fmt = (AVPixelFormat)sw_frame->format;
                 if (!sws || cur_fmt != actual_pix_fmt) {
