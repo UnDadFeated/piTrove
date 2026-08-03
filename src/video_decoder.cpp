@@ -255,7 +255,7 @@ void VideoDecoder::decode_loop() {
     if (!fmt_ctx) { m_running.store(false); return; }
     fmt_ctx->flags |= AVFMT_FLAG_DISCARD_CORRUPT;
 
-    static const int64_t IO_TIMEOUT_US = 5LL * 1000000LL;
+    static const int64_t IO_TIMEOUT_US = 30LL * 1000000LL; // 30s timeout for CIFS NAS network share reads
     struct IOInterruptData { int64_t start_time; std::atomic<bool>* running; };
     IOInterruptData io_data{av_gettime_relative(), &m_running};
 
