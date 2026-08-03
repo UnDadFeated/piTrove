@@ -2459,15 +2459,15 @@ int main(int argc, char** argv) {
             current_idx = 0;
         }
         if (g_eligible[current_idx].type == "video") {
-            if (transitioning) {
-                transitioning = false;
-                if (g_transition) g_transition->reset();
-                if (transition_prev_target) { SDL_DestroyTexture(transition_prev_target); transition_prev_target = nullptr; }
-                if (transition_next_target) { SDL_DestroyTexture(transition_next_target); transition_next_target = nullptr; }
-            }
             if (g_video_decoder.is_running() || g_video_decoder.has_frames()) {
                 VideoFrame frame;
                 if (g_video_decoder.get_frame(frame)) {
+                    if (transitioning) {
+                        transitioning = false;
+                        if (g_transition) g_transition->reset();
+                        if (transition_prev_target) { SDL_DestroyTexture(transition_prev_target); transition_prev_target = nullptr; }
+                        if (transition_next_target) { SDL_DestroyTexture(transition_next_target); transition_next_target = nullptr; }
+                    }
                     SDL_PixelFormat target_fmt = frame.is_nv12 ? SDL_PIXELFORMAT_NV12 : SDL_PIXELFORMAT_RGBA32;
                     if (!g_video_tex || g_video_tex_w != frame.width || g_video_tex_h != frame.height || g_video_tex_fmt != target_fmt) {
                         if (g_video_tex) SDL_DestroyTexture(g_video_tex);
