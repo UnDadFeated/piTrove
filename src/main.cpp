@@ -2549,15 +2549,16 @@ int main(int argc, char** argv) {
                         double elapsed_sec = (double)(now_ticks_ms - video_start_ticks_ms) / 1000.0;
                         double diff_sec = rel_pts - elapsed_sec;
 
-                        // Resync if PTS drifts significantly (e.g. after bad packet skips)
-                        if (diff_sec < -1.0 || diff_sec > 5.0) {
+                        // Resync PTS clock if drift exceeds 50ms (prevents slowdown / buffering oscillations)
+                        if (diff_sec < -0.05 || diff_sec > 0.05) {
                             video_first_pts = frame.pts;
                             video_start_ticks_ms = now_ticks_ms;
                             diff_sec = 0.0;
                         }
 
-                        if (diff_sec > 0.001 && diff_sec < 0.5) {
+                        if (diff_sec > 0.002 && diff_sec <= 0.05) {
                             uint32_t sleep_ms = (uint32_t)(diff_sec * 1000.0);
+                            sleep_ms = std::min(sleep_ms, (uint32_t)16); // Cap max frame sleep to 16ms (60fps tick)
                             if (sleep_ms > 0) SDL_Delay(sleep_ms);
                         }
                     } else {
