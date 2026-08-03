@@ -1,3 +1,11 @@
+## v17.2.8 — Pi 5 HEVC Kernel Driver Stall Fix & Multi-Core Software Optimization (August 3, 2026)
+
+### Stability & Decoding Fixes
+- **Pi 5 HEVC Kernel Driver Stall Resolution**:
+  - Gated V4L2 HEVC hardware decoding on Raspberry Pi 5 to prevent `/dev/video19` kernel driver ring-buffer stalls that occurred after ~1600 frames (60s).
+  - H.264 (AVC) on Pi 5 and both H.264 & HEVC on Pi 4 continue to use 100% GPU Hardware Acceleration (`AV_HWDEVICE_TYPE_DRM`).
+  - HEVC on Pi 5 uses optimized 4-core multi-threaded CPU software decoding with `SWS_FAST_BILINEAR` ARM NEON SIMD scaling, preventing kernel freezes while maintaining smooth video playback.
+
 ## v17.2.7 — Precise Hardware Video Frame Pacing & Original Framerate Lock (August 2, 2026)
 
 ### Bug Fixes
