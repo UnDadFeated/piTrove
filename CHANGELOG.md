@@ -1,3 +1,15 @@
+# Release v17.3.0 — GPU Hardware Shader Pipeline & Stream-Synchronized Video Engine (August 3, 2026)
+
+### Highlights
+- **100% GPU Hardware Shader Texture Pipeline**:
+  - `video_decoder.cpp`: Software-decoded YUV420P frames now automatically stream to `SDL_UpdateNVTexture()` as native **NV12 GPU hardware textures**.
+  - Offloads 100% of color space conversion (YUV -> RGB), scaling, aspect ratio fitting, and presentation directly onto VideoCore GPU hardware fragment shaders.
+- **1:1 Frame-Count Synchronized Overlay Countdown**:
+  - Prioritized `nb_frames * m_frame_duration` for total video duration calculation, resolving MP4 container duration bloat on smartphone videos.
+  - Remaining overlay countdown timer counts down at 1.00s per 1.00s of real time and reaches `0:00` at the exact instant the final video frame renders.
+- **CIFS NAS Network Resilience**:
+  - Restored 30s demuxer I/O timeout and added a 10ms thread sleep on read retries, protecting high-bitrate 4K streaming over Wi-Fi against network jitter.
+
 ## v17.2.14 — Frame-Count Synchronized Video Duration & Overlay Alignment (August 3, 2026)
 
 ### Bug Fixes
