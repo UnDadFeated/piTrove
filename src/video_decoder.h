@@ -51,43 +51,6 @@ struct VideoFrame {
 };
 
 
-static constexpr size_t MAX_QUEUED_FRAMES = 16;
-static constexpr size_t FRAME_POOL_SIZE = 10;
-
-struct FramePool {
-    std::vector<uint8_t*> buffers;
-    std::queue<uint8_t*> free_list;
-    std::mutex pool_mtx;
-    size_t frame_size = 0;
-
-    void init(size_t num_buffers, size_t size) {
-        frame_size = size;
-        for (size_t i = 0; i < num_buffers; i++) {
-            uint8_t* buf = new uint8_t[size];
-            buffers.push_back(buf);
-            free_list.push(buf);
-        }
-    }
-
-    uint8_t* acquire() {
-        std::lock_guard<std::mutex> lk(pool_mtx);
-        if (free_list.empty()) return nullptr;
-        uint8_t* buf = free_list.front();
-        free_list.pop();
-        return buf;
-    }
-
-    void release(uint8_t* buf) {
-        if (!buf) return;
-        std::lock_guard<std::mutex> lk(pool_mtx);
-        free_list.push(buf);
-    }
-
-    ~FramePool() {
-        for (auto* b : buffers) delete[] b;
-    }
-};
-
 class VideoDecoder {
 public:
  VideoDecoder();

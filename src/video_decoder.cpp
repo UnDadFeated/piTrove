@@ -151,7 +151,7 @@ void VideoDecoder::push_audio_samples(std::span<const int16_t> samples) {
     std::lock_guard lk(m_audio_mtx);
     if (!m_audio_initialized || !m_audio_stream) return;
 
-    int bytes = samples.size() * 2 * 2;
+    int bytes = static_cast<int>(samples.size_bytes());
     SDL_PutAudioStreamData(m_audio_stream, samples.data(), bytes);
 
     int volume = 0;
@@ -178,6 +178,8 @@ bool VideoDecoder::start(const std::string& path, int target_width, int target_h
     return true;
 }
 
+// Note: stop() signals the decode thread but does not join it.
+// jthread's move-assignment in start() implicitly joins the old thread.
 void VideoDecoder::stop() {
     g_logger.info("VIDEO_DEC: stop() called, m_running={}", m_running.load());
     m_running.store(false);
@@ -274,6 +276,13 @@ void VideoDecoder::decode_loop() {
 
     if (avformat_find_stream_info(fmt_ctx, nullptr) < 0) {
         g_logger.error("VIDEO_DEC: Failed to find stream info for {}", m_path.c_str());
+        avformat_close_input(&fmt_ctx);
+        m_running.store(false);
+        m_eof.store(true);
+        return;
+    }
+
+    // Video decode budget check (must run AFTER successful stream info extraction)
     VideoLimits limits;
     {
         std::shared_lock lk(g_config_mtx);
@@ -287,11 +296,6 @@ void VideoDecoder::decode_loop() {
         avformat_close_input(&fmt_ctx);
         m_running.store(false);
         m_eof.store(true);
-        avformat_network_deinit();
-        return;
-    }
-        avformat_close_input(&fmt_ctx);
-        m_running.store(false);
         return;
     }
 
@@ -314,7 +318,23 @@ void VideoDecoder::decode_loop() {
 
     DEBUG_LOG("VIDEO_DEC: Video stream={}, Audio stream={}", video_stream_idx, audio_stream_idx);
 
-    // Extract video framerate from stream metadata (prefer avg_framerate, clamp to sane range)    AVRational fr = fmt_ctx->streams[video_stream_idx]->avg_framerate;    if (fr.num == 0) fr = fmt_ctx->streams[video_stream_idx]->r_framerate;    if (fr.num == 0) fr = av_guess_frame_rate(fmt_ctx, fmt_ctx->streams[video_stream_idx], nullptr);    if (fr.num > 0 && fr.den > 0) {        double framerate = av_q2d(fr);        if (framerate > 1.0 && framerate <= 144.0) {            m_frame_duration = 1.0 / framerate;        } else {            // Clamp to 30fps if framerate seems wrong            m_frame_duration = 0.033333;        }        DEBUG_LOG("VIDEO_DEC: Detected framerate={:.2f} via stream avg_framerate, frame_duration={:.3f}s", framerate, m_frame_duration);    } else {        m_frame_duration = 0.033333; // fallback 30fps        DEBUG_LOG("VIDEO_DEC: Could not detect framerate, using fallback 30fps");    }    }
+    // Extract video framerate from stream metadata (prefer avg_framerate, clamp to sane range)
+    AVRational fr = fmt_ctx->streams[video_stream_idx]->avg_frame_rate;
+    if (fr.num == 0) fr = fmt_ctx->streams[video_stream_idx]->r_frame_rate;
+    if (fr.num == 0) fr = av_guess_frame_rate(fmt_ctx, fmt_ctx->streams[video_stream_idx], nullptr);
+    if (fr.num > 0 && fr.den > 0) {
+        double framerate = av_q2d(fr);
+        if (framerate > 1.0 && framerate <= 144.0) {
+            m_frame_duration = 1.0 / framerate;
+        } else {
+            // Clamp to 30fps if framerate seems wrong
+            m_frame_duration = 0.033333;
+        }
+        DEBUG_LOG("VIDEO_DEC: Detected framerate={:.2f} via stream avg_framerate, frame_duration={:.3f}s", framerate, m_frame_duration);
+    } else {
+        m_frame_duration = 0.033333; // fallback 30fps
+        DEBUG_LOG("VIDEO_DEC: Could not detect framerate, using fallback 30fps");
+    }
     // Extract video duration with stream fallback
     m_video_total_duration.store(0.0);
     if (fmt_ctx->duration > 0 && (int64_t)fmt_ctx->duration != (int64_t)0x8000000000000000LL) {
@@ -528,7 +548,7 @@ void VideoDecoder::decode_loop() {
                             uint8_t* outbuf[1] = { (uint8_t*)audio_resample_buf.data() };
                             int os = swr_convert(swr, outbuf, max_s,
                                                  (const uint8_t**)aframe->extended_data, aframe->nb_samples);
-                            if (os > 0) { push_audio_samples({audio_resample_buf.data(), (size_t)os}); af_count += os; }
+                            if (os > 0) { push_audio_samples({audio_resample_buf.data(), (size_t)(os * 2)}); af_count += os; }
                             
                         }
                     }
@@ -643,8 +663,15 @@ void VideoDecoder::decode_loop() {
             }
 
             vf_count++;
+            m_decoded_frames.fetch_add(1, std::memory_order_relaxed);
             consecutive_demux_fails = 0;
             last_frame_ms = av_gettime_relative(); // Stall detection
+
+            // Capture PTS before any av_frame_unref() to prevent use-after-free on HW path
+            int64_t pts_raw = (frame->best_effort_timestamp != AV_NOPTS_VALUE)
+                ? frame->best_effort_timestamp
+                : (frame->pts != AV_NOPTS_VALUE ? frame->pts : frame->pkt_dts);
+
             // Transfer HW frames (DRM_PRIME/V4L2) to CPU-accessible format before scaling
             AVFrame* sw_frame = frame;
             AVFrame* tmp_sw = nullptr;
@@ -708,9 +735,9 @@ void VideoDecoder::decode_loop() {
                 vf.data = new uint8_t[nbytes];
                 memcpy(vf.data, buf, nbytes);
             }
-            int64_t pts_raw2 = (frame->best_effort_timestamp != AV_NOPTS_VALUE) ? frame->best_effort_timestamp : (frame->pts != AV_NOPTS_VALUE ? frame->pts : frame->pkt_dts);
-            if (pts_raw2 != AV_NOPTS_VALUE) {
-                vf.pts = av_q2d(fmt_ctx->streams[video_stream_idx]->time_base) * pts_raw2;
+            // Use pre-captured PTS (saved before av_frame_unref on HW path)
+            if (pts_raw != AV_NOPTS_VALUE) {
+                vf.pts = av_q2d(fmt_ctx->streams[video_stream_idx]->time_base) * pts_raw;
             }
             // Track last decoded frame PTS for accurate countdown timer
             if (vf.pts > 0) m_last_frame_pts.store(vf.pts + m_frame_duration, std::memory_order_relaxed);
@@ -744,7 +771,7 @@ void VideoDecoder::decode_loop() {
                     uint8_t* outbuf[1] = { (uint8_t*)audio_resample_buf.data() };
                     int os = swr_convert(swr, outbuf, max_s,
                                          (const uint8_t**)aframe->extended_data, aframe->nb_samples);
-                    if (os > 0) { push_audio_samples({audio_resample_buf.data(), (size_t)os}); af_count += os; }
+                    if (os > 0) { push_audio_samples({audio_resample_buf.data(), (size_t)(os * 2)}); af_count += os; }
                     
                 }
             }
@@ -771,7 +798,6 @@ void VideoDecoder::decode_loop() {
     if (acc) avcodec_free_context(&acc);
     avcodec_free_context(&vcc);
     avformat_close_input(&fmt_ctx);
-    avformat_network_deinit();
     } catch (...) {}
 
     } catch (const std::exception& e) {
