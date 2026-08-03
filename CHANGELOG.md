@@ -1,3 +1,22 @@
+## v17.2.3 — Video Decoder Audit Fixes (August 2, 2026)
+
+### Bug Fixes
+- **PTS Use-After-Free on Hardware Decode Path**:
+  - Fixed critical bug where `frame->best_effort_timestamp` was read *after* `av_frame_unref(frame)` on DRM/V4L2 hardware decode path. PTS is now captured before the HW frame transfer, restoring proper PTS-based frame pacing for hardware-decoded video.
+- **Video Budget Check Never Executed**:
+  - `video_within_budget()` was accidentally nested inside the `avformat_find_stream_info()` error handler — it only ran when stream info extraction *failed*. Moved to the success path so oversized/long videos are correctly rejected before decode.
+- **Missing Frame Counter Increment**:
+  - `m_decoded_frames` was only incremented during the EOF flush path, not the main decode loop. Time-remaining estimation now works correctly for videos without container duration metadata.
+- **Audio Sample Byte Count Mismatch**:
+  - `push_audio_samples()` calculated bytes as `samples.size() * 2 * 2` which read past the span boundary. Now uses `samples.size_bytes()` with corrected stereo-interleaved span construction (`os * 2`).
+
+### Code Quality
+- Removed duplicate `MAX_QUEUED_FRAMES` definition (file-scope shadowed class member).
+- Removed dead `FramePool` struct and `FRAME_POOL_SIZE` constant (never instantiated).
+- Removed redundant `avformat_network_deinit()` calls — RAII `NetworkDeinitGuard` handles all scope exits.
+- Expanded collapsed single-line framerate detection block (~500 chars) to readable multi-line format.
+- Documented `stop()` non-joining thread lifecycle behavior.
+
 ## v17.2.2 — 5-Second Video Stall Watchdog & Preprocess Validation (August 2, 2026)
 
 ### Added & Improved
