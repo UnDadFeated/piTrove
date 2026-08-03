@@ -1,3 +1,10 @@
+## v17.2.10 — Restored 30s CIFS NAS Network Share I/O Timeout (August 3, 2026)
+
+### Stability & Network Fixes
+- **CIFS NAS Network Share I/O Timeout Restoration**:
+  - `video_decoder.cpp`: Restored demuxer I/O timeout (`IO_TIMEOUT_US`) from 5 seconds to **30 seconds** (`30LL * 1000000LL`).
+  - Prevents premature FFmpeg demuxer interrupt aborts during initial 50MB+ 4K video buffering over Wi-Fi / CIFS network mounts.
+
 ## v17.2.9 — 100% GPU Hardware Shader Texture Pipeline (August 3, 2026)
 
 ### Performance & GPU Acceleration
