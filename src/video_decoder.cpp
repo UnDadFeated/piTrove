@@ -351,11 +351,16 @@ void VideoDecoder::decode_loop() {
 
     // Video codec — probe hardware acceleration (V4L2 M2M) first, fallback to software
     AVCodecParameters* vp = fmt_ctx->streams[video_stream_idx]->codecpar;
-    // DRM hwaccel for V4L2 stateless decode (Pi 5 HEVC, Pi 4/5 H264)
+    // DRM hwaccel for V4L2 stateless decode (Pi 4/5 H264, Pi 4 HEVC)
     AVBufferRef* hw_dev = create_hw_device();
     const AVCodec* vc = avcodec_find_decoder(vp->codec_id);
-    // GPU Hardware Acceleration enabled for all codecs (H.264 & HEVC) on Pi 4 & Pi 5
-    // V4L2 DPB output buffers are released immediately after transfer to prevent CMA memory exhaustion.
+
+    // Pi 5 kernel V4L2 HEVC stateless driver (/dev/video19) stalls after ~1600 frames due to kernel DPB ring buffer exhaustion.
+    // Skip HW accel for HEVC ONLY on Pi 5 to prevent kernel driver stall, use optimized multi-threaded NEON software decode.
+    if (hw_dev && is_pi5() && vp->codec_id == AV_CODEC_ID_HEVC) {
+        g_logger.info("VIDEO_DEC: Pi 5 HEVC detected — using multi-threaded NEON software decoder to prevent V4L2 kernel driver stall");
+        av_buffer_unref(&hw_dev);
+    }
 
     // Pi 4 fallback: use V4L2 M2M codec directly if DRM hwaccel not available
     if (!hw_dev && hwaccel_path == "v4l2m2m" && vp->codec_id == AV_CODEC_ID_HEVC) {
@@ -386,7 +391,7 @@ void VideoDecoder::decode_loop() {
     // Enable multi-threaded decoding based on codec capabilities
     {
         int threads = std::thread::hardware_concurrency();
-        vcc->thread_count = std::min(4, std::max(1, threads - 1));
+        vcc->thread_count = (threads > 1) ? threads : 4;
         if ((vc->capabilities & AV_CODEC_CAP_FRAME_THREADS) && (vc->capabilities & AV_CODEC_CAP_SLICE_THREADS)) {
             vcc->thread_type = FF_THREAD_FRAME | FF_THREAD_SLICE;
         } else if (vc->capabilities & AV_CODEC_CAP_FRAME_THREADS) {
