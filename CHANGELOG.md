@@ -1,3 +1,13 @@
+## v17.2.4 — Video Startup Seamless Transition & 4K Software Watchdog Fix (August 2, 2026)
+
+### Bug Fixes
+- **Watchdog False-Stall Prevention on 4K Software HEVC Videos**:
+  - `video_decoder.cpp`: `last_frame_ms` watchdog timestamp is now refreshed on every successful `av_read_frame()` demux packet read. High-resolution (4K) software-decoded videos no longer false-trigger the 5-second stall timeout during CPU decode processing.
+- **Zero Black Screen Video Startup**:
+  - `main.cpp`: Delayed clearing the slideshow transition state until the video decoder thread delivers its very first rendered `VideoFrame`. Prevents 1-second black screen flickers during initial video buffer load.
+- **ALSA PCM Log Clarification**:
+  - Documented harmless SDL3 ALSA warning in Docker (`Unknown PCM default`) when no physical audio card is attached to the container.
+
 ## v17.2.3 — Video Decoder Audit Fixes (August 2, 2026)
 
 ### Bug Fixes

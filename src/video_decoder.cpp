@@ -519,6 +519,9 @@ void VideoDecoder::decode_loop() {
         }
         io_data.start_time = av_gettime_relative();
         ret = av_read_frame(fmt_ctx, pkt);
+        if (ret >= 0) {
+            last_frame_ms = av_gettime_relative(); // Reset watchdog on active demux progress
+        }
         [[unlikely]]
         if (ret < 0) {
             g_logger.info("VIDEO_DEC: av_read_frame error ret={} (AVERROR_EOF={}, AVERROR(EAGAIN)={})", ret, AVERROR_EOF, AVERROR(EAGAIN));
