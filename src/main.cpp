@@ -3188,10 +3188,17 @@ int main(int argc, char** argv) {
             target_fps = std::clamp(g_cfg.pattern_fps, 1, 60);
         }
 
-        Uint64 frame_elapsed = SDL_GetTicks() - frame_start_ticks;
+        static Uint64 next_target_ticks = 0;
         Uint64 target_frame_ms = (Uint64)(1000 / target_fps);
-        if (frame_elapsed < target_frame_ms) {
-            SDL_Delay((Uint32)(target_frame_ms - frame_elapsed));
+        Uint64 now_ticks = SDL_GetTicks();
+        if (next_target_ticks == 0 || now_ticks > next_target_ticks + 500) {
+            next_target_ticks = now_ticks + target_frame_ms;
+        } else {
+            next_target_ticks += target_frame_ms;
+        }
+
+        if (now_ticks < next_target_ticks) {
+            SDL_Delay((Uint32)(next_target_ticks - now_ticks));
         } else {
             SDL_Delay(1);
         }
