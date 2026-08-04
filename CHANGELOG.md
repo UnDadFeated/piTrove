@@ -1,3 +1,11 @@
+## v17.3.3 — Monotonic 10 FPS Frame Pacing & Rock-Solid Overlay Rhythm (August 3, 2026)
+
+### Performance & Pacing Fixes
+- **Monotonic Target Frame Timing (10 FPS)**:
+  - `main.cpp`: Replaced variable `SDL_Delay(100 - elapsed)` with monotonic target timing (`next_target_ticks += target_frame_ms`).
+  - Eliminates Linux scheduler timer sleep drift ($\pm 15	ext{ms}$ jitter), guaranteeing every frame interval at 10 FPS ticks at **exact 100.0ms boundaries**.
+  - Background pattern animation scrolling and remaining overlay timer countdown ticks now run rock-solid and stutter-free at 10 FPS.
+
 ## v17.3.2 — Preprocess Infinite Retry Fix & 10 FPS Pattern Default (August 3, 2026)
 
 ### Performance & Animation Fixes

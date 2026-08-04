@@ -1203,7 +1203,7 @@ static std::string get_dashboard_html() {
                 <button onclick="toggleTheme()" id="theme-btn" style="background: var(--card-bg); color: var(--text-main); border: 1px solid var(--card-border); border-radius: 8px; padding: 0.25rem 0.5rem; font-size: 0.75rem; cursor: pointer; outline: none; color-scheme:dark;">🌙</button>
             </div>
             <h1>piTrove controller</h1>
-            <div class="subtitle">v17.3.2 glassmorphic system</div>
+            <div class="subtitle">v17.3.3 glassmorphic system</div>
         </header>
 
         <div class="tabs">
