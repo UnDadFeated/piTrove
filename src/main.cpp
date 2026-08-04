@@ -3185,7 +3185,7 @@ int main(int argc, char** argv) {
         bool is_video_active = g_video_decoder.is_running();
         if (!is_video_active && !transitioning && !first_photo_fade) {
             std::shared_lock lk(g_config_mtx);
-            target_fps = std::clamp(g_cfg.pattern_fps, 1, 30);
+            target_fps = std::clamp(g_cfg.pattern_fps, 1, 60);
         }
 
         Uint64 frame_elapsed = SDL_GetTicks() - frame_start_ticks;
