@@ -1,3 +1,23 @@
+## v17.3.2 — Preprocess Infinite Retry Fix & 10 FPS Pattern Default (August 3, 2026)
+
+### Performance & Animation Fixes
+- **Background Preprocessing Infinite Retry Loop Fix**:
+  - `preprocess.cpp`: Fixed `g_cache->upsert()` handling when metadata extraction fails or times out.
+  - Marking `preprocessed = 1` on failure stops background worker thread from endlessly re-fetching failing files and thrashing `ffprobe`/SQLite, resolving main render thread stuttering.
+- **Background Pattern FPS Target**:
+  - Retained 10 FPS default for `pattern_fps` across `config.toml`, `config.h`, `install.sh`, and running Docker container while supporting clamp range 1..60 FPS for user customization.
+
+## v17.3.1 — 60 FPS Background Pattern Animation & Preprocess Retry Fix (August 3, 2026)
+
+### Performance & Animation Fixes
+- **Smooth 60 FPS Background Pattern Animation**:
+  - `config.h`, `config.toml`, `tui.cpp`, `main.cpp`: Updated default `pattern_fps` from 10 FPS to **60 FPS** (clamp range 1..60 FPS).
+  - Eliminates low-framerate motion stuttering, delivering butter-smooth animated background grid, waves, dots, and shape patterns.
+- **Background Preprocessing Infinite Retry Loop Fix**:
+  - `preprocess.cpp`: Fixed `g_cache->upsert()` handling when metadata extraction fails or times out.
+  - Previously, failing files were left with `preprocessed = 0`, causing the background worker thread to re-fetch and re-run `ffprobe`/`stat` calls on the same 20 failing files every second in an infinite loop.
+  - Marking `preprocessed = 1` on failure stops background CPU thrashing and eliminates micro-stuttering on the main render thread.
+
 # Release v17.3.0 — GPU Hardware Shader Pipeline & Stream-Synchronized Video Engine (August 3, 2026)
 
 ### Highlights

@@ -422,7 +422,7 @@ void config_wizard(const std::string& config_path) {
                 case 10:{ try { int val = std::stoi(v); g_cfg.pattern_offset=std::clamp(val, 0, 150); } catch(...) {} break; }
                 case 11:g_cfg.pattern_style=v;break;
                 case 12:{ try { int val = std::stoi(v); g_cfg.pattern_blend_count=std::clamp(val, 1, 3); } catch(...) {} break; }
-                case 13:{ try { int val = std::stoi(v); g_cfg.pattern_fps=std::clamp(val, 1, 30); } catch(...) {} break; }
+                case 13:{ try { int val = std::stoi(v); g_cfg.pattern_fps=std::clamp(val, 1, 60); } catch(...) {} break; }
             }
             
             else if(c==2) switch(i){
