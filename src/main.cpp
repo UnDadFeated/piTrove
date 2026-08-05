@@ -1226,7 +1226,13 @@ int main(int argc, char** argv) {
     signal(SIGABRT, crash_handler);
     // SIGTERM and SIGINT trigger graceful shutdown — let main loop exit and cleanup
     struct sigaction sa_term = {};
-    sa_term.sa_handler = [](int) { g_running.store(false); };
+    sa_term.sa_handler = [](int sig) {
+        const char* sig_name = (sig == SIGTERM) ? "SIGTERM" : (sig == SIGINT ? "SIGINT" : "UNKNOWN");
+        char msg[160];
+        int len = snprintf(msg, sizeof(msg), "\n[TRACE] SHUTDOWN_TRIGGER: Caught OS Signal %d (%s) -> setting g_running=false for graceful main loop exit.\n", sig, sig_name);
+        (void)write(STDERR_FILENO, msg, len);
+        g_running.store(false);
+    };
     sigemptyset(&sa_term.sa_mask);
     sa_term.sa_flags = 0;
     sigaction(SIGTERM, &sa_term, nullptr);
@@ -3205,6 +3211,7 @@ int main(int argc, char** argv) {
     }
 
     // --- Cleanup ---
+    g_logger.info("[TRACE] SHUTDOWN_TRIGGER: Main render loop exited (g_running=false). Initiating cleanup sequence...");
     g_logger.info("Shutting down...");
     
     // Fail-safe: Restore physical display power on exit

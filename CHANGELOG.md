@@ -1,3 +1,12 @@
+## v17.4.1 — Explicit Signal Telemetry & TRACE Logging Diagnostics (August 5, 2026)
+
+### Diagnostics & Signal Telemetry
+- **OS Signal Trace Logging**:
+  - `main.cpp`: Added explicit `SHUTDOWN_TRIGGER` logging directly inside `SIGTERM` / `SIGINT` signal handlers (`write()` async-safe output to `STDERR`).
+  - Logs exact OS signal number and signal name (`SIGTERM`, `SIGINT`) when an external process triggers a shutdown request.
+- **Trace Level Defaults**:
+  - `config.toml`: Updated default log level to `TRACE` on `develop` branch for deep diagnostic visibility during development.
+
 # Release v17.4.0 — C++ Native API Subprocess Safety & ASan Memory Testing (August 4, 2026)
 
 ### Security & Subprocess Architecture
