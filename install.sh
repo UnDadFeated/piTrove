@@ -918,7 +918,7 @@ while true; do
         generate_fstab_line() {
             if [[ "$SHARE_PROTOCOL" == "cifs" ]]; then
                 FSTAB_LINE="# piTrove Network Share
-//$SHARE_IP/${SHARE_PATH#/} $SHARE_MOUNT cifs credentials=$PRIMARY_HOME/nas.cred,ro,uid=1000,gid=1000,vers=3.0,_netdev,nofail,x-systemd.automount,x-systemd.idle-timeout=120,x-systemd.mount-timeout=10,soft,actimeo=2 0 0"
+//$SHARE_IP/${SHARE_PATH#/} $SHARE_MOUNT cifs credentials=$PRIMARY_HOME/nas.cred,ro,uid=1000,gid=1000,vers=3.0,_netdev,nofail,x-systemd.mount-timeout=30,hard,echo_interval=60,actimeo=30 0 0"
             elif [[ "$SHARE_PROTOCOL" == "nfs" ]]; then
                 FSTAB_LINE="# piTrove Network Share
 $SHARE_IP:$SHARE_PATH $SHARE_MOUNT $SHARE_PROTOCOL defaults,_netdev,timeo=10,retrans=3,nofail,x-systemd.automount,x-systemd.mount-timeout=10,soft 0 0"
