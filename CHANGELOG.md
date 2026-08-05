@@ -1,3 +1,12 @@
+# Release v17.4.2 — Permanent Network Share Mount Defaults & Zero-Dismount Stability (August 5, 2026)
+
+### Storage & Mount Architecture
+- **Permanent Non-Idle CIFS / NFS Mount Defaults**:
+  - `install.sh`: Removed `x-systemd.idle-timeout=120` and `x-systemd.automount` from CIFS and NFS mount lines.
+  - Added `hard,echo_interval=60,actimeo=30` mount flags to ensure CIFS network shares maintain continuous SMB TCP keep-alives and never auto-unmount during slideshow idleness.
+- **Trace Debugging Active**:
+  - Set default log level to `TRACE` on the active development Pi container for deep diagnostic visibility.
+
 ## v17.4.1 — Explicit Signal Telemetry & TRACE Logging Diagnostics (August 5, 2026)
 
 ### Diagnostics & Signal Telemetry
