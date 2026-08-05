@@ -1,3 +1,15 @@
+# Release v17.4.0 — C++ Native API Subprocess Safety & ASan Memory Testing (August 4, 2026)
+
+### Security & Subprocess Architecture
+- **Native `libcurl` C API Integration**:
+  - `google_photos.cpp`: Replaced shell sub-process `popen("curl ...")` calls with native `libcurl` `curl_easy_perform()` API requests for OAuth token refreshes and Google Photos synchronization.
+  - Eliminates `/bin/sh` shell process spawning overhead and removes command injection vectors.
+- **Direct Token Vector `execvp` MQTT Publishing**:
+  - `mqtt.cpp`: Replaced `popen("mosquitto_pub ...")` shell strings with direct token vector `execvp` argument passing.
+  - Shell metacharacters are no longer interpreted by `/bin/sh`, securing outbound MQTT publishing telemetry.
+- **AddressSanitizer (ASan) Memory Testing Support**:
+  - `CMakeLists.txt`: Added `-DENABLE_ASAN=ON/OFF` build option for detecting zero-copy memory issues and Use-After-Free bugs during development testing.
+
 ## v17.3.3 — Monotonic 10 FPS Frame Pacing & Rock-Solid Overlay Rhythm (August 3, 2026)
 
 ### Performance & Pacing Fixes

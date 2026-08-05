@@ -1,5 +1,12 @@
 cmake_minimum_required(VERSION 3.16)
-project(piTrove VERSION 17.3.3 LANGUAGES CXX)
+project(piTrove VERSION 17.4.0 LANGUAGES CXX)
+
+option(ENABLE_ASAN "Enable AddressSanitizer for memory safety testing" OFF)
+if(ENABLE_ASAN)
+    message(STATUS "AddressSanitizer (ASan) enabled")
+    add_compile_options(-fsanitize=address -fno-omit-frame-pointer)
+    add_link_options(-fsanitize=address)
+endif()
 
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -31,6 +38,7 @@ find_library(GLES2_LIBRARY NAMES GLESv2 REQUIRED)
 # SQLite3
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(SQLITE3 REQUIRED sqlite3)
+pkg_check_modules(CURL REQUIRED libcurl)
 
 # EXIF
 find_library(EXIF_LIBRARY NAMES exif REQUIRED)
@@ -96,6 +104,7 @@ target_include_directories(piTrove PRIVATE
     ${SWSCALE_INCLUDE_DIRS}
     ${AVUTIL_INCLUDE_DIRS}
     ${SWRESAMPLE_INCLUDE_DIRS}
+    ${CURL_INCLUDE_DIRS}
     /usr/include/drm
 )
 
@@ -114,6 +123,7 @@ target_link_libraries(piTrove PRIVATE
     ${EGL_LIBRARY}
     ${GLES2_LIBRARY}
     ${SQLITE3_LIBRARIES}
+    ${CURL_LIBRARIES}
     ${EXIF_LIBRARY}
     ${STB_LIBRARIES}
     png16

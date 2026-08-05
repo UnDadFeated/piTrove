@@ -26,7 +26,7 @@ static pid_t g_mqtt_pid = -1;
 static int g_mqtt_pipe_fd = -1;
 
 struct MqttPubRequest {
-    std::string cmd;
+    std::vector<std::string> args;
     std::string payload;
 };
 static std::queue<MqttPubRequest> g_pub_queue;
@@ -50,16 +50,38 @@ static void pub_worker_loop() {
                 g_pub_queue.pop();
             }
         }
-        if (!req.cmd.empty()) {
-            FILE* fp = popen(req.cmd.c_str(), "w");
-            if (fp) {
-                size_t written = fwrite(req.payload.data(), 1, req.payload.size(), fp);
-                int status = pclose(fp);
-                if (status != 0) {
-                    g_logger.warn("MQTT Publisher: mosquitto_pub exit code {} ({}/{} bytes written)", status, written, req.payload.size());
+        if (!req.args.empty()) {
+            int pipefds[2];
+            if (pipe(pipefds) == 0) {
+                pid_t pid = fork();
+                if (pid == 0) {
+                    dup2(pipefds[0], STDIN_FILENO);
+                    close(pipefds[0]);
+                    close(pipefds[1]);
+                    int devnull = open("/dev/null", O_WRONLY);
+                    if (devnull >= 0) {
+                        dup2(devnull, STDOUT_FILENO);
+                        dup2(devnull, STDERR_FILENO);
+                        close(devnull);
+                    }
+                    std::vector<char*> c_argv;
+                    for (const auto& a : req.args) c_argv.push_back(const_cast<char*>(a.c_str()));
+                    c_argv.push_back(nullptr);
+                    execvp(c_argv[0], c_argv.data());
+                    _exit(1);
+                } else if (pid > 0) {
+                    close(pipefds[0]);
+                    if (!req.payload.empty()) {
+                        ssize_t written = write(pipefds[1], req.payload.data(), req.payload.size());
+                        (void)written;
+                    }
+                    close(pipefds[1]);
+                    int status = 0;
+                    waitpid(pid, &status, 0);
+                } else {
+                    close(pipefds[0]);
+                    close(pipefds[1]);
                 }
-            } else {
-                g_logger.error("MQTT Publisher: popen failed to start publish helper.");
             }
         }
     }
@@ -93,18 +115,21 @@ void mqtt_publish(const std::string& topic, const std::string& payload, bool ret
     }
     if (!enabled) return;
 
-    std::string cmd = "mosquitto_pub -h '" + escape_shell_arg(broker) + "'" +
-                      " -p " + std::format("{}", port);
+    std::vector<std::string> args = {"mosquitto_pub", "-h", broker, "-p", std::format("{}", port)};
     if (!user.empty()) {
-        cmd += " -u '" + escape_shell_arg(user) + "'";
+        args.push_back("-u");
+        args.push_back(user);
     }
     if (!pass.empty()) {
-        cmd += " -P '" + escape_shell_arg(pass) + "'";
+        args.push_back("-P");
+        args.push_back(pass);
     }
     if (retain) {
-        cmd += " -r";
+        args.push_back("-r");
     }
-    cmd += " -t '" + escape_shell_arg(topic) + "' -s";
+    args.push_back("-t");
+    args.push_back(topic);
+    args.push_back("-s");
 
     ensure_pub_worker_running();
     {
@@ -113,7 +138,7 @@ void mqtt_publish(const std::string& topic, const std::string& payload, bool ret
             g_logger.warn("MQTT: Outbound queue cap reached (50). Dropping publish request for topic '{}'", topic.c_str());
             return;
         }
-        g_pub_queue.push({cmd, payload});
+        g_pub_queue.push({args, payload});
     }
     g_pub_cv.notify_one();
 }

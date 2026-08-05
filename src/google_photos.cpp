@@ -1,3 +1,4 @@
+#include <curl/curl.h>
 #include <thread>
 #include "google_photos.h"
 #include <fcntl.h>
@@ -351,59 +352,94 @@ void GooglePhotosManager::download_media(const std::string &access_token) {
   }
 }
 
-std::string GooglePhotosManager::execute_curl(const std::string &cmd) {
-  std::string timed_cmd = cmd;
-  if (timed_cmd.rfind("curl ", 0) == 0) {
-      timed_cmd.insert(5, "--connect-timeout 10 --max-time 30 ");
-  }
-  FILE* raw_pipe = popen((timed_cmd + " 2>/dev/null").c_str(), "r");
-  if (!raw_pipe) {
-    g_logger.error("GooglePhotos: Failed to popen curl command.");
-    return "";
-  }
-  std::shared_ptr<FILE> pipe(raw_pipe, pclose);
-
-  char buffer[4096];
-  std::string result = "";
-  while (!feof(pipe.get())) {
-    if (fgets(buffer, sizeof(buffer), pipe.get()) != nullptr) {
-      result += buffer;
-    }
-  }
-  return result;
+static size_t curl_write_cb(void* contents, size_t size, size_t nmemb, void* userp) {
+    size_t total_size = size * nmemb;
+    auto* str = static_cast<std::string*>(userp);
+    str->append(static_cast<char*>(contents), total_size);
+    return total_size;
 }
 
-std::string GooglePhotosManager::parse_json_value(const std::string &json,
-                                                  const std::string &key) {
-  size_t key_pos = json.find("\"" + key + "\"");
-  if (key_pos == std::string::npos)
-    return "";
-
-  size_t colon_pos = json.find(":", key_pos);
-  if (colon_pos == std::string::npos)
-    return "";
-
-  size_t quote_start = json.find("\"", colon_pos);
-  if (quote_start == std::string::npos)
-    return "";
-
-  size_t quote_end = std::string::npos;
-  for (size_t i = quote_start + 1; i < json.size(); ++i) {
-    if (json[i] == '"') {
-      size_t bs_count = 0;
-      size_t j = i;
-      while (j > quote_start + 1 && json[j - 1] == '\\') {
-        bs_count++;
-        j--;
-      }
-      if (bs_count % 2 == 0) {
-        quote_end = i;
-        break;
-      }
+std::string GooglePhotosManager::execute_curl(const std::string &cmd) {
+    CURL* curl = curl_easy_init();
+    if (!curl) {
+        g_logger.error("GooglePhotos: Failed to initialize libcurl handle.");
+        return "";
     }
-  }
-  if (quote_end == std::string::npos)
-    return "";
 
-  return json.substr(quote_start + 1, quote_end - quote_start - 1);
+    std::string response_buffer;
+    std::string url;
+    std::string auth_header;
+
+    size_t url_pos = cmd.find("http");
+    if (url_pos != std::string::npos) {
+        size_t end_url = cmd.find_first_of(" \"'", url_pos);
+        url = cmd.substr(url_pos, (end_url == std::string::npos) ? std::string::npos : end_url - url_pos);
+    }
+
+    std::string needle1 = "-H \"Authorization: Bearer ";
+    std::string needle2 = "-H 'Authorization: Bearer ";
+    size_t auth_pos = cmd.find(needle1);
+    if (auth_pos == std::string::npos) auth_pos = cmd.find(needle2);
+    if (auth_pos != std::string::npos) {
+        size_t start_token = auth_pos + 26;
+        size_t end_token = cmd.find_first_of("\"'", start_token);
+        if (end_token != std::string::npos && end_token > start_token) {
+            auth_header = "Authorization: Bearer " + cmd.substr(start_token, end_token - start_token);
+        }
+    }
+
+    curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
+    curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 10L);
+    curl_easy_setopt(curl, CURLOPT_TIMEOUT, 30L);
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, curl_write_cb);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response_buffer);
+    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 1L);
+    curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
+
+    struct curl_slist* headers = nullptr;
+    if (!auth_header.empty()) {
+        headers = curl_slist_append(headers, auth_header.c_str());
+        curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+    }
+
+    CURLcode res = curl_easy_perform(curl);
+    if (res != CURLE_OK) {
+        g_logger.error("GooglePhotos: libcurl perform failed: {}", curl_easy_strerror(res));
+    }
+
+    if (headers) curl_slist_free_all(headers);
+    curl_easy_cleanup(curl);
+
+    return response_buffer;
+}
+
+
+std::string GooglePhotosManager::parse_json_value(const std::string& json, const std::string& key) {
+    std::string key_pattern = std::string("\"") + key + "\"";
+    size_t key_pos = json.find(key_pattern);
+    if (key_pos == std::string::npos) return "";
+
+    size_t colon_pos = json.find(':', key_pos);
+    if (colon_pos == std::string::npos) return "";
+
+    size_t quote_start = json.find('"', colon_pos);
+    if (quote_start == std::string::npos) return "";
+
+    size_t quote_end = std::string::npos;
+    for (size_t i = quote_start + 1; i < json.size(); ++i) {
+        if (json[i] == '"') {
+            size_t bs_count = 0;
+            size_t j = i;
+            while (j > quote_start + 1 && json[j - 1] == '\\') {
+                bs_count++;
+                j--;
+            }
+            if (bs_count % 2 == 0) {
+                quote_end = i;
+                break;
+            }
+        }
+    }
+    if (quote_end == std::string::npos) return "";
+    return json.substr(quote_start + 1, quote_end - quote_start - 1);
 }
