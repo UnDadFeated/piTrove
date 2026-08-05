@@ -43,6 +43,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libavutil-dev \
     libstb-dev \
     libsodium-dev \
+    libcurl4-openssl-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # Set up build directories
@@ -92,6 +93,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
     mosquitto-clients \
     libsodium23 \
+    libcurl4 \
     ca-certificates \
     curl \
     iputils-ping \
