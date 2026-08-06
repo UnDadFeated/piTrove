@@ -1,3 +1,11 @@
+# Release v17.4.3 — Watchdog Transient Ping Flap Protection & Zero False-Positive Reboots (August 5, 2026)
+
+### System Watchdog Architecture
+- **Transient Ping Flap Threshold**:
+  - `pitrove-watchdog.sh`: Fixed false-positive container reboots caused by single 15-second Wi-Fi ping drop glitches (`FAIL_COUNT == 1`).
+  - Requiring a 3-consecutive-failure threshold (`FAIL_COUNT >= 3`, 45+ seconds of sustained offline status) before setting `WAS_OFFLINE=true`.
+  - Prevents momentary Wi-Fi packet drops from triggering aggressive `/mnt/nas` remounts and `piTrove.service` restarts.
+
 # Release v17.4.2 — Permanent Network Share Mount Defaults & Zero-Dismount Stability (August 5, 2026)
 
 ### Storage & Mount Architecture
