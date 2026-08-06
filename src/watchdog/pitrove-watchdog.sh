@@ -132,9 +132,11 @@ refresh_nas_mount() {
         FAIL_COUNT=0
         WIFI_RESET_DONE=false
     else
-        WAS_OFFLINE=true
         FAIL_COUNT=$((FAIL_COUNT + 1))
         log "Network check failed ($FAIL_COUNT/$MAX_FAIL)"
+        if [ "$FAIL_COUNT" -ge 3 ]; then
+            WAS_OFFLINE=true
+        fi
 
         if [ "$FAIL_COUNT" -ge "$MAX_FAIL" ]; then
             if [ "$WIFI_RESET_DONE" = false ]; then
