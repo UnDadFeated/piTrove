@@ -268,6 +268,10 @@ void VideoDecoder::decode_loop() {
         return;
     }
 
+    // Small chunk probing for instant video startup over network SMB/CIFS shares (YouTube style)
+    fmt_ctx->probesize = 500000;              // 500 KB probe chunk instead of default 5 MB
+    fmt_ctx->max_analyze_duration = 1000000; // 1s analyze duration max
+
     if (avformat_find_stream_info(fmt_ctx, nullptr) < 0) {
         g_logger.error("VIDEO_DEC: Failed to find stream info for {}", m_path.c_str());
         avformat_close_input(&fmt_ctx);
@@ -638,11 +642,62 @@ void VideoDecoder::decode_loop() {
 
         if (pkt->stream_index == video_stream_idx) {
             ret = avcodec_send_packet(vcc, pkt);
-            // hot-path debug log omitted
+            if (ret == AVERROR(EAGAIN)) {
+                // GPU Decoder queue full: drain decoded frames first to release HW buffers
+                while (is_running()) {
+                    int r_drain = avcodec_receive_frame(vcc, frame);
+                    if (r_drain == AVERROR(EAGAIN) || r_drain == AVERROR_EOF) break;
+                    if (r_drain < 0) { av_frame_unref(frame); break; }
+                    
+                    vf_count++;
+                    m_decoded_frames.fetch_add(1, std::memory_order_relaxed);
+                    consecutive_demux_fails = 0;
+                    
+                    AVFrame* sw_frame = frame;
+                    AVFrame* tmp_sw = nullptr;
+                    if (frame->format == AV_PIX_FMT_DRM_PRIME || frame->hw_frames_ctx) {
+                        tmp_sw = av_frame_alloc();
+                        if (av_hwframe_transfer_data(tmp_sw, frame, 0) >= 0) {
+                            sw_frame = tmp_sw;
+                            av_frame_unref(frame);
+                        } else {
+                            av_frame_free(&tmp_sw);
+                            av_frame_unref(frame);
+                            continue;
+                        }
+                    }
+                    VideoFrame vf;
+                    vf.format = sw_frame->format;
+                    vf.linesize_y = sw_frame->linesize[0];
+                    vf.linesize_uv = sw_frame->linesize[1];
+                    if (sw_frame->format == AV_PIX_FMT_NV12) {
+                        vf.width = sw_frame->width; vf.height = sw_frame->height; vf.is_nv12 = true;
+                        int size_y = vf.linesize_y * vf.height; int size_uv = vf.linesize_uv * (vf.height / 2);
+                        vf.data = new uint8_t[size_y]; vf.data_uv = new uint8_t[size_uv];
+                        memcpy(vf.data, sw_frame->data[0], size_y); memcpy(vf.data_uv, sw_frame->data[1], size_uv);
+                        if (tmp_sw) av_frame_free(&tmp_sw);
+                    } else {
+                        if (tmp_sw) av_frame_free(&tmp_sw);
+                        av_frame_unref(frame);
+                        continue;
+                    }
+                    int64_t pts_raw2 = (frame->best_effort_timestamp != AV_NOPTS_VALUE) ? frame->best_effort_timestamp : (frame->pts != AV_NOPTS_VALUE ? frame->pts : frame->pkt_dts);
+                    if (pts_raw2 != AV_NOPTS_VALUE) vf.pts = av_q2d(fmt_ctx->streams[video_stream_idx]->time_base) * pts_raw2;
+                    {
+                        std::unique_lock<std::mutex> lk(m_queue_mtx);
+                        m_queue_cv.wait(lk, [this] { return m_frame_queue.size() < MAX_QUEUED_FRAMES || !m_running.load(); });
+                        if (!m_running.load()) break;
+                        m_frame_queue.push(std::move(vf));
+                    }
+                    last_frame_ms = av_gettime_relative();
+                }
+                // Retry sending the packet after GPU buffer space freed up
+                ret = avcodec_send_packet(vcc, pkt);
+            }
             av_packet_unref(pkt);
-            [[unlikely]]
             if (ret < 0) continue;
-            // Drain all frames from decoder after sending packet
+
+            // Drain remaining frames from decoder
             while (true) {
             ret = avcodec_receive_frame(vcc, frame);
             // hot-path debug log omitted

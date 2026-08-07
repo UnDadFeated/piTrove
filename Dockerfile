@@ -44,6 +44,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libstb-dev \
     libsodium-dev \
     libcurl4-openssl-dev \
+    libv4l-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # Set up build directories
@@ -98,6 +99,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     iputils-ping \
     libstb0t64 \
+    libv4l-0t64 \
+    libv4lconvert0t64 \
+    v4l-utils \
     && rm -rf /var/lib/apt/lists/*
 
 # Establish runtime directory tree

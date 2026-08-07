@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# install.sh — piTrove v17.4.6 Premium Graphical Installer
+# install.sh — piTrove v17.4.7 Premium Graphical Installer
 # Target: Debian Trixie (13) 64-bit on Raspberry Pi 4/5
 
 set -eo pipefail
@@ -43,7 +43,7 @@ trap cleanup_terminal EXIT INT TERM
 
 banner() {
     clear 2>/dev/null || true
-    echo -e " ${BOLD}${WHITE}piTrove${NC}  ${CYAN}v17.4.6${NC} ${GRAY}──────────────────────────${NC} ${BOLD}${GREEN}Installer${NC}"
+    echo -e " ${BOLD}${WHITE}piTrove${NC}  ${CYAN}v17.4.7${NC} ${GRAY}──────────────────────────${NC} ${BOLD}${GREEN}Installer${NC}"
     echo -e " ${MAGENTA}The Ultra-Premium Picture Frame${NC}"
     echo
 }
