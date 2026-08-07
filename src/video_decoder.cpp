@@ -386,6 +386,7 @@ void VideoDecoder::decode_loop() {
     if (hw_dev) {
         vcc->hw_device_ctx = av_buffer_ref(hw_dev);
         vcc->get_format = get_hw_format;
+        vcc->extra_hw_frames = 16; // Provide 16 hardware surface frames for complex 4K DPB reference structures
     }
     // Enable multi-threaded decoding based on codec capabilities
     {
