@@ -269,6 +269,7 @@ void VideoDecoder::decode_loop() {
     }
 
     // Small chunk probing for instant video startup over network SMB/CIFS shares (YouTube style)
+    g_logger.info("[TRACE] VIDEO_DEC: Probing stream metadata (probesize=500KB, max_analyze=1s)...");
     fmt_ctx->probesize = 500000;              // 500 KB probe chunk instead of default 5 MB
     fmt_ctx->max_analyze_duration = 1000000; // 1s analyze duration max
 
@@ -626,6 +627,7 @@ void VideoDecoder::decode_loop() {
                             }
                             m_frame_queue.push(std::move(vf));
                         }
+                        g_logger.info("[TRACE] VIDEO_DEC: Pushed frame #{}, queue_size={}", vf_count, m_frame_queue.size());
                         av_frame_unref(frame);
                         if (vf_count % 100 == 0) g_logger.debug("VIDEO_DEC: queue_depth={}", m_frame_queue.size());
                     }
