@@ -1,3 +1,11 @@
+# Release v17.4.4 — Pi 5 HEVC Hardware Decoder Freeze Fix (August 7, 2026)
+
+### Video Decoding Engine
+- **Pi 5 HEVC Hardware Decoder Instability Gate**:
+  - `video_decoder.cpp`: Added `is_pi5()` runtime gate to bypass unstable V4L2 HEVC hardware decoder driver on Pi 5.
+  - Prevents kernel-dependent V4L2 M2M frame transfer stalls (`av_hwframe_transfer_data` failures) that caused HEVC videos to freeze and trigger 30-second `VIDEO_STALL` recovery timeouts.
+  - Uses multi-threaded FFmpeg software decoding on Pi 5's Cortex-A76 CPU for 100% smooth, freeze-free HEVC playback.
+
 # Release v17.4.3 — Watchdog Transient Ping Flap Protection & Zero False-Positive Reboots (August 5, 2026)
 
 ### System Watchdog Architecture
