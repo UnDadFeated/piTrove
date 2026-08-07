@@ -73,7 +73,7 @@ ignore_folders = ["@eaDir", "@Recycle", "Thumbs.db"]
 mmap_size = 67108864
 
 [log]
-level = "warning"
+level = "trace"
 log_keep_count = 5
 
 [overlay]
