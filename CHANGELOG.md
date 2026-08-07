@@ -1,3 +1,10 @@
+# Release v17.4.5 — Reverted to 100% GPU Hardware Video Acceleration (August 7, 2026)
+
+### Video Decoding Engine
+- **Restored 100% GPU Hardware Acceleration**:
+  - `video_decoder.cpp`: Reverted software decode fallback gate for HEVC.
+  - All video codecs (H.264 & HEVC) use GPU Hardware Acceleration (`create_hw_device()`).
+
 # Release v17.4.4 — Pi 5 HEVC Hardware Decoder Freeze Fix (August 7, 2026)
 
 ### Video Decoding Engine

@@ -351,12 +351,7 @@ void VideoDecoder::decode_loop() {
     // Video codec — probe hardware acceleration (V4L2 M2M) first, fallback to software
     AVCodecParameters* vp = fmt_ctx->streams[video_stream_idx]->codecpar;
     // DRM hwaccel for V4L2 stateless decode (Pi 4/5 H264, Pi 4 HEVC)
-    AVBufferRef* hw_dev = nullptr;
-    if (is_pi5() && vp->codec_id == AV_CODEC_ID_HEVC) {
-        g_logger.info("VIDEO_DEC: Pi 5 detected — skipping unstable V4L2 HW accel for HEVC, using software decode.");
-    } else {
-        hw_dev = create_hw_device();
-    }
+    AVBufferRef* hw_dev = create_hw_device();
     const AVCodec* vc = avcodec_find_decoder(vp->codec_id);
 
     // 100% GPU Hardware Acceleration enabled for all video codecs (H.264 & HEVC) on Pi 4 & Pi 5.
