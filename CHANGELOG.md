@@ -1,3 +1,11 @@
+# Release v17.4.9 — Real-Time 1:1 Video Pacing & Fast GPU Stall Recovery (August 7, 2026)
+
+### Video Rendering & Presentation Pacing
+- **Real-Time 1:1 Video Frame Pacing**:
+  - `main.cpp`: Fixed aggressive clock resync logic that was skipping frames and causing 1.5-minute videos to play back at 3x speed in ~20 seconds. Video frame presentation now locks precisely to 1:1 real-time playback speed.
+- **Fast GPU Stall Recovery (3 Seconds)**:
+  - `video_decoder.cpp`: Reduced `STALL_TIMEOUT_US` from 5 seconds / 30 seconds down to 3 seconds. If the Pi 5 V4L2 HEVC hardware decoder kernel driver stalls, recovery initiates smoothly within 3 seconds without locking up the display.
+
 # Release v17.4.8 — Wi-Fi Network Protection & Paced SMB Video I/O Throttling (August 7, 2026)
 
 ### Video Network Streaming & Wi-Fi Protection
