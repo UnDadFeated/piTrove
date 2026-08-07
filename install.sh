@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# install.sh — piTrove v17.4.5 Premium Graphical Installer
+# install.sh — piTrove v17.4.6 Premium Graphical Installer
 # Target: Debian Trixie (13) 64-bit on Raspberry Pi 4/5
 
 set -eo pipefail
@@ -43,7 +43,7 @@ trap cleanup_terminal EXIT INT TERM
 
 banner() {
     clear 2>/dev/null || true
-    echo -e " ${BOLD}${WHITE}piTrove${NC}  ${CYAN}v17.4.5${NC} ${GRAY}──────────────────────────${NC} ${BOLD}${GREEN}Installer${NC}"
+    echo -e " ${BOLD}${WHITE}piTrove${NC}  ${CYAN}v17.4.6${NC} ${GRAY}──────────────────────────${NC} ${BOLD}${GREEN}Installer${NC}"
     echo -e " ${MAGENTA}The Ultra-Premium Picture Frame${NC}"
     echo
 }
@@ -520,8 +520,8 @@ else
 fi
 
 # ── Install comprehensive system packages ──────────────────────────────────────
-run_with_spinner "Installing host system dependencies (cifs-utils, git, iw)" apt-get install -y -qq \
-    git curl cifs-utils iw
+run_with_spinner "Installing host system dependencies (cifs-utils, git, iw, libv4l, v4l-utils)" apt-get install -y -qq \
+    git curl cifs-utils iw libv4l-0t64 libv4lconvert0t64 v4l-utils 2>/dev/null || apt-get install -y -qq git curl cifs-utils iw
 
 # ── DRM and Docker group configuration ─────────────────────────────────────────
 run_with_spinner "Adding $PRIMARY_USER to video, render, and docker groups for hardware & docker permission" usermod -aG video,render,docker "$PRIMARY_USER"
