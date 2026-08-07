@@ -514,6 +514,10 @@ void VideoDecoder::decode_loop() {
     long long last_frame_ms = av_gettime_relative();
     int consecutive_demux_fails = 0;
     while (is_running() && !eof) {
+        // Wi-Fi Protection & Smooth Paced I/O: Yield if frame queue has sufficient buffer
+        if (m_frame_queue.size() >= 8) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
         // Stall detection: abort if no frame produced for too long
         if (video_stream_idx >= 0 && (av_gettime_relative() - last_frame_ms) > STALL_TIMEOUT_US) {
             g_logger.warn("VIDEO_DEC: Decoder stalled for {}s, aborting decode of {}", (av_gettime_relative() - last_frame_ms) / 1000000, m_path.c_str());

@@ -1,3 +1,11 @@
+# Release v17.4.8 — Wi-Fi Network Protection & Paced SMB Video I/O Throttling (August 7, 2026)
+
+### Video Network Streaming & Wi-Fi Protection
+- **Smart Paced SMB I/O Throttling**:
+  - `video_decoder.cpp`: Added backpressure rate-limiting to the demux loop (`if (m_frame_queue.size() >= 8) sleep 10ms`).
+  - Prevents the video decoder thread from unthrottled CIFS packet reads over `/mnt/nas`, eliminating Wi-Fi router saturation, packet congestion, and network choking on shared Wi-Fi networks.
+  - Maintains a smooth 8-frame (~320ms) buffer in RAM for continuous stutter-free 100% GPU hardware accelerated playback while keeping Wi-Fi bandwidth low and steady.
+
 # Release v17.4.7 — Small Chunk YouTube-Style Video Buffering & 2-Pattern 10 FPS Default (August 7, 2026)
 
 ### Video Startup & Buffering Optimization
