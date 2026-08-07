@@ -1,3 +1,12 @@
+# Release v17.5.0 — GPU Hardware Surface Allocation & Continuous HEVC Playback (August 7, 2026)
+
+### Video Hardware Acceleration & Firmware Alignment
+- **GPU Hardware Surface Pool Allocation (`extra_hw_frames = 16`)**:
+  - `video_decoder.cpp`: Configured `vcc->extra_hw_frames = 16` on the GPU hardware device context (`hw_dev`).
+  - Provides 16 dedicated hardware surface frames to the V4L2 DRM stateless decoder on Pi 5, eliminating surface starvation and kernel driver buffer exhaustion during long 4K HEVC video playback.
+- **Pi 5 Firmware & CMA Memory Verification**:
+  - Verified host `/boot/firmware/config.txt` contains `dtoverlay=vc4-kms-v3d,cma-512` for 512MB Continuous Memory Allocation.
+
 # Release v17.4.9 — Real-Time 1:1 Video Pacing & Fast GPU Stall Recovery (August 7, 2026)
 
 ### Video Rendering & Presentation Pacing
