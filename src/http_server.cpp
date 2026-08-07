@@ -1568,7 +1568,7 @@ static std::string get_dashboard_html() {
 </body>
 </html>
 )HTML";
-    static const std::string placeholder = "v17.2.2 glassmorphic system";
+    static const std::string placeholder = "v17.4.3 glassmorphic system";
     size_t pos = html.find(placeholder);
     if (pos != std::string::npos) {
         html.replace(pos, placeholder.size(), std::string("v") + VERSION + " glassmorphic system");
