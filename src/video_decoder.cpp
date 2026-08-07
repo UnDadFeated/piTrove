@@ -510,7 +510,7 @@ void VideoDecoder::decode_loop() {
     bool eof = false;
     int vf_count = 0, af_count = 0, ret = 0;
     // Stall detection: if no video frame produced within this many ms, abort
-    static constexpr long long STALL_TIMEOUT_US = 5000000; // 5 seconds in microseconds
+    static constexpr long long STALL_TIMEOUT_US = 3000000; // 3-second fast recovery for GPU stalls // 5 seconds in microseconds
     long long last_frame_ms = av_gettime_relative();
     int consecutive_demux_fails = 0;
     while (is_running() && !eof) {

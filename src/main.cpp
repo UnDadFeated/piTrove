@@ -2555,8 +2555,8 @@ int main(int argc, char** argv) {
                         if (sleep_ms > 0 && sleep_ms < 500) {
                             SDL_Delay(sleep_ms);
                         }
-                    } else if (now_ticks_ms > target_abs_ms + 200) {
-                        // Clock resync if presentation falls > 200ms behind real-time
+                    } else if (now_ticks_ms > target_abs_ms + 1000) {
+                        // Smooth clock resync only if presentation falls > 1000ms behind
                         video_start_ticks_ms = now_ticks_ms - (uint64_t)target_rel_ms;
                     }
                     video_frame_count++;
