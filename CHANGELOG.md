@@ -1,3 +1,12 @@
+# Release v17.6.4 — 1024-Frame Full Video RAM Buffer & Ultra-Deep Lookahead (August 15, 2026)
+
+### Video Decoding & Buffer Management
+- **1024-Frame Ultra-Deep Lookahead Queue**:
+  - `video_decoder.h`: Expanded `MAX_QUEUED_FRAMES` to **1024 frames** (~34.1 seconds of uncompressed video at 30fps / ~17.1s at 60fps, ~3.18 GB RAM in planar NV12 format).
+  - Enables whole-video RAM residency for most typical home video clips, guaranteeing zero disk or network I/O during playback.
+- **1024-Frame Cold-Start & Background Pre-Warming**:
+  - `main.cpp`: Cold-starts and background pre-warming both fill up to 1024 frames (or natural EOF for shorter clips), maximizing playback stability and eliminating all mid-playback jitter.
+
 # Release v17.6.3 — 128-Frame Lookahead Buffer, Cold-Start Pre-Warm & Double-Delay Elimination (August 15, 2026)
 
 ### Video Decoding & Buffer Management
