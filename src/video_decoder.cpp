@@ -409,6 +409,7 @@ void VideoDecoder::decode_loop() {
 
     if (avformat_open_input(&fmt_ctx, m_path.c_str(), nullptr, nullptr) != 0) {
         g_logger.error("VIDEO_DEC: Failed to open {}", m_path.c_str());
+        trigger_error(532);
         m_start_failed.store(true);
         m_running.store(false);
         m_eof.store(true);
@@ -442,6 +443,7 @@ void VideoDecoder::decode_loop() {
 
     if (avformat_find_stream_info(fmt_ctx, nullptr) < 0) {
         g_logger.error("VIDEO_DEC: Failed to find stream info for {}", m_path.c_str());
+        trigger_error(532);
         m_start_failed.store(true);
         avformat_close_input(&fmt_ctx);
         m_running.store(false);
@@ -567,6 +569,7 @@ void VideoDecoder::decode_loop() {
     if (!vc) {
     av_buffer_unref(&hw_dev);
         g_logger.error("VIDEO_DEC: Unsupported video codec for {}", m_path.c_str());
+        trigger_error(533);
         avformat_close_input(&fmt_ctx);
         m_running.store(false);
         m_eof.store(true);
@@ -1086,6 +1089,7 @@ void VideoDecoder::decode_loop() {
                     av_frame_unref(frame); // Release V4L2 output buffer immediately to prevent DPB overflow
                 } else {
                     g_logger.warn("VIDEO_DEC: av_hwframe_transfer_data failed, skipping frame");
+                    trigger_error(528);
                     av_frame_free(&tmp_sw);
                     av_frame_unref(frame);
                     continue;
