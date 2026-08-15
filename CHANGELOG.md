@@ -1,3 +1,15 @@
+# Release v17.7.1 — Fix Pre-Warm Re-Triggering, Presentation Anchor Sync & Error Box Auto-Dismiss (August 15, 2026)
+
+### Video Decoding & Buffer Management
+- **Pre-Warm State Retention**:
+  - `video_decoder.cpp`, `main.cpp`: Fixed photo lookahead loop to recognize when an upcoming video has completed decoding into RAM (`has_frames() == true`), preventing the photo loop from endlessly re-calling `prewarm()` and wiping out the pre-decoded buffer.
+- **Pre-Warmed Presentation Anchor Synchronization**:
+  - `video_decoder.cpp`: When transitioning from photo to a pre-warmed video, properly reset `m_anchor_set = false` so that the A/V presentation clock anchors precisely to the first visible video frame at screen render time, eliminating high-speed frame dumping.
+
+### Error Overlay & UI
+- **Transient Video Error Auto-Dismissal**:
+  - `main.cpp`: Updated slideshow item presentation to clear transient video error codes (`E500`–`E599`, including `E530`) when an item is shown, ensuring error dialog boxes auto-dismiss rather than persisting across slideshow items.
+
 # Release v17.7.0 — Ultra-Deep 2048-Frame Video Lookahead Buffer & Unified NV12 Hardware Pipeline (August 15, 2026)
 
 ### Video Decoding, Buffering & GPU Streaming
@@ -5,7 +17,8 @@
   - `video_decoder.h`: Expanded `MAX_QUEUED_FRAMES` to **2048 frames** (~68.2 seconds of 30fps video / ~34.1s of 60fps video, ~6.37 GB NV12 RAM envelope).
   - Pre-buffers full video clips directly into RAM, guaranteeing zero disk I/O, zero network latency, and continuous 60.0 fps playback.
 - **Unified NV12 Planar GPU Video Pipeline**:
-  - `video_decoder.cpp`, `main.cpp`: Replaced CPU RGBA conversions with direct NV12 streaming to GPU textures via `SDL_UpdateNVTexture`. Direct ARM NEON bilinear downscaling cuts memory upload bandwidth 4× (12.4 MB $ightarrow$ 3.1 MB/frame).
+  - `video_decoder.cpp`, `main.cpp`: Replaced CPU RGBA conversions with direct NV12 streaming to GPU textures via `SDL_UpdateNVTexture`. Direct ARM NEON bilinear downscaling cuts memory upload bandwidth 4× (12.4 MB $
+ightarrow$ 3.1 MB/frame).
 - **Adaptive Lookahead Buffer Controller (YouTube-Style Rate Regulation)**:
   - `video_decoder.cpp`: Real-time queue-depth controller automatically drops non-reference B-frames (`AVDISCARD_NONREF`) whenever the buffer drops below 300 frames on heavy 4K@60fps streams, accelerating decode throughput to 60+ fps and keeping the buffer permanently ahead of playback.
 - **Multi-Item Background Pre-Warming**:

@@ -260,8 +260,10 @@ bool VideoDecoder::prewarm(const std::string& path, int target_width, int target
 bool VideoDecoder::start(const std::string& path, int target_width, int target_height) {
     {
         std::lock_guard lk(m_path_mtx);
-        if (m_running.load(std::memory_order_relaxed) && m_path == path) {
+        if (m_path == path && (m_running.load(std::memory_order_relaxed) || has_frames())) {
             g_logger.info("VIDEO_DEC: Using pre-warmed video context for: {}", path.c_str());
+            m_anchor_set.store(false, std::memory_order_release);
+            m_v0_set.store(false, std::memory_order_release);
             return true;
         }
     }
