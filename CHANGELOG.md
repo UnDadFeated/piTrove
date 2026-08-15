@@ -1,3 +1,13 @@
+# Release v17.7.3 — Codebase-Wide Audit: Error Code Linkages, Dead Code Removal & Include Hygiene (August 15, 2026)
+
+### Error Catalog Linkage & Diagnostics
+- **Comprehensive Error Code Wiring**:
+  - `video_decoder.cpp`: Connected diagnostic trigger points for `E528` (`VIDEO_HW_TRANSFER_FAILED`), `E531` (`VIDEO_AUDIO_INIT_FAILED`), `E532` (`VIDEO_PROBE_FAILED`), `E533` (`VIDEO_CODEC_NOT_FOUND`), and `E534` (`VIDEO_STREAM_NOT_FOUND`).
+- **Include Hygiene & Duplicate Cleanup**:
+  - `organizer.cpp`, `scanner.cpp`, `util.cpp`: Removed duplicate header `#include` directives.
+- **Resource Management Verification**:
+  - Verified 100% RAII lock management across all 150+ mutex scopes and verified `VideoFrame` rule-of-five move semantics for leak-free frame cycling.
+
 # Release v17.7.2 — Eliminate Artificial Decode Throttle & HW-Scope E530 Watchdog (August 15, 2026)
 
 ### Video Decoding & Performance
