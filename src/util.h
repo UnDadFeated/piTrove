@@ -1,7 +1,7 @@
 #ifndef PITROVE_UTIL_H
 #define PITROVE_UTIL_H
 
-#define VERSION "17.6.10"
+#define VERSION "17.7.0"
 #define APP_NAME "piTrove"
 
 #include <atomic>
