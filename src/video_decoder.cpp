@@ -237,12 +237,46 @@ void VideoDecoder::note_presentation_start(double pts_s) {
     }
 }
 
+std::string VideoDecoder::get_current_path() const {
+    std::lock_guard lk(m_path_mtx);
+    return m_path;
+}
+
+bool VideoDecoder::prewarm(const std::string& path, int target_width, int target_height) {
+    if (path.empty()) return false;
+    {
+        std::lock_guard lk(m_path_mtx);
+        if (m_running.load(std::memory_order_relaxed) && m_path == path) {
+            return true;
+        }
+    }
+    if (m_running.load(std::memory_order_relaxed)) {
+        return false;
+    }
+    g_logger.info("VIDEO_DEC: Pre-warming upcoming video in background: {}", path.c_str());
+    return start(path, target_width, target_height);
+}
+
 bool VideoDecoder::start(const std::string& path, int target_width, int target_height) {
+    {
+        std::lock_guard lk(m_path_mtx);
+        if (m_running.load(std::memory_order_relaxed) && m_path == path) {
+            g_logger.info("VIDEO_DEC: Using pre-warmed video context for: {}", path.c_str());
+            return true;
+        }
+    }
     stop();
-    m_path = path;
+    {
+        std::lock_guard lk(m_path_mtx);
+        m_path = path;
+    }
     m_target_width = target_width;
     m_target_height = target_height;
     m_eof.store(false);
+    m_anchor_set.store(false);
+    m_v0_set.store(false);
+    m_current_displayed_pts.store(0.0);
+    m_pts_valid.store(true);
     m_start_failed.store(false);
     decode_start_time.store(0.0, std::memory_order_relaxed);
     m_running.store(true);
