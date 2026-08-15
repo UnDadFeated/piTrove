@@ -686,6 +686,54 @@ std::vector<ErrorSeed> get_all_error_seeds() {
             "Playback will continue automatically to the next valid frame without crashing."
         },
         {
+            "E528",
+            "VIDEO_HW_TRANSFER_FAILED",
+            "Hardware frame transfer from V4L2/DRM prime buffer to system memory failed.",
+            "Verify kernel V4L2 drivers; system will automatically fall back to software decode."
+        },
+        {
+            "E529",
+            "VIDEO_DECODER_STALL",
+            "Video decoder pipeline stalled with an empty queue for over 30 seconds.",
+            "Decoder recovered automatically and advanced to the next playlist item."
+        },
+        {
+            "E530",
+            "VIDEO_M2M_CRAWL_DETECTED",
+            "Hardware M2M video decoder throughput degraded below 10 fps under starving queue.",
+            "Hardware decode disabled for this session; software decode active."
+        },
+        {
+            "E531",
+            "VIDEO_AUDIO_INIT_FAILED",
+            "SDL3 audio stream initialization for video playback failed.",
+            "Playback will proceed muted; verify ALSA audio device availability."
+        },
+        {
+            "E532",
+            "VIDEO_PROBE_FAILED",
+            "FFmpeg avformat_open_input or avformat_find_stream_info failed to read container metadata.",
+            "Check file permissions and video container integrity on storage."
+        },
+        {
+            "E533",
+            "VIDEO_CODEC_NOT_FOUND",
+            "No suitable video decoder codec was found for the media stream.",
+            "Check if codec is supported by FFmpeg build."
+        },
+        {
+            "E534",
+            "VIDEO_STREAM_NOT_FOUND",
+            "No valid video stream was found inside media container.",
+            "Ensure media file contains a supported video track."
+        },
+        {
+            "E535",
+            "VIDEO_UNSUPPORTED_PIXEL_FORMAT",
+            "Unsupported video pixel format encountered during decode.",
+            "Ensure video pixel format is supported (e.g. YUV420P, NV12)."
+        },
+        {
             "E601", 
             "DRM_CONNECTOR_MISSING", 
             "The modesetting subsystem failed to discover any connected HDMI display ports.", 

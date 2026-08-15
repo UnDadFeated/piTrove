@@ -2635,6 +2635,7 @@ int main(int argc, char** argv) {
                     if (g_video_stall_ts == 0) g_video_stall_ts = SDL_GetTicks();
                     else if (SDL_GetTicks() - g_video_stall_ts > 30000) {
                         g_logger.error("[VIDEO_STALL] Decoder stuck 30s, forcing recovery");
+                        trigger_error(529);
                         if (g_event_log) {
                             fprintf(g_event_log, "VIDEO_STALL: item=%d\n", current_idx);
                             fflush(g_event_log);

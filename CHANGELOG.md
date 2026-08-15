@@ -1,3 +1,11 @@
+# Release v17.6.10 — Error Catalog Expansion (E528–E535) & Comprehensive [TRACE] Logging (August 15, 2026)
+
+### System Error Catalog & Diagnostics
+- **E528–E535 Diagnostic Error Codes**:
+  - `error_db.cpp`: Added comprehensive diagnostic entries for video pipeline states including `E528` (`VIDEO_HW_TRANSFER_FAILED`), `E529` (`VIDEO_DECODER_STALL`), `E530` (`VIDEO_M2M_CRAWL_DETECTED`), `E531` (`VIDEO_AUDIO_INIT_FAILED`), `E532` (`VIDEO_PROBE_FAILED`), `E533` (`VIDEO_CODEC_NOT_FOUND`), `E534` (`VIDEO_STREAM_NOT_FOUND`), and `E535` (`VIDEO_UNSUPPORTED_PIXEL_FORMAT`).
+- **Comprehensive [TRACE] Diagnostic Logging**:
+  - `transition.cpp`, `video_decoder.cpp`, and `main.cpp`: Added unconditional `[TRACE]` logging for transition start/completion lifecycles, adaptive lookahead buffer state switches, video pre-warming events, and stall recoveries.
+
 # Release v17.6.9 — E530 Watchdog False-Positive Fix on Full Buffers (August 15, 2026)
 
 ### Video Decoding & Watchdog Protection
