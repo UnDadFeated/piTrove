@@ -1,3 +1,12 @@
+# Release v17.6.6 — 1536-Frame Deep RAM Buffer & Extended 30s Cold-Start Pre-Warm (August 15, 2026)
+
+### Video Decoding & Buffer Management
+- **1536-Frame Ultra-Deep Lookahead Buffer**:
+  - `video_decoder.h`: Expanded `MAX_QUEUED_FRAMES` to **1536 frames** (~51.2 seconds at 30fps / ~25.6s at 60fps, ~4.77 GB RAM envelope in NV12 format).
+  - Maximizes the 60fps continuous playback buffer, ensuring 4K 60fps video clips stream entirely from RAM with zero decode contention.
+- **Extended 30s Pre-Warm Window for Cold Starts**:
+  - `main.cpp`: Extended startup pre-buffer timeout to 30 seconds for cold starts, allowing high-frame-count 4K videos to pre-decode their entire duration into RAM before playback begins.
+
 # Release v17.6.5 — Adaptive Lookahead Buffer Controller & Countdown Timer Display Fix (August 15, 2026)
 
 ### Video Decoding & Buffer Management
