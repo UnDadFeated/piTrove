@@ -76,6 +76,7 @@ public:
     void note_frame_anchor(double pts_s, bool has_pts, bool stream_eof = false);
     void note_audio_anchor(double pts_s);
     void note_presentation_start(double pts_s);
+    void set_displayed_pts(double pts_s);
  double get_video_duration() const { return m_video_total_duration.load(std::memory_order_relaxed); }
  double get_fps() const { return m_frame_duration > 0 ? 1.0 / m_frame_duration : 0; }
 
@@ -104,7 +105,8 @@ private:
     std::atomic<double> m_anchor_wall_ms{0.0};  // SDL_GetTicks() when anchor event was pushed
     std::atomic<double> m_anchor_pts{0.0};      // stream pts (seconds) of the anchor event
     std::atomic<bool>   m_v0_set{false};
-    std::atomic<double> m_v0_pts{0.0};         // first video frame pts (seconds)
+    std::atomic<double> m_v0_pts{0.0};
+    std::atomic<double> m_current_displayed_pts{0.0};         // first video frame pts (seconds)
     std::atomic<bool>   m_pts_valid{true};     // false once a frame pushes without valid pts
  std::atomic<double> decode_start_time{0.0};
  static constexpr size_t MAX_QUEUED_FRAMES = 48; // ~1.6s at 30fps: absorbs decoder/I-O bursts (NV12 1080p ~3.1MB -> ~150MB peak)
