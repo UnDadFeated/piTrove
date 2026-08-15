@@ -323,7 +323,7 @@ void VideoDecoder::set_displayed_pts(double pts_s) {
 }
 
 double VideoDecoder::get_video_remaining(double fallback_duration) const {
-    if (m_eof.load(std::memory_order_relaxed)) return 0.0;
+    if (m_eof.load(std::memory_order_relaxed) && !has_frames()) return 0.0;
     double total = m_video_total_duration.load(std::memory_order_relaxed);
     if (total <= 0.0) total = fallback_duration;
     if (total <= 0.0) return 0.0;
