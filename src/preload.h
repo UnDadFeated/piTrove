@@ -3,6 +3,8 @@
 
 #include <queue>
 #include <unordered_set>
+#include <unordered_map>
+#include <cstdint>
 #include <mutex>
 #include <condition_variable>
 #include <atomic>
@@ -49,6 +51,9 @@ struct PreloadState {
 
     std::queue<std::string> work_queue;
     std::unordered_set<std::string> active_preloads;
+    // path -> steady-clock ms of last stat/read failure; enqueue skips paths
+    // still in cooldown (prevents the 5s re-enqueue livelock on dead NAS files)
+    std::unordered_map<std::string, int64_t> stat_failed_ts;
     std::mutex work_mutex;
     std::condition_variable work_cv;
 

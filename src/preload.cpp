@@ -13,6 +13,8 @@
 #include <algorithm>
 #include <cstring>
 #include <unordered_set>
+#include <unordered_map>
+#include <chrono>
 
 static void compute_average_color(const RawImage& src, uint8_t& r, uint8_t& g, uint8_t& b) {
     if (!src.valid || !src.pixels || src.width <= 0 || src.height <= 0) {
@@ -74,13 +76,31 @@ void PreloadQueue::shutdown() {
     g_logger.info("PreloadQueue shut down successfully");
 }
 
+static int64_t now_steady_ms() {
+    return std::chrono::duration_cast<std::chrono::milliseconds>(
+               std::chrono::steady_clock::now().time_since_epoch()).count();
+}
+// How long a failed path is skipped by enqueue() before a retry is attempted.
+static constexpr int64_t STAT_FAIL_COOLDOWN_MS = 60000;
+static constexpr size_t  STAT_FAIL_MAP_MAX = 1000;
+
 void PreloadQueue::enqueue(const std::string& path) {
     if (path.empty()) return;
     {
         std::lock_guard<std::mutex> lock(state->work_mutex);
-        
         if (state->active_preloads.count(path)) return;
-
+        auto it = state->stat_failed_ts.find(path);
+        if (it != state->stat_failed_ts.end()) {
+            if (now_steady_ms() - it->second < STAT_FAIL_COOLDOWN_MS) return;
+            state->stat_failed_ts.erase(it); // cooldown expired: retry
+        }
+        if (state->stat_failed_ts.size() > STAT_FAIL_MAP_MAX) {
+            int64_t cutoff = now_steady_ms() - 600000; // drop entries >10 min old
+            for (auto jt = state->stat_failed_ts.begin();
+                 jt != state->stat_failed_ts.end();)
+                jt = (jt->second < cutoff) ? state->stat_failed_ts.erase(jt)
+                                           : std::next(jt);
+        }
         g_logger.info("TRACE: PreloadQueue::enqueue '{}'", path.c_str());
         state->work_queue.push(path);
         state->active_preloads.insert(path);
@@ -329,6 +349,7 @@ void PreloadQueue::worker_thread(std::shared_ptr<PreloadState> state, int thread
             {
                 std::lock_guard<std::mutex> lock(state->work_mutex);
                 state->active_preloads.erase(path);
+                state->stat_failed_ts[path] = now_steady_ms(); // 60s cooldown
             }
             continue;
         }
@@ -339,6 +360,7 @@ void PreloadQueue::worker_thread(std::shared_ptr<PreloadState> state, int thread
             {
                 std::lock_guard<std::mutex> lock(state->work_mutex);
                 state->active_preloads.erase(path);
+                state->stat_failed_ts[path] = now_steady_ms(); // 60s cooldown
             }
             continue;
         }
