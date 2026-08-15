@@ -823,11 +823,7 @@ void VideoDecoder::decode_loop() {
     int crawl_strikes = 0;
     int consecutive_demux_fails = 0;
     while (is_running() && !eof) {
-        // Wi-Fi Protection & Smooth Paced I/O: Yield if frame queue has sufficient buffer
-        if (m_frame_queue.size() >= 8) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(10));
-            last_frame_ms = av_gettime_relative();
-        }
+
         // Stall detection: abort if queue is empty and no frame produced for too long
         if (video_stream_idx >= 0 && m_frame_queue.empty() && (av_gettime_relative() - last_frame_ms) > STALL_TIMEOUT_US) {
             g_logger.warn("VIDEO_DEC: Decoder stalled for {}s, aborting decode of {}", (av_gettime_relative() - last_frame_ms) / 1000000, m_path.c_str());
@@ -838,7 +834,7 @@ void VideoDecoder::decode_loop() {
         // hard-stall check never fires. Only trigger if the queue is actually starving (<10 frames),
         // preventing false E530 triggers when the decode thread pauses on a full buffer.
         long long now_us_crawl = av_gettime_relative();
-        if (video_stream_idx >= 0 && now_us_crawl - crawl_start_us >= 3000000LL) {
+        if ((is_hw || is_m2m) && video_stream_idx >= 0 && now_us_crawl - crawl_start_us >= 3000000LL) {
             size_t q_sz = 0;
             {
                 std::lock_guard lk(m_queue_mtx);
