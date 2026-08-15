@@ -2860,7 +2860,7 @@ int main(int argc, char** argv) {
 
             if (load_success) {
                 int curr_err = g_active_error_code.load();
-                if (curr_err == 201 || curr_err == 101) {
+                if (curr_err == 201 || curr_err == 101 || (curr_err >= 500 && curr_err <= 599)) {
                     trigger_error(0);
                 }
                 if (g_consecutive_failures.load() > 0) {
@@ -3251,7 +3251,7 @@ int main(int argc, char** argv) {
                         if (g_eligible[vi].type == "video") {
                             prefetch_video(g_eligible[vi].path);
                             // Pre-warm the upcoming video into background decode queue if idle
-                            if (i <= 1 && !g_video_decoder.is_running()) {
+                            if (i <= 1 && !g_video_decoder.is_running() && !g_video_decoder.has_frames()) {
                                 int sw, sh;
                                 {
                                     std::lock_guard lock(g_config_mtx);
