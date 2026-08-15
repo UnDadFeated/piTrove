@@ -361,7 +361,13 @@ std::vector<MediaItem> MediaScanner::scan(const std::string& directory,
     for (int t = 0; t < num_threads; t++) {
         int start = t * chunk;
         int end = (t == num_threads - 1) ? std::ssize(subdirs) : start + chunk;
-        threads.emplace_back(worker, start, end);
+        std::jthread th;
+        if (spawn_thread_safe(th, "scanner_worker", worker, start, end)) {
+            threads.push_back(std::move(th));
+        } else {
+            // Fallback: execute chunk synchronously if thread spawn fails
+            worker(start, end);
+        }
     }
     for (auto& th : threads) {
         if (th.joinable()) th.join();

@@ -242,10 +242,15 @@ bool VideoDecoder::start(const std::string& path, int target_width, int target_h
     m_start_failed.store(false);
     decode_start_time.store(0.0, std::memory_order_relaxed);
     m_running.store(true);
-    m_thread = std::jthread([this]() {
+    if (!spawn_thread_safe(m_thread, "video_decoder", [this]() {
         try { this->decode_loop(); }
         catch (...) {}
-    });
+    })) {
+        m_start_failed.store(true);
+        m_running.store(false);
+        m_eof.store(true);
+        return false;
+    }
     return true;
 }
 
@@ -321,9 +326,9 @@ size_t VideoDecoder::frame_queue_size() const {
 }
 
 // TEMP DIAG: push-rate instrumentation (locate 4K60 bottleneck)
+static uint64_t s_n = 0;
+static uint64_t s_t0 = 0;
 static void log_push_rate(const char* site) {
-    static uint64_t s_n = 0;
-    static uint64_t s_t0 = 0;
     uint64_t now = av_gettime_relative();
     if (s_t0 == 0) s_t0 = now;
     s_n++;
@@ -334,6 +339,8 @@ static void log_push_rate(const char* site) {
     }
 }
 void VideoDecoder::decode_loop() {
+    s_n = 0;
+    s_t0 = 0;
     static constexpr int MAX_AUDIO_SAMPLES = 8192;
     std::vector<int16_t> audio_resample_buf(MAX_AUDIO_SAMPLES * 2);
     try {
@@ -724,9 +731,10 @@ void VideoDecoder::decode_loop() {
         // Wi-Fi Protection & Smooth Paced I/O: Yield if frame queue has sufficient buffer
         if (m_frame_queue.size() >= 8) {
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            last_frame_ms = av_gettime_relative();
         }
-        // Stall detection: abort if no frame produced for too long
-        if (video_stream_idx >= 0 && (av_gettime_relative() - last_frame_ms) > STALL_TIMEOUT_US) {
+        // Stall detection: abort if queue is empty and no frame produced for too long
+        if (video_stream_idx >= 0 && m_frame_queue.empty() && (av_gettime_relative() - last_frame_ms) > STALL_TIMEOUT_US) {
             g_logger.warn("VIDEO_DEC: Decoder stalled for {}s, aborting decode of {}", (av_gettime_relative() - last_frame_ms) / 1000000, m_path.c_str());
             break;
         }
@@ -869,6 +877,7 @@ void VideoDecoder::decode_loop() {
                             }
                             m_frame_queue.push(std::move(vf));
                         }
+                        last_frame_ms = av_gettime_relative();
                         g_logger.info("[TRACE] VIDEO_DEC: Pushed frame #{}, queue_size={}", vf_count, m_frame_queue.size());
                         log_push_rate("flush");
                         av_frame_unref(frame);
@@ -1073,6 +1082,7 @@ void VideoDecoder::decode_loop() {
                 if (!m_running.load()) break;
                 m_frame_queue.push(std::move(vf));
             }
+            last_frame_ms = av_gettime_relative();
                 crawl_count++;
                 log_push_rate("main");
             av_frame_unref(frame);

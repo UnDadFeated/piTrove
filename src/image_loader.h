@@ -140,6 +140,7 @@ struct ImageData {
         matte_r = other.matte_r;
         matte_g = other.matte_g;
         matte_b = other.matte_b;
+        filename = std::move(other.filename);
         other.surface = nullptr;
         other.texture = nullptr;
         other.blur_texture = nullptr;
@@ -177,6 +178,8 @@ struct ImageData {
             matte_b = other.matte_b;
             is_camera = other.is_camera;
             creation_time = other.creation_time;
+            filename = std::move(other.filename);
+            other.filename.clear();
             other.surface = nullptr;
             other.texture = nullptr;
             other.blur_texture = nullptr;

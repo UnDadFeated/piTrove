@@ -1,3 +1,25 @@
+# Release v17.6.1 — Video Decoder Stall Fix, Thread-Spawn Hardening & Core Stability (August 15, 2026)
+
+### Video Playback & Decoder Watchdog
+- **Video Decoder False Stall Fix**:
+  - `video_decoder.cpp`: Fixed false-positive 3-second stall timeout aborts (`VIDEO_DEC: Decoder stalled for 3s`) occurring when the decode queue fills (`m_frame_queue.size() >= 48`) or yields on backpressure (`m_frame_queue.size() >= 8`). The stall watchdog now only triggers when the frame queue is truly empty and refreshes its timestamp on all queue waits/yields.
+- **Diagnostic Rate Reset**:
+  - `video_decoder.cpp`, `main.cpp`: Reset throughput calculation timestamps per video playback session so inter-item slideshow pauses do not produce false low frame-rate metrics.
+
+### System & Thread Safety Hardening
+- **Comprehensive Thread-Spawn Safety**:
+  - `video_decoder.cpp`, `scanner.cpp`: Wrapped `VideoDecoder::start` and `MediaScanner::scan` worker pool allocations with `spawn_thread_safe` and synchronous fallback, preventing uncaught `std::system_error` process aborts under thread exhaustion.
+- **HTTP Server Connection & Descriptor Leak Fix**:
+  - `http_server.cpp`: `spawn_tracked_thread` now returns spawn status; on failure, client file descriptors are immediately closed and active connection limits decremented to prevent permanent 503 Service Unavailable lockouts.
+- **HTTP Logger Formatting**:
+  - `http_server.cpp`: Replaced `%s` and `%d` printf-style placeholders in `g_logger` calls with C++20 `std::format` syntax (`{}`).
+
+### Image Pipeline & Cloud Sync
+- **Google Photos Download Disk Persistence**:
+  - `google_photos.cpp`: Correctly writes libcurl response buffers to destination disk paths in `download_media()`, fixing phantom download failures.
+- **ImageData Move Operations**:
+  - `image_loader.h`: Preserved `filename` metadata across `ImageData` move constructors and move assignment operators.
+
 # Release v17.6.0 — Kernel M2M HEVC Hardware Decode & Playback Stability (August 15, 2026)
 ### HEVC Hardware Decoding
 - **Kernel V4L2 M2M HEVC Decode (`hevc_v4l2m2m`)**:
