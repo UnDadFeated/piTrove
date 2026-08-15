@@ -1,3 +1,11 @@
+# Release v17.7.2 — Eliminate Artificial Decode Throttle & HW-Scope E530 Watchdog (August 15, 2026)
+
+### Video Decoding & Performance
+- **Eliminated Artificial 10ms Decode Throttle**:
+  - `video_decoder.cpp`: Removed legacy `sleep_for(10ms)` when `queue >= 8` that was bottlenecking live decode throughput to $\le 25	ext{ fps}$. Decoder now runs at full CPU speed to continuously stay ahead of playback and keep the lookahead buffer permanently saturated.
+- **Hardware-Scoped E530 Watchdog**:
+  - `video_decoder.cpp`: Restricted the `E530` frame crawl watchdog strictly to active hardware/M2M decoder paths (`is_hw || is_m2m`), preventing software decode on heavy 4K streams from ever triggering false E530 error popups.
+
 # Release v17.7.1 — Fix Pre-Warm Re-Triggering, Presentation Anchor Sync & Error Box Auto-Dismiss (August 15, 2026)
 
 ### Video Decoding & Buffer Management
