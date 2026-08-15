@@ -53,6 +53,10 @@ static bool video_within_budget(AVFormatContext* fmt, const VideoLimits& limits)
 
 // Runtime Pi 4/5 detection
 static std::string hwaccel_path = "none";
+// Set when the HW M2M pipeline stalls (frame crawl): stay on software
+// decode for the rest of the process lifetime — kernel M2M state is
+// degraded until the container restarts (see is_pi5() gate history).
+static bool hw_disabled_session = false;
 [[maybe_unused]] static bool is_pi5() {
     static bool detected = false;
     static bool result = false;
@@ -74,6 +78,7 @@ static enum AVPixelFormat get_hw_format(AVCodecContext* ctx, const enum AVPixelF
 }
 
 static AVBufferRef* create_hw_device() {
+    if (hw_disabled_session) return nullptr; // session-wide SW fallback after crawl
     AVBufferRef* hw_device_ctx = nullptr;
     if (av_hwdevice_ctx_create(&hw_device_ctx,
                                AV_HWDEVICE_TYPE_DRM,
@@ -309,6 +314,19 @@ bool VideoDecoder::has_frames() const {
     return !m_frame_queue.empty();
 }
 
+// TEMP DIAG: push-rate instrumentation (locate 4K60 bottleneck)
+static void log_push_rate(const char* site) {
+    static uint64_t s_n = 0;
+    static uint64_t s_t0 = 0;
+    uint64_t now = av_gettime_relative();
+    if (s_t0 == 0) s_t0 = now;
+    s_n++;
+    if (s_n % 200 == 0) {
+        double secs = (now - s_t0) / 1e6;
+        if (secs > 0.0) g_logger.info("[TRACE] VIDEO_DEC: push_rate site={} n={} last200 rate={:.1f}fps", site, (int)s_n, 200.0 / secs);
+        s_t0 = now;
+    }
+}
 void VideoDecoder::decode_loop() {
     static constexpr int MAX_AUDIO_SAMPLES = 8192;
     std::vector<int16_t> audio_resample_buf(MAX_AUDIO_SAMPLES * 2);
@@ -440,6 +458,9 @@ void VideoDecoder::decode_loop() {
     AVCodecParameters* vp = fmt_ctx->streams[video_stream_idx]->codecpar;
     // DRM hwaccel for V4L2 stateless decode (Pi 4/5 H264, Pi 4 HEVC)
     AVBufferRef* hw_dev = create_hw_device();
+    if (!hw_dev && hw_disabled_session) {
+        g_logger.warn("VIDEO_DEC: HW accel disabled for this session (crawl recovery); using software decode");
+    }
     const AVCodec* vc = avcodec_find_decoder(vp->codec_id);
 
     // 100% GPU Hardware Acceleration enabled for all video codecs (H.264 & HEVC) on Pi 4 & Pi 5.
@@ -575,6 +596,51 @@ void VideoDecoder::decode_loop() {
             dst_w = (int)(m_target_height * video_ar);
         }
     }
+    // 4K pacing fix: sources above the display target (1080p) are downscaled to
+    // the target size as NV12 (bilinear, no color conversion) so the queued frame,
+    // texture upload and queue stay small and the display loop can pace 60fps.
+    // 1080p and below keep native resolution (renderer GPU-scales to display).
+    uint8_t* nv12_scale_buf = nullptr;
+    SwsContext* nv12_sws = nullptr;
+    int nv12_sws_w = 0, nv12_sws_h = 0;
+    if (m_target_width > 0 && m_target_height > 0 && vcc->width > 0 &&
+        (vcc->width > dst_w || vcc->height > dst_h)) {
+        nv12_scale_buf = (uint8_t*)av_malloc(av_image_get_buffer_size(AV_PIX_FMT_NV12, dst_w, dst_h, 1));
+        g_logger.info("VIDEO_DEC: downscaling {}x{} -> {}x{} NV12 (display pacing)", vcc->width, vcc->height, dst_w, dst_h);
+    }
+    auto fill_nv12 = [&](AVFrame* sw, VideoFrame& vf) {
+        vf.is_nv12 = true;
+        int out_w = sw->width, out_h = sw->height;
+        const uint8_t* y_src = sw->data[0];
+        const uint8_t* uv_src = sw->data[1];
+        int y_ls = sw->linesize[0], uv_ls = sw->linesize[1];
+        if (nv12_scale_buf && (sw->width > dst_w || sw->height > dst_h)) {
+            if (!nv12_sws || nv12_sws_w != sw->width || nv12_sws_h != sw->height) {
+                if (nv12_sws) sws_freeContext(nv12_sws);
+                nv12_sws = sws_getContext(sw->width, sw->height, AV_PIX_FMT_NV12,
+                                          dst_w, dst_h, AV_PIX_FMT_NV12, SWS_BILINEAR,
+                                          nullptr, nullptr, nullptr);
+                nv12_sws_w = sw->width;
+                nv12_sws_h = sw->height;
+            }
+            uint8_t* ddata[3] = {nullptr, nullptr, nullptr};
+            int dlines[4] = {0, 0, 0, 0};
+            av_image_fill_arrays(ddata, dlines, nv12_scale_buf, AV_PIX_FMT_NV12, dst_w, dst_h, 1);
+            sws_scale(nv12_sws, (const uint8_t* const*)sw->data, sw->linesize, 0, sw->height, ddata, dlines);
+            y_src = ddata[0]; uv_src = ddata[1]; y_ls = dlines[0]; uv_ls = dlines[1];
+            out_w = dst_w; out_h = dst_h;
+        }
+        vf.width = out_w;
+        vf.height = out_h;
+        vf.linesize_y = y_ls;
+        vf.linesize_uv = uv_ls;
+        int size_y = y_ls * out_h;
+        int size_uv = uv_ls * (out_h / 2);
+        vf.data = new uint8_t[size_y];
+        vf.data_uv = new uint8_t[size_uv];
+        memcpy(vf.data, y_src, size_y);
+        memcpy(vf.data_uv, uv_src, size_uv);
+    };
     // Scaler — deferred creation until first frame reveals actual pixel format
     // (V4L2 M2M HW decoders may output DRM_PRIME which needs transfer first)
     SwsContext* sws = nullptr;
@@ -596,6 +662,10 @@ void VideoDecoder::decode_loop() {
     // Stall detection: if no video frame produced within this many ms, abort
     static constexpr long long STALL_TIMEOUT_US = 3000000; // 3-second fast recovery for GPU stalls // 5 seconds in microseconds
     long long last_frame_ms = av_gettime_relative();
+    // Crawl window state (decode-thread-local): count frames pushed per 3s window
+    long long crawl_start_us = last_frame_ms;
+    int crawl_count = 0;
+    int crawl_strikes = 0;
     int consecutive_demux_fails = 0;
     while (is_running() && !eof) {
         // Wi-Fi Protection & Smooth Paced I/O: Yield if frame queue has sufficient buffer
@@ -606,6 +676,28 @@ void VideoDecoder::decode_loop() {
         if (video_stream_idx >= 0 && (av_gettime_relative() - last_frame_ms) > STALL_TIMEOUT_US) {
             g_logger.warn("VIDEO_DEC: Decoder stalled for {}s, aborting decode of {}", (av_gettime_relative() - last_frame_ms) / 1000000, m_path.c_str());
             break;
+        }
+        // Crawl watchdog: a stalled HW M2M pipeline keeps demuxing (resetting
+        // last_frame_ms above) while delivering frames at a crawl, so the
+        // hard-stall check never fires. Two consecutive 3s windows with <10
+        // pushed frames means the decoder is broken, not just slow: advance
+        // the item and stay on software decode for this process.
+        long long now_us_crawl = av_gettime_relative();
+        if (video_stream_idx >= 0 && now_us_crawl - crawl_start_us >= 3000000LL) {
+            if (crawl_count < 10) {
+                if (++crawl_strikes >= 2) {
+                    g_logger.error("VIDEO_DEC: [E530] Frame crawl detected ({} frames/3s window): HW M2M pipeline stalled, disabling HW accel for this session, advancing item", crawl_count);
+                    trigger_error(530);
+                    hw_disabled_session = true;
+                    m_eof.store(true);
+                    eof = true;
+                    break;
+                }
+            } else {
+                crawl_strikes = 0;
+            }
+            crawl_start_us = now_us_crawl;
+            crawl_count = 0;
         }
         io_data.start_time = av_gettime_relative();
         ret = av_read_frame(fmt_ctx, pkt);
@@ -668,9 +760,11 @@ void VideoDecoder::decode_loop() {
                         }
                         vf_count++;
                         last_frame_ms = av_gettime_relative();
+                        crawl_count++;
                         m_decoded_frames.fetch_add(1, std::memory_order_relaxed);
                         AVFrame* sw_frame2 = frame;
                         AVFrame* tmp_sw2 = nullptr;
+                        int64_t pts_raw1_pre = (frame->best_effort_timestamp != AV_NOPTS_VALUE) ? frame->best_effort_timestamp : (frame->pts != AV_NOPTS_VALUE ? frame->pts : frame->pkt_dts);
                         if (frame->format == AV_PIX_FMT_DRM_PRIME || frame->hw_frames_ctx) {
                             tmp_sw2 = av_frame_alloc();
                             if (av_hwframe_transfer_data(tmp_sw2, frame, 0) >= 0) {
@@ -695,14 +789,18 @@ void VideoDecoder::decode_loop() {
                                 break;
                             }
                         }
-                        sws_scale(sws, sw_frame2->data, sw_frame2->linesize, 0, sw_frame2->height,
-                                  rgba->data, rgba->linesize);
-                        if (tmp_sw2) av_frame_free(&tmp_sw2);
                         VideoFrame vf;
-                        vf.width = dst_w; vf.height = dst_h;
-                        vf.data = new uint8_t[nbytes];
-                        memcpy(vf.data, buf, nbytes);
-                        int64_t pts_raw1 = (frame->best_effort_timestamp != AV_NOPTS_VALUE) ? frame->best_effort_timestamp : (frame->pts != AV_NOPTS_VALUE ? frame->pts : frame->pkt_dts);
+                        if (flush_fmt == AV_PIX_FMT_NV12 && nv12_scale_buf) {
+                            fill_nv12(sw_frame2, vf);
+                        } else {
+                            sws_scale(sws, sw_frame2->data, sw_frame2->linesize, 0, sw_frame2->height,
+                                      rgba->data, rgba->linesize);
+                            vf.width = dst_w; vf.height = dst_h;
+                            vf.data = new uint8_t[nbytes];
+                            memcpy(vf.data, buf, nbytes);
+                        }
+                        if (tmp_sw2) av_frame_free(&tmp_sw2); // after last use of sw_frame2
+                        int64_t pts_raw1 = pts_raw1_pre;
                         if (pts_raw1 != AV_NOPTS_VALUE) {
                             vf.pts = av_q2d(fmt_ctx->streams[video_stream_idx]->time_base) * pts_raw1;
                         }
@@ -719,6 +817,7 @@ void VideoDecoder::decode_loop() {
                             m_frame_queue.push(std::move(vf));
                         }
                         g_logger.info("[TRACE] VIDEO_DEC: Pushed frame #{}, queue_size={}", vf_count, m_frame_queue.size());
+                        log_push_rate("flush");
                         av_frame_unref(frame);
                         if (vf_count % 100 == 0) g_logger.debug("VIDEO_DEC: queue_depth={}", m_frame_queue.size());
                     }
@@ -748,6 +847,7 @@ void VideoDecoder::decode_loop() {
                     
                     AVFrame* sw_frame = frame;
                     AVFrame* tmp_sw = nullptr;
+                    int64_t pts_raw_pre = (frame->best_effort_timestamp != AV_NOPTS_VALUE) ? frame->best_effort_timestamp : (frame->pts != AV_NOPTS_VALUE ? frame->pts : frame->pkt_dts);
                     if (frame->format == AV_PIX_FMT_DRM_PRIME || frame->hw_frames_ctx) {
                         tmp_sw = av_frame_alloc();
                         if (av_hwframe_transfer_data(tmp_sw, frame, 0) >= 0) {
@@ -764,17 +864,14 @@ void VideoDecoder::decode_loop() {
                     vf.linesize_y = sw_frame->linesize[0];
                     vf.linesize_uv = sw_frame->linesize[1];
                     if (sw_frame->format == AV_PIX_FMT_NV12) {
-                        vf.width = sw_frame->width; vf.height = sw_frame->height; vf.is_nv12 = true;
-                        int size_y = vf.linesize_y * vf.height; int size_uv = vf.linesize_uv * (vf.height / 2);
-                        vf.data = new uint8_t[size_y]; vf.data_uv = new uint8_t[size_uv];
-                        memcpy(vf.data, sw_frame->data[0], size_y); memcpy(vf.data_uv, sw_frame->data[1], size_uv);
+                        fill_nv12(sw_frame, vf);
                         if (tmp_sw) av_frame_free(&tmp_sw);
                     } else {
                         if (tmp_sw) av_frame_free(&tmp_sw);
                         av_frame_unref(frame);
                         continue;
                     }
-                    int64_t pts_raw2 = (frame->best_effort_timestamp != AV_NOPTS_VALUE) ? frame->best_effort_timestamp : (frame->pts != AV_NOPTS_VALUE ? frame->pts : frame->pkt_dts);
+                    int64_t pts_raw2 = pts_raw_pre;
                     if (pts_raw2 != AV_NOPTS_VALUE) vf.pts = av_q2d(fmt_ctx->streams[video_stream_idx]->time_base) * pts_raw2;
                     note_frame_anchor(vf.pts, pts_raw2 != AV_NOPTS_VALUE, eof);
                     {
@@ -783,6 +880,7 @@ void VideoDecoder::decode_loop() {
                         if (!m_running.load()) break;
                         m_frame_queue.push(std::move(vf));
                     }
+                        log_push_rate("drain");
                     last_frame_ms = av_gettime_relative();
                 }
                 // Retry sending the packet after GPU buffer space freed up
@@ -816,6 +914,7 @@ void VideoDecoder::decode_loop() {
             m_decoded_frames.fetch_add(1, std::memory_order_relaxed);
             consecutive_demux_fails = 0;
             last_frame_ms = av_gettime_relative(); // Stall detection
+            crawl_count++;
 
             // Capture PTS before any av_frame_unref() to prevent use-after-free on HW path
             int64_t pts_raw = (frame->best_effort_timestamp != AV_NOPTS_VALUE)
@@ -843,15 +942,7 @@ void VideoDecoder::decode_loop() {
             vf.linesize_uv = sw_frame->linesize[1];
 
             if (sw_frame->format == AV_PIX_FMT_NV12) {
-                vf.width = sw_frame->width;
-                vf.height = sw_frame->height;
-                vf.is_nv12 = true;
-                int size_y = vf.linesize_y * vf.height;
-                int size_uv = vf.linesize_uv * (vf.height / 2);
-                vf.data = new uint8_t[size_y];
-                vf.data_uv = new uint8_t[size_uv];
-                memcpy(vf.data, sw_frame->data[0], size_y);
-                memcpy(vf.data_uv, sw_frame->data[1], size_uv);
+                fill_nv12(sw_frame, vf);
                 if (tmp_sw) av_frame_free(&tmp_sw);
             } else if (sw_frame->format == AV_PIX_FMT_YUV420P) {
                 vf.width = sw_frame->width;
@@ -929,6 +1020,8 @@ void VideoDecoder::decode_loop() {
                 if (!m_running.load()) break;
                 m_frame_queue.push(std::move(vf));
             }
+                crawl_count++;
+                log_push_rate("main");
             av_frame_unref(frame);
             } // end while drain
             if (ret < 0 && ret != AVERROR(EAGAIN) && ret != AVERROR_EOF) {
@@ -968,6 +1061,8 @@ void VideoDecoder::decode_loop() {
     m_eof.store(true); // Mark EOF so render loop transitions to next item (even on stall)
 
     try {
+    if (nv12_scale_buf) av_free(nv12_scale_buf);
+    if (nv12_sws) sws_freeContext(nv12_sws);
     av_frame_free(&rgba);
     av_frame_free(&frame);
     if (aframe) av_frame_free(&aframe);
