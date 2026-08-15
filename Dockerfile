@@ -59,7 +59,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends wget xz-utils \
     && tar -xf ffmpeg_7.1.5.orig.tar.xz \
     && tar -xf ffmpeg_7.1.5-0+deb13u1.debian.tar.xz \
     && cd ffmpeg-7.1.5 \
-    && ./configure --prefix=/opt/ffmpeg --enable-shared --enable-v4l2-m2m --disable-doc --disable-valgrind \
+    && ./configure --prefix=/opt/ffmpeg --enable-shared --enable-v4l2-m2m --disable-doc \
     && make -j$(nproc) \
     && make install \
     && cd / && rm -rf /tmp/ffmpeg-7.1.5 /tmp/ffmpeg_7.1.5.orig.tar.xz /tmp/ffmpeg_7.1.5-0+deb13u1.debian.tar.xz
