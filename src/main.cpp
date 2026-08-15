@@ -2477,6 +2477,19 @@ int main(int argc, char** argv) {
                         if (transition_prev_target) { SDL_DestroyTexture(transition_prev_target); transition_prev_target = nullptr; }
                         if (transition_next_target) { SDL_DestroyTexture(transition_next_target); transition_next_target = nullptr; }
                     }
+                    // TEMP DIAG: display-rate instrumentation (locate 4K60 bottleneck)
+                    static uint32_t disp_t0 = 0;
+                    static int disp_n = 0;
+                    {
+                        uint32_t d_now = SDL_GetTicks();
+                        if (disp_t0 == 0) disp_t0 = d_now;
+                        disp_n++;
+                        if (disp_n % 200 == 0) {
+                            double secs = ((int32_t)(SDL_GetTicks() - disp_t0)) / 1000.0;
+                            g_logger.info("[TRACE] VIDEO_DISP: displayed {} frames in {:.1f}s (rate={:.1f}fps)", disp_n, secs, (secs > 0.0) ? 200.0 / secs : 0.0);
+                            disp_t0 = SDL_GetTicks();
+                        }
+                    }
                     SDL_PixelFormat target_fmt = frame.is_nv12 ? SDL_PIXELFORMAT_NV12 : SDL_PIXELFORMAT_RGBA32;
                     if (!g_video_tex || g_video_tex_w != frame.width || g_video_tex_h != frame.height || g_video_tex_fmt != target_fmt) {
                         if (g_video_tex) SDL_DestroyTexture(g_video_tex);
