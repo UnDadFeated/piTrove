@@ -2684,6 +2684,22 @@ int main(int argc, char** argv) {
                     SDL_Delay(50);
                     continue;
                 }
+                // Pre-buffer before the first present: wait for ~1.5s of frames so
+                // startup jitter doesn't reach the display. 8s timeout so a slow
+                // open (CIFS probe) never blocks the slideshow.
+                {
+                    double pre_fps = g_video_decoder.get_fps();
+                    if (pre_fps <= 0.0) pre_fps = 30.0;
+                    size_t pre_target = (size_t)(pre_fps * 1.5) + 1;
+                    uint64_t pre_t0 = SDL_GetTicks();
+                    while (g_video_decoder.frame_queue_size() < pre_target &&
+                           SDL_GetTicks() - pre_t0 < 8000 &&
+                           !g_video_decoder.is_eof()) {
+                        SDL_Delay(10);
+                    }
+                    g_logger.info("VIDEO: pre-buffered {} frames in {}ms before first present",
+                                  g_video_decoder.frame_queue_size(), (int)(SDL_GetTicks() - pre_t0));
+                }
                 // Cache FPS from decoder to SQLite
                 double video_fps = g_video_decoder.get_fps();
                 double video_duration = g_video_decoder.get_video_duration();

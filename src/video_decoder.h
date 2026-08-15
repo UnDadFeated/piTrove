@@ -64,6 +64,7 @@ public:
  bool consume_start_failed();
  bool get_frame(VideoFrame& out);
  bool has_frames() const;
+ size_t frame_queue_size() const;
  double get_frame_duration() const;
  double get_video_remaining(double fallback_duration = 0.0) const;
 
@@ -105,7 +106,7 @@ private:
     std::atomic<double> m_v0_pts{0.0};         // first video frame pts (seconds)
     std::atomic<bool>   m_pts_valid{true};     // false once a frame pushes without valid pts
  std::atomic<double> decode_start_time{0.0};
- static constexpr size_t MAX_QUEUED_FRAMES = 16; // wall-clock at first frame
+ static constexpr size_t MAX_QUEUED_FRAMES = 48; // ~1.6s at 30fps: absorbs decoder/I-O bursts (NV12 1080p ~3.1MB -> ~150MB peak)
 
  // Audio
  SDL_AudioStream* m_audio_stream{nullptr};

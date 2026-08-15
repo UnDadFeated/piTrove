@@ -47,6 +47,25 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libv4l-dev \
     && rm -rf /var/lib/apt/lists/*
 
+# Build FFmpeg 7.1.5 with --enable-v4l2-m2m (kernel M2M HW decode).
+# The RPI/Debian libav* 7.1.5 packages ship WITHOUT the v4l2_m2m hwcontext, so
+# hevc_v4l2m2m is missing and HEVC decoding silently falls back to software
+# (~10fps on 4K60). Same upstream source as the system libs (Debian pool
+# 7.1.5-0+deb13u1) => ABI-identical sonames (libavutil.so.59, libavcodec.so.61).
+RUN apt-get update && apt-get install -y --no-install-recommends wget xz-utils \
+    && cd /tmp \
+    && wget -q http://deb.debian.org/debian/pool/main/f/ffmpeg/ffmpeg_7.1.5.orig.tar.xz \
+    && wget -q http://deb.debian.org/debian/pool/main/f/ffmpeg/ffmpeg_7.1.5-0+deb13u1.debian.tar.xz \
+    && tar -xf ffmpeg_7.1.5.orig.tar.xz \
+    && tar -xf ffmpeg_7.1.5-0+deb13u1.debian.tar.xz \
+    && cd ffmpeg-7.1.5 \
+    && ./configure --prefix=/opt/ffmpeg --enable-shared --enable-v4l2-m2m --disable-doc --disable-valgrind \
+    && make -j$(nproc) \
+    && make install \
+    && cd / && rm -rf /tmp/ffmpeg-7.1.5 /tmp/ffmpeg_7.1.5.orig.tar.xz /tmp/ffmpeg_7.1.5-0+deb13u1.debian.tar.xz
+# Compile+link the app against the custom FFmpeg via pkg-config
+ENV PKG_CONFIG_PATH=/opt/ffmpeg/lib/pkgconfig
+
 # Set up build directories
 WORKDIR /build-src
 COPY src/ /build-src/src/
@@ -110,6 +129,12 @@ RUN mkdir -p /app/cache /app/config /app/logs /app/subtitles /app/media
 
 # Deploy compiled binary
 COPY --from=builder /build-src/src/piTrove /app/piTrove
+
+# Deploy the custom FFmpeg shared libs (v4l2_m2m HW decode enabled).
+# /usr/local/lib is searched before /lib/aarch64-linux-gnu, so /app/piTrove
+# resolves the v4l2_m2m-enabled sonames; system libav* remain as fallback.
+COPY --from=builder /opt/ffmpeg/lib/ /usr/local/lib/
+RUN ldconfig
 
 # Deploy static default fonts, assets, and configs
 COPY src/fonts/ /app/src/fonts/
