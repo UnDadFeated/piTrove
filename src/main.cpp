@@ -2541,28 +2541,41 @@ int main(int argc, char** argv) {
                     std::string cur_path = g_eligible[current_idx].path;
                     uint64_t now_ticks_ms = SDL_GetTicks();
 
-                    if (pacing_video_path != cur_path) {
-                        pacing_video_path = cur_path;
-                        video_start_ticks_ms = now_ticks_ms;
-                        video_frame_count = 0;
-                    }
-
-                    double frame_dur_s = g_video_decoder.get_frame_duration();
-                    if (frame_dur_s <= 0.0) frame_dur_s = 0.033333; // Default 30fps fallback
-
-                    double target_rel_ms = (double)video_frame_count * (frame_dur_s * 1000.0);
-                    uint64_t target_abs_ms = video_start_ticks_ms + (uint64_t)target_rel_ms;
-
-                    if (now_ticks_ms < target_abs_ms) {
-                        uint32_t sleep_ms = (uint32_t)(target_abs_ms - now_ticks_ms);
-                        if (sleep_ms > 0 && sleep_ms < 500) {
-                            SDL_Delay(sleep_ms);
+                    if (g_video_decoder.av_sync_ready()) {
+                        // av_sync: PTS-based pacing on the shared A/V presentation clock.
+                        // This frame is due when its pts is due: anchor + (pts - anchor_pts).
+                        // Stale frames (>1s late) present immediately; the 60Hz loop
+                        // fast-forwards through them until it catches up.
+                        double due_ms = g_video_decoder.get_anchor_wall_ms()
+                                       + (frame.pts - g_video_decoder.get_anchor_pts()) * 1000.0;
+                        if ((double)now_ticks_ms < due_ms) {
+                            uint32_t sleep_ms = (uint32_t)(due_ms - (double)now_ticks_ms);
+                            if (sleep_ms > 0 && sleep_ms < 500) {
+                                SDL_Delay(sleep_ms);
+                            }
                         }
-                    } else if (now_ticks_ms > target_abs_ms + 1000) {
-                        // Smooth clock resync only if presentation falls > 1000ms behind
-                        video_start_ticks_ms = now_ticks_ms - (uint64_t)target_rel_ms;
+                    } else {
+
+                        if (pacing_video_path != cur_path) {
+                            pacing_video_path = cur_path;
+                            video_start_ticks_ms = now_ticks_ms;
+                            video_frame_count = 0;
+                        }
+                        double frame_dur_s = g_video_decoder.get_frame_duration();
+                        if (frame_dur_s <= 0.0) frame_dur_s = 0.033333; // Default 30fps fallback
+                        double target_rel_ms = (double)video_frame_count * (frame_dur_s * 1000.0);
+                        uint64_t target_abs_ms = video_start_ticks_ms + (uint64_t)target_rel_ms;
+                        if (now_ticks_ms < target_abs_ms) {
+                            uint32_t sleep_ms = (uint32_t)(target_abs_ms - now_ticks_ms);
+                            if (sleep_ms > 0 && sleep_ms < 500) {
+                                SDL_Delay(sleep_ms);
+                            }
+                        } else if (now_ticks_ms > target_abs_ms + 1000) {
+                            // Smooth clock resync only if presentation falls > 1000ms behind
+                            video_start_ticks_ms = now_ticks_ms - (uint64_t)target_rel_ms;
+                        }
+                        video_frame_count++;
                     }
-                    video_frame_count++;
                 } else if (g_video_decoder.is_running() || g_video_decoder.has_frames()) {
                     // Queue empty but decoder still running - wait and retry
                     if (g_video_stall_ts == 0) g_video_stall_ts = SDL_GetTicks();
@@ -2635,7 +2648,8 @@ int main(int argc, char** argv) {
                 g_logger.info("Playing video: {}", video_path.c_str());
 
                 int width, height;
-                { std::lock_guard lock(g_config_mtx); width = g_cfg.screen_w; height = g_cfg.screen_h; }
+                { std::lock_guard lock(g_config_mtx); width = g_cfg.screen_w; height = g_cfg.screen_h;
+                  g_video_decoder.set_av_sync(g_cfg.av_sync); }
 
                 // Reset video frame pacing for new video
                 

@@ -119,6 +119,7 @@ bool Config::load(const std::string& path) {
         }
         else if (key == "api_key")         this->http_api_key = val;
         else if (key == "volume")            this->video_volume = std::clamp(safe_stoi(val, this->video_volume), 0, 150);
+        else if (key == "av_sync")          this->av_sync = !(val == "0" || val == "false");
         else if (key == "probe_timeout")     this->video_probe_timeout = std::clamp(safe_stoi(val, this->video_probe_timeout), 1, 30);
         else if (key == "enabled" && section == "date_overlay") this->date_overlay_enabled = (val == "1" || val == "true");
         else if (key == "text" && section == "date_overlay")    this->date_text = val;
@@ -424,6 +425,7 @@ bool Config::save(const std::string& path) {
     f << "[video]\n";
     f << "decode_budget_enabled = " << (this->video_decode_budget_enabled ? "1" : "0") << "\n";
     f << "volume = " << this->video_volume << "\n";
+    f << "av_sync = " << (this->av_sync ? "1" : "0") << "\n";
     f << "probe_timeout = " << this->video_probe_timeout << "\n";
     f << "closed_captions_enabled = " << (this->closed_captions_enabled ? "1" : "0") << "\n";
     f << "drm_connector = \"" << (this->drm_connector.empty() ? "auto" : this->drm_connector) << "\"\n";

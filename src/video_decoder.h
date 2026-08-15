@@ -7,6 +7,7 @@
 #include <queue>
 #include <condition_variable>
 #include <SDL3/SDL_audio.h>
+#include <SDL3/SDL_timer.h>
 
 struct VideoFrame {
     int width = 0;
@@ -65,6 +66,14 @@ public:
  bool has_frames() const;
  double get_frame_duration() const;
  double get_video_remaining(double fallback_duration = 0.0) const;
+
+    // --- A/V sync (PTS-based presentation clock) ---
+    void set_av_sync(bool on);
+    bool av_sync_ready() const;
+    double get_anchor_wall_ms() const;
+    double get_anchor_pts() const;
+    void note_frame_anchor(double pts_s, bool has_pts);
+    void note_audio_anchor(double pts_s);
  double get_video_duration() const { return m_video_total_duration.load(std::memory_order_relaxed); }
  double get_fps() const { return m_frame_duration > 0 ? 1.0 / m_frame_duration : 0; }
 
@@ -86,6 +95,15 @@ private:
  std::atomic<double> m_video_total_duration{0.0};
  std::atomic<double> m_last_frame_pts{0.0}; // PTS of last decoded frame for accurate countdown
     std::atomic<int> m_decoded_frames{0}; // frame count for duration estimation
+
+    // --- A/V presentation clock (av_sync): video and audio share one wall-clock anchor
+    std::atomic<bool>   m_av_sync{true};
+    std::atomic<bool>   m_anchor_set{false};
+    std::atomic<double> m_anchor_wall_ms{0.0};  // SDL_GetTicks() when anchor event was pushed
+    std::atomic<double> m_anchor_pts{0.0};      // stream pts (seconds) of the anchor event
+    std::atomic<bool>   m_v0_set{false};
+    std::atomic<double> m_v0_pts{0.0};         // first video frame pts (seconds)
+    std::atomic<bool>   m_pts_valid{true};     // false once a frame pushes without valid pts
  std::atomic<double> decode_start_time{0.0};
  static constexpr size_t MAX_QUEUED_FRAMES = 16; // wall-clock at first frame
 
@@ -97,7 +115,7 @@ private:
 
  void init_audio();
  void shutdown_audio();
- void push_audio_samples(std::span<const int16_t> samples);
+ void push_audio_samples(std::span<const int16_t> samples, double pts_s = -1.0);
 
  void decode_loop();
 };

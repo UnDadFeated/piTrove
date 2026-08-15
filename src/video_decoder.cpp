@@ -147,7 +147,23 @@ void VideoDecoder::shutdown_audio() {
     }
 }
 
-void VideoDecoder::push_audio_samples(std::span<const int16_t> samples) {
+void VideoDecoder::push_audio_samples(std::span<const int16_t> samples, double pts_s) {
+    // A/V sync: keep audio on the shared presentation clock. A chunk whose pts is
+    // pts_s seconds belongs at anchor_wall + (pts_s - anchor_pts)*1000 ms; if it would
+    // land early, delay the push (capped at 500ms - the decode loop's video queue
+    // backpressure bounds the decode lead anyway).
+    if (m_av_sync.load(std::memory_order_relaxed) && pts_s > 0.0) {
+        note_audio_anchor(pts_s);
+        if (m_anchor_set.load(std::memory_order_acquire)) {
+            double due_ms = m_anchor_wall_ms.load(std::memory_order_acquire)
+                          + (pts_s - m_anchor_pts.load(std::memory_order_acquire)) * 1000.0;
+            double delay_ms = due_ms - SDL_GetTicks();
+            if (delay_ms > 50.0) {
+                if (delay_ms > 500.0) delay_ms = 500.0;
+                std::this_thread::sleep_for(std::chrono::microseconds((int64_t)(delay_ms * 1000.0)));
+            }
+        }
+    }
     std::lock_guard lk(m_audio_mtx);
     if (!m_audio_initialized || !m_audio_stream) return;
 
@@ -161,6 +177,46 @@ void VideoDecoder::push_audio_samples(std::span<const int16_t> samples) {
     }
     float gain = volume / 100.0f;
     SDL_SetAudioStreamGain(m_audio_stream, gain);
+}
+
+void VideoDecoder::set_av_sync(bool on) { m_av_sync.store(on, std::memory_order_relaxed); }
+
+bool VideoDecoder::av_sync_ready() const {
+    return m_av_sync.load(std::memory_order_relaxed)
+        && m_pts_valid.load(std::memory_order_relaxed)
+        && m_anchor_set.load(std::memory_order_acquire);
+}
+
+double VideoDecoder::get_anchor_wall_ms() const { return m_anchor_wall_ms.load(std::memory_order_acquire); }
+
+double VideoDecoder::get_anchor_pts() const { return m_anchor_pts.load(std::memory_order_acquire); }
+
+// Anchor the presentation clock to the first pushed event (video frame or audio
+// chunk), whichever arrives first. Single writer: the decode thread.
+void VideoDecoder::note_frame_anchor(double pts_s, bool has_pts) {
+    if (!m_av_sync.load(std::memory_order_relaxed)) return;
+    if (!has_pts) {
+        m_pts_valid.store(false, std::memory_order_relaxed);
+        return;
+    }
+    if (!m_anchor_set.load(std::memory_order_relaxed)) {
+        m_anchor_pts.store(pts_s, std::memory_order_relaxed);
+        m_anchor_wall_ms.store((double)SDL_GetTicks(), std::memory_order_relaxed);
+        m_anchor_set.store(true, std::memory_order_release);
+    }
+    if (!m_v0_set.load(std::memory_order_relaxed)) {
+        m_v0_pts.store(pts_s, std::memory_order_relaxed);
+        m_v0_set.store(true, std::memory_order_release);
+    }
+}
+
+void VideoDecoder::note_audio_anchor(double pts_s) {
+    if (!m_av_sync.load(std::memory_order_relaxed)) return;
+    if (!m_anchor_set.load(std::memory_order_relaxed)) {
+        m_anchor_pts.store(pts_s, std::memory_order_relaxed);
+        m_anchor_wall_ms.store((double)SDL_GetTicks(), std::memory_order_relaxed);
+        m_anchor_set.store(true, std::memory_order_release);
+    }
 }
 
 bool VideoDecoder::start(const std::string& path, int target_width, int target_height) {
@@ -208,6 +264,14 @@ double VideoDecoder::get_video_remaining(double fallback_duration) const {
     double total = m_video_total_duration.load(std::memory_order_relaxed);
     if (total <= 0.0) total = fallback_duration;
 
+    if (av_sync_ready() && m_v0_set.load(std::memory_order_acquire)) {
+        // Presentation-clock based: current stream time = wall time elapsed since the
+        // anchor, re-baselined to the first video frame's pts (v0), which `total` is
+        // relative to. Monotonic with real time even if decoding stalls.
+        double t_rel = ((double)SDL_GetTicks() - m_anchor_wall_ms.load(std::memory_order_acquire)) / 1000.0
+                     + (m_anchor_pts.load(std::memory_order_acquire) - m_v0_pts.load(std::memory_order_acquire));
+        return std::max(0.0, total - t_rel);
+    }
     double last_pts = m_last_frame_pts.load(std::memory_order_relaxed);
     if (total > 0.0 && last_pts > 0.0) {
         return std::max(0.0, total - last_pts);
@@ -358,6 +422,12 @@ void VideoDecoder::decode_loop() {
 
     m_last_frame_pts.store(0.0);
     m_decoded_frames.store(0, std::memory_order_relaxed);
+    m_anchor_set.store(false, std::memory_order_relaxed);
+    m_anchor_pts.store(0.0, std::memory_order_relaxed);
+    m_anchor_wall_ms.store(0.0, std::memory_order_relaxed);
+    m_v0_set.store(false, std::memory_order_relaxed);
+    m_v0_pts.store(0.0, std::memory_order_relaxed);
+    m_pts_valid.store(true, std::memory_order_relaxed);
 
     // Video codec — probe hardware acceleration (V4L2 M2M) first, fallback to software
     AVCodecParameters* vp = fmt_ctx->streams[video_stream_idx]->codecpar;
@@ -565,7 +635,9 @@ void VideoDecoder::decode_loop() {
                             uint8_t* outbuf[1] = { (uint8_t*)audio_resample_buf.data() };
                             int os = swr_convert(swr, outbuf, max_s,
                                                  (const uint8_t**)aframe->extended_data, aframe->nb_samples);
-                            if (os > 0) { push_audio_samples({audio_resample_buf.data(), (size_t)(os * 2)}); af_count += os; }
+                            int64_t apts = (aframe->best_effort_timestamp != AV_NOPTS_VALUE) ? aframe->best_effort_timestamp : aframe->pts;
+                            double pa_s = (apts != AV_NOPTS_VALUE) ? av_q2d(fmt_ctx->streams[audio_stream_idx]->time_base) * apts : -1.0;
+                            if (os > 0) { push_audio_samples({audio_resample_buf.data(), (size_t)(os * 2)}, pa_s); af_count += os; }
                             
                         }
                     }
@@ -627,6 +699,7 @@ void VideoDecoder::decode_loop() {
                         if (pts_raw1 != AV_NOPTS_VALUE) {
                             vf.pts = av_q2d(fmt_ctx->streams[video_stream_idx]->time_base) * pts_raw1;
                         }
+                        note_frame_anchor(vf.pts, pts_raw1 != AV_NOPTS_VALUE);
                         {
                             std::unique_lock<std::mutex> lk(m_queue_mtx);
                             m_queue_cv.wait(lk, [this] {
@@ -696,6 +769,7 @@ void VideoDecoder::decode_loop() {
                     }
                     int64_t pts_raw2 = (frame->best_effort_timestamp != AV_NOPTS_VALUE) ? frame->best_effort_timestamp : (frame->pts != AV_NOPTS_VALUE ? frame->pts : frame->pkt_dts);
                     if (pts_raw2 != AV_NOPTS_VALUE) vf.pts = av_q2d(fmt_ctx->streams[video_stream_idx]->time_base) * pts_raw2;
+                    note_frame_anchor(vf.pts, pts_raw2 != AV_NOPTS_VALUE);
                     {
                         std::unique_lock<std::mutex> lk(m_queue_mtx);
                         m_queue_cv.wait(lk, [this] { return m_frame_queue.size() < MAX_QUEUED_FRAMES || !m_running.load(); });
@@ -838,6 +912,7 @@ void VideoDecoder::decode_loop() {
             }
             // Track last decoded frame PTS for accurate countdown timer
             if (vf.pts > 0) m_last_frame_pts.store(vf.pts + m_frame_duration, std::memory_order_relaxed);
+            note_frame_anchor(vf.pts, pts_raw != AV_NOPTS_VALUE);
 
             {
                 std::unique_lock<std::mutex> lk(m_queue_mtx);
@@ -868,7 +943,9 @@ void VideoDecoder::decode_loop() {
                     uint8_t* outbuf[1] = { (uint8_t*)audio_resample_buf.data() };
                     int os = swr_convert(swr, outbuf, max_s,
                                          (const uint8_t**)aframe->extended_data, aframe->nb_samples);
-                    if (os > 0) { push_audio_samples({audio_resample_buf.data(), (size_t)(os * 2)}); af_count += os; }
+                    int64_t apts = (aframe->best_effort_timestamp != AV_NOPTS_VALUE) ? aframe->best_effort_timestamp : aframe->pts;
+                    double pa_s = (apts != AV_NOPTS_VALUE) ? av_q2d(fmt_ctx->streams[audio_stream_idx]->time_base) * apts : -1.0;
+                    if (os > 0) { push_audio_samples({audio_resample_buf.data(), (size_t)(os * 2)}, pa_s); af_count += os; }
                     
                 }
             }
