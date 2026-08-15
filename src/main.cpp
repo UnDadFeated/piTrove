@@ -3298,26 +3298,32 @@ int main(int argc, char** argv) {
 
         playlist_lock.unlock(); // Unlock before frame sleep throttling
 
-        int target_fps = 60;
-        bool is_video_active = g_video_decoder.is_running();
-        if (!is_video_active && !transitioning && !first_photo_fade) {
-            std::shared_lock lk(g_config_mtx);
-            target_fps = std::clamp(g_cfg.pattern_fps, 1, 60);
-        }
-
-        static Uint64 next_target_ticks = 0;
-        Uint64 target_frame_ms = (Uint64)(1000 / target_fps);
-        Uint64 now_ticks = SDL_GetTicks();
-        if (next_target_ticks == 0 || now_ticks > next_target_ticks + 500) {
-            next_target_ticks = now_ticks + target_frame_ms;
-        } else {
-            next_target_ticks += target_frame_ms;
-        }
-
-        if (now_ticks < next_target_ticks) {
-            SDL_Delay((Uint32)(next_target_ticks - now_ticks));
-        } else {
+        bool is_video_active = g_video_decoder.is_running() || g_video_decoder.has_frames();
+        if (is_video_active) {
+            // Video pacing is handled precisely by the PTS presentation clock (due_ms).
+            // Yield 1ms to allow background decode threads to run without double-delay.
             SDL_Delay(1);
+        } else {
+            int target_fps = 60;
+            if (!transitioning && !first_photo_fade) {
+                std::shared_lock lk(g_config_mtx);
+                target_fps = std::clamp(g_cfg.pattern_fps, 1, 60);
+            }
+
+            static Uint64 next_target_ticks = 0;
+            Uint64 target_frame_ms = (Uint64)(1000 / target_fps);
+            Uint64 now_ticks = SDL_GetTicks();
+            if (next_target_ticks == 0 || now_ticks > next_target_ticks + 500) {
+                next_target_ticks = now_ticks + target_frame_ms;
+            } else {
+                next_target_ticks += target_frame_ms;
+            }
+
+            if (now_ticks < next_target_ticks) {
+                SDL_Delay((Uint32)(next_target_ticks - now_ticks));
+            } else {
+                SDL_Delay(1);
+            }
         }
     }
 
