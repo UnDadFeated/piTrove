@@ -1,3 +1,11 @@
+# Release v17.6.5 — Adaptive Lookahead Buffer Controller & Countdown Timer Display Fix (August 15, 2026)
+
+### Video Decoding & Buffer Management
+- **Adaptive Lookahead Buffer Controller (YouTube-Style Pacing)**:
+  - `video_decoder.cpp`: Real-time queue-depth controller monitors lookahead buffer depth during playback. If the queue drops below 96 frames on heavy 4K 60fps streams, the decoder dynamically discards non-reference B-frames (`AVDISCARD_NONREF`) to boost throughput to 60+ fps and refill the buffer. When the buffer recovers to $\ge 256$ frames, full reference decode resumes. Prevents playback from ever draining the lookahead buffer.
+- **Countdown Overlay Display During RAM Playback**:
+  - `video_decoder.cpp`: Fixed `get_video_remaining()` so that pre-decoded 100% RAM resident videos continue calculating and rendering live countdowns instead of latching at 00:00.
+
 # Release v17.6.4 — 1024-Frame Full Video RAM Buffer & Ultra-Deep Lookahead (August 15, 2026)
 
 ### Video Decoding & Buffer Management
