@@ -2719,12 +2719,12 @@ int main(int argc, char** argv) {
                     SDL_Delay(50);
                     continue;
                 }
-                // Pre-buffer before first present: buffer full 128-frame lookahead queue (or EOF for short clips)
+                // Pre-buffer before first present: buffer full 1024-frame lookahead queue (or EOF for short clips)
                 {
                     size_t pre_target = VideoDecoder::MAX_QUEUED_FRAMES;
                     uint64_t pre_t0 = SDL_GetTicks();
                     while (g_video_decoder.frame_queue_size() < pre_target &&
-                           SDL_GetTicks() - pre_t0 < 8000 &&
+                           SDL_GetTicks() - pre_t0 < 20000 &&
                            !g_video_decoder.is_eof() &&
                            !g_video_decoder.consume_start_failed()) {
                         SDL_Delay(10);
