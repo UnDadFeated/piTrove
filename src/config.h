@@ -52,6 +52,7 @@ struct Config {
     float   count_x{0.5f}, count_y{0.02f};
     int     videos_per_photos{10};
     int     video_volume{0};
+    bool    av_sync{true};
     int     video_probe_timeout{3};
     bool    play_just_photos{false};
     bool    play_just_videos{false};
