@@ -834,14 +834,18 @@ void VideoDecoder::decode_loop() {
         }
         // Crawl watchdog: a stalled HW M2M pipeline keeps demuxing (resetting
         // last_frame_ms above) while delivering frames at a crawl, so the
-        // hard-stall check never fires. Two consecutive 3s windows with <10
-        // pushed frames means the decoder is broken, not just slow: advance
-        // the item and stay on software decode for this process.
+        // hard-stall check never fires. Only trigger if the queue is actually starving (<10 frames),
+        // preventing false E530 triggers when the decode thread pauses on a full buffer.
         long long now_us_crawl = av_gettime_relative();
         if (video_stream_idx >= 0 && now_us_crawl - crawl_start_us >= 3000000LL) {
-            if (crawl_count < 10) {
+            size_t q_sz = 0;
+            {
+                std::lock_guard lk(m_queue_mtx);
+                q_sz = m_frame_queue.size();
+            }
+            if (q_sz < 10 && crawl_count < 10) {
                 if (++crawl_strikes >= 2) {
-                    g_logger.error("VIDEO_DEC: [E530] Frame crawl detected ({} frames/3s window): HW M2M pipeline stalled, disabling HW accel for this session, advancing item", crawl_count);
+                    g_logger.error("VIDEO_DEC: [E530] Frame crawl detected ({} frames/3s window, queue_size={}): HW M2M pipeline stalled, disabling HW accel for this session, advancing item", crawl_count, q_sz);
                     trigger_error(530);
                     hw_disabled_session = true;
                     m_eof.store(true);

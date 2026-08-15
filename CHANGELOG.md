@@ -1,10 +1,18 @@
+# Release v17.6.9 — E530 Watchdog False-Positive Fix on Full Buffers (August 15, 2026)
+
+### Video Decoding & Watchdog Protection
+- **E530 Watchdog Guard on Full Queue**:
+  - `video_decoder.cpp`: The E530 frame-crawl watchdog previously checked only the rate of newly pushed frames over 3-second windows without checking queue depth. When deep pre-buffering filled hundreds to thousands of frames into RAM, the decode thread intentionally paused pushing frames, which falsely triggered E530. Added queue-depth starvation check (`q_sz < 10`) so E530 only fires if the buffer is genuinely starving under active hardware stalls.
+
 # Release v17.6.8 — Ceiling Rounding & Zero-PTS Countdown Tracking for Short Videos (August 15, 2026)
 
 ### Video Overlay & Countdown Synchronization
 - **Zero-PTS Display Tracking**:
   - `video_decoder.cpp`: Allowed frame 0 (`pts = 0.0`) to immediately populate `m_current_displayed_pts` (`pts >= 0.0`), fixing initial countdown calculation on short clips pre-buffered 100% in RAM.
 - **Ceiling Rounding for Remaining Time Display**:
-  - `main.cpp`: Used `std::ceil(remaining)` for remaining time string formatting (`{}:{:02d}`), ensuring short 1–5 second videos correctly display e.g. `0:03` $ightarrow$ `0:02` $ightarrow$ `0:01` rather than truncating sub-second remaining time to `00:00`.
+  - `main.cpp`: Used `std::ceil(remaining)` for remaining time string formatting (`{}:{:02d}`), ensuring short 1–5 second videos correctly display e.g. `0:03` $
+ightarrow$ `0:02` $
+ightarrow$ `0:01` rather than truncating sub-second remaining time to `00:00`.
 
 # Release v17.6.7 — 2048-Frame Lookahead Buffer & High-Frame-Rate 4K@60 Pacing (August 15, 2026)
 
