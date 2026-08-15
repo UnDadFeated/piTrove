@@ -970,23 +970,23 @@ void VideoDecoder::decode_loop() {
             }
 
         if (pkt->stream_index == video_stream_idx) {
-            // Dynamic decode frame-skipping if software decode lags behind presentation clock
+            // Adaptive lookahead buffer controller (YouTube-style buffer maintenance)
             if (m_anchor_set.load(std::memory_order_acquire)) {
-                double wall_elapsed_s = ((double)SDL_GetTicks() - m_anchor_wall_ms.load(std::memory_order_acquire)) / 1000.0;
-                double pkt_pts_s = (pkt->pts != AV_NOPTS_VALUE) ? av_q2d(fmt_ctx->streams[video_stream_idx]->time_base) * pkt->pts : -1.0;
-                if (pkt_pts_s > 0.0) {
-                    double lag_s = wall_elapsed_s - (pkt_pts_s - m_anchor_pts.load(std::memory_order_acquire));
-                    if (lag_s > 0.10) {
-                        // Decode is lagging > 100ms behind presentation clock: drop non-reference B-frames
-                        vcc->skip_frame = AVDISCARD_NONREF;
-                        vcc->skip_loop_filter = AVDISCARD_NONREF;
-                        vcc->skip_idct = AVDISCARD_NONREF;
-                    } else if (lag_s < 0.03) {
-                        // Caught up: decode all frames normally
-                        vcc->skip_frame = AVDISCARD_DEFAULT;
-                        vcc->skip_loop_filter = AVDISCARD_DEFAULT;
-                        vcc->skip_idct = AVDISCARD_DEFAULT;
-                    }
+                size_t q_size = 0;
+                {
+                    std::lock_guard lk(m_queue_mtx);
+                    q_size = m_frame_queue.size();
+                }
+                if (q_size < 96) {
+                    // Buffer running low (<96 frames): discard non-reference B-frames to double decode rate and refill queue
+                    vcc->skip_frame = AVDISCARD_NONREF;
+                    vcc->skip_loop_filter = AVDISCARD_NONREF;
+                    vcc->skip_idct = AVDISCARD_NONREF;
+                } else if (q_size >= 256) {
+                    // Buffer healthy (>=256 frames): restore full reference decode
+                    vcc->skip_frame = AVDISCARD_DEFAULT;
+                    vcc->skip_loop_filter = AVDISCARD_DEFAULT;
+                    vcc->skip_idct = AVDISCARD_DEFAULT;
                 }
             }
             ret = avcodec_send_packet(vcc, pkt);
