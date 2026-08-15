@@ -33,7 +33,7 @@ log() {
     if command -v logger >/dev/null 2>&1; then
         logger -t "pitrove-watchdog" "$@"
     fi
-    
+
     # Also write to local log file in logs/ folder if directory exists
     LOG_FILE="${LOG_FILE:-/home/pi/piTrove/logs/pitrove-watchdog.log}"
     LOG_DIR=$(dirname "$LOG_FILE")
@@ -64,6 +64,36 @@ network_is_ok() {
     return 1
 }
 
+# NAS mount is usable: attached AND readable within 5s (CIFS session alive).
+# A dead CIFS session can leave the mount attached while reads hang (hard
+# mount), so a plain mount check is not enough — the timed read catches it.
+nas_is_healthy() {
+    mountpoint -q "$CIFS_MOUNT" 2>/dev/null || return 1
+    timeout 5 ls "$CIFS_MOUNT" >/dev/null 2>&1
+}
+
+# App container reports healthy (fresh heartbeat)
+container_is_healthy() {
+    docker inspect --format='{{.State.Health.Status}}' "$DOCKER_CONTAINER" 2>/dev/null | grep -q "healthy"
+}
+
+# Force-refresh the fstab-managed CIFS mount. 'mount -a' alone is a no-op when
+# the mount is attached but its session is dead, so detach first (force, then
+# lazy fallback) before re-mounting. New file opens by the app then land on
+# the fresh mount without requiring an app/container restart.
+refresh_nas_mount() {
+    log "Refreshing network storage mount at $CIFS_MOUNT..."
+    umount -f "$CIFS_MOUNT" 2>/dev/null || umount -l "$CIFS_MOUNT" 2>/dev/null || true
+    sleep 1
+    mount -a 2>/dev/null || true
+    if mountpoint -q "$CIFS_MOUNT"; then
+        timeout 5 ls "$CIFS_MOUNT" >/dev/null 2>&1 || log "WARNING: $CIFS_MOUNT mounted but unreadable after refresh"
+    else
+        log "WARNING: $CIFS_MOUNT not mounted after refresh"
+    fi
+    sleep 1
+}
+
 reset_wifi() {
     log "Attempting soft WiFi reset (wpa_cli reconfigure + interface bounce)..."
     wpa_cli reconfigure 2>/dev/null || true
@@ -88,34 +118,29 @@ while true; do
     if network_is_ok; then
         if [ "$WAS_OFFLINE" = true ]; then
             current_time=$(date +%s)
-            
+
             # Check cooldown throttle
             if [ $((current_time - LAST_REMOUNT)) -ge "$CIFS_REMOUNT_COOLDOWN" ]; then
-                LAST_REMOUNT=$current_time
-                log "Network connection recovered. Performing recovery sequence..."
-                
-                log "Refreshing network storage mount at $CIFS_MOUNT..."
-                SYSTEMD_MOUNT=$(systemd-escape -p --suffix=mount "$CIFS_MOUNT")
-                systemctl restart "$SYSTEMD_MOUNT" 2>/dev/null || true
-                sleep 1
-                
-                log "Restarting application systemd service..."
-                systemctl reset-failed piTrove.service 2>/dev/null || true
-                systemctl restart piTrove.service 2>/dev/null || true
+                if container_is_healthy && nas_is_healthy; then
+                    # Brief WiFi blip: CIFS session survived and the app is still
+                    # heartbeating. The app self-recovers — its decode thread has a
+                    # 30s I/O interrupt that retries videos, the playlist retries
+                    # images, and the keepalive thread re-detects the gateway.
+                    # No remount or restart needed.
+                    log "Network recovered; app healthy and NAS readable - no action needed (self-recovered)."
+                else
+                    LAST_REMOUNT=$current_time
+                    log "Network connection recovered. Performing recovery sequence..."
+                    refresh_nas_mount
+                    log "Restarting application systemd service..."
+                    systemctl reset-failed piTrove.service 2>/dev/null || true
+                    systemctl restart piTrove.service 2>/dev/null || true
+                fi
             else
                 log "Network recovered, but remount/restart is throttled (cooldown active)."
             fi
             WAS_OFFLINE=false
         fi
-refresh_nas_mount() {
-    log "Refreshing network storage mount at $CIFS_MOUNT..."
-    SYSTEMD_AUTOMOUNT=$(systemd-escape -p --suffix=automount "$CIFS_MOUNT")
-    SYSTEMD_MOUNT=$(systemd-escape -p --suffix=mount "$CIFS_MOUNT")
-    systemctl restart "$SYSTEMD_AUTOMOUNT" 2>/dev/null || systemctl restart "$SYSTEMD_MOUNT" 2>/dev/null || true
-    # Access directory to trigger systemd autofs CIFS mount before Docker starts
-    ls "$CIFS_MOUNT" >/dev/null 2>&1 || true
-    sleep 1
-}
 
         # Verify piTrove application service & container health when network is online
         if ! systemctl is-active --quiet piTrove.service 2>/dev/null; then
