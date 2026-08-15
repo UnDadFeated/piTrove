@@ -57,3 +57,6 @@ Thumbs.db
 # Local test suite
 /tests/
 build-test/
+
+# Analysis reports
+video_playback_analysis_*.md
