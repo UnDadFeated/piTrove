@@ -196,13 +196,17 @@ double VideoDecoder::get_anchor_pts() const { return m_anchor_pts.load(std::memo
 void VideoDecoder::note_frame_anchor(double pts_s, bool has_pts) {
     if (!m_av_sync.load(std::memory_order_relaxed)) return;
     if (!has_pts) {
-        m_pts_valid.store(false, std::memory_order_relaxed);
+        if (m_pts_valid.load(std::memory_order_relaxed)) {
+            m_pts_valid.store(false, std::memory_order_relaxed);
+            g_logger.warn("AV_SYNC: frame without valid pts, falling back to counter pacing");
+        }
         return;
     }
     if (!m_anchor_set.load(std::memory_order_relaxed)) {
         m_anchor_pts.store(pts_s, std::memory_order_relaxed);
         m_anchor_wall_ms.store((double)SDL_GetTicks(), std::memory_order_relaxed);
         m_anchor_set.store(true, std::memory_order_release);
+        g_logger.info("[TRACE] AV_SYNC: frame anchor set (pts={:.3f})", pts_s);
     }
     if (!m_v0_set.load(std::memory_order_relaxed)) {
         m_v0_pts.store(pts_s, std::memory_order_relaxed);
@@ -216,6 +220,7 @@ void VideoDecoder::note_audio_anchor(double pts_s) {
         m_anchor_pts.store(pts_s, std::memory_order_relaxed);
         m_anchor_wall_ms.store((double)SDL_GetTicks(), std::memory_order_relaxed);
         m_anchor_set.store(true, std::memory_order_release);
+        g_logger.info("[TRACE] AV_SYNC: audio anchor set (pts={:.3f})", pts_s);
     }
 }
 

@@ -2542,6 +2542,11 @@ int main(int argc, char** argv) {
                     uint64_t now_ticks_ms = SDL_GetTicks();
 
                     if (g_video_decoder.av_sync_ready()) {
+                        static std::string avsync_paced_path = "";
+                        if (avsync_paced_path != cur_path) {
+                            avsync_paced_path = cur_path;
+                            g_logger.info("[TRACE] AV_SYNC: PTS pacing active for {}", cur_path);
+                        }
                         // av_sync: PTS-based pacing on the shared A/V presentation clock.
                         // This frame is due when its pts is due: anchor + (pts - anchor_pts).
                         // Stale frames (>1s late) present immediately; the 60Hz loop
