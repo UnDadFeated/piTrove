@@ -2703,6 +2703,7 @@ int main(int argc, char** argv) {
                 { std::lock_guard lock(g_config_mtx); width = g_cfg.screen_w; height = g_cfg.screen_h;
                   g_video_decoder.set_av_sync(g_cfg.av_sync); }
 
+                bool was_prewarmed = (g_video_decoder.is_running() && g_video_decoder.get_current_path() == video_path);
                 // Reset video frame pacing for new video
                 g_disp_t0 = 0;
                 g_disp_n = 0;
@@ -2718,21 +2719,19 @@ int main(int argc, char** argv) {
                     SDL_Delay(50);
                     continue;
                 }
-                // Pre-buffer before the first present: wait for ~1.5s of frames so
-                // startup jitter doesn't reach the display. 8s timeout so a slow
-                // open (CIFS probe) never blocks the slideshow.
+                // Pre-buffer before first present: if pre-warmed, buffer is already ready (0ms wait)
                 {
                     double pre_fps = g_video_decoder.get_fps();
                     if (pre_fps <= 0.0) pre_fps = 30.0;
                     size_t pre_target = (size_t)(pre_fps * 1.5) + 1;
                     uint64_t pre_t0 = SDL_GetTicks();
                     while (g_video_decoder.frame_queue_size() < pre_target &&
-                           SDL_GetTicks() - pre_t0 < 8000 &&
+                           SDL_GetTicks() - pre_t0 < 4000 &&
                            !g_video_decoder.is_eof()) {
                         SDL_Delay(10);
                     }
-                    g_logger.info("VIDEO: pre-buffered {} frames in {}ms before first present",
-                                  g_video_decoder.frame_queue_size(), (int)(SDL_GetTicks() - pre_t0));
+                    g_logger.info("VIDEO: buffer ready with {} frames (prewarmed={}, wait={}ms)",
+                                  g_video_decoder.frame_queue_size(), was_prewarmed, (int)(SDL_GetTicks() - pre_t0));
                 }
                 // Cache FPS from decoder to SQLite
                 double video_fps = g_video_decoder.get_fps();
@@ -3243,13 +3242,25 @@ int main(int argc, char** argv) {
                     }
                 }
 
-                // Prefetch upcoming video files into OS page cache
+                // Prefetch upcoming video files and pre-warm next video into background decode buffer
                 if (!g_eligible.empty()) {
                     int scan_start = current_idx + (current_twin_data ? 2 : 1);
-                    for (int i = 0; i < 5 && i < std::ssize(g_eligible); i++) {
+                    for (int i = 0; i < 4 && i < std::ssize(g_eligible); i++) {
                         int vi = (scan_start + i) % std::ssize(g_eligible);
                         if (g_eligible[vi].type == "video") {
                             prefetch_video(g_eligible[vi].path);
+                            // Pre-warm the upcoming video into background decode queue if idle
+                            if (i == 0 && !g_video_decoder.is_running()) {
+                                int sw, sh;
+                                {
+                                    std::lock_guard lock(g_config_mtx);
+                                    sw = g_cfg.screen_w;
+                                    sh = g_cfg.screen_h;
+                                    g_video_decoder.set_av_sync(g_cfg.av_sync);
+                                }
+                                g_video_decoder.prewarm(g_eligible[vi].path, sw, sh);
+                            }
+                            break;
                         }
                     }
                 }

@@ -58,6 +58,8 @@ public:
  ~VideoDecoder();
 
  bool start(const std::string& path, int target_width, int target_height);
+ bool prewarm(const std::string& path, int target_width, int target_height);
+ std::string get_current_path() const;
  void stop();
  bool is_running() const;
  bool is_eof() const;
@@ -82,6 +84,7 @@ public:
 
 private:
  std::string m_path;
+ mutable std::mutex m_path_mtx;
  int m_target_width;
  int m_target_height;
  std::jthread m_thread;
@@ -109,7 +112,7 @@ private:
     std::atomic<double> m_current_displayed_pts{0.0};         // first video frame pts (seconds)
     std::atomic<bool>   m_pts_valid{true};     // false once a frame pushes without valid pts
  std::atomic<double> decode_start_time{0.0};
- static constexpr size_t MAX_QUEUED_FRAMES = 48; // ~1.6s at 30fps: absorbs decoder/I-O bursts (NV12 1080p ~3.1MB -> ~150MB peak)
+ static constexpr size_t MAX_QUEUED_FRAMES = 64; // ~1.6s at 30fps: absorbs decoder/I-O bursts (NV12 1080p ~3.1MB -> ~150MB peak)
 
  // Audio
  SDL_AudioStream* m_audio_stream{nullptr};
