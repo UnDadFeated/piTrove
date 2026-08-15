@@ -32,7 +32,8 @@ void GooglePhotosManager::start() {
     return;
   running.store(true);
 
-  sync_thread = std::jthread([this]() {
+  std::jthread t;
+  if (spawn_thread_safe(t, "google_photos_sync", [this]() {
     g_logger.info("GooglePhotos: Background sync thread started.");
 
     while (running.load()) {
@@ -61,7 +62,11 @@ void GooglePhotosManager::start() {
     }
 
     g_logger.info("GooglePhotos: Background sync thread exiting.");
-  });
+  })) {
+    sync_thread = std::move(t);
+  } else {
+    running.store(false);
+  }
 }
 
 void GooglePhotosManager::stop() {

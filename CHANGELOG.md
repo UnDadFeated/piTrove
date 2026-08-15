@@ -1,3 +1,15 @@
+# Release v17.6.0 — Kernel M2M HEVC Hardware Decode & Playback Stability (August 15, 2026)
+### HEVC Hardware Decoding
+- **Kernel V4L2 M2M HEVC Decode (`hevc_v4l2m2m`)**:
+  - `video_decoder.cpp`: Added a self-contained M2M decoder that auto-probes the kernel M2M node on `/dev` and decodes HEVC on the Pi 5's hardware engine instead of the CPU software path, for full-rate 4K/HEVC playback.
+  - The decoder is compiled into the custom FFmpeg 7.1.5 build (`-enable-v4l2-m2m` in the Dockerfile). The previously committed M2M code referenced `AV_HWDEVICE_TYPE_V4L2_M2M`, which does not exist in FFmpeg 7.1's public headers, so the feature had never actually compiled or deployed — now fixed.
+  - The `is_pi5()` gate that skipped hardware acceleration for HEVC on Pi 5 is superseded: `hevc_v4l2m2m` (kernel M2M) is the hardware path; software decode remains the degraded fallback when the M2M node is unavailable.
+### Stability
+- **Thread-Spawn Crash Hardening (`spawn_thread_safe`)**:
+  - `util.h` + all 17 `std::jthread` spawn sites (`http_server.cpp`, `google_photos.cpp`, `scanner.cpp`, `main.cpp`, `mqtt.cpp`, `util.cpp`, `preprocess.cpp`): a failed `pthread_create` used to throw an uncaught `std::system_error` → `std::terminate` → whole-process crash (the rare "container reset"; observed in the 2026-08-14 17:01 journal crash). The construction is now wrapped in `try/catch (std::system_error)`: a failure logs `THREAD: failed to spawn <name>` and returns a non-joinable thread so the caller degrades the affected subsystem instead of aborting the app.
+- **Page-Cache Video Prefetch**:
+  - `video_decoder.cpp`: at video start, `posix_fadvise(POSIX_FADV_WILLNEED)` (capped at 2 GB) pulls the whole video into the kernel page cache in the background. Over the WiFi CIFS share a cold read is ~1 MB/s — right at a 1080p30 stream's bitrate — so without this the decode loop is I/O-bound and playback chatters fast/slow/pause; with prefetch, playback reads at memory speed and WiFi dropouts no longer pause playback.
+
 # Release v17.5.0 — GPU Hardware Surface Allocation & Continuous HEVC Playback (August 7, 2026)
 
 ### Video Hardware Acceleration & Firmware Alignment

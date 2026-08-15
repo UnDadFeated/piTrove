@@ -1243,7 +1243,10 @@ int main(int argc, char** argv) {
 
     // Start thermal monitoring thread
     static std::atomic<bool> thermal_running{true};
-    std::jthread thermal_thread(pitrove::thermal::monitor_thread, std::ref(thermal_running));
+    std::jthread thermal_thread;
+    if (!spawn_thread_safe(thermal_thread, "thermal", pitrove::thermal::monitor_thread, std::ref(thermal_running))) {
+        thermal_running.store(false);
+    }
 
     // --- Config ---
     g_cfg.parse_args(argc, argv);
@@ -1582,10 +1585,14 @@ int main(int argc, char** argv) {
         int depth = 10;
         { std::lock_guard lk(g_config_mtx); depth = g_cfg.scan_depth; }
 
-        std::jthread scan_thread([&]() {
+        std::jthread scan_thread;
+        if (!spawn_thread_safe(scan_thread, "scanner", [&]() {
             scan_directory(media_dir, depth, g_scanned_items, safe_progress_callback);
             scan_done.store(true);
-        });
+        })) {
+            // Spawn failed: proceed with an empty gallery rather than hang on the splash.
+            scan_done.store(true);
+        }
 
         // Main thread polls and renders splash safely on EGL context
         while (!scan_done.load()) {
@@ -1778,7 +1785,9 @@ int main(int argc, char** argv) {
 
     // Start software watchdog thread
     g_watchdog_running.store(true);
-    g_watchdog_thread = std::jthread(watchdog_loop);
+    if (!spawn_thread_safe(g_watchdog_thread, "watchdog", watchdog_loop)) {
+        g_watchdog_running.store(false);
+    }
 
     // Start background Wi-Fi keep-alive thread if enabled
     bool keepalive_enabled = false;
@@ -1788,7 +1797,9 @@ int main(int argc, char** argv) {
     }
     if (keepalive_enabled) {
         g_keepalive_running.store(true);
-        g_keepalive_thread = std::jthread(keepalive_loop);
+        if (!spawn_thread_safe(g_keepalive_thread, "keepalive", keepalive_loop)) {
+            g_keepalive_running.store(false);
+        }
     }
 
     g_logger.info("Starting slideshow with {} items", g_eligible.size());
@@ -2034,8 +2045,11 @@ int main(int argc, char** argv) {
 
     // --- Start Background Watchman Thread ---
     g_watchman_running.store(true);
-    g_watchman_thread = std::jthread(watchman_loop);
-    g_logger.info("Watchman: Background watchman thread spawned successfully.");
+    if (spawn_thread_safe(g_watchman_thread, "watchman", watchman_loop)) {
+        g_logger.info("Watchman: Background watchman thread spawned successfully.");
+    } else {
+        g_watchman_running.store(false);
+    }
 
     // --- Start Background Preprocess Thread ---
     start_preprocess_worker();

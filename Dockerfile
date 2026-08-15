@@ -121,6 +121,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libv4l-0t64 \
     libv4lconvert0t64 \
     v4l-utils \
+    network-manager \
+    sudo \
     && rm -rf /var/lib/apt/lists/*
 
 # Establish runtime directory tree

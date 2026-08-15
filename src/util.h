@@ -1,7 +1,7 @@
 #ifndef PITROVE_UTIL_H
 #define PITROVE_UTIL_H
 
-#define VERSION "17.5.1"
+#define VERSION "17.6.0"
 #define APP_NAME "piTrove"
 
 #include <atomic>
@@ -12,6 +12,8 @@
 #include <mutex>
 #include <condition_variable>
 #include <thread>
+#include <system_error>
+#include <utility>
 #include <cstdarg>
 #include <charconv>
 #include <type_traits>
@@ -135,6 +137,23 @@ void debug(const std::format_string<Args...> fmt, Args&&... args) {
 };
 
 inline Logger g_logger;
+// Spawns a std::jthread without risking a process-wide abort: a failed
+// pthread_create throws std::system_error, which would otherwise go
+// uncaught and terminate the process (see crash log 2026-08-14 17:01).
+// On failure `out` is left non-joinable and the caller degrades.
+template <class Fn, class... Args>
+bool spawn_thread_safe(std::jthread& out, const char* what, Fn&& fn, Args&&... args) {
+    try {
+        out = std::jthread(std::forward<Fn>(fn), std::forward<Args>(args)...);
+        return true;
+    } catch (const std::system_error& e) {
+        g_logger.error("THREAD: failed to spawn '{}': {}", what, e.what());
+        return false;
+    } catch (...) {
+        g_logger.error("THREAD: failed to spawn '{}' (unknown error)", what);
+        return false;
+    }
+}
 
 // Math, string parsing, and files helpers
 // Unified safe number parser using std::from_chars (noexcept, zero-allocation)

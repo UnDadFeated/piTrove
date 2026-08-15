@@ -127,7 +127,8 @@ static void preprocess_loop() {
             auto pr = std::make_shared<PreprocessResult>();
             pr->item = mi;
 
-            std::jthread([pr, path, type]() {
+            std::jthread t;
+            if (spawn_thread_safe(t, "preprocess_item", [pr, path, type]() {
                 if (type == "image") {
                     int w = 0, h = 0, exif = 1, is_camera = 0;
                     int64_t creation = 0;
@@ -152,7 +153,12 @@ static void preprocess_loop() {
                     }
                 }
                 pr->done.store(true);
-            }).detach();
+            })) {
+                t.detach();
+            } else {
+                // Spawn failed: mark done so the waiter proceeds with no metadata.
+                pr->done.store(true);
+            }
 
             auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(10000); // 10s timeout
             while (!pr->done.load() && std::chrono::steady_clock::now() < deadline && g_preprocess_running.load() && g_running.load()) {
@@ -193,8 +199,12 @@ void start_preprocess_worker() {
     if (g_preprocess_running.load()) return;
     g_preprocess_running.store(true);
     g_preprocess_finished.store(false);
-    g_preprocess_thread = std::jthread(preprocess_loop);
-    g_logger.info("Preprocess: Background preprocessing thread spawned successfully.");
+    if (spawn_thread_safe(g_preprocess_thread, "preprocess", preprocess_loop)) {
+        g_logger.info("Preprocess: Background preprocessing thread spawned successfully.");
+    } else {
+        g_preprocess_running.store(false);
+        g_preprocess_finished.store(true);
+    }
 }
 
 void stop_preprocess_worker() {

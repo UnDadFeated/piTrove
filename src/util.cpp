@@ -404,7 +404,9 @@ void Logger::init(const std::string& path, LogLevel lvl, int keep_count) {
     }
 
     initialized = true;
-    flush_thread = std::jthread(&Logger::flush_loop, this);
+    if (!spawn_thread_safe(flush_thread, "logger_flush", &Logger::flush_loop, this)) {
+        // Non-critical: continue without the background flush thread.
+    }
 }
 
 Logger::~Logger() {
@@ -856,12 +858,16 @@ bool is_nas_online() {
             if (g_nas_check_thread.joinable()) {
                 g_nas_check_thread.join();
             }
-            g_nas_check_thread = std::jthread([]() {
+            if (!spawn_thread_safe(g_nas_check_thread, "nas_check", []() {
                 bool online = perform_nas_online_check();
                 g_nas_online.store(online);
                 g_last_nas_check_time.store(std::time(nullptr));
                 g_nas_check_in_progress.store(false);
-            });
+            })) {
+                // Spawn failed: reset the in-progress flag so the next
+                // call can retry.
+                g_nas_check_in_progress.store(false);
+            }
         }
     }
     return g_nas_online.load();
@@ -936,7 +942,7 @@ void prefetch_video(const std::string& path) {
             g_prefetch_thread.join();
             g_prefetch_mtx.lock();
         }
-        g_prefetch_thread = std::jthread([path]() {
+        if (!spawn_thread_safe(g_prefetch_thread, "prefetch", [path]() {
             int fd = open(path.c_str(), O_RDONLY | O_NONBLOCK);
             [[unlikely]]
             if (fd < 0) return;
@@ -947,7 +953,9 @@ void prefetch_video(const std::string& path) {
             posix_fadvise(fd, 0, (off_t)prefetch_bytes, POSIX_FADV_WILLNEED);
             readahead(fd, 0, prefetch_bytes);
             close(fd);
-        });
+        })) {
+            // Non-critical: skip this prefetch.
+        }
     }
 }
 

@@ -7,6 +7,8 @@
 #include "config.h"
 
 #include <fstream>
+#include <fcntl.h>
+#include <sys/stat.h>
 extern Logger g_logger;
 
 extern "C" {
@@ -365,6 +367,26 @@ void VideoDecoder::decode_loop() {
         return;
     }
 
+    // Prefault the whole file into the kernel page cache. Over the WiFi
+    // CIFS share a cold read is ~1 MB/s (~== a 1080p30 H.264 stream rate),
+    // so without this the decode loop is I/O-bound and playback chatters
+    // fast/slow/pause; cached reads are memory-speed, and a WiFi dropout
+    // then pauses nothing. Capped at 2GB so a 4K feature-length clip does
+    // not thrash the box's 8GB of RAM.
+    {
+        struct stat vst;
+        if (::stat(m_path.c_str(), &vst) == 0 && vst.st_size > 0 &&
+            vst.st_size <= 2LL * 1024 * 1024 * 1024) {
+            int vfd = ::open(m_path.c_str(), O_RDONLY);
+            if (vfd >= 0) {
+                posix_fadvise(vfd, 0, 0, POSIX_FADV_WILLNEED);
+                ::close(vfd);
+                g_logger.info("VIDEO_DEC: prefetching {} ({} MB) into page cache",
+                              m_path.c_str(), vst.st_size / 1024 / 1024);
+            }
+        }
+    }
+
     // Small chunk probing for instant video startup over network SMB/CIFS shares (YouTube style)
     g_logger.info("[TRACE] VIDEO_DEC: Probing stream metadata (probesize=500KB, max_analyze=1s)...");
     fmt_ctx->probesize = 500000;              // 500 KB probe chunk instead of default 5 MB
@@ -470,7 +492,7 @@ void VideoDecoder::decode_loop() {
     // libav* builds lack the v4l2_m2m hwcontext (so distro FFmpeg has no
     // hevc_v4l2m2m), and the DRM "hwaccel" device is a no-op for the software
     // decoder. The custom FFmpeg build (Dockerfile, --enable-v4l2-m2m)
-    // provides hevc_v4l2m2m. H.264 keeps the previous path (DRM device +
+    // provides hevc_v4l2m2m, which is self-contained: it auto-probes /dev for the M2M node; no external AVHWDeviceContext. H.264 keeps the previous path (DRM device +
     // software; Pi 5 has no M2M node for H.264).
     // hw_disabled_session (set by the [E530] frame-crawl detector) stays the
     // safety net: if the M2M pipeline degrades, the rest of this process
@@ -478,19 +500,15 @@ void VideoDecoder::decode_loop() {
     const AVCodec* vc = avcodec_find_decoder(vp->codec_id);
     if (vp->codec_id == AV_CODEC_ID_HEVC && !hw_disabled_session) {
         const AVCodec* m2m = avcodec_find_decoder_by_name("hevc_v4l2m2m");
-        AVBufferRef* m2m_dev = nullptr;
-        if (m2m && av_hwdevice_ctx_create(&m2m_dev, AV_HWDEVICE_TYPE_V4L2_M2M, nullptr, nullptr, 0) >= 0) {
-            g_logger.info("VIDEO_DEC: HEVC: using v4l2_m2m kernel HW decoder ({}x{})", vp->width, vp->height);
+        if (m2m) {
+            g_logger.info("VIDEO_DEC: HEVC: using hevc_v4l2m2m kernel HW decoder ({}x{})", vp->width, vp->height);
             if (hw_dev) {
                 av_buffer_unref(&hw_dev);
+                hw_dev = nullptr;
             }
-            hw_dev = m2m_dev;
             vc = m2m;
         } else {
-            if (m2m_dev) {
-                av_buffer_unref(&m2m_dev);
-            }
-            g_logger.info("VIDEO_DEC: HEVC: v4l2_m2m unavailable, using software decode");
+            g_logger.info("VIDEO_DEC: HEVC: hevc_v4l2m2m unavailable, using software decode");
         }
     }
     if (vc && hw_dev) {
