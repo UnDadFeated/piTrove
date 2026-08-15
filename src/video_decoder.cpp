@@ -498,6 +498,7 @@ void VideoDecoder::decode_loop() {
     // safety net: if the M2M pipeline degrades, the rest of this process
     // lifetime runs software decode.
     const AVCodec* vc = avcodec_find_decoder(vp->codec_id);
+    bool is_m2m = false;
     if (vp->codec_id == AV_CODEC_ID_HEVC && !hw_disabled_session) {
         const AVCodec* m2m = avcodec_find_decoder_by_name("hevc_v4l2m2m");
         if (m2m) {
@@ -507,6 +508,7 @@ void VideoDecoder::decode_loop() {
                 hw_dev = nullptr;
             }
             vc = m2m;
+            is_m2m = true;
         } else {
             g_logger.info("VIDEO_DEC: HEVC: hevc_v4l2m2m unavailable, using software decode");
         }
@@ -544,21 +546,33 @@ void VideoDecoder::decode_loop() {
         }
     }
     bool is_hw = (hw_dev != nullptr);
-    if (avcodec_open2(vcc, vc, nullptr) < 0) {
-        if (is_hw) {
-            g_logger.warn("VIDEO_DEC: Hardware decoder {} failed to configure, falling back to software decoder", vc->name);
+    int open_err = avcodec_open2(vcc, vc, nullptr);
+    if (open_err < 0) {
+        char ebuf[AV_ERROR_MAX_STRING_SIZE] = {0};
+        av_strerror(open_err, ebuf, sizeof(ebuf));
+        // M2M decoders carry no hw_device_ctx (the kernel M2M node is the
+        // device), so is_hw alone misses them: fall back to software when
+        // the M2M open fails, or the main loop livelocks on the file.
+        if (is_hw || is_m2m) {
+            g_logger.warn("VIDEO_DEC: {} failed to open ({}) - falling back to software decoder",
+                          vc->name, ebuf);
             avcodec_free_context(&vcc);
             vc = avcodec_find_decoder(vp->codec_id);
             if (vc) {
                 vcc = avcodec_alloc_context3(vc);
                 avcodec_parameters_to_context(vcc, vp);
                 int threads = std::thread::hardware_concurrency();
-                vcc->thread_count = std::min(2, std::max(1, threads - 1));
+                // M2M fallback: no GPU surface pool in use, so the software
+                // decoder gets all cores (4K HEVC in particular needs them).
+                vcc->thread_count = is_m2m ? std::max(2, threads)
+                                           : std::min(2, std::max(1, threads - 1));
                 vcc->thread_type = FF_THREAD_FRAME | FF_THREAD_SLICE;
             }
         }
         if (!vc || avcodec_open2(vcc, vc, nullptr) < 0) {
-            g_logger.error("VIDEO_DEC: Failed to open video codec for {}", m_path.c_str());
+            g_logger.error("VIDEO_DEC: Failed to open video codec for {} ({})",
+                           m_path.c_str(), ebuf);
+            m_start_failed.store(true); // main loop skips the file instead of retrying forever
             if (vcc) avcodec_free_context(&vcc);
             avformat_close_input(&fmt_ctx);
             m_running.store(false);
