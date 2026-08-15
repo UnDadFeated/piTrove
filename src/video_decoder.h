@@ -60,6 +60,7 @@ public:
  void stop();
  bool is_running() const;
  bool is_eof() const;
+ bool consume_start_failed();
  bool get_frame(VideoFrame& out);
  bool has_frames() const;
  double get_frame_duration() const;
@@ -74,6 +75,7 @@ private:
  std::jthread m_thread;
  std::atomic<bool> m_running;
  std::atomic<bool> m_eof{false};
+ std::atomic<bool> m_start_failed{false}; // latched when start-phase (open/probe) fails
 
  std::queue<VideoFrame> m_frame_queue;
  mutable std::mutex m_queue_mtx;

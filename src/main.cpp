@@ -2616,6 +2616,19 @@ int main(int argc, char** argv) {
                     playlist_lock.unlock();
                     continue;
                 }
+                // Decoder finished its start attempt and the file could not be opened:
+                // advance instead of retrying the same bad item every 100ms.
+                if (g_video_decoder.consume_start_failed()) {
+                    g_logger.error("VIDEO_DEC: Skipping video (open failed): {}", video_path.c_str());
+                    current_data = nullptr;
+                    current_twin_data = nullptr;
+                    current_tex = nullptr;
+                    transitioning = true;
+                    advance_playlist(1);
+                    playlist_lock.unlock();
+                    SDL_Delay(50);
+                    continue;
+                }
                 g_logger.info("Playing video: {}", video_path.c_str());
 
                 int width, height;
@@ -2639,7 +2652,9 @@ int main(int argc, char** argv) {
                 // Cache FPS from decoder to SQLite
                 double video_fps = g_video_decoder.get_fps();
                 double video_duration = g_video_decoder.get_video_duration();
-                if (video_fps > 0 || video_duration > 0) {
+                // Only cache metadata when the video actually opened (duration > 0);
+                // otherwise get_fps() returns a stale value from the previous video.
+                if (video_duration > 0) {
                     g_logger.info("Caching FPS={:.2f}, duration={:.1f}s for video: {}", video_fps, video_duration, g_eligible[current_idx].path.c_str());
                     g_eligible[current_idx].framerate = video_fps;
                     g_eligible[current_idx].duration = video_duration;

@@ -169,6 +169,7 @@ bool VideoDecoder::start(const std::string& path, int target_width, int target_h
     m_target_width = target_width;
     m_target_height = target_height;
     m_eof.store(false);
+    m_start_failed.store(false);
     decode_start_time.store(0.0, std::memory_order_relaxed);
     m_running.store(true);
     m_thread = std::jthread([this]() {
@@ -194,6 +195,9 @@ void VideoDecoder::stop() {
 
 bool VideoDecoder::is_running() const { return m_running.load(); }
 bool VideoDecoder::is_eof() const { return m_eof.load(); }
+// Atomic exchange: main loop consumes the flag so a stale failure from a
+// previous item never causes the next item to be skipped.
+bool VideoDecoder::consume_start_failed() { return m_start_failed.exchange(false); }
 
 double VideoDecoder::get_frame_duration() const {
     return m_frame_duration;
@@ -246,7 +250,7 @@ void VideoDecoder::decode_loop() {
     } network_guard;
 
     AVFormatContext* fmt_ctx = avformat_alloc_context();
-    if (!fmt_ctx) { m_running.store(false); return; }
+    if (!fmt_ctx) { m_start_failed.store(true); m_running.store(false); return; }
     fmt_ctx->flags |= AVFMT_FLAG_DISCARD_CORRUPT;
 
     static const int64_t IO_TIMEOUT_US = 30LL * 1000000LL; // 30s timeout for CIFS NAS network share reads
@@ -262,7 +266,7 @@ void VideoDecoder::decode_loop() {
 
     if (avformat_open_input(&fmt_ctx, m_path.c_str(), nullptr, nullptr) != 0) {
         g_logger.error("VIDEO_DEC: Failed to open {}", m_path.c_str());
-        
+        m_start_failed.store(true);
         m_running.store(false);
         m_eof.store(true);
         return;
@@ -275,6 +279,7 @@ void VideoDecoder::decode_loop() {
 
     if (avformat_find_stream_info(fmt_ctx, nullptr) < 0) {
         g_logger.error("VIDEO_DEC: Failed to find stream info for {}", m_path.c_str());
+        m_start_failed.store(true);
         avformat_close_input(&fmt_ctx);
         m_running.store(false);
         m_eof.store(true);
@@ -292,6 +297,7 @@ void VideoDecoder::decode_loop() {
     }
     if (!video_within_budget(fmt_ctx, limits)) {
         g_logger.warn("VIDEO_DEC: {} exceeds decode budget. Skipping.", m_path.c_str());
+        m_start_failed.store(true);
         avformat_close_input(&fmt_ctx);
         m_running.store(false);
         m_eof.store(true);
