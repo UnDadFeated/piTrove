@@ -983,11 +983,17 @@ void VideoDecoder::decode_loop() {
                 }
                 if (q_size < 300) {
                     // Buffer running below 300 frames: discard non-reference B-frames to boost decode throughput to 60+ fps and keep buffer permanently filled
+                    if (vcc->skip_frame != AVDISCARD_NONREF) {
+                        g_logger.info("[TRACE] VIDEO_DEC: Buffer low (q_size={}) -> activating AVDISCARD_NONREF (boost throughput)", q_size);
+                    }
                     vcc->skip_frame = AVDISCARD_NONREF;
                     vcc->skip_loop_filter = AVDISCARD_NONREF;
                     vcc->skip_idct = AVDISCARD_NONREF;
                 } else if (q_size >= 600) {
                     // Buffer full and healthy (>=600 frames): restore full reference decode
+                    if (vcc->skip_frame != AVDISCARD_DEFAULT) {
+                        g_logger.info("[TRACE] VIDEO_DEC: Buffer healthy (q_size={}) -> restoring AVDISCARD_DEFAULT", q_size);
+                    }
                     vcc->skip_frame = AVDISCARD_DEFAULT;
                     vcc->skip_loop_filter = AVDISCARD_DEFAULT;
                     vcc->skip_idct = AVDISCARD_DEFAULT;
