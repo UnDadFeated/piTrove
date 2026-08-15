@@ -876,6 +876,8 @@ static std::atomic<bool> g_watchdog_running{false};
 
 static FILE* g_event_log = nullptr;
 static int64_t g_video_stall_ts = 0;
+static uint32_t g_disp_t0 = 0;
+static int g_disp_n = 0;
 static void watchdog_loop() {
     g_logger.info("Watchdog: Software watchdog thread active.");
     g_watchdog_last_time = std::chrono::steady_clock::now();
@@ -2492,16 +2494,14 @@ int main(int argc, char** argv) {
                         if (transition_next_target) { SDL_DestroyTexture(transition_next_target); transition_next_target = nullptr; }
                     }
                     // TEMP DIAG: display-rate instrumentation (locate 4K60 bottleneck)
-                    static uint32_t disp_t0 = 0;
-                    static int disp_n = 0;
                     {
                         uint32_t d_now = SDL_GetTicks();
-                        if (disp_t0 == 0) disp_t0 = d_now;
-                        disp_n++;
-                        if (disp_n % 200 == 0) {
-                            double secs = ((int32_t)(SDL_GetTicks() - disp_t0)) / 1000.0;
-                            g_logger.info("[TRACE] VIDEO_DISP: displayed {} frames in {:.1f}s (rate={:.1f}fps)", disp_n, secs, (secs > 0.0) ? 200.0 / secs : 0.0);
-                            disp_t0 = SDL_GetTicks();
+                        if (g_disp_t0 == 0) g_disp_t0 = d_now;
+                        g_disp_n++;
+                        if (g_disp_n % 200 == 0) {
+                            double secs = ((int32_t)(SDL_GetTicks() - g_disp_t0)) / 1000.0;
+                            g_logger.info("[TRACE] VIDEO_DISP: displayed {} frames in {:.1f}s (rate={:.1f}fps)", g_disp_n, secs, (secs > 0.0) ? 200.0 / secs : 0.0);
+                            g_disp_t0 = SDL_GetTicks();
                         }
                     }
                     SDL_PixelFormat target_fmt = frame.is_nv12 ? SDL_PIXELFORMAT_NV12 : SDL_PIXELFORMAT_RGBA32;
@@ -2684,9 +2684,9 @@ int main(int argc, char** argv) {
                   g_video_decoder.set_av_sync(g_cfg.av_sync); }
 
                 // Reset video frame pacing for new video
-                
-                
-                    g_video_stall_ts = 0;
+                g_disp_t0 = 0;
+                g_disp_n = 0;
+                g_video_stall_ts = 0;
                 if (!g_video_decoder.start(video_path, width, height)) {
                     g_logger.error("Failed to start video decoder, skipping.");
                     current_data = nullptr;

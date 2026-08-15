@@ -326,6 +326,13 @@ void GooglePhotosManager::download_media(const std::string &access_token) {
         std::string dl_cmd =
             "curl -s -o '" + escape_shell_arg(local_path) + "' -- '" + escape_shell_arg(download_url) + "'";
         std::string dl_res = execute_curl(dl_cmd);
+        if (!dl_res.empty()) {
+            std::ofstream out(local_path, std::ios::binary);
+            if (out.is_open()) {
+                out.write(dl_res.data(), dl_res.size());
+                out.close();
+            }
+        }
 
         // Double check that file is non-empty and valid
         if (std::filesystem::exists(local_path) &&

@@ -64,7 +64,7 @@ static void unregister_client_fd(int fd) {
     }
 }
 
-static void spawn_tracked_thread(std::function<void()> func) {
+static bool spawn_tracked_thread(std::function<void()> func) {
     auto finished = std::make_shared<std::atomic<bool>>(false);
     std::jthread t;
     if (!spawn_thread_safe(t, "http_client", [func, finished]() {
@@ -72,7 +72,7 @@ static void spawn_tracked_thread(std::function<void()> func) {
         finished->store(true);
     })) {
         finished->store(true);
-        return;
+        return false;
     }
     
     std::lock_guard<std::mutex> lk(g_http_threads_mtx);
@@ -87,6 +87,7 @@ static void spawn_tracked_thread(std::function<void()> func) {
         }
     }
     g_http_client_threads.push_back({std::move(t), finished});
+    return true;
 }
 
 static std::string execute_curl(const std::string& cmd) {
@@ -96,7 +97,7 @@ static std::string execute_curl(const std::string& cmd) {
     }
     FILE* raw_pipe = popen((timed_cmd + " 2>/dev/null").c_str(), "r");
     if (!raw_pipe) {
-        g_logger.warn("HTTP: popen() returned null for cmd='%s'", timed_cmd.c_str());
+        g_logger.warn("HTTP: popen() returned null for cmd='{}'", timed_cmd);
         return "";
     }
     std::shared_ptr<FILE> pipe(raw_pipe, pclose);
@@ -1207,7 +1208,7 @@ static std::string get_dashboard_html() {
                 <button onclick="toggleTheme()" id="theme-btn" style="background: var(--card-bg); color: var(--text-main); border: 1px solid var(--card-border); border-radius: 8px; padding: 0.25rem 0.5rem; font-size: 0.75rem; cursor: pointer; outline: none; color-scheme:dark;">🌙</button>
             </div>
             <h1>piTrove controller</h1>
-            <div class="subtitle">v17.6.0 glassmorphic system</div>
+            <div class="subtitle">v17.6.1 glassmorphic system</div>
         </header>
 
         <div class="tabs">
@@ -2047,9 +2048,9 @@ static void handle_client(int client_fd) {
 
         size_t first_line_end = request.find("\r\n");
         if (first_line_end != std::string::npos) {
-            g_logger.info("HTTP: Request: %s", request.substr(0, first_line_end).c_str());
+            g_logger.info("HTTP: Request: {}", request.substr(0, first_line_end));
         } else {
-            g_logger.info("HTTP: Request: %s", request.c_str());
+            g_logger.info("HTTP: Request: {}", request);
         }
 
         // Very simple router
@@ -2328,7 +2329,7 @@ static void handle_client(int client_fd) {
             
             if (validation_failed) {
                 trigger_error(807); // E807: HTTP_SETTINGS_CLAMP_VIOLATION
-                g_logger.error("HTTP settings clamp violation: %s", err_msg.c_str());
+                g_logger.error("HTTP settings clamp violation: {}", err_msg);
                 std::string json_err = std::format("{{\n  \"status\": \"error\",\n  \"message\": \"HTTP settings clamp violation: {}\"\n}}", escape_json(err_msg));
                 send_response(client_fd, "HTTP/1.1 400 Bad Request", "application/json", json_err);
             } else {
@@ -2556,7 +2557,7 @@ static void server_loop(int port) {
             break;
         }
 
-        g_logger.warn("HTTP: Port %d was in use, trying next port...", current_port);
+        g_logger.warn("HTTP: Port {} was in use, trying next port...", current_port);
         close(socket_fd);
         current_port++;
     }
@@ -2567,7 +2568,7 @@ static void server_loop(int port) {
     }
 
     if (current_port != port) {
-        g_logger.warn("HTTP: Port %d was in use. Dynamic fallback bound to port %d", port, current_port);
+        g_logger.warn("HTTP: Port {} was in use. Dynamic fallback bound to port {}", port, current_port);
         {
             std::lock_guard lock(g_config_mtx);
             g_cfg.http_port = current_port;
@@ -2585,7 +2586,7 @@ static void server_loop(int port) {
         return;
     }
 
-    g_logger.info("HTTP: Background Web Remote server active on port %d", current_port);
+    g_logger.info("HTTP: Background Web Remote server active on port {}", current_port);
 
     while (g_server_running.load()) {
         int fd = g_listen_fd.load();
@@ -2618,7 +2619,7 @@ static void server_loop(int port) {
                 }
                 continue;
             }
-            g_logger.error("HTTP server accept failed: %s", strerror(errno));
+            g_logger.error("HTTP server accept failed: {}", strerror(errno));
             continue;
         }
 
@@ -2643,10 +2644,13 @@ static void server_loop(int port) {
             close(client_fd);
             continue;
         }
-        spawn_tracked_thread([client_fd]() {
+        if (!spawn_tracked_thread([client_fd]() {
             handle_client(client_fd);
             g_active_connections.fetch_sub(1);
-        });
+        })) {
+            g_active_connections.fetch_sub(1);
+            close(client_fd);
+        }
     }
 
     int fd_to_close = g_listen_fd.exchange(-1);
