@@ -1,6 +1,8 @@
 # Release v17.6.1 — Video Decoder Stall Fix, Thread-Spawn Hardening & Core Stability (August 15, 2026)
 
 ### Video Playback & Decoder Watchdog
+- **A/V Presentation Clock Synchronization & Audio Pause**:
+  - `video_decoder.cpp`, `video_decoder.h`, `main.cpp`: Anchored the presentation clock to the exact moment the first video frame is displayed on screen (`note_presentation_start`), keeping audio paused in SDL until presentation starts. Added late-frame catch-up in the render loop so video, audio, and the overlay countdown timer end simultaneously at EOF.
 - **Video Decoder False Stall Fix**:
   - `video_decoder.cpp`: Fixed false-positive 3-second stall timeout aborts (`VIDEO_DEC: Decoder stalled for 3s`) occurring when the decode queue fills (`m_frame_queue.size() >= 48`) or yields on backpressure (`m_frame_queue.size() >= 8`). The stall watchdog now only triggers when the frame queue is truly empty and refreshes its timestamp on all queue waits/yields.
 - **Diagnostic Rate Reset**:

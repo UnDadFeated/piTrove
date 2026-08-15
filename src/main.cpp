@@ -2484,6 +2484,7 @@ int main(int argc, char** argv) {
             if (g_video_decoder.is_running() || g_video_decoder.has_frames()) {
                 VideoFrame frame;
                 if (g_video_decoder.get_frame(frame)) {
+                    g_video_decoder.note_presentation_start(frame.pts);
                     // A frame is actually flowing: reset the stall timer so only a truly
                     // empty queue (decoder hang) accumulates toward the 30s forced recovery.
                     g_video_stall_ts = 0;
@@ -2493,6 +2494,24 @@ int main(int argc, char** argv) {
                         if (transition_prev_target) { SDL_DestroyTexture(transition_prev_target); transition_prev_target = nullptr; }
                         if (transition_next_target) { SDL_DestroyTexture(transition_next_target); transition_next_target = nullptr; }
                     }
+                    // A/V Sync Catch-up: drop stale frames if video lags behind presentation clock
+                    if (g_video_decoder.av_sync_ready()) {
+                        uint64_t now_ticks = SDL_GetTicks();
+                        double due_ms = g_video_decoder.get_anchor_wall_ms()
+                                       + (frame.pts - g_video_decoder.get_anchor_pts()) * 1000.0;
+                        while ((double)now_ticks > due_ms + 40.0 && g_video_decoder.has_frames()) {
+                            VideoFrame next_frame;
+                            if (g_video_decoder.get_frame(next_frame)) {
+                                frame = std::move(next_frame);
+                                due_ms = g_video_decoder.get_anchor_wall_ms()
+                                       + (frame.pts - g_video_decoder.get_anchor_pts()) * 1000.0;
+                                now_ticks = SDL_GetTicks();
+                            } else {
+                                break;
+                            }
+                        }
+                    }
+
                     // TEMP DIAG: display-rate instrumentation (locate 4K60 bottleneck)
                     {
                         uint32_t d_now = SDL_GetTicks();

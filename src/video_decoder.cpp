@@ -134,8 +134,9 @@ void VideoDecoder::init_audio() {
     }
 
     SDL_BindAudioStream(m_audio_device, m_audio_stream);
+    SDL_PauseAudioStreamDevice(m_audio_stream);
     m_audio_initialized = true;
-    DEBUG_LOG("AUDIO: Device opened id={}", m_audio_device);
+    DEBUG_LOG("AUDIO: Device opened id={} (paused for prebuffering)", m_audio_device);
 }
 
 void VideoDecoder::shutdown_audio() {
@@ -211,12 +212,6 @@ void VideoDecoder::note_frame_anchor(double pts_s, bool has_pts, bool stream_eof
         }
         return;
     }
-    if (!m_anchor_set.load(std::memory_order_relaxed)) {
-        m_anchor_pts.store(pts_s, std::memory_order_relaxed);
-        m_anchor_wall_ms.store((double)SDL_GetTicks(), std::memory_order_relaxed);
-        m_anchor_set.store(true, std::memory_order_release);
-        g_logger.info("[TRACE] AV_SYNC: frame anchor set (pts={:.3f})", pts_s);
-    }
     if (!m_v0_set.load(std::memory_order_relaxed)) {
         m_v0_pts.store(pts_s, std::memory_order_relaxed);
         m_v0_set.store(true, std::memory_order_release);
@@ -224,12 +219,21 @@ void VideoDecoder::note_frame_anchor(double pts_s, bool has_pts, bool stream_eof
 }
 
 void VideoDecoder::note_audio_anchor(double pts_s) {
+    // Presentation anchor is tied to visual presentation start in note_presentation_start()
+    (void)pts_s;
+}
+
+void VideoDecoder::note_presentation_start(double pts_s) {
     if (!m_av_sync.load(std::memory_order_relaxed)) return;
     if (!m_anchor_set.load(std::memory_order_relaxed)) {
         m_anchor_pts.store(pts_s, std::memory_order_relaxed);
         m_anchor_wall_ms.store((double)SDL_GetTicks(), std::memory_order_relaxed);
         m_anchor_set.store(true, std::memory_order_release);
-        g_logger.info("[TRACE] AV_SYNC: audio anchor set (pts={:.3f})", pts_s);
+        g_logger.info("[TRACE] AV_SYNC: Presentation clock anchored to display at ticks={} (pts={:.3f})", SDL_GetTicks(), pts_s);
+        std::lock_guard lk(m_audio_mtx);
+        if (m_audio_initialized && m_audio_stream) {
+            SDL_ResumeAudioStreamDevice(m_audio_stream);
+        }
     }
 }
 
