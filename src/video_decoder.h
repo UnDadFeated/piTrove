@@ -81,6 +81,7 @@ public:
     void set_displayed_pts(double pts_s);
  double get_video_duration() const { return m_video_total_duration.load(std::memory_order_relaxed); }
  double get_fps() const { return m_frame_duration > 0 ? 1.0 / m_frame_duration : 0; }
+ static constexpr size_t MAX_QUEUED_FRAMES = 128; // ~4.3s at 30fps / ~2.1s at 60fps (NV12 1080p ~3.1MB -> ~396MB)
 
 private:
  std::string m_path;
@@ -112,7 +113,6 @@ private:
     std::atomic<double> m_current_displayed_pts{0.0};         // first video frame pts (seconds)
     std::atomic<bool>   m_pts_valid{true};     // false once a frame pushes without valid pts
  std::atomic<double> decode_start_time{0.0};
- static constexpr size_t MAX_QUEUED_FRAMES = 128; // ~1.6s at 30fps: absorbs decoder/I-O bursts (NV12 1080p ~3.1MB -> ~150MB peak)
 
  // Audio
  SDL_AudioStream* m_audio_stream{nullptr};

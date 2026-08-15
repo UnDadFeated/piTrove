@@ -2719,15 +2719,14 @@ int main(int argc, char** argv) {
                     SDL_Delay(50);
                     continue;
                 }
-                // Pre-buffer before first present: if pre-warmed, buffer is already ready (0ms wait)
+                // Pre-buffer before first present: buffer full 128-frame lookahead queue (or EOF for short clips)
                 {
-                    double pre_fps = g_video_decoder.get_fps();
-                    if (pre_fps <= 0.0) pre_fps = 30.0;
-                    size_t pre_target = (size_t)(pre_fps * 1.5) + 1;
+                    size_t pre_target = VideoDecoder::MAX_QUEUED_FRAMES;
                     uint64_t pre_t0 = SDL_GetTicks();
                     while (g_video_decoder.frame_queue_size() < pre_target &&
-                           SDL_GetTicks() - pre_t0 < 4000 &&
-                           !g_video_decoder.is_eof()) {
+                           SDL_GetTicks() - pre_t0 < 8000 &&
+                           !g_video_decoder.is_eof() &&
+                           !g_video_decoder.consume_start_failed()) {
                         SDL_Delay(10);
                     }
                     g_logger.info("VIDEO: buffer ready with {} frames (prewarmed={}, wait={}ms)",
