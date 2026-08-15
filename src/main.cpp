@@ -2511,6 +2511,7 @@ int main(int argc, char** argv) {
                             }
                         }
                     }
+                    g_video_decoder.set_displayed_pts(frame.pts);
 
                     // TEMP DIAG: display-rate instrumentation (locate 4K60 bottleneck)
                     {

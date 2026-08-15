@@ -282,15 +282,25 @@ double VideoDecoder::get_frame_duration() const {
     return m_frame_duration;
 }
 
+void VideoDecoder::set_displayed_pts(double pts_s) {
+    if (pts_s > 0.0) {
+        m_current_displayed_pts.store(pts_s, std::memory_order_relaxed);
+    }
+}
+
 double VideoDecoder::get_video_remaining(double fallback_duration) const {
     if (m_eof.load(std::memory_order_relaxed)) return 0.0;
     double total = m_video_total_duration.load(std::memory_order_relaxed);
     if (total <= 0.0) total = fallback_duration;
+    if (total <= 0.0) return 0.0;
 
+    double displayed = m_current_displayed_pts.load(std::memory_order_relaxed);
+    if (displayed > 0.0 && m_v0_set.load(std::memory_order_acquire)) {
+        double v0 = m_v0_pts.load(std::memory_order_acquire);
+        double elapsed_video = std::max(0.0, displayed - v0);
+        return std::max(0.0, total - elapsed_video);
+    }
     if (av_sync_ready() && m_v0_set.load(std::memory_order_acquire)) {
-        // Presentation-clock based: current stream time = wall time elapsed since the
-        // anchor, re-baselined to the first video frame's pts (v0), which `total` is
-        // relative to. Monotonic with real time even if decoding stalls.
         double t_rel = ((double)SDL_GetTicks() - m_anchor_wall_ms.load(std::memory_order_acquire)) / 1000.0
                      + (m_anchor_pts.load(std::memory_order_acquire) - m_v0_pts.load(std::memory_order_acquire));
         return std::max(0.0, total - t_rel);
@@ -299,16 +309,7 @@ double VideoDecoder::get_video_remaining(double fallback_duration) const {
     if (total > 0.0 && last_pts > 0.0) {
         return std::max(0.0, total - last_pts);
     }
-
-    double start_t = decode_start_time.load(std::memory_order_relaxed);
-    if (start_t <= 0.0) {
-        return total;
-    }
-    double elapsed = (av_gettime_relative() / 1000000.0) - start_t;
-    if (total > 0.0) {
-        return std::max(0.0, total - elapsed);
-    }
-    return 0.0;
+    return total;
 }
 
 
@@ -935,6 +936,25 @@ void VideoDecoder::decode_loop() {
             }
 
         if (pkt->stream_index == video_stream_idx) {
+            // Dynamic decode frame-skipping if software decode lags behind presentation clock
+            if (m_anchor_set.load(std::memory_order_acquire)) {
+                double wall_elapsed_s = ((double)SDL_GetTicks() - m_anchor_wall_ms.load(std::memory_order_acquire)) / 1000.0;
+                double pkt_pts_s = (pkt->pts != AV_NOPTS_VALUE) ? av_q2d(fmt_ctx->streams[video_stream_idx]->time_base) * pkt->pts : -1.0;
+                if (pkt_pts_s > 0.0) {
+                    double lag_s = wall_elapsed_s - (pkt_pts_s - m_anchor_pts.load(std::memory_order_acquire));
+                    if (lag_s > 0.10) {
+                        // Decode is lagging > 100ms behind presentation clock: drop non-reference B-frames
+                        vcc->skip_frame = AVDISCARD_NONREF;
+                        vcc->skip_loop_filter = AVDISCARD_NONREF;
+                        vcc->skip_idct = AVDISCARD_NONREF;
+                    } else if (lag_s < 0.03) {
+                        // Caught up: decode all frames normally
+                        vcc->skip_frame = AVDISCARD_DEFAULT;
+                        vcc->skip_loop_filter = AVDISCARD_DEFAULT;
+                        vcc->skip_idct = AVDISCARD_DEFAULT;
+                    }
+                }
+            }
             ret = avcodec_send_packet(vcc, pkt);
             if (ret == AVERROR(EAGAIN)) {
                 // GPU Decoder queue full: drain decoded frames first to release HW buffers
