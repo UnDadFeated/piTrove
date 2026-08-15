@@ -2066,7 +2066,6 @@ int main(int argc, char** argv) {
     Uint64 fade_start_time = 0;
 
     while (g_running.load()) {
-        Uint64 frame_start_ticks = SDL_GetTicks();
         if (g_config_changed.load()) {
             g_logger.info("MAIN_LOOP: Dynamic configuration reload triggered!");
             {

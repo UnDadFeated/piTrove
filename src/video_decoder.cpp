@@ -712,7 +712,6 @@ void VideoDecoder::decode_loop() {
     }
     auto fill_frame = [&](AVFrame* sw, VideoFrame& vf) {
         vf.is_nv12 = true;
-        int out_w = sw->width, out_h = sw->height;
         if (nv12_scale_buf && (sw->width > dst_w || sw->height > dst_h)) {
             if (!nv12_sws || nv12_sws_w != sw->width || nv12_sws_h != sw->height || actual_pix_fmt != (AVPixelFormat)sw->format) {
                 if (nv12_sws) sws_freeContext(nv12_sws);
