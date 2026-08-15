@@ -66,10 +66,14 @@ static void unregister_client_fd(int fd) {
 
 static void spawn_tracked_thread(std::function<void()> func) {
     auto finished = std::make_shared<std::atomic<bool>>(false);
-    std::jthread t([func, finished]() {
+    std::jthread t;
+    if (!spawn_thread_safe(t, "http_client", [func, finished]() {
         try { func(); } catch (...) {}
         finished->store(true);
-    });
+    })) {
+        finished->store(true);
+        return;
+    }
     
     std::lock_guard<std::mutex> lk(g_http_threads_mtx);
     for (auto it = g_http_client_threads.begin(); it != g_http_client_threads.end(); ) {
@@ -1203,7 +1207,7 @@ static std::string get_dashboard_html() {
                 <button onclick="toggleTheme()" id="theme-btn" style="background: var(--card-bg); color: var(--text-main); border: 1px solid var(--card-border); border-radius: 8px; padding: 0.25rem 0.5rem; font-size: 0.75rem; cursor: pointer; outline: none; color-scheme:dark;">🌙</button>
             </div>
             <h1>piTrove controller</h1>
-            <div class="subtitle">v17.5.1 glassmorphic system</div>
+            <div class="subtitle">v17.6.0 glassmorphic system</div>
         </header>
 
         <div class="tabs">
@@ -2655,7 +2659,10 @@ static void server_loop(int port) {
 void start_http_server(int port) {
     if (g_server_running.load()) return;
     g_server_running.store(true);
-    g_server_thread = std::jthread(server_loop, port);
+    if (!spawn_thread_safe(g_server_thread, "http_server", server_loop, port)) {
+        g_server_running.store(false);
+        return;
+    }
 }
 
 void stop_http_server() {

@@ -88,11 +88,16 @@ std::vector<std::string> read_dir_timeout(const std::string& path, int timeout_m
 
     g_scanner_detached_threads++;
     std::string p(path);
-    std::jthread([p, sr]() {
+    std::jthread t;
+    if (!spawn_thread_safe(t, "scanner_read_dir", [p, sr]() {
         sr->entries = read_dir(p);
         sr->done.store(true);
         g_scanner_detached_threads--;
-    }).detach();
+    })) {
+        g_scanner_detached_threads--;
+        return {};
+    }
+    t.detach();
 
     auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeout_ms);
     while (!sr->done.load() && std::chrono::steady_clock::now() < deadline) {
@@ -120,12 +125,17 @@ bool stat_timeout(const std::string& path, struct stat& st, int timeout_ms) {
 
     g_scanner_detached_threads++;
     std::string p(path);
-    std::jthread([p, sr]() {
+    std::jthread t;
+    if (!spawn_thread_safe(t, "scanner_stat", [p, sr]() {
         int ret = stat(p.c_str(), &sr->data);
         if (ret != 0) memset(&sr->data, 0, sizeof(sr->data));
         sr->done.store(true);
         g_scanner_detached_threads--;
-    }).detach();
+    })) {
+        g_scanner_detached_threads--;
+        return false;
+    }
+    t.detach();
 
     auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeout_ms);
     while (!sr->done.load() && std::chrono::steady_clock::now() < deadline) {

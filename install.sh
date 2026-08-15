@@ -225,9 +225,9 @@ if [[ "$(uname -m)" != "aarch64" ]]; then
 fi
 ok "Debian Trixie 64-bit validated successfully"
 
-# 2. Bootstrap packages (git, lsb_release, pkg-config, curl needed below)
+# 2. Bootstrap packages (git, lsb_release, curl, sudo needed below)
 run_with_spinner "Updating system package repositories" apt-get update -qq
-run_with_spinner "Installing bootstrap tools" apt-get install -y -qq git curl lsb-release pkg-config
+run_with_spinner "Installing bootstrap tools" apt-get install -y -qq git curl lsb-release sudo
 # Install QR code generator for terminal dashboard URL
 run_with_spinner "Installing QR encoder" apt-get install -y -qq qrencode 2>/dev/null || true
 
@@ -236,13 +236,18 @@ if ! command -v docker &>/dev/null; then
     
 info "Installing network filesystem utilities & base dependencies..."
 apt-get update -qq
-apt-get install -y -qq git curl ca-certificates gnupg2 cifs-utils nfs-common 2>/dev/null || true
+apt-get install -y -qq ca-certificates cifs-utils nfs-common 2>/dev/null || true
 
 run_with_spinner "Installing Docker Engine" sh -c "curl -fsSL https://get.docker.com | sh"
 fi
 if ! docker compose version &>/dev/null; then
     run_with_spinner "Installing Docker Compose Plugin" apt-get install -y -qq docker-compose-plugin
 fi
+# NetworkManager is required by the piTrove keepalive thread (nmcli device connect)
+# and by the Wi-Fi power-saving override section below
+run_with_spinner "Installing NetworkManager" apt-get install -y -qq network-manager
+systemctl enable --now NetworkManager &>/dev/null || true
+ok "NetworkManager installed and enabled"
 
 # Parse a value from config.toml
 # Usage: get_config_val "section" "key" "default"
@@ -519,9 +524,8 @@ else
     ok "Disk space check passed ($((AVAIL / 1024 / 1024))GB available)"
 fi
 
-# ── Install comprehensive system packages ──────────────────────────────────────
-run_with_spinner "Installing host system dependencies (cifs-utils, git, iw, libv4l, v4l-utils)" apt-get install -y -qq \
-    git curl cifs-utils iw libv4l-0t64 libv4lconvert0t64 v4l-utils 2>/dev/null || apt-get install -y -qq git curl cifs-utils iw
+# ── Install host filesystem dependencies (NAS mounts) ──────────────────────────
+run_with_spinner "Installing host filesystem dependencies (cifs-utils, nfs-common)" apt-get install -y -qq cifs-utils nfs-common 2>/dev/null || true
 
 # ── DRM and Docker group configuration ─────────────────────────────────────────
 run_with_spinner "Adding $PRIMARY_USER to video, render, and docker groups for hardware & docker permission" usermod -aG video,render,docker "$PRIMARY_USER"

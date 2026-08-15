@@ -96,7 +96,9 @@ static void ensure_pub_worker_running() {
             g_pub_worker_thread.join();
         }
         g_pub_worker_running.store(true);
-        g_pub_worker_thread = std::jthread(pub_worker_loop);
+        if (!spawn_thread_safe(g_pub_worker_thread, "mqtt_pub_worker", pub_worker_loop)) {
+            g_pub_worker_running.store(false);
+        }
     }
 }
 
@@ -229,7 +231,8 @@ void start_mqtt_client() {
         if (g_mqtt_thread.joinable()) return;
     }
     
-    g_mqtt_thread = std::jthread([]() {
+    std::jthread t;
+    if (spawn_thread_safe(t, "mqtt", []() {
         while (g_running.load()) {
             std::string broker, prefix, sensor_topic;
             int port = 1883;
@@ -454,7 +457,9 @@ std::vector<char*> argv;
             }
         }
         g_logger.info("MQTT subscriber thread exiting.");
-    });
+    })) {
+        g_mqtt_thread = std::move(t);
+    }
 }
 
 void stop_mqtt_client() {
