@@ -1454,8 +1454,9 @@ int main(int argc, char** argv) {
                             std::string remaining_str = "0:00";
                             static int rem_cnt2=0; if(++rem_cnt2%60==0) g_logger.info("REM_TRACE2: remaining={:.1f} is_run={} has_f={}", remaining, g_video_decoder.is_running(), g_video_decoder.has_frames());
                             if (remaining > 0.0 && (g_video_decoder.is_running() || g_video_decoder.has_frames())) {
-                                int mins = (int)(remaining / 60.0);
-                                int secs = (int)(remaining - mins * 60.0);
+                                int total_secs = (int)std::ceil(remaining);
+                                int mins = total_secs / 60;
+                                int secs = total_secs % 60;
                                 remaining_str = std::format("{}:{:02d}", mins, secs);
                             }
                             g_overlay->draw_all(current_idx, std::ssize(g_eligible),
@@ -2570,8 +2571,9 @@ int main(int argc, char** argv) {
                             std::string remaining_str = "0:00";
                             static int rem_cnt=0; if(++rem_cnt%60==0) g_logger.info("REM_TRACE: remaining={:.1f} is_running={} has_frames={}", remaining, g_video_decoder.is_running(), g_video_decoder.has_frames());
                             if (remaining > 0.0 && (g_video_decoder.is_running() || g_video_decoder.has_frames())) {
-                                int mins = (int)(remaining / 60.0);
-                                int secs = (int)(remaining - mins * 60.0);
+                                int total_secs = (int)std::ceil(remaining);
+                                int mins = total_secs / 60;
+                                int secs = total_secs % 60;
                                 remaining_str = std::format("{}:{:02d}", mins, secs);
                             }
                             g_overlay->draw_all(current_idx, std::ssize(g_eligible),

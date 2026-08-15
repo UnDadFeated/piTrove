@@ -317,7 +317,7 @@ double VideoDecoder::get_frame_duration() const {
 }
 
 void VideoDecoder::set_displayed_pts(double pts_s) {
-    if (pts_s > 0.0) {
+    if (pts_s >= 0.0) {
         m_current_displayed_pts.store(pts_s, std::memory_order_relaxed);
     }
 }
@@ -329,7 +329,7 @@ double VideoDecoder::get_video_remaining(double fallback_duration) const {
     if (total <= 0.0) return 0.0;
 
     double displayed = m_current_displayed_pts.load(std::memory_order_relaxed);
-    if (displayed > 0.0 && m_v0_set.load(std::memory_order_acquire)) {
+    if (displayed >= 0.0 && m_v0_set.load(std::memory_order_acquire)) {
         double v0 = m_v0_pts.load(std::memory_order_acquire);
         double elapsed_video = std::max(0.0, displayed - v0);
         return std::max(0.0, total - elapsed_video);
