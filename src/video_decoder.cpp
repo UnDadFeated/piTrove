@@ -193,10 +193,12 @@ double VideoDecoder::get_anchor_pts() const { return m_anchor_pts.load(std::memo
 
 // Anchor the presentation clock to the first pushed event (video frame or audio
 // chunk), whichever arrives first. Single writer: the decode thread.
-void VideoDecoder::note_frame_anchor(double pts_s, bool has_pts) {
+void VideoDecoder::note_frame_anchor(double pts_s, bool has_pts, bool stream_eof) {
     if (!m_av_sync.load(std::memory_order_relaxed)) return;
     if (!has_pts) {
-        if (m_pts_valid.load(std::memory_order_relaxed)) {
+        // Trailing flush frames after demux EOF carry no pts - expected, not a
+        // stream problem. Only latch the fallback for genuine mid-stream pts loss.
+        if (!stream_eof && m_pts_valid.load(std::memory_order_relaxed)) {
             m_pts_valid.store(false, std::memory_order_relaxed);
             g_logger.warn("AV_SYNC: frame without valid pts, falling back to counter pacing");
         }
@@ -704,7 +706,7 @@ void VideoDecoder::decode_loop() {
                         if (pts_raw1 != AV_NOPTS_VALUE) {
                             vf.pts = av_q2d(fmt_ctx->streams[video_stream_idx]->time_base) * pts_raw1;
                         }
-                        note_frame_anchor(vf.pts, pts_raw1 != AV_NOPTS_VALUE);
+                        note_frame_anchor(vf.pts, pts_raw1 != AV_NOPTS_VALUE, eof);
                         {
                             std::unique_lock<std::mutex> lk(m_queue_mtx);
                             m_queue_cv.wait(lk, [this] {
@@ -774,7 +776,7 @@ void VideoDecoder::decode_loop() {
                     }
                     int64_t pts_raw2 = (frame->best_effort_timestamp != AV_NOPTS_VALUE) ? frame->best_effort_timestamp : (frame->pts != AV_NOPTS_VALUE ? frame->pts : frame->pkt_dts);
                     if (pts_raw2 != AV_NOPTS_VALUE) vf.pts = av_q2d(fmt_ctx->streams[video_stream_idx]->time_base) * pts_raw2;
-                    note_frame_anchor(vf.pts, pts_raw2 != AV_NOPTS_VALUE);
+                    note_frame_anchor(vf.pts, pts_raw2 != AV_NOPTS_VALUE, eof);
                     {
                         std::unique_lock<std::mutex> lk(m_queue_mtx);
                         m_queue_cv.wait(lk, [this] { return m_frame_queue.size() < MAX_QUEUED_FRAMES || !m_running.load(); });
@@ -917,7 +919,7 @@ void VideoDecoder::decode_loop() {
             }
             // Track last decoded frame PTS for accurate countdown timer
             if (vf.pts > 0) m_last_frame_pts.store(vf.pts + m_frame_duration, std::memory_order_relaxed);
-            note_frame_anchor(vf.pts, pts_raw != AV_NOPTS_VALUE);
+            note_frame_anchor(vf.pts, pts_raw != AV_NOPTS_VALUE, eof);
 
             {
                 std::unique_lock<std::mutex> lk(m_queue_mtx);

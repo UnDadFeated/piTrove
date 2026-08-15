@@ -72,7 +72,7 @@ public:
     bool av_sync_ready() const;
     double get_anchor_wall_ms() const;
     double get_anchor_pts() const;
-    void note_frame_anchor(double pts_s, bool has_pts);
+    void note_frame_anchor(double pts_s, bool has_pts, bool stream_eof = false);
     void note_audio_anchor(double pts_s);
  double get_video_duration() const { return m_video_total_duration.load(std::memory_order_relaxed); }
  double get_fps() const { return m_frame_duration > 0 ? 1.0 / m_frame_duration : 0; }
