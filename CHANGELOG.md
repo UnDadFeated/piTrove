@@ -1,3 +1,21 @@
+# Release v17.6.2 — Unified NV12 GPU Pipeline, Presentation Clock Sync & Framerate Optimization (August 15, 2026)
+
+### Rendering Pipeline & GPU Acceleration
+- **Unified NV12 GPU Pipeline & Zero CPU RGBA Overhead**:
+  - `video_decoder.cpp`: Eliminated all CPU-side RGBA allocations and conversions. Decoded video frames across all input pixel formats (`NV12`, `YUV420P`, `YUVJ420P`, etc.) stream directly into compact NV12 planar buffers.
+  - Video streams above 1080p are downscaled directly to NV12 display bounds using ARM NEON SIMD acceleration (`SWS_FAST_BILINEAR`), cutting per-frame texture upload bandwidth from 12.4 MB down to 3.1 MB (4x reduction).
+  - SDL3 uploads NV12 planar buffers directly via `SDL_UpdateNVTexture`, offloading all color space conversion and scaling entirely to GPU hardware shaders with 0 CPU overhead.
+
+### Codec & Multi-Threaded Decode Optimizations
+- **Fast Codec Flags & Frame/Slice Multi-Threading**:
+  - `video_decoder.cpp`: Enabled `AV_CODEC_FLAG2_FAST` for accelerated IDCT and motion vector computation.
+  - Configured multi-threaded software decode fallback to scale across all CPU cores with `FF_THREAD_FRAME | FF_THREAD_SLICE` parallelization.
+
+### Video & Audio Synchronization
+- **Presentation Clock Display Anchoring**:
+  - `video_decoder.cpp`, `main.cpp`: Anchored presentation clock timing to the exact moment the first video frame appears on screen (`note_presentation_start`), keeping the SDL audio stream paused during prebuffering and unpausing synchronously.
+  - Added late-frame catch-up in the render loop to guarantee that video, audio, and the overlay countdown reach natural EOF together.
+
 # Release v17.6.1 — Video Decoder Stall Fix, Thread-Spawn Hardening & Core Stability (August 15, 2026)
 
 ### Video Playback & Decoder Watchdog
