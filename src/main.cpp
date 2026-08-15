@@ -2468,6 +2468,9 @@ int main(int argc, char** argv) {
             if (g_video_decoder.is_running() || g_video_decoder.has_frames()) {
                 VideoFrame frame;
                 if (g_video_decoder.get_frame(frame)) {
+                    // A frame is actually flowing: reset the stall timer so only a truly
+                    // empty queue (decoder hang) accumulates toward the 30s forced recovery.
+                    g_video_stall_ts = 0;
                     if (transitioning) {
                         transitioning = false;
                         if (g_transition) g_transition->reset();
