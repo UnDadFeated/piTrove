@@ -313,6 +313,10 @@ bool VideoDecoder::has_frames() const {
     std::lock_guard lk(m_queue_mtx);
     return !m_frame_queue.empty();
 }
+size_t VideoDecoder::frame_queue_size() const {
+    std::lock_guard lk(m_queue_mtx);
+    return m_frame_queue.size();
+}
 
 // TEMP DIAG: push-rate instrumentation (locate 4K60 bottleneck)
 static void log_push_rate(const char* site) {
@@ -461,19 +465,36 @@ void VideoDecoder::decode_loop() {
     if (!hw_dev && hw_disabled_session) {
         g_logger.warn("VIDEO_DEC: HW accel disabled for this session (crawl recovery); using software decode");
     }
+    // v4l2_m2m kernel HW decode: the M2M node (/dev/video19 rpi-hevc-dec on
+    // Pi 5) is the only real HEVC hardware decoder available here. Distro
+    // libav* builds lack the v4l2_m2m hwcontext (so distro FFmpeg has no
+    // hevc_v4l2m2m), and the DRM "hwaccel" device is a no-op for the software
+    // decoder. The custom FFmpeg build (Dockerfile, --enable-v4l2-m2m)
+    // provides hevc_v4l2m2m. H.264 keeps the previous path (DRM device +
+    // software; Pi 5 has no M2M node for H.264).
+    // hw_disabled_session (set by the [E530] frame-crawl detector) stays the
+    // safety net: if the M2M pipeline degrades, the rest of this process
+    // lifetime runs software decode.
     const AVCodec* vc = avcodec_find_decoder(vp->codec_id);
-
-    // 100% GPU Hardware Acceleration enabled for all video codecs (H.264 & HEVC) on Pi 4 & Pi 5.
-
-    // Pi 4 fallback: use V4L2 M2M codec directly if DRM hwaccel not available
-    if (!hw_dev && hwaccel_path == "v4l2m2m" && vp->codec_id == AV_CODEC_ID_HEVC) {
-        vc = avcodec_find_decoder_by_name("hevc_v4l2m2m");
-    }
-    if (!hw_dev && hwaccel_path == "v4l2m2m" && vp->codec_id == AV_CODEC_ID_H264) {
-        vc = avcodec_find_decoder_by_name("h264_v4l2m2m");
+    if (vp->codec_id == AV_CODEC_ID_HEVC && !hw_disabled_session) {
+        const AVCodec* m2m = avcodec_find_decoder_by_name("hevc_v4l2m2m");
+        AVBufferRef* m2m_dev = nullptr;
+        if (m2m && av_hwdevice_ctx_create(&m2m_dev, AV_HWDEVICE_TYPE_V4L2_M2M, nullptr, nullptr, 0) >= 0) {
+            g_logger.info("VIDEO_DEC: HEVC: using v4l2_m2m kernel HW decoder ({}x{})", vp->width, vp->height);
+            if (hw_dev) {
+                av_buffer_unref(&hw_dev);
+            }
+            hw_dev = m2m_dev;
+            vc = m2m;
+        } else {
+            if (m2m_dev) {
+                av_buffer_unref(&m2m_dev);
+            }
+            g_logger.info("VIDEO_DEC: HEVC: v4l2_m2m unavailable, using software decode");
+        }
     }
     if (vc && hw_dev) {
-        g_logger.info("VIDEO_DEC: Hardware video acceleration enabled ({} via DRM)", vc->name);
+        g_logger.info("VIDEO_DEC: Hardware video acceleration enabled ({})", vc->name);
     }
     if (!vc) {
     av_buffer_unref(&hw_dev);
