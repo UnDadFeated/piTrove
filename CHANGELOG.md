@@ -1,6 +1,6 @@
-# Release v17.7.3 — Codebase-Wide Audit: Error Code Linkages, Dead Code Removal & Include Hygiene (August 15, 2026)
+### Release v17.7.3 — Codebase-Wide Audit: Error Code Linkages, Dead Code Removal & Include Hygiene (August 15, 2026)
 
-### Error Catalog Linkage & Diagnostics
+#### Error Catalog Linkage & Diagnostics
 - **Comprehensive Error Code Wiring**:
   - `video_decoder.cpp`: Connected diagnostic trigger points for `E528` (`VIDEO_HW_TRANSFER_FAILED`), `E531` (`VIDEO_AUDIO_INIT_FAILED`), `E532` (`VIDEO_PROBE_FAILED`), `E533` (`VIDEO_CODEC_NOT_FOUND`), and `E534` (`VIDEO_STREAM_NOT_FOUND`).
 - **Include Hygiene & Duplicate Cleanup**:
@@ -8,29 +8,29 @@
 - **Resource Management Verification**:
   - Verified 100% RAII lock management across all 150+ mutex scopes and verified `VideoFrame` rule-of-five move semantics for leak-free frame cycling.
 
-# Release v17.7.2 — Eliminate Artificial Decode Throttle & HW-Scope E530 Watchdog (August 15, 2026)
+### Release v17.7.2 — Eliminate Artificial Decode Throttle & HW-Scope E530 Watchdog (August 15, 2026)
 
-### Video Decoding & Performance
+#### Video Decoding & Performance
 - **Eliminated Artificial 10ms Decode Throttle**:
   - `video_decoder.cpp`: Removed legacy `sleep_for(10ms)` when `queue >= 8` that was bottlenecking live decode throughput to $\le 25	ext{ fps}$. Decoder now runs at full CPU speed to continuously stay ahead of playback and keep the lookahead buffer permanently saturated.
 - **Hardware-Scoped E530 Watchdog**:
   - `video_decoder.cpp`: Restricted the `E530` frame crawl watchdog strictly to active hardware/M2M decoder paths (`is_hw || is_m2m`), preventing software decode on heavy 4K streams from ever triggering false E530 error popups.
 
-# Release v17.7.1 — Fix Pre-Warm Re-Triggering, Presentation Anchor Sync & Error Box Auto-Dismiss (August 15, 2026)
+### Release v17.7.1 — Fix Pre-Warm Re-Triggering, Presentation Anchor Sync & Error Box Auto-Dismiss (August 15, 2026)
 
-### Video Decoding & Buffer Management
+#### Video Decoding & Buffer Management
 - **Pre-Warm State Retention**:
   - `video_decoder.cpp`, `main.cpp`: Fixed photo lookahead loop to recognize when an upcoming video has completed decoding into RAM (`has_frames() == true`), preventing the photo loop from endlessly re-calling `prewarm()` and wiping out the pre-decoded buffer.
 - **Pre-Warmed Presentation Anchor Synchronization**:
   - `video_decoder.cpp`: When transitioning from photo to a pre-warmed video, properly reset `m_anchor_set = false` so that the A/V presentation clock anchors precisely to the first visible video frame at screen render time, eliminating high-speed frame dumping.
 
-### Error Overlay & UI
+#### Error Overlay & UI
 - **Transient Video Error Auto-Dismissal**:
   - `main.cpp`: Updated slideshow item presentation to clear transient video error codes (`E500`–`E599`, including `E530`) when an item is shown, ensuring error dialog boxes auto-dismiss rather than persisting across slideshow items.
 
-# Release v17.7.0 — Ultra-Deep 2048-Frame Video Lookahead Buffer & Unified NV12 Hardware Pipeline (August 15, 2026)
+### Release v17.7.0 — Ultra-Deep 2048-Frame Video Lookahead Buffer & Unified NV12 Hardware Pipeline (August 15, 2026)
 
-### Video Decoding, Buffering & GPU Streaming
+#### Video Decoding, Buffering & GPU Streaming
 - **2048-Frame Ultra-Deep Lookahead Buffer**:
   - `video_decoder.h`: Expanded `MAX_QUEUED_FRAMES` to **2048 frames** (~68.2 seconds of 30fps video / ~34.1s of 60fps video, ~6.37 GB NV12 RAM envelope).
   - Pre-buffers full video clips directly into RAM, guaranteeing zero disk I/O, zero network latency, and continuous 60.0 fps playback.
@@ -42,11 +42,11 @@ ightarrow$ 3.1 MB/frame).
 - **Multi-Item Background Pre-Warming**:
   - `main.cpp`: Proactively starts background pre-warming up to 2 items ahead, decoding upcoming videos in the background while preceding photos are displayed.
 
-### Countdown Timer & Overlay Synchronization
+#### Countdown Timer & Overlay Synchronization
 - **Monotonic Visible-Frame Countdown Sync**:
   - `video_decoder.cpp`, `main.cpp`: Locked countdown calculations to visible frame presentation timestamps (`m_current_displayed_pts`), correctly primed at frame 0 (`pts = 0.0`), and used `std::ceil(remaining)` ceiling rounding to ensure short 1–5 second videos count down smoothly to exact EOF.
 
-### Diagnostics & Error Catalog Expansion
+#### Diagnostics & Error Catalog Expansion
 - **E528–E535 Diagnostic Error Codes**:
   - `error_db.cpp`: Added diagnostic catalog definitions for video decoder states: `E528` (`VIDEO_HW_TRANSFER_FAILED`), `E529` (`VIDEO_DECODER_STALL`), `E530` (`VIDEO_M2M_CRAWL_DETECTED`), `E531` (`VIDEO_AUDIO_INIT_FAILED`), `E532` (`VIDEO_PROBE_FAILED`), `E533` (`VIDEO_CODEC_NOT_FOUND`), `E534` (`VIDEO_STREAM_NOT_FOUND`), and `E535` (`VIDEO_UNSUPPORTED_PIXEL_FORMAT`).
 - **Comprehensive [TRACE] Logging**:
@@ -54,23 +54,23 @@ ightarrow$ 3.1 MB/frame).
 - **Compiler Warning Elimination**:
   - Removed all unused local variables across `main.cpp` and `video_decoder.cpp` for a completely clean, warning-free build.
 
-# Release v17.6.10 — Error Catalog Expansion (E528–E535) & Comprehensive [TRACE] Logging (August 15, 2026)
+### Release v17.6.10 — Error Catalog Expansion (E528–E535) & Comprehensive [TRACE] Logging (August 15, 2026)
 
-### System Error Catalog & Diagnostics
+#### System Error Catalog & Diagnostics
 - **E528–E535 Diagnostic Error Codes**:
   - `error_db.cpp`: Added comprehensive diagnostic entries for video pipeline states including `E528` (`VIDEO_HW_TRANSFER_FAILED`), `E529` (`VIDEO_DECODER_STALL`), `E530` (`VIDEO_M2M_CRAWL_DETECTED`), `E531` (`VIDEO_AUDIO_INIT_FAILED`), `E532` (`VIDEO_PROBE_FAILED`), `E533` (`VIDEO_CODEC_NOT_FOUND`), `E534` (`VIDEO_STREAM_NOT_FOUND`), and `E535` (`VIDEO_UNSUPPORTED_PIXEL_FORMAT`).
 - **Comprehensive [TRACE] Diagnostic Logging**:
   - `transition.cpp`, `video_decoder.cpp`, and `main.cpp`: Added unconditional `[TRACE]` logging for transition start/completion lifecycles, adaptive lookahead buffer state switches, video pre-warming events, and stall recoveries.
 
-# Release v17.6.9 — E530 Watchdog False-Positive Fix on Full Buffers (August 15, 2026)
+### Release v17.6.9 — E530 Watchdog False-Positive Fix on Full Buffers (August 15, 2026)
 
-### Video Decoding & Watchdog Protection
+#### Video Decoding & Watchdog Protection
 - **E530 Watchdog Guard on Full Queue**:
   - `video_decoder.cpp`: The E530 frame-crawl watchdog previously checked only the rate of newly pushed frames over 3-second windows without checking queue depth. When deep pre-buffering filled hundreds to thousands of frames into RAM, the decode thread intentionally paused pushing frames, which falsely triggered E530. Added queue-depth starvation check (`q_sz < 10`) so E530 only fires if the buffer is genuinely starving under active hardware stalls.
 
-# Release v17.6.8 — Ceiling Rounding & Zero-PTS Countdown Tracking for Short Videos (August 15, 2026)
+### Release v17.6.8 — Ceiling Rounding & Zero-PTS Countdown Tracking for Short Videos (August 15, 2026)
 
-### Video Overlay & Countdown Synchronization
+#### Video Overlay & Countdown Synchronization
 - **Zero-PTS Display Tracking**:
   - `video_decoder.cpp`: Allowed frame 0 (`pts = 0.0`) to immediately populate `m_current_displayed_pts` (`pts >= 0.0`), fixing initial countdown calculation on short clips pre-buffered 100% in RAM.
 - **Ceiling Rounding for Remaining Time Display**:
@@ -78,9 +78,9 @@ ightarrow$ 3.1 MB/frame).
 ightarrow$ `0:02` $
 ightarrow$ `0:01` rather than truncating sub-second remaining time to `00:00`.
 
-# Release v17.6.7 — 2048-Frame Lookahead Buffer & High-Frame-Rate 4K@60 Pacing (August 15, 2026)
+### Release v17.6.7 — 2048-Frame Lookahead Buffer & High-Frame-Rate 4K@60 Pacing (August 15, 2026)
 
-### Video Decoding & Buffer Management
+#### Video Decoding & Buffer Management
 - **2048-Frame Lookahead Buffer Capacity**:
   - `video_decoder.h`: Expanded `MAX_QUEUED_FRAMES` to **2048 frames** (~68.2 seconds at 30fps / ~34.1s at 60fps).
   - Provides a massive memory buffer to hold lengthy 4K 60fps streams entirely in RAM.
@@ -89,35 +89,35 @@ ightarrow$ `0:01` rather than truncating sub-second remaining time to `00:00`.
 - **Multi-Item Background Pre-Warming**:
   - `main.cpp`: Proactively starts background pre-warming up to 2 items ahead, giving workers extra time to pre-decode videos into RAM while photos are displaying.
 
-# Release v17.6.6 — 1536-Frame Deep RAM Buffer & Extended 30s Cold-Start Pre-Warm (August 15, 2026)
+### Release v17.6.6 — 1536-Frame Deep RAM Buffer & Extended 30s Cold-Start Pre-Warm (August 15, 2026)
 
-### Video Decoding & Buffer Management
+#### Video Decoding & Buffer Management
 - **1536-Frame Ultra-Deep Lookahead Buffer**:
   - `video_decoder.h`: Expanded `MAX_QUEUED_FRAMES` to **1536 frames** (~51.2 seconds at 30fps / ~25.6s at 60fps, ~4.77 GB RAM envelope in NV12 format).
   - Maximizes the 60fps continuous playback buffer, ensuring 4K 60fps video clips stream entirely from RAM with zero decode contention.
 - **Extended 30s Pre-Warm Window for Cold Starts**:
   - `main.cpp`: Extended startup pre-buffer timeout to 30 seconds for cold starts, allowing high-frame-count 4K videos to pre-decode their entire duration into RAM before playback begins.
 
-# Release v17.6.5 — Adaptive Lookahead Buffer Controller & Countdown Timer Display Fix (August 15, 2026)
+### Release v17.6.5 — Adaptive Lookahead Buffer Controller & Countdown Timer Display Fix (August 15, 2026)
 
-### Video Decoding & Buffer Management
+#### Video Decoding & Buffer Management
 - **Adaptive Lookahead Buffer Controller (YouTube-Style Pacing)**:
   - `video_decoder.cpp`: Real-time queue-depth controller monitors lookahead buffer depth during playback. If the queue drops below 96 frames on heavy 4K 60fps streams, the decoder dynamically discards non-reference B-frames (`AVDISCARD_NONREF`) to boost throughput to 60+ fps and refill the buffer. When the buffer recovers to $\ge 256$ frames, full reference decode resumes. Prevents playback from ever draining the lookahead buffer.
 - **Countdown Overlay Display During RAM Playback**:
   - `video_decoder.cpp`: Fixed `get_video_remaining()` so that pre-decoded 100% RAM resident videos continue calculating and rendering live countdowns instead of latching at 00:00.
 
-# Release v17.6.4 — 1024-Frame Full Video RAM Buffer & Ultra-Deep Lookahead (August 15, 2026)
+### Release v17.6.4 — 1024-Frame Full Video RAM Buffer & Ultra-Deep Lookahead (August 15, 2026)
 
-### Video Decoding & Buffer Management
+#### Video Decoding & Buffer Management
 - **1024-Frame Ultra-Deep Lookahead Queue**:
   - `video_decoder.h`: Expanded `MAX_QUEUED_FRAMES` to **1024 frames** (~34.1 seconds of uncompressed video at 30fps / ~17.1s at 60fps, ~3.18 GB RAM in planar NV12 format).
   - Enables whole-video RAM residency for most typical home video clips, guaranteeing zero disk or network I/O during playback.
 - **1024-Frame Cold-Start & Background Pre-Warming**:
   - `main.cpp`: Cold-starts and background pre-warming both fill up to 1024 frames (or natural EOF for shorter clips), maximizing playback stability and eliminating all mid-playback jitter.
 
-# Release v17.6.3 — 128-Frame Lookahead Buffer, Cold-Start Pre-Warm & Double-Delay Elimination (August 15, 2026)
+### Release v17.6.3 — 128-Frame Lookahead Buffer, Cold-Start Pre-Warm & Double-Delay Elimination (August 15, 2026)
 
-### Video Decoding & Buffer Management
+#### Video Decoding & Buffer Management
 - **128-Frame Lookahead Capacity**:
   - `video_decoder.h`: Expanded `MAX_QUEUED_FRAMES` to 128 frames (~4.3 seconds of buffered video at 30fps, ~2.1s at 60fps), occupying ~396 MB RAM in compact NV12 format. Completely absorbs I/O jitter and high-bitrate 4K decode spikes.
 - **Cold-Start & Pre-Warmed Full Buffer Initialization**:
@@ -125,33 +125,33 @@ ightarrow$ `0:01` rather than truncating sub-second remaining time to `00:00`.
 - **Background Video Pre-Warming**:
   - `video_decoder.cpp`, `main.cpp`: Added `VideoDecoder::prewarm()` to proactively decode the next video in the background during photo display intervals.
 
-### Render Pacing & Frame Timing
+#### Render Pacing & Frame Timing
 - **Render Loop Double-Delay Elimination**:
   - `main.cpp`: Removed the duplicate 60Hz frame throttle sleep during video playback, allowing PTS-paced frames (`due_ms`) to present precisely and yielding 1ms to decode workers without artificial delay.
 - **Dynamic B-Frame Discard & Displayed-Frame Countdown Lock**:
   - `video_decoder.cpp`, `main.cpp`: Dynamically drops non-reference B-frames (`AVDISCARD_NONREF`) when decode lag exceeds 100ms, and locked the overlay countdown timer directly to visible frame PTS so the timer and video finish simultaneously at EOF.
 
-# Release v17.6.2 — Unified NV12 GPU Pipeline, Presentation Clock Sync & Framerate Optimization (August 15, 2026)
+### Release v17.6.2 — Unified NV12 GPU Pipeline, Presentation Clock Sync & Framerate Optimization (August 15, 2026)
 
-### Rendering Pipeline & GPU Acceleration
+#### Rendering Pipeline & GPU Acceleration
 - **Unified NV12 GPU Pipeline & Zero CPU RGBA Overhead**:
   - `video_decoder.cpp`: Eliminated all CPU-side RGBA allocations and conversions. Decoded video frames across all input pixel formats (`NV12`, `YUV420P`, `YUVJ420P`, etc.) stream directly into compact NV12 planar buffers.
   - Video streams above 1080p are downscaled directly to NV12 display bounds using ARM NEON SIMD acceleration (`SWS_FAST_BILINEAR`), cutting per-frame texture upload bandwidth from 12.4 MB down to 3.1 MB (4x reduction).
   - SDL3 uploads NV12 planar buffers directly via `SDL_UpdateNVTexture`, offloading all color space conversion and scaling entirely to GPU hardware shaders with 0 CPU overhead.
 
-### Codec & Multi-Threaded Decode Optimizations
+#### Codec & Multi-Threaded Decode Optimizations
 - **Fast Codec Flags & Frame/Slice Multi-Threading**:
   - `video_decoder.cpp`: Enabled `AV_CODEC_FLAG2_FAST` for accelerated IDCT and motion vector computation.
   - Configured multi-threaded software decode fallback to scale across all CPU cores with `FF_THREAD_FRAME | FF_THREAD_SLICE` parallelization.
 
-### Video & Audio Synchronization
+#### Video & Audio Synchronization
 - **Presentation Clock Display Anchoring**:
   - `video_decoder.cpp`, `main.cpp`: Anchored presentation clock timing to the exact moment the first video frame appears on screen (`note_presentation_start`), keeping the SDL audio stream paused during prebuffering and unpausing synchronously.
   - Added late-frame catch-up in the render loop to guarantee that video, audio, and the overlay countdown reach natural EOF together.
 
-# Release v17.6.1 — Video Decoder Stall Fix, Thread-Spawn Hardening & Core Stability (August 15, 2026)
+### Release v17.6.1 — Video Decoder Stall Fix, Thread-Spawn Hardening & Core Stability (August 15, 2026)
 
-### Video Playback & Decoder Watchdog
+#### Video Playback & Decoder Watchdog
 - **A/V Presentation Clock Synchronization & Audio Pause**:
   - `video_decoder.cpp`, `video_decoder.h`, `main.cpp`: Anchored the presentation clock to the exact moment the first video frame is displayed on screen (`note_presentation_start`), keeping audio paused in SDL until presentation starts. Added late-frame catch-up in the render loop so video, audio, and the overlay countdown timer end simultaneously at EOF.
 - **Video Decoder False Stall Fix**:
@@ -159,7 +159,7 @@ ightarrow$ `0:01` rather than truncating sub-second remaining time to `00:00`.
 - **Diagnostic Rate Reset**:
   - `video_decoder.cpp`, `main.cpp`: Reset throughput calculation timestamps per video playback session so inter-item slideshow pauses do not produce false low frame-rate metrics.
 
-### System & Thread Safety Hardening
+#### System & Thread Safety Hardening
 - **Comprehensive Thread-Spawn Safety**:
   - `video_decoder.cpp`, `scanner.cpp`: Wrapped `VideoDecoder::start` and `MediaScanner::scan` worker pool allocations with `spawn_thread_safe` and synchronous fallback, preventing uncaught `std::system_error` process aborts under thread exhaustion.
 - **HTTP Server Connection & Descriptor Leak Fix**:
@@ -167,52 +167,52 @@ ightarrow$ `0:01` rather than truncating sub-second remaining time to `00:00`.
 - **HTTP Logger Formatting**:
   - `http_server.cpp`: Replaced `%s` and `%d` printf-style placeholders in `g_logger` calls with C++20 `std::format` syntax (`{}`).
 
-### Image Pipeline & Cloud Sync
+#### Image Pipeline & Cloud Sync
 - **Google Photos Download Disk Persistence**:
   - `google_photos.cpp`: Correctly writes libcurl response buffers to destination disk paths in `download_media()`, fixing phantom download failures.
 - **ImageData Move Operations**:
   - `image_loader.h`: Preserved `filename` metadata across `ImageData` move constructors and move assignment operators.
 
-# Release v17.6.0 — Kernel M2M HEVC Hardware Decode & Playback Stability (August 15, 2026)
-### HEVC Hardware Decoding
+### Release v17.6.0 — Kernel M2M HEVC Hardware Decode & Playback Stability (August 15, 2026)
+#### HEVC Hardware Decoding
 - **Kernel V4L2 M2M HEVC Decode (`hevc_v4l2m2m`)**:
   - `video_decoder.cpp`: Added a self-contained M2M decoder that auto-probes the kernel M2M node on `/dev` and decodes HEVC on the Pi 5's hardware engine instead of the CPU software path, for full-rate 4K/HEVC playback.
   - The decoder is compiled into the custom FFmpeg 7.1.5 build (`-enable-v4l2-m2m` in the Dockerfile). The previously committed M2M code referenced `AV_HWDEVICE_TYPE_V4L2_M2M`, which does not exist in FFmpeg 7.1's public headers, so the feature had never actually compiled or deployed — now fixed.
   - The `is_pi5()` gate that skipped hardware acceleration for HEVC on Pi 5 is superseded: `hevc_v4l2m2m` (kernel M2M) is the hardware path; software decode remains the degraded fallback when the M2M node is unavailable.
-### Stability
+#### Stability
 - **Thread-Spawn Crash Hardening (`spawn_thread_safe`)**:
   - `util.h` + all 17 `std::jthread` spawn sites (`http_server.cpp`, `google_photos.cpp`, `scanner.cpp`, `main.cpp`, `mqtt.cpp`, `util.cpp`, `preprocess.cpp`): a failed `pthread_create` used to throw an uncaught `std::system_error` → `std::terminate` → whole-process crash (the rare "container reset"; observed in the 2026-08-14 17:01 journal crash). The construction is now wrapped in `try/catch (std::system_error)`: a failure logs `THREAD: failed to spawn <name>` and returns a non-joinable thread so the caller degrades the affected subsystem instead of aborting the app.
 - **Page-Cache Video Prefetch**:
   - `video_decoder.cpp`: at video start, `posix_fadvise(POSIX_FADV_WILLNEED)` (capped at 2 GB) pulls the whole video into the kernel page cache in the background. Over the WiFi CIFS share a cold read is ~1 MB/s — right at a 1080p30 stream's bitrate — so without this the decode loop is I/O-bound and playback chatters fast/slow/pause; with prefetch, playback reads at memory speed and WiFi dropouts no longer pause playback.
 
-# Release v17.5.0 — GPU Hardware Surface Allocation & Continuous HEVC Playback (August 7, 2026)
+### Release v17.5.0 — GPU Hardware Surface Allocation & Continuous HEVC Playback (August 7, 2026)
 
-### Video Hardware Acceleration & Firmware Alignment
+#### Video Hardware Acceleration & Firmware Alignment
 - **GPU Hardware Surface Pool Allocation (`extra_hw_frames = 16`)**:
   - `video_decoder.cpp`: Configured `vcc->extra_hw_frames = 16` on the GPU hardware device context (`hw_dev`).
   - Provides 16 dedicated hardware surface frames to the V4L2 DRM stateless decoder on Pi 5, eliminating surface starvation and kernel driver buffer exhaustion during long 4K HEVC video playback.
 - **Pi 5 Firmware & CMA Memory Verification**:
   - Verified host `/boot/firmware/config.txt` contains `dtoverlay=vc4-kms-v3d,cma-512` for 512MB Continuous Memory Allocation.
 
-# Release v17.4.9 — Real-Time 1:1 Video Pacing & Fast GPU Stall Recovery (August 7, 2026)
+### Release v17.4.9 — Real-Time 1:1 Video Pacing & Fast GPU Stall Recovery (August 7, 2026)
 
-### Video Rendering & Presentation Pacing
+#### Video Rendering & Presentation Pacing
 - **Real-Time 1:1 Video Frame Pacing**:
   - `main.cpp`: Fixed aggressive clock resync logic that was skipping frames and causing 1.5-minute videos to play back at 3x speed in ~20 seconds. Video frame presentation now locks precisely to 1:1 real-time playback speed.
 - **Fast GPU Stall Recovery (3 Seconds)**:
   - `video_decoder.cpp`: Reduced `STALL_TIMEOUT_US` from 5 seconds / 30 seconds down to 3 seconds. If the Pi 5 V4L2 HEVC hardware decoder kernel driver stalls, recovery initiates smoothly within 3 seconds without locking up the display.
 
-# Release v17.4.8 — Wi-Fi Network Protection & Paced SMB Video I/O Throttling (August 7, 2026)
+### Release v17.4.8 — Wi-Fi Network Protection & Paced SMB Video I/O Throttling (August 7, 2026)
 
-### Video Network Streaming & Wi-Fi Protection
+#### Video Network Streaming & Wi-Fi Protection
 - **Smart Paced SMB I/O Throttling**:
   - `video_decoder.cpp`: Added backpressure rate-limiting to the demux loop (`if (m_frame_queue.size() >= 8) sleep 10ms`).
   - Prevents the video decoder thread from unthrottled CIFS packet reads over `/mnt/nas`, eliminating Wi-Fi router saturation, packet congestion, and network choking on shared Wi-Fi networks.
   - Maintains a smooth 8-frame (~320ms) buffer in RAM for continuous stutter-free 100% GPU hardware accelerated playback while keeping Wi-Fi bandwidth low and steady.
 
-# Release v17.4.7 — Small Chunk YouTube-Style Video Buffering & 2-Pattern 10 FPS Default (August 7, 2026)
+### Release v17.4.7 — Small Chunk YouTube-Style Video Buffering & 2-Pattern 10 FPS Default (August 7, 2026)
 
-### Video Startup & Buffering Optimization
+#### Video Startup & Buffering Optimization
 - **Small Chunk Network Probing (YouTube Style)**:
   - `video_decoder.cpp`: Configured `fmt_ctx->probesize = 500000` (500 KB) and `fmt_ctx->max_analyze_duration = 1000000` (1 sec).
   - Eliminates the 20-second video startup delay when probing 4K video stream headers over SMB/CIFS network mounts (`/mnt/nas`). Videos start rendering within ~100ms.
@@ -220,9 +220,9 @@ ightarrow$ `0:01` rather than truncating sub-second remaining time to `00:00`.
 - **Background Pattern Defaults**:
   - `config.h`, `config.toml`, `install.sh`: Set `pattern_blend_count = 2` by default (limiting background patterns to 2) and maintained `pattern_fps = 10` for 10 FPS pattern animation.
 
-# Release v17.4.6 — GPU Video Decoder EAGAIN Packet Drain & libv4l Runtime Dependencies (August 7, 2026)
+### Release v17.4.6 — GPU Video Decoder EAGAIN Packet Drain & libv4l Runtime Dependencies (August 7, 2026)
 
-### Video Decoding Engine & Container Runtime
+#### Video Decoding Engine & Container Runtime
 - **FFmpeg GPU Packet Drain & Resend (`AVERROR(EAGAIN)`)**:
   - `video_decoder.cpp`: Fixed GPU hardware decoder packet starvation and deadlock stalls.
   - When `avcodec_send_packet` returns `AVERROR(EAGAIN)` (GPU queue full), `video_decoder.cpp` now drains decoded frames from the GPU hardware ring buffer first to free up V4L2/DRM buffer slots, and then re-sends the packet.
@@ -230,50 +230,50 @@ ightarrow$ `0:01` rather than truncating sub-second remaining time to `00:00`.
 - **Debian Trixie V4L2 Runtime Dependencies**:
   - `Dockerfile`: Added `libv4l-dev` to builder stage and `libv4l-0t64`, `libv4lconvert0t64`, `v4l-utils` to runtime stage for native Video4Linux V4L2 M2M hardware buffer memory mapping.
 
-# Release v17.4.5 — Reverted to 100% GPU Hardware Video Acceleration (August 7, 2026)
+### Release v17.4.5 — Reverted to 100% GPU Hardware Video Acceleration (August 7, 2026)
 
-### Video Decoding Engine
+#### Video Decoding Engine
 - **Restored 100% GPU Hardware Acceleration**:
   - `video_decoder.cpp`: Reverted software decode fallback gate for HEVC.
   - All video codecs (H.264 & HEVC) use GPU Hardware Acceleration (`create_hw_device()`).
 
-# Release v17.4.4 — Pi 5 HEVC Hardware Decoder Freeze Fix (August 7, 2026)
+### Release v17.4.4 — Pi 5 HEVC Hardware Decoder Freeze Fix (August 7, 2026)
 
-### Video Decoding Engine
+#### Video Decoding Engine
 - **Pi 5 HEVC Hardware Decoder Instability Gate**:
   - `video_decoder.cpp`: Added `is_pi5()` runtime gate to bypass unstable V4L2 HEVC hardware decoder driver on Pi 5.
   - Prevents kernel-dependent V4L2 M2M frame transfer stalls (`av_hwframe_transfer_data` failures) that caused HEVC videos to freeze and trigger 30-second `VIDEO_STALL` recovery timeouts.
   - Uses multi-threaded FFmpeg software decoding on Pi 5's Cortex-A76 CPU for 100% smooth, freeze-free HEVC playback.
 
-# Release v17.4.3 — Watchdog Transient Ping Flap Protection & Zero False-Positive Reboots (August 5, 2026)
+### Release v17.4.3 — Watchdog Transient Ping Flap Protection & Zero False-Positive Reboots (August 5, 2026)
 
-### System Watchdog Architecture
+#### System Watchdog Architecture
 - **Transient Ping Flap Threshold**:
   - `pitrove-watchdog.sh`: Fixed false-positive container reboots caused by single 15-second Wi-Fi ping drop glitches (`FAIL_COUNT == 1`).
   - Requiring a 3-consecutive-failure threshold (`FAIL_COUNT >= 3`, 45+ seconds of sustained offline status) before setting `WAS_OFFLINE=true`.
   - Prevents momentary Wi-Fi packet drops from triggering aggressive `/mnt/nas` remounts and `piTrove.service` restarts.
 
-# Release v17.4.2 — Permanent Network Share Mount Defaults & Zero-Dismount Stability (August 5, 2026)
+### Release v17.4.2 — Permanent Network Share Mount Defaults & Zero-Dismount Stability (August 5, 2026)
 
-### Storage & Mount Architecture
+#### Storage & Mount Architecture
 - **Permanent Non-Idle CIFS / NFS Mount Defaults**:
   - `install.sh`: Removed `x-systemd.idle-timeout=120` and `x-systemd.automount` from CIFS and NFS mount lines.
   - Added `hard,echo_interval=60,actimeo=30` mount flags to ensure CIFS network shares maintain continuous SMB TCP keep-alives and never auto-unmount during slideshow idleness.
 - **Trace Debugging Active**:
   - Set default log level to `TRACE` on the active development Pi container for deep diagnostic visibility.
 
-## v17.4.1 — Explicit Signal Telemetry & TRACE Logging Diagnostics (August 5, 2026)
+### v17.4.1 — Explicit Signal Telemetry & TRACE Logging Diagnostics (August 5, 2026)
 
-### Diagnostics & Signal Telemetry
+#### Diagnostics & Signal Telemetry
 - **OS Signal Trace Logging**:
   - `main.cpp`: Added explicit `SHUTDOWN_TRIGGER` logging directly inside `SIGTERM` / `SIGINT` signal handlers (`write()` async-safe output to `STDERR`).
   - Logs exact OS signal number and signal name (`SIGTERM`, `SIGINT`) when an external process triggers a shutdown request.
 - **Trace Level Defaults**:
   - `config.toml`: Updated default log level to `TRACE` on `develop` branch for deep diagnostic visibility during development.
 
-# Release v17.4.0 — C++ Native API Subprocess Safety & ASan Memory Testing (August 4, 2026)
+### Release v17.4.0 — C++ Native API Subprocess Safety & ASan Memory Testing (August 4, 2026)
 
-### Security & Subprocess Architecture
+#### Security & Subprocess Architecture
 - **Native `libcurl` C API Integration**:
   - `google_photos.cpp`: Replaced shell sub-process `popen("curl ...")` calls with native `libcurl` `curl_easy_perform()` API requests for OAuth token refreshes and Google Photos synchronization.
   - Eliminates `/bin/sh` shell process spawning overhead and removes command injection vectors.
@@ -283,26 +283,26 @@ ightarrow$ `0:01` rather than truncating sub-second remaining time to `00:00`.
 - **AddressSanitizer (ASan) Memory Testing Support**:
   - `CMakeLists.txt`: Added `-DENABLE_ASAN=ON/OFF` build option for detecting zero-copy memory issues and Use-After-Free bugs during development testing.
 
-## v17.3.3 — Monotonic 10 FPS Frame Pacing & Rock-Solid Overlay Rhythm (August 3, 2026)
+### v17.3.3 — Monotonic 10 FPS Frame Pacing & Rock-Solid Overlay Rhythm (August 3, 2026)
 
-### Performance & Pacing Fixes
+#### Performance & Pacing Fixes
 - **Monotonic Target Frame Timing (10 FPS)**:
   - `main.cpp`: Replaced variable `SDL_Delay(100 - elapsed)` with monotonic target timing (`next_target_ticks += target_frame_ms`).
   - Eliminates Linux scheduler timer sleep drift ($\pm 15	ext{ms}$ jitter), guaranteeing every frame interval at 10 FPS ticks at **exact 100.0ms boundaries**.
   - Background pattern animation scrolling and remaining overlay timer countdown ticks now run rock-solid and stutter-free at 10 FPS.
 
-## v17.3.2 — Preprocess Infinite Retry Fix & 10 FPS Pattern Default (August 3, 2026)
+### v17.3.2 — Preprocess Infinite Retry Fix & 10 FPS Pattern Default (August 3, 2026)
 
-### Performance & Animation Fixes
+#### Performance & Animation Fixes
 - **Background Preprocessing Infinite Retry Loop Fix**:
   - `preprocess.cpp`: Fixed `g_cache->upsert()` handling when metadata extraction fails or times out.
   - Marking `preprocessed = 1` on failure stops background worker thread from endlessly re-fetching failing files and thrashing `ffprobe`/SQLite, resolving main render thread stuttering.
 - **Background Pattern FPS Target**:
   - Retained 10 FPS default for `pattern_fps` across `config.toml`, `config.h`, `install.sh`, and running Docker container while supporting clamp range 1..60 FPS for user customization.
 
-## v17.3.1 — 60 FPS Background Pattern Animation & Preprocess Retry Fix (August 3, 2026)
+### v17.3.1 — 60 FPS Background Pattern Animation & Preprocess Retry Fix (August 3, 2026)
 
-### Performance & Animation Fixes
+#### Performance & Animation Fixes
 - **Smooth 60 FPS Background Pattern Animation**:
   - `config.h`, `config.toml`, `tui.cpp`, `main.cpp`: Updated default `pattern_fps` from 10 FPS to **60 FPS** (clamp range 1..60 FPS).
   - Eliminates low-framerate motion stuttering, delivering butter-smooth animated background grid, waves, dots, and shape patterns.
@@ -311,9 +311,9 @@ ightarrow$ `0:01` rather than truncating sub-second remaining time to `00:00`.
   - Previously, failing files were left with `preprocessed = 0`, causing the background worker thread to re-fetch and re-run `ffprobe`/`stat` calls on the same 20 failing files every second in an infinite loop.
   - Marking `preprocessed = 1` on failure stops background CPU thrashing and eliminates micro-stuttering on the main render thread.
 
-# Release v17.3.0 — GPU Hardware Shader Pipeline & Stream-Synchronized Video Engine (August 3, 2026)
+### Release v17.3.0 — GPU Hardware Shader Pipeline & Stream-Synchronized Video Engine (August 3, 2026)
 
-### Highlights
+#### Highlights
 - **100% GPU Hardware Shader Texture Pipeline**:
   - `video_decoder.cpp`: Software-decoded YUV420P frames now automatically stream to `SDL_UpdateNVTexture()` as native **NV12 GPU hardware textures**.
   - Offloads 100% of color space conversion (YUV -> RGB), scaling, aspect ratio fitting, and presentation directly onto VideoCore GPU hardware fragment shaders.
@@ -323,85 +323,85 @@ ightarrow$ `0:01` rather than truncating sub-second remaining time to `00:00`.
 - **CIFS NAS Network Resilience**:
   - Restored 30s demuxer I/O timeout and added a 10ms thread sleep on read retries, protecting high-bitrate 4K streaming over Wi-Fi against network jitter.
 
-## v17.2.14 — Frame-Count Synchronized Video Duration & Overlay Alignment (August 3, 2026)
+### v17.2.14 — Frame-Count Synchronized Video Duration & Overlay Alignment (August 3, 2026)
 
-### Bug Fixes
+#### Bug Fixes
 - **Exact Video Frame Count Duration Calculation**:
   - `video_decoder.cpp`: Prioritized `nb_frames * m_frame_duration` for total video duration calculation over container metadata.
   - Fixes MP4 container duration bloat on smartphone videos (where audio track or MP4 header reported up to 69s while the video stream had only 960 frames / 32s).
   - Guarantees the overlay remaining timer countdown reaches `0:00` at the **exact same instant** as the final frame of the video!
 
-## v17.2.13 — Stream-Accurate Video Duration & CIFS Read Retry Fix (August 3, 2026)
+### v17.2.13 — Stream-Accurate Video Duration & CIFS Read Retry Fix (August 3, 2026)
 
-### Bug Fixes
+#### Bug Fixes
 - **Video Stream Duration Prioritization**:
   - `video_decoder.cpp`: Prioritized exact `video_stream->duration` over container-level `fmt_ctx->duration` (which for some MP4 files contains audio or un-trimmed container duration padding up to 40s longer than video frames).
 - **CIFS NAS Demux Read Retry Resilience**:
   - Added a 10ms thread sleep on demux packet read retries, allowing CIFS network socket buffers time to refill during Wi-Fi latency spikes without triggering premature packet starvation EOF aborts.
 
-## v17.2.12 — PTS-Synchronized Video Remaining Overlay Timer (August 3, 2026)
+### v17.2.12 — PTS-Synchronized Video Remaining Overlay Timer (August 3, 2026)
 
-### Bug Fixes
+#### Bug Fixes
 - **Exact Video Remaining Countdown Synchronization**:
   - `video_decoder.cpp`: Fixed `get_video_remaining()` formula. The old calculation used `total_duration - (now - start_time)`, which accumulated wall-clock startup delay and reached `0:00` up to 10 seconds before video frames finished rendering.
   - Replaced with PTS-synchronized frame calculation `remaining = total_duration - m_last_frame_pts`.
   - Guarantees that the remaining timer overlay countdown reaches `0:00` / `0.0s` at the **exact same instant** as the final frame of the video!
 
-## v17.2.11 — 100% GPU Hardware Decoding & Fixed Playback Skip (August 3, 2026)
+### v17.2.11 — 100% GPU Hardware Decoding & Fixed Playback Skip (August 3, 2026)
 
-### GPU Acceleration & Framerate Lock
+#### GPU Acceleration & Framerate Lock
 - **100% GPU Hardware Video Decoding Enabled**:
   - `video_decoder.cpp`: Enabled `AV_HWDEVICE_TYPE_DRM` / V4L2 DRM PRIME GPU hardware acceleration for ALL video codecs (H.264 & HEVC) across Pi 4 and Pi 5.
   - Video presentation is strictly locked to each video file's native target framerate (e.g. 24, 30, 60 FPS) with zero fast-forwarding, zero slowdowns, and 100% GPU hardware decoding.
 
-## v17.2.10 — Restored 30s CIFS NAS Network Share I/O Timeout (August 3, 2026)
+### v17.2.10 — Restored 30s CIFS NAS Network Share I/O Timeout (August 3, 2026)
 
-### Stability & Network Fixes
+#### Stability & Network Fixes
 - **CIFS NAS Network Share I/O Timeout Restoration**:
   - `video_decoder.cpp`: Restored demuxer I/O timeout (`IO_TIMEOUT_US`) from 5 seconds to **30 seconds** (`30LL * 1000000LL`).
   - Prevents premature FFmpeg demuxer interrupt aborts during initial 50MB+ 4K video buffering over Wi-Fi / CIFS network mounts.
 
-## v17.2.9 — 100% GPU Hardware Shader Texture Pipeline (August 3, 2026)
+### v17.2.9 — 100% GPU Hardware Shader Texture Pipeline (August 3, 2026)
 
-### Performance & GPU Acceleration
+#### Performance & GPU Acceleration
 - **Direct GPU NV12 Hardware Shader Pipeline**:
   - `video_decoder.cpp`: Software-decoded YUV420P frames now automatically stream to `SDL_UpdateNVTexture()` as native **NV12 GPU hardware streaming textures**.
   - Offloads 100% of color space conversion (YUV -> RGB), scaling, aspect ratio fitting, and presentation directly onto VideoCore GPU hardware fragment shaders.
   - Eliminates CPU RGBA bus transfers and software matrix conversion, providing butter-smooth 60 FPS video playback with zero micro-choppiness or dropped frames.
 
-## v17.2.8 — Pi 5 HEVC Kernel Driver Stall Fix & Multi-Core Software Optimization (August 3, 2026)
+### v17.2.8 — Pi 5 HEVC Kernel Driver Stall Fix & Multi-Core Software Optimization (August 3, 2026)
 
-### Stability & Decoding Fixes
+#### Stability & Decoding Fixes
 - **Pi 5 HEVC Kernel Driver Stall Resolution**:
   - Gated V4L2 HEVC hardware decoding on Raspberry Pi 5 to prevent `/dev/video19` kernel driver ring-buffer stalls that occurred after ~1600 frames (60s).
   - H.264 (AVC) on Pi 5 and both H.264 & HEVC on Pi 4 continue to use 100% GPU Hardware Acceleration (`AV_HWDEVICE_TYPE_DRM`).
   - HEVC on Pi 5 uses optimized 4-core multi-threaded CPU software decoding with `SWS_FAST_BILINEAR` ARM NEON SIMD scaling, preventing kernel freezes while maintaining smooth video playback.
 
-## v17.2.7 — Precise Hardware Video Frame Pacing & Original Framerate Lock (August 2, 2026)
+### v17.2.7 — Precise Hardware Video Frame Pacing & Original Framerate Lock (August 2, 2026)
 
-### Bug Fixes
+#### Bug Fixes
 - **Exact Original Framerate Lock for GPU Hardware Decoding**:
   - `main.cpp`: Replaced variable PTS drift logic with a precise monotonic frame-budget pacing algorithm `target_abs_ms = video_start_ticks_ms + (frame_count * frame_duration_ms)`.
   - Fixes fast-forward playback (2x–3x speed) and subsequent queue-starvation freezing when GPU hardware decoding (`AV_HWDEVICE_TYPE_DRM`) produces frames faster than real-time.
   - Guarantees every video (24 FPS, 30 FPS, 50 FPS, 60 FPS) plays at its **exact native framerate**, neither faster nor slower.
 
-## v17.2.6 — GPU Hardware Acceleration Re-enabled for HEVC on Pi 5 (August 2, 2026)
+### v17.2.6 — GPU Hardware Acceleration Re-enabled for HEVC on Pi 5 (August 2, 2026)
 
-### Performance & GPU Acceleration
+#### Performance & GPU Acceleration
 - **GPU Hardware Decoding for HEVC (H.265) on Pi 5**:
   - Re-enabled `AV_HWDEVICE_TYPE_DRM` / V4L2 DRM PRIME GPU hardware decoding for HEVC (H.265) videos on Raspberry Pi 5.
   - Coupled with v17.2.3's immediate `av_frame_unref(frame)` DPB output buffer release, GPU hardware decoding runs at full 60 FPS without software CPU rendering bottlenecks or CMA heap exhaustion.
 
-## v17.2.5 — Fix Video Mid-Playback Slowdown & Buffering Jitter (August 2, 2026)
+### v17.2.5 — Fix Video Mid-Playback Slowdown & Buffering Jitter (August 2, 2026)
 
-### Bug Fixes
+#### Bug Fixes
 - **Eliminated Mid-Playback Video Slowdown & Buffering**:
   - `main.cpp`: In `v17.2.3`, restoring valid PTS timestamps exposed an issue in the render loop's PTS pacing logic. The old code allowed `diff_sec` sleep delays of up to 500ms without resyncing, causing compounding sleep delays (stuttering down to 20 FPS) halfway through videos.
   - Reduced PTS clock drift resync threshold from `±1.0s/5.0s` to a tight `±50ms` (`±0.05s`) window and capped maximum frame sleep to `16ms` (60Hz tick). Video playback now runs smoothly at full native speed without slowdowns.
 
-## v17.2.4 — Video Startup Seamless Transition & 4K Software Watchdog Fix (August 2, 2026)
+### v17.2.4 — Video Startup Seamless Transition & 4K Software Watchdog Fix (August 2, 2026)
 
-### Bug Fixes
+#### Bug Fixes
 - **Watchdog False-Stall Prevention on 4K Software HEVC Videos**:
   - `video_decoder.cpp`: `last_frame_ms` watchdog timestamp is now refreshed on every successful `av_read_frame()` demux packet read. High-resolution (4K) software-decoded videos no longer false-trigger the 5-second stall timeout during CPU decode processing.
 - **Zero Black Screen Video Startup**:
@@ -409,9 +409,9 @@ ightarrow$ `0:01` rather than truncating sub-second remaining time to `00:00`.
 - **ALSA PCM Log Clarification**:
   - Documented harmless SDL3 ALSA warning in Docker (`Unknown PCM default`) when no physical audio card is attached to the container.
 
-## v17.2.3 — Video Decoder Audit Fixes (August 2, 2026)
+### v17.2.3 — Video Decoder Audit Fixes (August 2, 2026)
 
-### Bug Fixes
+#### Bug Fixes
 - **PTS Use-After-Free on Hardware Decode Path**:
   - Fixed critical bug where `frame->best_effort_timestamp` was read *after* `av_frame_unref(frame)` on DRM/V4L2 hardware decode path. PTS is now captured before the HW frame transfer, restoring proper PTS-based frame pacing for hardware-decoded video.
 - **Video Budget Check Never Executed**:
@@ -421,16 +421,16 @@ ightarrow$ `0:01` rather than truncating sub-second remaining time to `00:00`.
 - **Audio Sample Byte Count Mismatch**:
   - `push_audio_samples()` calculated bytes as `samples.size() * 2 * 2` which read past the span boundary. Now uses `samples.size_bytes()` with corrected stereo-interleaved span construction (`os * 2`).
 
-### Code Quality
+#### Code Quality
 - Removed duplicate `MAX_QUEUED_FRAMES` definition (file-scope shadowed class member).
 - Removed dead `FramePool` struct and `FRAME_POOL_SIZE` constant (never instantiated).
 - Removed redundant `avformat_network_deinit()` calls — RAII `NetworkDeinitGuard` handles all scope exits.
 - Expanded collapsed single-line framerate detection block (~500 chars) to readable multi-line format.
 - Documented `stop()` non-joining thread lifecycle behavior.
 
-## v17.2.2 — 5-Second Video Stall Watchdog & Preprocess Validation (August 2, 2026)
+### v17.2.2 — 5-Second Video Stall Watchdog & Preprocess Validation (August 2, 2026)
 
-### Added & Improved
+#### Added & Improved
 - **5-Second I/O & Decoder Stall Timeouts**:
   - Tightened demuxer I/O timeout (`IO_TIMEOUT_US`) and decoder stall watchdog (`STALL_TIMEOUT_US`) from 30s to **5s**, turning long freezes into 5-second seamless transitions.
 - **Packet Starvation Guard**:
@@ -438,9 +438,9 @@ ightarrow$ `0:01` rather than truncating sub-second remaining time to `00:00`.
 - **Preprocess Video Index Quarantine**:
   - Configured background preprocessor (`src/preprocess.cpp`) to mark corrupted video files with `bad=1` in SQLite database during indexing, quarantining damaged media before playback.
 
-## v17.2.1 — Video Corruption Error Resilience & Frame Bypass (August 2, 2026)
+### v17.2.1 — Video Corruption Error Resilience & Frame Bypass (August 2, 2026)
 
-### Added & Improved
+#### Added & Improved
 - **FFmpeg Corrupt Video Frame Bypass & Error Resilience**:
   - Enabled demuxer corrupt packet discard (`AVFMT_FLAG_DISCARD_CORRUPT`) to automatically filter out broken bitstream packets before decoding.
   - Configured decoder error recognition (`AV_EF_IGNORE_ERR`) and macroblock motion-vector error concealment (`FF_EC_GUESS_MVS | FF_EC_DEBLOCK`) to bypass damaged video frames cleanly without crashing.
@@ -448,25 +448,25 @@ ightarrow$ `0:01` rather than truncating sub-second remaining time to `00:00`.
   - Updated `av_read_frame()` error handler to bypass corrupted stream packets instead of terminating playback.
   - Added system error code `E527` (`VIDEO_CORRUPT_FRAME_BYPASSED`) for logging and error reporting when bad frames or packets are bypassed.
 
-## v17.2.0 — Zero-Copy GPU Hardware Video Pipeline (August 1, 2026)
+### v17.2.0 — Zero-Copy GPU Hardware Video Pipeline (August 1, 2026)
 
-### Added & Improved
+#### Added & Improved
 - **Zero-Copy NV12 GPU Hardware Texture Pipeline**:
   - Implemented direct  hardware texture uploading for video decoding streams. Bypasses CPU  RGBA matrix conversion, shifting color space conversion entirely onto VideoCore GPU fragment shaders.
   - Optimized V4L2 capture buffer recycling: unreferences hardware frames instantly upon plane extraction, preventing kernel DMA queue starvation and completely eliminating 30-second  occurrences on hardware HEVC / H.264 playback.
   - Maintained automatic fallback to streaming RGBA textures for software-decoded streams and non-NV12 formats.
 
-## v17.1.3 — HDMI Sleep Schedule Evaluator (July 28, 2026)
+### v17.1.3 — HDMI Sleep Schedule Evaluator (July 28, 2026)
 
-### Added & Improved
+#### Added & Improved
 - **HDMI Display Sleep Schedule Evaluator**:
   - Implemented real-time `sleep_time` and `wake_time` schedule evaluation loop in `src/main.cpp`. Automatically powers off display signal (`set_display_power(false)`) during configured sleep windows (e.g., 23:00 to 07:00) and powers it back on at wake time.
 - **Audit & Settings Verification**:
   - Verified no duplicate resolution or display settings exist across `src/config.h`, `src/config.cpp`, `src/config.toml`, and `src/tui.cpp`.
 
-## v17.1.2 — Hardware Cooling Fan Speed Control (July 28, 2026)
+### v17.1.2 — Hardware Cooling Fan Speed Control (July 28, 2026)
 
-### Added & Improved
+#### Added & Improved
 - **Hardware Fan Speed Control (`fan_speed`)**:
   - Added configurable `fan_speed` setting (0=Auto, 1 to 100%, default **30%**) in `config.toml`, `config.h`, `config.cpp`, `install.sh`, and the Terminal UI (TUI) Hardware menu (`Fan Speed`).
 - **Sysfs PWM Integration & Thermal Safety Override**:
@@ -474,34 +474,34 @@ ightarrow$ `0:01` rather than truncating sub-second remaining time to `00:00`.
   - Added `- /sys:/sys` volume mapping in `docker-compose.yml` to grant container control of active cooling hardware.
   - Implemented automatic safety override: if SoC temperature exceeds 75°C, fan speed automatically scales to 100% until the SoC cools down.
 
-## v17.1.1 — Animated Background FPS Pacing & Thermal Optimization (July 28, 2026)
+### v17.1.1 — Animated Background FPS Pacing & Thermal Optimization (July 28, 2026)
 
-### Added & Improved
+#### Added & Improved
 - **Animated Background FPS Cap (`pattern_fps`)**:
   - Added configurable `pattern_fps` setting (1 to 30 FPS, default 10 FPS) in `config.toml`, `config.h`, `config.cpp`, `install.sh`, and the Terminal UI (TUI) Display menu (`Pattern Animated FPS`).
 - **Dynamic Frame Pacing & Thermal Optimization**:
   - Implemented dynamic frame rate pacing in `src/main.cpp`. Caps static slideshow photo and animated background pattern rendering to 10 FPS by default, reducing CPU/GPU rendering overhead by ~83% and lowering SoC thermal stress and cooling fan noise.
   - Automatically dynamically boosts frame rate to 60 FPS during item transitions (crossfade, wipe, zoom) and video playback to maintain smooth visual animation.
 
-## v17.1.0 — Minor Release: Codebase Audit & Dead Code Elimination (July 22, 2026)
+### v17.1.0 — Minor Release: Codebase Audit & Dead Code Elimination (July 22, 2026)
 
-### Added & Improved
+#### Added & Improved
 - **Minor Release Milestone (`v17.1.0`)**:
   - Comprehensive system, database, kernel mount, and codebase audit.
   - Verified zero memory leaks, zero swap bloat, 6.9 GB free RAM, and 100% database integrity across large indexed media collections.
 - **Dead Code & Config Bloat Removal**:
   - Removed unreferenced `collage_cols` and `collage_rows` configuration parameters from `src/config.h`, `src/config.cpp`, and `src/config.toml`.
 
-## v17.0.9 — Honor `[collage] enabled` Config Gate for Twin-Portrait Layouts (July 22, 2026)
+### v17.0.9 — Honor `[collage] enabled` Config Gate for Twin-Portrait Layouts (July 22, 2026)
 
-### Fixed
+#### Fixed
 - **Collage Mode Config Enforcement**:
   - Fixed `should_be_twin_portrait()` in `src/main.cpp` to respect `[collage] enabled = 0` in `config.toml`.
   - Previously, `should_be_twin_portrait()` only checked `twin_portrait_enabled` and ignored `collage_enabled`, causing side-by-side portrait collages to display even when collage mode was disabled in configuration.
 
-## v17.0.8 — CIFS Automount Stability & Watchdog Recovery Improvements (July 22, 2026)
+### v17.0.8 — CIFS Automount Stability & Watchdog Recovery Improvements (July 22, 2026)
 
-### Fixed & Improved
+#### Fixed & Improved
 - **CIFS Mount Options in `/etc/fstab` & `install.sh`**:
   - Removed `echo_interval=6` which caused aggressive SMB reconnect storms during Wi-Fi latency spikes.
   - Set `actimeo=2` to cache file metadata briefly, preventing synchronous `stat()` lockups during minor network blips.
@@ -511,46 +511,46 @@ ightarrow$ `0:01` rather than truncating sub-second remaining time to `00:00`.
   - Ensures systemd autofs actually mounts CIFS to `/mnt/nas` before Docker container creation (`runc`), preventing container `no such device` bind-mount failures.
   - Fixed `docker inspect` health check command formatting to properly target `$DOCKER_CONTAINER`.
 
-## v17.0.7 — Instant Splash Screen, TTY Fix & End-of-Install Clean Exit (July 22, 2026)
-### Core
+### v17.0.7 — Instant Splash Screen, TTY Fix & End-of-Install Clean Exit (July 22, 2026)
+#### Core
 - Added instant splash screen render call in main.cpp immediately upon asset load so splash image and telemetry render at startup step 0
-### Installer
+#### Installer
 - Added explicit clean exit 0 and terminal sanitization at conclusion of install.sh
 - Fixed stdin TTY reconnection for docker exec in piped installer execution (wget/curl | bash)
 - Verified repository clean state with zero redundant or temporary files
 
-## v17.0.6 — Code Audit & CMA Memory Auto-Configuration (July 22, 2026)
-### Installer
+### v17.0.6 — Code Audit & CMA Memory Auto-Configuration (July 22, 2026)
+#### Installer
 - Configured cma-512 auto-detection in install.sh to automatically allocate 512 MB CMA memory for Pi 5 hardware video decoding
 - Removed 65+ lines of dead unreferenced functions (draw_line, run_compilation_with_progress)
-### Code
+#### Code
 - Added [[maybe_unused]] attribute to is_pi5() in video_decoder.cpp for zero-warning builds
 
-## v17.0.5 — Video Playback Speed & GPU Hardware Decoding (July 22, 2026)
-### Core
+### v17.0.5 — Video Playback Speed & GPU Hardware Decoding (July 22, 2026)
+#### Core
 - Fixed 0.5x video playback speed bug by removing forced 40ms sleep penalty when behind schedule in main.cpp
 - Enabled AV_HWDEVICE_TYPE_DRM hardware video decoding for HEVC/H264 on Pi 5 GPU with get_hw_format pixel format negotiation
 - Added native 60 FPS and high-framerate video support (framerate <= 144.0)
 
-## v17.0.4 — Corrupt Video Handling (July 22, 2026)
-### Core
+### v17.0.4 — Corrupt Video Handling (July 22, 2026)
+#### Core
 - Detect corrupted videos (moov atom not found) and mark as preprocessed with default dimensions
 - Corrupted files stay playable (bad=0) but stop retrying forever
 - MQTT status now shows actual enabled/disconnected state
 - Diagnostic log viewer expanded from 420px to 55vh (fills more screen)
 - Preview image refreshes on pause/resume state changes
 - Removed Motion simulation button from dashboard
-### Installer
+#### Installer
 - Verbose spinner now shows live build output status line
 - QR code reduced to half size (UTF8 instead of ANSIUTF8)
 - Config wizard no longer crashes when stdin is not a TTY
 
-## v17.0.1 — http_server.cpp C++23 Completion (July 21, 2026)
-### Code
+### v17.0.1 — http_server.cpp C++23 Completion (July 21, 2026)
+#### Code
 - Completed C++23 migration for http_server.cpp (reverted during build fix): std::thread → std::jthread, std::to_string → std::format, std::ostringstream → std::format, (int).size() → std::ssize
 - Zero C++17 patterns remaining outside documented async-signal-safe exclusion
-## v17.0.0 — C++23 Modernization & Logger Rewrite (July 21, 2026)
-### C++23 Migration
+### v17.0.0 — C++23 Modernization & Logger Rewrite (July 21, 2026)
+#### C++23 Migration
 - **Build Standard** — C++17 → C++23, enabling std::jthread, std::format, std::span, std::ssize, concepts, attributes
 - **Logger Rewrite** — Replaced printf-style g_logger with std::format variadic templates; converted all callsites
 - **Thread Migration** — 31 std::thread instances converted to std::jthread with automatic joining via stop tokens
@@ -558,48 +558,48 @@ ightarrow$ `0:01` rather than truncating sub-second remaining time to `00:00`.
 - **std::ssize** — 71 signed-size conversions eliminating unsigned/signed comparison warnings
 - **Attributes** — Added [[unlikely]], [[assume]], std::unreachable() for branch prediction hints
 - **Dead Code Removal** — Deleted expected.h and interfaces.h (unused since refactor)
-### Code
+#### Code
 - Removed 29 snprintf calls, 62 std::to_string calls, 11 ostringstream usages in favor of std::format
 - Simplified TrackedThreadInfo with std::jthread stop tokens
 - Fixed DEBUG_LOG macro callsites in video decoder (std::format specifiers)
 
-## v16.1.6 — Video Countdown Fix & Docker Hwaccel Support (July 20, 2026)
-### Video
+### v16.1.6 — Video Countdown Fix & Docker Hwaccel Support (July 20, 2026)
+#### Video
 - **Countdown Timer Fix** — decode_start_time now set at decode loop start so countdown works even when frames fail
 - **Docker Support** — Removed 1GB memory limit blocking dma-heap hwaccel allocations
-### Code
+#### Code
 - decode_start_time initialization moved to decode loop entry
 
-## v16.1.4 — Pi 4 Runtime Detection & Video Remaining Fix (July 20, 2026)
-### Pi 4 Compatibility
+### v16.1.4 — Pi 4 Runtime Detection & Video Remaining Fix (July 20, 2026)
+#### Pi 4 Compatibility
 - **Runtime HW Acceleration Detection** — Probe V4L2 M2M codecs (hevc_v4l2m2m/h264_v4l2m2m) as fallback when DRM hwaccel unavailable, ensuring Pi 4 hardware decode works
-### Video
+#### Video
 - **Remaining Time Fix** — get_video_remaining() no longer returns 0:00 before first frame; frame-based duration estimation fallback when FFmpeg duration metadata unavailable
-### Code
+#### Code
 - Added m_decoded_frames atomic counter for duration estimation
 - hwaccel_path tracking (drm/v4l2/none) for diagnostics
-## v16.1.3 — Clear Stale Video Texture on Stop (July 20, 2026)
-### 🎥 Video
+### v16.1.3 — Clear Stale Video Texture on Stop (July 20, 2026)
+#### 🎥 Video
 - **Stale Texture Fix** — Video texture destroyed immediately after stop() to prevent source photo flash during video-to-photo transitions
-## v16.1.2 — Audit Verification & Stall Recovery (July 20, 2026)
-### 🎥 Video Decoder
+### v16.1.2 — Audit Verification & Stall Recovery (July 20, 2026)
+#### 🎥 Video Decoder
 - **Stop Timeout Fix** — VideoDecoder::stop() uses detached join with 2s timeout to prevent main loop block during hwaccel failures
 - **Stall Recovery** — Heartbeat tick added before stop() in stall path; decoder stop/advance/continue events logged
 - **Verified Test** — 4 videos + 3 photos sequence passed with stall recovery at 30s detection
 
-### 🐳 Container
+#### 🐳 Container
 - **Healthcheck** — Interval increased to 30s, timeout to 15s for stability
 
-## v16.1.0 — Full Audit Remediation & swr_convert Crash Fix (July 20, 2026)
-### 🎥 Video
+### v16.1.0 — Full Audit Remediation & swr_convert Crash Fix (July 20, 2026)
+#### 🎥 Video
 - **swr_convert Crash Fix** — Replaced unsafe cast of audio resample buffer with proper outbuf array to prevent segfault in libswresample during hwaccel decode
-### 🔒 Security & Hardening
+#### 🔒 Security & Hardening
 - **HTTP Auth** — Enforced is_authorized() on all 8 control endpoints
 - **Rate Limiting** — Added 500ms cooldown with 429 responses
 - **Dockerfile** — Fixed libasound2 package name, added missing libsodium/libswresample
 - **docker-compose** — stop_grace_period: 30s, removed /dev:/dev volume mount
 - **Healthcheck** — Script properly copied into container
-### 🧪 Code Quality
+#### 🧪 Code Quality
 - **cache.h/cpp** — upsert() signature aligned, framerate in verify_database
 - **scanner** — stat() return value checked, zeroed on failure
 - **mqtt** — popen/pclose return codes validated
@@ -607,92 +607,92 @@ ightarrow$ `0:01` rather than truncating sub-second remaining time to `00:00`.
 - **PreloadQueue** — shutdown() fixed to avoid UB on detached threads
 - **Audio Resampler** — Zero Heap Allocation, aligned buffer, strict device mapping
 
-## v16.0.2 — DRM Hwaccel for V4L2 Stateless HEVC Decode (July 20, 2026)
-### 🎥 Video
+### v16.0.2 — DRM Hwaccel for V4L2 Stateless HEVC Decode (July 20, 2026)
+#### 🎥 Video
 - **DRM Hwaccel Path** — Replaced Pi 4 stateful V4L2 M2M codec lookup with DRM hwaccel via `av_hwdevice_ctx_create` for V4L2 stateless HEVC decode on Pi 5. FFmpeg now uses `AV_HWDEVICE_TYPE_DRM` which probes the stateless decoder at `/dev/video19` via `/dev/media2`.
 - **DMABuf Support** — Added `/dev/dma_heap` device mapping for zero-copy DMABuf allocation during hardware decode.
-## v16.0.1 — V4L2 Device Mapping for Pi 5 HW Decode (July 20, 2026)
-### 🎥 Video
+### v16.0.1 — V4L2 Device Mapping for Pi 5 HW Decode (July 20, 2026)
+#### 🎥 Video
 - **V4L2 Device Mapping** — Added /dev/video19 through /dev/video35 for Pi 5 hardware decode
-## v16.0.0 — Major Release: Full Audit Remediation, GPU Device Restoration & Security Hardening (July 19, 2026)
-### 🎥 Video
+### v16.0.0 — Major Release: Full Audit Remediation, GPU Device Restoration & Security Hardening (July 19, 2026)
+#### 🎥 Video
 - **V4L2 Device Mapping** — Added /dev/video19 through /dev/video35 to docker-compose.yml devices list for Pi 5 hardware decode
-### 🔒 Security & Authorization
+#### 🔒 Security & Authorization
 - **Full Audit Remediation** — Verified and confirmed all 13 audit-flagged issues resolved: auth on all 8 HTTP endpoints, rate limiting with 429 responses, NetworkDeinitGuard RAII, I/O interrupt callbacks with 30s timeout, upsert() signature alignment, verify_database() framerate column, stat_timeout() return validation, PreloadQueue::shutdown() thread safety, MQTT popen error handling, audio resample zero-allocation, and /dev:/dev volume removal
 - **GPU Mailbox Device Restoration** — Restored `/dev/vchiq:/dev/vchiq` device mapping required for Pi 4 hardware video decode
 - **stop_grace_period** — 30s graceful shutdown period confirmed
-## v15.6.9 — Zero Heap Allocation Audio Resampling & Healthcheck Alignment (July 19, 2026)
-### 🎵 Audio Resampler Memory Optimization
+### v15.6.9 — Zero Heap Allocation Audio Resampling & Healthcheck Alignment (July 19, 2026)
+#### 🎵 Audio Resampler Memory Optimization
 - **Zero Vector Heap Allocation (`src/video_decoder.cpp`)** — Replaced `std::vector<int16_t> ob(max_s * 2)` in the second audio decode loop (line 649) with pre-allocated `audio_resample_buf.data()`. Video audio resampling now performs **0 heap allocations per second**.
 
-### 🐳 Container Healthcheck Alignment & Security
+#### 🐳 Container Healthcheck Alignment & Security
 - **Healthcheck Alignment (`Dockerfile`, `docker-compose.yml`)** — Aligned `Dockerfile`'s `HEALTHCHECK` directive with `/app/scripts/healthcheck.sh` script to ensure container health status consistency.
 - **Strict Device Mapping (`docker-compose.yml`)** — Mapped specific `/dev/dri`, `/dev/input`, `/dev/vchiq` devices with 0 broad `/dev` host volume mounts.
 
-## v15.6.8 — Comprehensive Hardening & Bug Audit Release (July 19, 2026)
-### 🔒 Security & HTTP Authorization
+### v15.6.8 — Comprehensive Hardening & Bug Audit Release (July 19, 2026)
+#### 🔒 Security & HTTP Authorization
 - **HTTP Endpoint Authorization (`src/http_server.cpp`)** — Enforced `is_authorized()` authentication checks across all HTTP control endpoints (`/api/restart`, `/api/next`, `/api/prev`, `/api/pause`, `/api/toggle_shuffle`, `/api/force_video_next`, `/api/toggle_screen`, `/api/trigger_motion`).
 - **Control Rate Limiting (`src/http_server.cpp`)** — Added a 500ms cooldown rate limit ($429\text{ Too Many Requests}$) for remote control API calls.
 - **Secrets Isolation (`src/config.cpp`)** — Isolated `api_key`, `mqtt_pass`, `client_secret`, `refresh_token`, and `pin_hash` into `/app/config/secrets.toml` with `0600` owner-only file permissions. Plaintext credentials are no longer written to `config.toml`.
 - **PIN Migration Fix (`src/config.cpp`)** — PIN hashing migration executes prior to file saving, ensuring `pin_hash` and `pin_changed` states are persisted into `secrets.toml`.
 
-### 🎥 Video Decoder & Media Processing
+#### 🎥 Video Decoder & Media Processing
 - **RAII Network State Deinitialization (`src/video_decoder.cpp`)** — Added `NetworkDeinitGuard` RAII guard to guarantee `avformat_network_deinit()` execution across all return paths.
 - **NAS I/O Timeout Callback (`src/video_decoder.cpp`)** — Configured `AVIOInterruptCB` with a 30-second interrupt timeout for video stream opening and reading to prevent hangs on stale CIFS/NFS mounts.
 - **Audio Resampler Optimization (`src/video_decoder.cpp`)** — Pre-allocated `audio_resample_buf` vector outside the decode loop to eliminate ~100 vector heap allocations per second.
 - **4K Software Decode Resolution Guard (`src/video_decoder.cpp`)** — Added resolution scaling guard for >1080p software decoded frames to prevent CPU frame drops.
 
-### 🛠️ Core Subsystems & Database Integrity
+#### 🛠️ Core Subsystems & Database Integrity
 - **DB Verification Query Alignment (`src/cache.cpp`)** — Added `framerate` to `verify_database()` schema check query.
 - **Garbage Stat Prevention (`src/scanner.cpp`)** — Validated `stat()` return codes in `stat_timeout()` and zeroed memory on failure to discard invalid files.
 - **Thread Shutdown Safety (`src/preload.cpp`)** — Updated `PreloadQueue::shutdown()` to join worker threads safely without blocking on `future` destructors.
 - **MQTT Publish Error Tracing (`src/mqtt.cpp`)** — Added write byte count and exit code validation for `mosquitto_pub` child processes.
 
-### 🐳 Docker & Container Security
+#### 🐳 Docker & Container Security
 - **GPU Mailbox Mapping (`docker-compose.yml`)** — Added `/dev/vchiq` device mapping for Raspberry Pi GPU Mailbox access.
 - **Volume Mount Security (`docker-compose.yml`)** — Removed host `/dev:/dev` mount to satisfy container isolation standards.
 
-## v15.6.7 — Video Countdown Timer EOF Fix & Display Precision (July 19, 2026)
-### ⏱️ Video Countdown Timer Accuracy
+### v15.6.7 — Video Countdown Timer EOF Fix & Display Precision (July 19, 2026)
+#### ⏱️ Video Countdown Timer Accuracy
 - **End-of-Video Timer Reset Fix (`src/video_decoder.cpp`, `src/main.cpp`)** — Fixed bug where `get_video_remaining()` returned total initial video duration when `m_eof` was reached, causing the overlay remaining time timer to display full video length (e.g. `0:14`) during transitions instead of `0:00`.
 - **EOF Guard (`src/video_decoder.cpp`)** — `get_video_remaining()` now checks `m_eof` and immediately returns `0.0` upon reaching EOF.
 - **Overlay Transition Timer (`src/main.cpp`)** — Overlay remaining timer displays `0:00` at video completion and transition entry.
 
-## v15.6.6 — Strict Optical EXIF Camera Tagging & Video Safety (July 19, 2026)
-### 📸 Optical EXIF Camera Tagging
+### v15.6.6 — Strict Optical EXIF Camera Tagging & Video Safety (July 19, 2026)
+#### 📸 Optical EXIF Camera Tagging
 - **Camera Verification (`src/image_loader.cpp`)** — Added `EXIF_TAG_MAKE` and `EXIF_TAG_MODEL` to the optical hardware check. Screenshots and web captures lack camera hardware tags and are now 100% accurately identified as non-camera documents (`is_camera = 0`) and filtered out.
 
-### 🎥 Video Decoder Safety & Retry Loop Prevention
+#### 🎥 Video Decoder Safety & Retry Loop Prevention
 - **Corrupted Video Isolation (`src/video_decoder.cpp`)** — Unopenable or corrupted video files now automatically trigger `mark_bad(path)` in `CacheManager`, isolating damaged media files so piTrove never enters a high-frequency decode retry loop.
 - **EOF State Guard (`src/video_decoder.cpp`)** — Ensured `m_eof = true` is set on all early exit paths to prevent watchdog timeouts during video transitions.
 
 
-## v15.6.5 — Audio Resampler Channel Layout Fix & Enhanced Diagnostics (July 19, 2026)
-### ⚡ Video Decode & Audio Resampling Stability
+### v15.6.5 — Audio Resampler Channel Layout Fix & Enhanced Diagnostics (July 19, 2026)
+#### ⚡ Video Decode & Audio Resampling Stability
 - **Audio Resampler Safety (`src/video_decoder.cpp`)** — Fixed `libswresample.so.5` SIGSEGV crash during AAC video audio playback by initializing `AVChannelLayout` with `av_channel_layout_default()` fallback when `acc->ch_layout` has 0 channels.
 - **New Error Catalog Codes (`src/error_db.cpp`)** — Registered `E525` (`VIDEO_AUDIO_SWR_FAIL`) and `E526` (`VIDEO_HW_FALLBACK_WARN`) for granular video pipeline health tracking.
 - **Enhanced Logger Diagnostics (`src/video_decoder.cpp`)** — Added explicit tracing for audio sample rate, channel layout fallback, and decoder thread type configuration.
 
 
-## v15.6.4 — Deferred Video Scaler & Transition Safety (July 19, 2026)
-### Critical Fixes
+### v15.6.4 — Deferred Video Scaler & Transition Safety (July 19, 2026)
+#### Critical Fixes
 - **Deferred Video Scaler Init (`src/video_decoder.cpp`)** — Moved `sws_getContext()` from eager init (using `vcc->pix_fmt` which may be `DRM_PRIME`) to deferred init after the first frame is decoded and transferred. The scaler now uses the actual decoded pixel format (e.g., NV12, YUV420P), fixing `sws == NULL` silent video skip and rapid playlist advance crash.
 - **Video Decoder EOF State Machine (`src/video_decoder.cpp`)** — All error exit paths now set `m_eof = true`, preventing the render loop from interpreting decoder errors as "still decoding" and entering rapid advance loops.
 - **CMake -O2 Safety (`src/CMakeLists.txt`)** — Downgraded from `-O3` to `-O2` to prevent aggressive auto-vectorization from miscompiling SDL3/FFmpeg float math in transition paths.
 
-### High-Priority Improvements
+#### High-Priority Improvements
 - **Playlist Lock Re-acquire Validation (`src/main.cpp`)** — After releasing `playlist_lock` for I/O and re-acquiring it, indices are now bounds-checked against the potentially resized `g_eligible` vector.
 - **Deferred Flush Path Scaler (`src/video_decoder.cpp`)** — Flush path also uses deferred scaler creation with actual frame format detection.
 - **Fresh Cache Rebuild** — Cache database deleted on deploy to rebuild with correct metadata for all 72K+ items.
 
 
-## v15.6.3 — Comprehensive Video & Shuffle Stability (July 19, 2026)
-### 🔴 P0: Critical Fixes
+### v15.6.3 — Comprehensive Video & Shuffle Stability (July 19, 2026)
+#### 🔴 P0: Critical Fixes
 - **DRM_PRIME Hardware Frame Transfer (`src/video_decoder.cpp`)** — Added `av_hwframe_transfer_data()` to transfer V4L2 M2M hardware-decoded frames (DRM_PRIME/NV12) to CPU-accessible buffers before `sws_scale()`. Fixes black screen video playback on Pi 4/5 when hardware decoder outputs non-CPU-accessible pixel formats.
 - **CMake Pi 4 Compatibility (`src/CMakeLists.txt`)** — Changed `-mtune=cortex-a76` (Pi 5 only) to `-mtune=cortex-a72` (Pi 4 compatible). Removed `-flto=auto` to prevent silent miscompilation of FFmpeg SIMD routines.
 - **SQLite Cooldown Preservation (`src/cache.cpp`)** — Fixed UPSERT to use `MAX(cache.last_shown, excluded.last_shown)`, preventing background preprocessor from overwriting cooldown timestamps to 0 on restart.
 
-### 🟡 P1: High-Priority Improvements
+#### 🟡 P1: High-Priority Improvements
 - **Randomized Start Index (`src/main.cpp`)** — `current_idx` now starts at a random position in the playlist instead of always index 0, ensuring different photos on each boot.
 - **FF_THREAD_SLICE Decode Throughput (`src/video_decoder.cpp`)** — Added `FF_THREAD_SLICE` alongside `FF_THREAD_FRAME` for improved multi-threaded video decode performance.
 - **High-Entropy Shuffle Seeding (`src/scanner.cpp`)** — Combined `high_resolution_clock` + `/dev/urandom` + `std::random_device` in `make_entropy_seed()` for guaranteed unique shuffle order per boot.
@@ -700,22 +700,22 @@ ightarrow$ `0:01` rather than truncating sub-second remaining time to `00:00`.
 - **avformat_network_deinit() Leak Fix (`src/video_decoder.cpp`)** — Ensured FFmpeg network cleanup runs on all decode_loop exit paths.
 
 
-## v15.6.2 — Persistent Texture Stability & Expanded Temporal Window (July 19, 2026)
-### ⚡ Video Decode Stability & KMSDRM Resource Leak Fix
+### v15.6.2 — Persistent Texture Stability & Expanded Temporal Window (July 19, 2026)
+#### ⚡ Video Decode Stability & KMSDRM Resource Leak Fix
 - **Persistent Texture Reuse (`src/main.cpp`, `src/video_decoder.cpp`)** — Resolved crash/reboot loop during video playback by eliminating 60Hz texture reallocation (`SDL_DestroyTexture` / `SDL_CreateTexture` per frame). Video frames now reuse persistent streaming textures updated in-place via `SDL_UpdateTexture()`.
 - **Expanded Temporal Seasonal Window (`src/main.cpp`)** — Increased minimum target count in `filter_playlist()` to 500 items, allowing 5-day seasonal windows across multi-year photo libraries to yield comprehensive playlists without premature degradation.
 
 
-## v15.6.1 — GPU NV12 Pipeline & Black Screen Resolution (July 19, 2026)
-### ⚡ Video Playback GPU NV12 Pipeline Fix
+### v15.6.1 — GPU NV12 Pipeline & Black Screen Resolution (July 19, 2026)
+#### ⚡ Video Playback GPU NV12 Pipeline Fix
 - **Native Resolution NV12 GPU Decoder (, )** — Resolved black screen issue by ensuring  outputs NV12 frames at native video resolution, transferring Y and UV planes directly to  streaming textures, and letting VideoCore VII GPU / DRM display controller handle 4K→1080p hardware downscaling and color conversion at 60fps without CPU bottlenecking.
 
 
-## v15.6.0 — 4K60fps Zero-Copy NV12 GPU Pipeline & Deep Hardening (July 19, 2026)
-### ⚡ 4K60fps Zero-Copy NV12 GPU Pipeline Optimization
+### v15.6.0 — 4K60fps Zero-Copy NV12 GPU Pipeline & Deep Hardening (July 19, 2026)
+#### ⚡ 4K60fps Zero-Copy NV12 GPU Pipeline Optimization
 - **Zero-Copy NV12 GPU Texture Pipeline (`src/video_decoder.h`, `src/video_decoder.cpp`, `src/main.cpp`)** — Eliminated CPU software scaling (`sws_scale()`) and color space conversion for 4K video playback; updated `VideoFrame` to output raw NV12 planes (1.5 bytes/pixel), created `SDL_PIXELFORMAT_NV12` streaming textures, and leveraged VideoCore VII GPU / DRM display hardware to perform color conversion and 4K→1080p downscaling during rendering at zero CPU cost (~186MB/s memory bandwidth, smooth 4K60fps playback).
 
-### 🔴 Critical Bug & Robustness Fixes
+#### 🔴 Critical Bug & Robustness Fixes
 - **SQLite READWRITE Mode Enforcement (`src/cache.cpp`)** — Enforced `SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_FULLMUTEX` open mode across all cache manager routines.
 - **Network Stream Protection & Deinitialization (`src/video_decoder.cpp`)** — Added 30-second I/O interrupt callback for NAS network streams and ensured `avformat_network_deinit()` call on all exit paths.
 - **MQTT Fork-Safety (`src/mqtt.cpp`)** — Snapshotted TLS and broker credentials under lock prior to `fork()`, eliminating all post-fork `g_cfg` mutex reads in child processes.
@@ -723,11 +723,11 @@ ightarrow$ `0:01` rather than truncating sub-second remaining time to `00:00`.
 - **Docker Compose Grace Period & Capabilities (`docker-compose.yml`)** — Mapped `/dev/vchiq` GPU device, added `stop_grace_period: 30s`, and enforced memory limits.
 
 
-## v15.5.0 — GPU 4K Video Scaling & Deep Hardening Release (July 19, 2026)
-### ⚡ 4K Video Downscaling Performance Optimization
+### v15.5.0 — GPU 4K Video Scaling & Deep Hardening Release (July 19, 2026)
+#### ⚡ 4K Video Downscaling Performance Optimization
 - **GPU-Accelerated 4K Video Scaling (`src/video_decoder.cpp`)** — Eliminated CPU software downscaling (`sws_scale()`) for 4K video frames; frames are decoded at native video resolution and uploaded directly into SDL textures, allowing the Raspberry Pi V3D GPU / DRM display pipeline to handle hardware downscaling to 1080p display resolution at 60fps.
 
-### 🔴 Critical Bug & Security Fixes
+#### 🔴 Critical Bug & Security Fixes
 - **SQLite Read-Write Mode & Const RAII (`src/cache.cpp`, `src/cache.h`)** — Resolved contradictory `SQLITE_OPEN_READONLY | SQLITE_OPEN_CREATE` open mode in `CacheManager::open()` and changed `upsert()` signature to pass `MediaItem` by value, removing undefined behavior when mutating metadata fields.
 - **Video Decoder RAII & I/O Network Protection (`src/video_decoder.cpp`)** — Converted raw `new uint8_t[]` and `new int16_t[]` allocations to `std::vector` RAII containers, added `avformat_network_deinit()` to all exit paths, and implemented a 30-second I/O interrupt callback for hung NAS streams.
 - **MQTT Child Process Fork Safety (`src/mqtt.cpp`)** — Snapshotted all configuration values under lock before `fork()`, eliminating all `g_cfg` access in the child process (`pid == 0`) and correcting argument vector insertion.
@@ -735,19 +735,19 @@ ightarrow$ `0:01` rather than truncating sub-second remaining time to `00:00`.
 - **Installer Dependencies (`install.sh`)** — Added `python3`, `nfs-common`, `dbus`, and `network-manager` to the bootstrap installation step.
 - **HTTP Control API Authorization (`src/http_server.cpp`)** — Enforced `is_authorized()` authorization checks across `/api/restart`, `/api/next`, `/api/prev`, and all control endpoints.
 
-### 🟡 Performance & Reliability Upgrades
+#### 🟡 Performance & Reliability Upgrades
 - **Watchman Thread Safe Shutdown (`src/main.cpp`)** — Replaced watchman thread `detach()` with an extended 5-second join polling loop to eliminate shutdown crashes.
 - **Connector Trim Mask Fix (`src/main.cpp`)** — Corrected trim mask to `" \t\r\n"` in `probe_connected_connector()`.
 - **Container Context Exclusion (`.dockerignore`)** — Added `.dockerignore` file excluding `.git`, `cache/`, `logs/`, `docs/`, `scripts/`, and build artifacts from Docker build contexts.
 
 
-## v15.4.0 — Production Engineering & Robustness Release (July 19, 2026)
-### Critical Fixes
+### v15.4.0 — Production Engineering & Robustness Release (July 19, 2026)
+#### Critical Fixes
 - **SQLite Read-Write Mode Fix (`src/cache.cpp`)** — Fixed `SQLITE_OPEN_READONLY` flag in `CacheManager::open()` preventing write operations on SQLite 3.46+; changed to `SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_FULLMUTEX`.
 - **MQTT Child Process Fork Safety (`src/mqtt.cpp`)** — Resolved undefined behavior post-`fork()` by capturing TLS and authentication credentials under lock *before* spawning child processes and removing duplicated `-u`/`-P` arguments.
 - **Dockerfile Dependency Completion (`Dockerfile`)** — Added `libsodium-dev` to builder stage and `libsodium23` to runtime stage to prevent container build failures.
 
-### High-Priority Performance & Stability Upgrades
+#### High-Priority Performance & Stability Upgrades
 - **Scanner Thread Counter Auto-Reset (`src/scanner.cpp`)** — Added `maybe_reset_leaked_thread_counter()` resetting stuck thread counters every 120 seconds to prevent hung CIFS/NFS mounts from permanently blocking future scans.
 - **Portable ARM64 Optimization & LTO Linker (`src/CMakeLists.txt`)** — Replaced host-dependent `-march=native` with portable `-march=armv8-a+crc+simd -mtune=cortex-a76` and added `-flto=auto` to linker flags to fix `SIGILL` crashes on Pi 4.
 - **Video Decoder Multi-Core Thread Scaling (`src/video_decoder.cpp`)** — Scaled FFmpeg decoder thread allocation to `max(1, threads - 1)` with `FF_THREAD_FRAME | FF_THREAD_SLICE` for 1080p software decode performance.
@@ -755,20 +755,20 @@ ightarrow$ `0:01` rather than truncating sub-second remaining time to `00:00`.
 - **PIN Hash & State Persistence (`src/config.cpp`)** — Added `pin_hash` and `pin_changed` serialization to `Config::save()` and `Config::load()` to retain web dashboard authentication state across restarts.
 - **Cleartext Secrets Isolation (`src/config.cpp`)** — Isolated `api_key`, `pin_hash`, `mqtt_pass`, `google_photos_client_secret`, and `refresh_token` into `/app/config/secrets.toml` with restricted `0600` permissions.
 
-### Installer & Deployment Improvements
+#### Installer & Deployment Improvements
 - **Debian Trixie Installer Robustness (`install.sh`)** — Updated installer version header to `v15.4.0`, fixed `docker compose version` check syntax, added fallback to Debian-packaged `docker.io` / `docker-compose-v2`, and pre-installed `cifs-utils` and `nfs-common`.
 - **Canonical Audio Package for Trixie (`Dockerfile`)** — Replaced transitional `libasound2-dev` package with `libasound2t64-dev` in builder stage.
 - **Container Healthcheck Synchronization (`Dockerfile`, `docker-compose.yml`)** — Synchronized Dockerfile `HEALTHCHECK` directive with `scripts/healthcheck.sh`.
 - **HTTP Control API Rate Limiting (`src/http_server.cpp`)** — Enforced 500ms command cooldown on `/api/next` and `/api/prev` endpoints returning `429 Too Many Requests`.
 
-### Quality & Code Cleanup
+#### Quality & Code Cleanup
 - **Dead Code Removal (`src/main.cpp`)** — Removed unused `vft` and `vpi` static resets.
 - **Connector Status String Trim Fix (`src/main.cpp`)** — Corrected trim mask to `" \t\r\n"` in `probe_connected_connector()` to prevent improper string truncation.
 - **Preload Shutdown Join (`src/preload.cpp`)** — Simplified worker thread join logic in `PreloadQueue::shutdown()`.
 
 
-## v15.3.0 — Comprehensive Security, Robustness & Performance Upgrade (July 19, 2026)
-### Security Hardening
+### v15.3.0 — Comprehensive Security, Robustness & Performance Upgrade (July 19, 2026)
+#### Security Hardening
 - **Argon2id PIN Hashing** — Added `src/auth.cpp` with libsodium-backed Argon2id PIN hashing; plaintext PINs are auto-migrated to hashed form on first save. Default PIN `0000` now disables the web dashboard until changed.
 - **PIN Rate Limiting** — Added per-IP rate limiting (5 attempts/60 seconds) with constant-time comparison to prevent brute-force attacks on the dashboard PIN.
 - **Secrets Isolation** — Config loader now reads sensitive values (API keys, MQTT passwords, Google Photos tokens, PIN hash) from a separate `secrets.toml` file with restricted permissions.
@@ -776,7 +776,7 @@ ightarrow$ `0:01` rather than truncating sub-second remaining time to `00:00`.
 - **Read-Only Media Enforcement** — Added optional `enforce_read_only_media` config flag with `statfs()` verification at startup.
 - **Media Volume Read-Only Mount** — Docker Compose now mounts media directory as read-only (`:ro`).
 
-### Runtime Robustness
+#### Runtime Robustness
 - **Render Loop Heartbeat** — Added `src/health.cpp` writing atomic heartbeat timestamps to `/app/cache/run/heartbeat` for Docker healthcheck integration.
 - **Docker Healthcheck** — Added `scripts/healthcheck.sh` and `docker-compose.yml` healthcheck directive (30s interval, 15s staleness threshold).
 - **Crash-Loop Safe Mode** — Added `src/safe_mode.cpp` tracking crash frequency; 3+ crashes within 5 minutes triggers safe mode (disables video, Ken Burns, bias lighting, blur; enables diagnostics HUD).
@@ -787,11 +787,11 @@ ightarrow$ `0:01` rather than truncating sub-second remaining time to `00:00`.
 - **Container Log Rotation** — Added `json-file` logging driver with 5MB max-size, 3-file rotation.
 - **Update Script with Rollback** — Added `scripts/update.sh` with pre-update backup, healthcheck validation, and automatic rollback on failure.
 
-### MQTT & Home Assistant
+#### MQTT & Home Assistant
 - **MQTT TLS Support** — Added `tls` and `ca_cert` config keys for encrypted MQTT broker connections via `mosquitto_sub --cafile --tls-version`.
 - **MQTT Birth/LWT Messages** — Added online birth message and offline LWT payload on `<prefix>/status` topic for Home Assistant availability tracking.
 
-### Performance & Media Pipeline
+#### Performance & Media Pipeline
 - **C++20 Upgrade** — Moved build standard from C++17 to C++20 for `std::jthread`, `std::span`, concepts, and improved concurrency primitives.
 - **Thermal-Aware Quality Scaling** — Added `src/thermal.cpp` with background temperature monitoring; automatically disables effects at 75°C and enters minimal mode at 85°C.
 - **Scaled JPEG Decoding** — Added `load_jpeg_scaled()` using libjpeg-turbo's native `scale_num/scale_denom` to decode images at display resolution, reducing memory and CPU load.
@@ -801,14 +801,14 @@ ightarrow$ `0:01` rather than truncating sub-second remaining time to `00:00`.
 - **Font/Text Render Cache** — Added text texture caching infrastructure in `src/font_render.cpp` and clock overlay cache in `src/overlay.cpp`.
 - **Prometheus Metrics Endpoint** — Added `/metrics` HTTP endpoint exposing `pitrove_fps`, `pitrove_queue_depth`, and `pitrove_media_count` in Prometheus format.
 
-### Architecture & Maintainability
+#### Architecture & Maintainability
 - **Expected Result Type (`src/expected.h`)** — Added lightweight `Expected<T, E>` result type for consistent error handling across modules.
 - **Interface Boundaries** — Added `src/interfaces.h` with `IMediaScanner`, `IMetadataCache`, `IRemoteControl` abstract interfaces for testability.
 - **Media Organizer Journal** — Added SQLite-backed undo journal and `undo_organize()` for safe media reorganization with rollback capability.
 - **Google Photos Atomic Downloads** — Added `fsync_file()` helper for atomic `.part` → final rename download pattern.
 - **OpenAPI Specification** — Added `docs/openapi.yaml` documenting the HTTP control API endpoints.
 
-### CI/CD & Testing
+#### CI/CD & Testing
 - **CI Workflow** — Added `.github/workflows/ci.yml` with Debug, ASan, and TSan build variants.
 - **Security Scanning** — Added `.github/workflows/security.yml` with Trivy filesystem and container image vulnerability scanning.
 - **Fault Injection Tests** — Added `tests/fault_injection.sh` for stale render loop, MQTT disconnect, NAS disconnect, and corrupt cache testing.
@@ -820,70 +820,70 @@ ightarrow$ `0:01` rather than truncating sub-second remaining time to `00:00`.
 
 
 
-## v15.2.3 — Comprehensive Architecture Roadmap (July 19, 2026)
-### Added
+### v15.2.3 — Comprehensive Architecture Roadmap (July 19, 2026)
+#### Added
 - **PLAN.md Architecture Roadmap** — Added comprehensive 15-phase architecture and code audit document covering security hardening, runtime robustness, performance optimization, and maintainability upgrades based on the v15.2.2 feature set and module layout. Covers 29 task groups across web dashboard auth, MQTT TLS, secrets management, Docker hardening, C++ core improvements, SQLite resilience, NAS fault isolation, image/video pipeline optimization, DRM/KMS display handling, Home Assistant sensor expansion, Google Photos sync hardening, media organizer safety, config hardening, structured observability, testing infrastructure, and performance tuning.
 - **CMakeLists.txt Version Sync** — Synchronized CMake project version from 14.7.1 to 15.2.3.
 
-## v15.2.2 — Install Script Ownership Guarantee (July 19, 2026)
-### Fixed
+### v15.2.2 — Install Script Ownership Guarantee (July 19, 2026)
+#### Fixed
 - **Installer Ownership Verification** — Updated `install.sh` to execute a comprehensive final ownership pass (`chown -R $PRIMARY_USER:$PRIMARY_USER $PRIMARY_HOME/piTrove`) after all directory initialization, ensuring user `pi` owns every file, directory, script, cache, and log file in the repository.
 
-## v15.2.1 — Cache Path Scope & Non-Root Ownership Fix (July 19, 2026)
-### Fixed
+### v15.2.1 — Cache Path Scope & Non-Root Ownership Fix (July 19, 2026)
+#### Fixed
 - **Cache Path Scoping** — Fixed un-scoped `cache_dir` key in `config.cpp` that previously caused `[google_photos]` section to overwrite `[paths]` `cache_dir`. Default database now cleanly populates in `/app/cache/cache.db` (`~/piTrove/cache/cache.db`).
 - **File Ownership** — Enforced `pi:pi` user ownership across all repository and cache files.
 
-## v15.2.0 — Production-Grade Security, RAII & Performance Upgrade (July 19, 2026)
-### Security & Robustness
+### v15.2.0 — Production-Grade Security, RAII & Performance Upgrade (July 19, 2026)
+#### Security & Robustness
 - **Granular Docker Capabilities** — Removed `privileged: true` and `pid: host` from `docker-compose.yml`. Replaced with explicit Linux capabilities (`SYS_ADMIN`, `SYS_RAWIO`, `SYS_NICE`), device mappings (`/dev/dri`, `/dev/input`, `/dev/vchiq`), and `no-new-privileges:true`.
 - **Host System Ownership** — Re-established non-root `pi:pi` file ownership across all repository directories and files.
 - **Container-Safe Keepalive Restart** — Refactored WiFi keepalive monitoring in `main.cpp` to trigger a container-level restart (`_exit(99)`) rather than invoking host SysRq kernel reboots on network drops.
 - **RAII Transaction Guard** — Added `TransactionGuard` in `cache.h` for exception-safe SQLite batch operations.
 
-### Performance
+#### Performance
 - **SWS_FAST_BILINEAR Video Scaling** — Optimized FFmpeg video scaler to `SWS_FAST_BILINEAR` in `video_decoder.cpp`, reducing CPU scaling overhead by ~30–40%.
 - **FFmpeg Thread Cap** — Capped decoder thread allocation to a maximum of 2 threads, preventing CPU thread starvation of the main SDL3 render loop.
 
-## v15.1.6 — Photo Classification Filter Inversion Fix (July 19, 2026)
-### Fixed
+### v15.1.6 — Photo Classification Filter Inversion Fix (July 19, 2026)
+#### Fixed
 - **Photo Classification Filter Inversion** — Fixed an inverted boolean condition in `main.cpp` where `show_people_faces = 1` and `keep_animals = 1` acted as mandatory requirements rather than inclusion toggles. This inadvertently dropped all normal landscape/nature/scenery photos, leaving 0 photos in the playlist.
 
-## v15.1.5 — Even Video Interleaving & Anti-Clustering (July 19, 2026)
-### Fixed
+### v15.1.5 — Even Video Interleaving & Anti-Clustering (July 19, 2026)
+#### Fixed
 - **Anti-Clustering Video Interleaver** — Updated `organize_playlist` in `main.cpp` so videos are evenly distributed throughout the photo sequence based on spacing (`photos.size() / videos.size()`). This maintains the exact configured video ratio (e.g. 3 videos per 10 photos) while ensuring videos do not play back-to-back.
 
-## v15.1.4 — Dual Filename Overlay Restoration for Twin-Portraits (July 19, 2026)
-### Fixed
+### v15.1.4 — Dual Filename Overlay Restoration for Twin-Portraits (July 19, 2026)
+#### Fixed
 - **Dual Filename Overlay for Twin-Portraits** — Fixed  overlay draw invocation so  is properly passed to . When two photos are rendered in twin-portrait mode, both filenames are stacked vertically in the overlay. Single photos and videos continue to display one filename.
 
-## v15.1.3 — Cooldown Persistence & DB Fast-Path Index Binding Fix (July 19, 2026)
-### Fixed
+### v15.1.3 — Cooldown Persistence & DB Fast-Path Index Binding Fix (July 19, 2026)
+#### Fixed
 - **Cooldown Persistence Across Restarts** — Fixed a column index offset bug in `main.cpp` fast-path database loader where `last_shown` was incorrectly read from column index 6 (`exif`) instead of index 7. This caused all items to load with `last_shown = 0` on startup, bypassing the cooldown filter and repeating the same media items on restart.
 
-## v15.1.2 — Live FFmpeg Stream Framerate & PTS Fallback Cascade (July 19, 2026)
-### Fixed
+### v15.1.2 — Live FFmpeg Stream Framerate & PTS Fallback Cascade (July 19, 2026)
+#### Fixed
 - **FFmpeg Frame Rate Guessing** — Integrated `av_guess_frame_rate` as primary FPS source, automatically resolving variable framerate (VFR) media and stream time base mismatches.
 - **PTS Fallback Cascade** — Implemented `best_effort_timestamp` -> `pts` -> `pkt_dts` timestamp extraction cascade to ensure hardware decoders (`v4l2m2m`) preserve monotonic frame presentation timestamps.
 
-## v15.1.1 — Master Clock Video Timing & FFmpeg Duration Fix (July 19, 2026)
-### Fixed
+### v15.1.1 — Master Clock Video Timing & FFmpeg Duration Fix (July 19, 2026)
+#### Fixed
 - **Countdown Clock Desync Fix** — Removed `last_pts` total duration truncation in `VideoDecoder::get_video_remaining()`, allowing the OSD timer overlay to accurately display live remaining video playback down to 0:00.
 - **FFmpeg Stream Master Clock & Duration Alignment** — Ensured video duration is derived directly from live FFmpeg stream metadata (`AV_TIME_BASE`) rather than static SQLite DB cache data.
 
-## v15.1.0 — Hardware Video Pacing & Cache Isolation Fix (July 19, 2026)
-### Fixed
+### v15.1.0 — Hardware Video Pacing & Cache Isolation Fix (July 19, 2026)
+#### Fixed
 - **Hardware Video Framerate Pacing & Clock Sync** — Normalized hardware video decoder frame timestamps (`best_effort_timestamp`) relative to initial video PTS (`rel_pts = vf.pts - video_first_pts`), fixing ~half-framerate slowdowns and eliminating countdown clock desync during hardware decoding.
 - **Queue Underflow Retry Delay** — Reduced render loop queue empty retry delay from 5ms to 1ms to eliminate pacing penalties.
 - **Cache Directory Isolation** — Local and NAS media items now write their cache database strictly to `/app/cache/cache.db` (`~/piTrove/cache/cache.db`), isolating `/app/cache/google_photos/cache.db` exclusively for Google Photos media sources.
 
-## v15.0.0 — Major Architecture & System Hardening Upgrade (July 19, 2026)
-### Added
+### v15.0.0 — Major Architecture & System Hardening Upgrade (July 19, 2026)
+#### Added
 - **Hardware Video Acceleration Probing** — Integrated automatic `h264_v4l2m2m` and `hevc_v4l2m2m` V4L2 M2M hardware decoder probing for Raspberry Pi 4/5, dramatically reducing CPU load during video playback.
 - **Docker Container Health Check** — Added native `HEALTHCHECK` probing `http://localhost:9000/api/status` with watchdog auto-healing.
 - **Unit Test Infrastructure** — Introduced unit test suite in `tests/test_main.cpp` for core parsing and utility validation.
 
-### Fixed & Hardened
+#### Fixed & Hardened
 - **Bounded Video Frame Queue & Backpressure** — Capped `m_frame_queue` depth (`MAX_QUEUED_FRAMES = 8`) with `condition_variable` backpressure to eliminate OOM risks.
 - **Data Race Fix** — Converted `decode_start_time` to `std::atomic<double>` to prevent Undefined Behavior between render and decode threads.
 - **Scanner Thread Safety Cap** — Added `g_scanner_detached_threads` atomic tracking to prevent thread accumulation during CIFS mount hangs.
@@ -894,117 +894,117 @@ ightarrow$ `0:01` rather than truncating sub-second remaining time to `00:00`.
 - **CPU Telemetry Baseline** — Added 5ms delta initialization to `read_cpu_usage()` to fix startup 0% telemetry readings.
 - **Debug Log Macro Guarding** — Added early return evaluation to `Logger::debug()` to prevent unneeded formatting overhead.
 
-## v14.7.9 — Watchdog Hardening, Video EOF Transition Fix & mpv Cleanup (July 18, 2026)
-### Fixed
+### v14.7.9 — Watchdog Hardening, Video EOF Transition Fix & mpv Cleanup (July 18, 2026)
+#### Fixed
 - **Video EOF Transition Spam Fix** — Moved `m_running.store(false)` before FFmpeg resource cleanup in the decoder thread, eliminating ~60 "decoder already running, skipping start" log lines per video EOF by allowing the render loop to detect completion immediately instead of spinning while FFmpeg contexts are freed.
 - **Systemd Restart Rate Limit Removed** — Changed `StartLimitIntervalSec` and `StartLimitBurst` to `0` in the piTrove systemd unit, preventing systemd from locking the service into a permanent failed state after rapid Docker restarts.
 - **Network Watchdog Auto-Revival** — The external network watchdog now actively checks if `piTrove.service` is running every 15 seconds while the network is online, and automatically calls `systemctl reset-failed` + `restart` if the service is found inactive.
 - **Video Countdown Timer Accuracy** — The countdown timer now tracks the last decoded frame's PTS instead of relying solely on container metadata duration. At EOF, the total duration is corrected to the actual last frame timestamp, eliminating the ~2-3 second gap where the timer showed time remaining after the video had already ended.
 - **Stale mpv References Purged** — Replaced all remaining `mpv`/`libmpv` references across the codebase (README, TUI descriptions, error database) with correct SDL3/FFmpeg terminology.
 
-## v14.7.8 — Video Countdown Timer Overlay, First-Item Video Support & Config Update (July 18, 2026)
-### Fixed
+### v14.7.8 — Video Countdown Timer Overlay, First-Item Video Support & Config Update (July 18, 2026)
+#### Fixed
 - **Video Countdown Timer Overlay** — Added stream-level duration extraction (`AVStream::duration`) and media item metadata fallback (`MediaItem::duration`) so every video displays the remaining playback countdown timer in the top right, even when container headers lack global duration tags.
 - **First-Item Video Support** — Removed the restriction forcing the first slideshow item to be a photo. Videos can now naturally start as the first item upon application launch.
 - **Config Default** — Set `play_just_videos = false` in `config.toml` so both photos and videos play in sequence.
 
-## v14.7.7 — Video Decoder EOF Flush, Framerate Pacing & Transition Fix (July 18, 2026)
-### Fixed
+### v14.7.7 — Video Decoder EOF Flush, Framerate Pacing & Transition Fix (July 18, 2026)
+#### Fixed
 - **Video Decoder EOF Infinite Flush Loop & Docker Crash** — Resolved infinite packet sending loop during EOF decoder flush when `avcodec_receive_frame` returned `AVERROR_EOF` (`-541478725`), preventing log spam and Docker container crashes.
 - **Video Framerate Pacing** — Synchronized video frame rendering with presentation timestamps (`frame.pts`) relative to wall-clock time (`SDL_GetTicks()`) and ensured pacing variables are reset when switching videos, fixing fast playback.
 - **Frozen Last Frame & Video Lifecycle** — Corrected decoder completion check in `main.cpp` so slideshow transitions immediately when all frames are rendered, and refactored `VideoDecoder` lifecycle (`start`/`stop`) to ensure threads and SDL audio streams are always joined and shut down cleanly.
 
-## v14.7.6 — Video Bad Frame Recovery (July 18, 2026)
-### Fixed
+### v14.7.6 — Video Bad Frame Recovery (July 18, 2026)
+#### Fixed
 - **Bad Frame Crash Recovery** — Corrupted video frames caused `avcodec_receive_frame` to return error codes (e.g., `AVERROR_INVALIDDATA`), exiting the decode loop on the first bad frame. Implemented decoder buffer flush (`avcodec_flush_buffers`) and `continue` to skip to the next packet instead of aborting playback, preventing system freezes.
 
-## v14.7.5 — Video Pacing Drift Fix, SQL Framerate Schema & Duration Caching (July 18, 2026)
-### Fixed
+### v14.7.5 — Video Pacing Drift Fix, SQL Framerate Schema & Duration Caching (July 18, 2026)
+#### Fixed
 - **Pacing Drift** — Corrected video frame pacing by resetting target timestamp on each new video path to prevent cumulative drift across video transitions.
 - **SQL Schema Update** — Renamed `fps` column to `framerate` in the SQLite media cache for clarity and consistency.
 - **Duration Caching** — Added `duration` column to the SQLite cache and populates it during media scans, enabling accurate video countdown timers.
 
-## v14.7.4 — Video Decoder Frame Guard & Start Time (July 18, 2026)
-### Fixed
+### v14.7.4 — Video Decoder Frame Guard & Start Time (July 18, 2026)
+#### Fixed
 - **Decoder Loop Prevention** — Guarded `has_frames()` check to prevent decoder infinite loop during video finish checks.
 - **Video Timer Start Initialization** — Correctly initialized `decode_start_time` when starting video playback for remaining time overlay calculation.
 
-## v14.7.3 — Video Decoder Lifecycle Guard (July 18, 2026)
-### Fixed
+### v14.7.3 — Video Decoder Lifecycle Guard (July 18, 2026)
+#### Fixed
 - **Decoder Thread & EOF Recovery** — Restored `m_eof` state management, guarded `start()` and `stop()` calls, and prevented duplicate decoder threads.
 
-## v14.7.2 — Video Framerate Sync, Cooldown & UI Overlays (July 18, 2026)
-### Fixed
+### v14.7.2 — Video Framerate Sync, Cooldown & UI Overlays (July 18, 2026)
+#### Fixed
 - **Video Framerate Sync** — Extract video frame rate from FFmpeg stream metadata at startup. Use detected framerate as authoritative frame duration for throttling, with PTS delta as refinement. Fixes videos playing too fast (e.g. 10fps video played at 25fps).
 - **Video Cooldown on Completion** — Videos are now marked as shown (added to cooldown) when playback finishes, preventing immediate replay.
 
-### Added
+#### Added
 - **Filename Overlay for Videos** — Videos display the same filename overlay as photos (same position and style).
 - **Video Time Remaining** — The timer overlay shows remaining video playback time (MM:SS) instead of the photo countdown timer during video playback.
 
-## v14.7.1 — Video Audio Playback (July 18, 2026)
-### Added
+### v14.7.1 — Video Audio Playback (July 18, 2026)
+#### Added
 - **Video Audio Playback** — Integrated FFmpeg audio decoding with SDL3 audio output, including automatic resampling (`swresample`) to 48kHz stereo. Audio volume is controlled by the existing `video_volume` setting (0-150%) in config/TUI. Audio is synchronized with video using PTS timestamps.
 
-## v14.7.0 — Video Decoder Thread Crash Fix (July 18, 2026)
-### Fixed
+### v14.7.0 — Video Decoder Thread Crash Fix (July 18, 2026)
+#### Fixed
 - **Video Decoder Thread Creation Crash** — Replaced `std::thread` with raw `pthread_create`/`pthread_join` in the video decoder to resolve `std::system_error` crashes during thread creation that caused the slideshow to crash on the second video transition.
 
-## v14.6.0 — Video Ratio Update (July 6, 2026)
+### v14.6.0 — Video Ratio Update (July 6, 2026)
 
-### Changed
+#### Changed
 - **Adjusted video-to-photo ratio** — Changed ideos_per_photos from 10 to 3, resulting in approximately 3 videos per 10 photos (1 video every 3.33 photos) for more frequent video playback.
 
-## v14.5.9 — Watchdog Auto-Recovery and Systemd Mount Integration (July 5, 2026)
+### v14.5.9 — Watchdog Auto-Recovery and Systemd Mount Integration (July 5, 2026)
 
-### Added
+#### Added
 - **Systemd Mount Integration on Watchdog** — Watchdog dynamically escapes the storage mount path using `systemd-escape` and restarts the systemd mount unit (`systemctl restart mnt-nas.mount`) if inactive upon network recovery, preventing container startup failures due to unavailable bind mounts.
 
-### Fixed
+#### Fixed
 - **Watchdog Auto-Recovery Lockouts** — Watchdog now resets systemd failure states and restarts the application via its systemd service (`systemctl restart piTrove.service`) instead of restarting the Docker container directly, resolving permanent start-limit-hit locks.
 
-## v14.5.8 — Polaroid Border Styles, TUI Alignment, and Watchdog Logging (June 29, 2026)
+### v14.5.8 — Polaroid Border Styles, TUI Alignment, and Watchdog Logging (June 29, 2026)
 
-### Added
+#### Added
 - **Polaroid and Custom Border Modes** — Expanded picture borders from a binary toggle to a multi-choice `border_mode` configuration, supporting `"off"`, `"3d"`, `"white"`, and `"polaroid"`. Polaroid mode renders asymmetric margins and prints the base filename centered in black text at the bottom.
 - **Watchdog Dedicated File Logging** — Patched the independent system watchdog script to output status updates to `/home/pi/piTrove/logs/pitrove-watchdog.log`.
 
-### Fixed
+#### Fixed
 - **TUI Wizard Index Shift** — Removed hijacked config checks and index drift inside the config wizard (`tui.cpp`), restoring access to the Slideshow settings category.
 - **Docker libstb Runtime Dependency** — Installed `libstb0t64` in the Dockerfile runtime stage to prevent container startup crashes (exit code 127) due to missing `libstb.so.0`.
 
-## v14.5.7 — Preload CIFS Safety, MQTT Shutdown, and Google Photos Pagination (June 28, 2026)
+### v14.5.7 — Preload CIFS Safety, MQTT Shutdown, and Google Photos Pagination (June 28, 2026)
 
-### Fixed
+#### Fixed
 - **Preload Safety** — Swapped synchronous file reading with `stat_timeout` checks in `preload.cpp` worker threads to avoid infinite blocking during stale CIFS/network mount glitches.
 - **MQTT Shutdown Robustness** — Implemented non-blocking `waitpid` checks with a 3-second grace period and SIGKILL fallback in `stop_mqtt_client` to prevent app shutdown hangs on dead network/DNS brokers.
 - **Google Photos Sync Pagination** — Integrated `pageToken` / `nextPageToken` query flow into `download_media` in `google_photos.cpp` to correctly fetch all media items beyond the initial 100-item page limit.
 
-## v14.5.6 — Preprocessor Hang Protection & Config Merger Robustness (June 28, 2026)
+### v14.5.6 — Preprocessor Hang Protection & Config Merger Robustness (June 28, 2026)
 
-### Fixed
+#### Fixed
 - **Preprocessor Hang Protection** — Swapped synchronous `stat` call with `stat_timeout`, and wrapped metadata extraction logic in `preprocess.cpp` in a thread-backed 10-second timeout to prevent background preprocessing threads from hanging indefinitely on dead CIFS mounts.
 - **Config Merger Robustness** — Propagated merge failure exit codes in `merge_config.py` and updated `install.sh` to perform atomic config merging with a transaction-like rollback to restore backup configurations on failure.
 
-## v14.5.5 — Docker Debloat, Scanner Timeout, and Data Race Fixes (June 28, 2026)
+### v14.5.5 — Docker Debloat, Scanner Timeout, and Data Race Fixes (June 28, 2026)
 
-### Fixed
+#### Fixed
 - **Dockerfile bloat reduction** — Updated runtime stage to remove development packages (`-dev`), `systemd`, and `network-manager`, replacing them with their corresponding runtime libraries (`libsdl3-0`, `libsdl3-image0`, `libsdl3-ttf0`, `libdrm2`, `libgbm1`, `libegl1`, `libgles2`, `libmpv2`) to reduce container image size.
 - **Scanner hang resolution** — Implemented a thread-based timeout in `read_dir_timeout` to prevent scanner threads from hanging indefinitely on stale CIFS mounts.
 - **Data race prevention** — Guarded cached media directory health statics with a mutex inside `is_media_dir_healthy` to ensure thread safety under concurrent access.
 
-## v14.5.4 — Force Next Video Playback (June 28, 2026)
+### v14.5.4 — Force Next Video Playback (June 28, 2026)
 
-### Added
+#### Added
 - **Force Play Next Video** — Added a button (`🎬 Force Video`) to the Web Remote Dashboard and a corresponding `/api/force_video_next` endpoint to allow users to force-insert the next eligible video in the playlist as the very next item to play.
 
-## v14.5.3 — Container Security & Watchdog Hardening (June 27, 2026)
+### v14.5.3 — Container Security & Watchdog Hardening (June 27, 2026)
 
-### Added
+#### Added
 - **Security Gating on endpoints** — The `/api/logs` and `/api/settings` endpoints are now fully gated behind API key verification when an HTTP API key is configured.
 - **Bearer Auth Header support** — Settings page dashboard now transmits the API key securely using the standard `Authorization: Bearer <key>` header (cached locally via localStorage) rather than leaking it in the URL query string.
 
-### Fixed
+#### Fixed
 - **Dockerfile bloat reduction** — Removed all unnecessary `-dev` packages, `systemd`, and `network-manager` from the stage-2 runtime Docker image to reduce container size and eliminate potential network interface conflicts, while retaining only the required runtime libraries (including `libstb0t64`).
 - **Path alignment** — Standardized default configuration copy path to `/app/config/config.toml` in the Dockerfile.
 - **Scanner hang resolution** — Implemented thread-based timeout in `read_dir_timeout` to prevent the scanner from blocking indefinitely on stale network mount directory listings.
@@ -1013,13 +1013,13 @@ ightarrow$ `0:01` rather than truncating sub-second remaining time to `00:00`.
 - **Duplicate logs** — Removed duplicate midnight shift temporal window log statement.
 - **Watchdog speed restore** — Reverted the watchdog `MAX_FAIL` trigger threshold back to 30 seconds (`MAX_FAIL=2`) for immediate rebooting and recovery under offline conditions when utilizing network media sources.
 
-## v14.5.2 — Network Watchdog Recovery & Installer Fixes (June 27, 2026)
+### v14.5.2 — Network Watchdog Recovery & Installer Fixes (June 27, 2026)
 
-### Added
+#### Added
 - **Stale mount recovery on watchdog** — The network watchdog now automatically performs a lazy unmount and remount of the CIFS share (`$CIFS_MOUNT`) and restarts the container when connection is restored.
 - **Robustness in wdog.conf** — `install.sh` now writes `CIFS_MOUNT`, `DOCKER_CONTAINER`, and `CIFS_REMOUNT_COOLDOWN` to the host watchdog configuration to ensure correct parameters are used for recovery.
 
-### Fixed
+#### Fixed
 - **Primary user detection** — Resolved detection when installing via `curl` pipes by checking `$SUDO_USER` first.
 - **Config merge preservation** — Fixed bug where `$SCAN_WINDOW_DAYS` entered during install was silently ignored when updating an existing config.
 - **Auto-update stability** — Changed `--update` branch git mechanism to use `git reset --hard` instead of `--rebase` to prevent failures when local modifications exist.
@@ -1027,66 +1027,66 @@ ightarrow$ `0:01` rather than truncating sub-second remaining time to `00:00`.
 - **Wizard read TTY compatibility** — Final config prompt now uses `safe_read` to properly handle piped execution.
 - **Watchdog trigger threshold** — Increased `MAX_FAIL` from 2 checks (30s) to 12 checks (3m) to align with the application keepalive timeout and prevent reboots on transient connection drops.
 
-## v14.5.1 — Dynamic Network Recovery Config (June 27, 2026)
+### v14.5.1 — Dynamic Network Recovery Config (June 27, 2026)
 
-### Added
+#### Added
 - **Dynamic network gateway probing** — `install.sh` now automatically detects the default gateway IP and interface at creation time to configure both keepalive monitoring in `config.toml` and the host-level watchdog service in `/etc/pitrove/wdog.conf`.
 
-### Fixed
+#### Fixed
 - **Infinite reboot/restart loop** — Corrected default gateway IP settings to auto-detect the correct gateway IP instead of using a hardcoded placeholder (`192.168.1.1`), preventing keepalive check failures from dropping network connections and rebooting the device.
 
-## v14.4.2 — Shadow Effect Darkening (June 26, 2026)
+### v14.4.2 — Shadow Effect Darkening (June 26, 2026)
 
-### Added
+#### Added
 - **Darker shadow rendering** — Shadow effect now uses a color 50% darker than the background, ensuring it reads as a natural shadow beneath the photo rather than a bright glow. Shadow adapts to background style and vignette settings.
 
-## v14.4.1 — Installer Stability Fixes (Jun 26, 2026)
+### v14.4.1 — Installer Stability Fixes (Jun 26, 2026)
 
-### Fixed
+#### Fixed
 - **Network mount no longer drops on service start** — Fixed container startup that previously broke the NAS connection during boot, ensuring reliable operation on fresh installs.
 - **QR code and media availability no longer cause install failures** — Cosmetic and informational warnings no longer set an error exit code.
 - **Settings parser handles formatted config files** — Config file merging now works correctly even if section headers contain extra whitespace.
 
 
-## v14.4.0 — I/O Rate Limiting to Prevent NAS Mount Drops (Jun 26, 2026)
+### v14.4.0 — I/O Rate Limiting to Prevent NAS Mount Drops (Jun 26, 2026)
 
-### Added
+#### Added
 - **I/O throttle for background preloading** — Preload workers now spread file reads across 50ms intervals to reduce concurrent disk access and protect the CIFS network mount from overload.
 - **Cached media directory health checks** — Health check results are cached for 5 seconds, reducing repeated filesystem directory iterator calls that can overwhelm the NAS connection.
 - **Scanner thread cap removed** — Scanner thread count restored to hardware_concurrency() - 1 (3 threads on a 4-core Pi 5), using full available cores instead of a fixed cap of 4.
 - **Diagnostic monitoring codes** — New error codes E900 (I/O throttle active), E909 (health check caching engaged), and E910 (I/O burst warning) provide visibility into background I/O activity without triggering offline mode.
 
-### Fixed
+#### Fixed
 - **ERROR 101 (NAS mount drops) under heavy preloading** — Eliminated rapid concurrent disk I/O from preload workers and media scanner that exceeded CIFS session capacity and caused the NAS mount to drop.
 
-## v14.3.0 - System-Level Network Watchdog (Jun 25, 2026)
+### v14.3.0 - System-Level Network Watchdog (Jun 25, 2026)
 
-### Added
+#### Added
 - **External network watchdog** - New systemd service (`pitrove-watchdog.service`) that runs outside the Docker container at the host level. Monitors WiFi connectivity every 15 seconds and performs a soft WiFi reset (wpa_cli reconfigure + interface bounce) if the network drops for 30+ seconds. Falls back to a clean `reboot` if the reset does not restore connectivity - properly shuts down WiFi firmware (vs the old dirty SysRq inside the container).
 - **install.sh integration** - The watchdog script and systemd unit are automatically deployed during installation. No manual setup required.
 
-### Changed
+#### Changed
 - **install.sh exit code handling** - Watchdog installation failures are non-fatal (continue install), tracked via `G_EXIT_CODE=2`.
 
-## v14.2.0  -  Installer Experience Overhaul (Jun 24, 2026)
+### v14.2.0  -  Installer Experience Overhaul (Jun 24, 2026)
 
-### Added
+#### Added
 - **QR code for dashboard URL**  -  The post-install success card now displays a scannable QR code linking to the web dashboard (requires `qrencode`).
 - **Post-install media library check**  -  Scans the media directory after installation and reports how many photos/videos were found.
 - **What to Do Next checklist**  -  Ordered 5-step quick-start guide printed after the install success card.
 - **First-time config wizard prompt**  -  Asks if the user wants to launch `pitrove config` immediately after installation.
 - **CLI wrapper version bump**  -  Updated stale `pitrove config` help text from "8-tab" to "11-category".
 
-### Fixed
+#### Fixed
 - **CodeQL format specifier warning**  -  Fixed two `%s`/`std::string` type mismatches in directory validation logging.
 
-### Changed
+#### Changed
 - **Granular install exit codes** - `install.sh` now exits 0 (clean install), 2 (install with non-fatal warnings: QR encoder unavailable, media directory empty or missing, config wizard launch failure), or 1 (hard failure from `fail()` calls). Downstream automation can distinguish perfect installs from degraded ones.
 
 
-## v14.1.0 - Quality of Life Improvements (June 23, 2026)
+### v14.1.0 - Quality of Life Improvements (June 23, 2026)
 
-### Added
+#### Added
 - **Transition progress bar** - Optional progress indicator bar at the bottom of the screen showing remaining photo display time. Configured via config toggle or TUI Overlays menu.
 - **On-this-day date range** - Extended On This Day feature with a +/- day range setting, allowing matching photos within N days of the current date (not just exact month/day).
 - **Splash-to-first-photo fade** - First photo now fades in from black for a smoother startup experience.
@@ -1094,36 +1094,36 @@ ightarrow$ `0:01` rather than truncating sub-second remaining time to `00:00`.
 - **Startup directory validation** - App now checks that media, cache, and log directories exist at startup and logs a warning if they are missing.
 - **Deprecated config key warnings** - Usage of deprecated config keys (e.g. rotation) now triggers a startup log warning.
 
-### Changed
+#### Changed
 - **Offline mode message** - Error console now shows a friendlier, more descriptive message when offline rather than a generic diagnostic warning.
 - **TUI footer reorganized** - R Restore key added to the settings navigation footer.
-## v13.4.0  -  TUI Restructure & PIN Security Refinements (June 23, 2026)
+### v13.4.0  -  TUI Restructure & PIN Security Refinements (June 23, 2026)
 
-### Added
+#### Added
 - **TUI Security submenu**  -  New category with Touchscreen Mode, Dashboard PIN, Auto Update, and Auto Update Branch settings.
 - **PIN-on-click**  -  Dashboard PIN keypad is now shown on first touch/click, before the navigation overlay appears. PIN must be re-entered each time the overlay is dismissed or times out.
 
-### Changed
+#### Changed
 - **TUI categories reordered**  -  Categories restructured by relevance: Display, Slideshow, Overlays, Videos, Scanning, Weather, Security, Hardware, Advanced, MQTT, GPhotos.
 - **Settings reorganized**  -  Splash Overlay Y moved to Overlays, HTTP Timeout/Bind moved to Advanced, Min/Max Brightness moved to Display, Sleep/Wake moved to Hardware.
 - **System category removed**  -  Former System settings redistributed to more appropriate categories (Display, Overlays, Advanced, Hardware, Security).
 
 
-### Added
+#### Added
 - **Dashboard PIN lock**  -  New TUI-configurable 4-digit PIN that must be entered before the touch navigation overlay is shown. After 3 failed attempts, the keypad locks for 60 seconds with a countdown display.
 - **Weather default location**  -  Default weather coordinates changed to Los Angeles, US (34.05, -118.24). Weather remains disabled by default (user-configurable in the TUI).
 
-## v13.3.9  -  PIN Keypad Touchscreen Lock (June 22, 2026)
-## v13.3.8  -  Code Audit Bug Fixes (June 22, 2026)
+### v13.3.9  -  PIN Keypad Touchscreen Lock (June 22, 2026)
+### v13.3.8  -  Code Audit Bug Fixes (June 22, 2026)
 
-### Fixed
+#### Fixed
 
 - **HTTP API key authentication**  -  Fixed an off-by-two parsing error in Bearer token validation that caused all authorized API requests to be rejected as unauthorized.
 - **CIFS stat timeout crash**  -  Eliminated a use-after-free bug in the directory scanner where a timed-out filesystem operation could write to freed memory, causing crashes on unresponsive network mounts.
 - **Shell argument escaping**  -  Removed spurious backslash escapes that were producing literal backslash characters inside single-quoted shell arguments, corrupting paths and values
   containing special characters like dollar signs or backticks.
 
-### Changed
+#### Changed
 
 - **CHANGELOG completeness**  -  Added the missing v13.3.3 entry documenting the API key auth restoration and popen logging fix that was previously unreleased.
 - **CHANGELOG formatting**  -  Fixed v13.3.4 section to use proper em-dashes consistently with the rest of the changelog.
@@ -1132,60 +1132,60 @@ ightarrow$ `0:01` rather than truncating sub-second remaining time to `00:00`.
 - **Slideshow interval selector**  -  Replaced free-form number input and range slider with dropdown selectors (30–300s in 30s steps) on both the dashboard settings page and the dashboard demo page.
 - **Dashboard dark mode readability**  -  Fixed palette selector, theme toggle button, and interval dropdown to use card-background/card-border CSS variables (defined in both themes) with color-scheme:dark hint for native select popups.
 
-## v13.3.7  -  Dashboard PIN Security & Error Code Catalog (June 22, 2026)
+### v13.3.7  -  Dashboard PIN Security & Error Code Catalog (June 22, 2026)
 
-### Added
+#### Added
 - **Dashboard PIN error codes**  -  New E903–E908 diagnostic codes for PIN lockout, invalid PIN, and authentication failures
 - **PIN lockout cooldown**  -  Dashboard auto-unlocks after 15-second lockout following 5 failed PIN attempts
 - **Error code catalog expansion**  -  6 new dashboard security codes covering lockout, storage, and auth mismatches
 
-### Changed
+#### Changed
 - **PIN Change button removed**  -  PIN changes now handled via `pitrove config` command only
 - **README cleaned**  -  Removed stray bytes after emoji characters, documented default PIN (0000)
 - **MQTT toggle removed**  -  Network section removed from dashboard settings
 
-### Fixed
+#### Fixed
 - **README encoding**  -  Removed corrupted UTF-8 bytes after emoji headings
 - **CHANGELOG encoding**  -  Fixed em-dash characters to proper UTF-8 (U+2014)
 
-## v13.3.6  -  Redesigned Dashboard Settings (June 22, 2026)
+### v13.3.6  -  Redesigned Dashboard Settings (June 22, 2026)
 
-### Changed
+#### Changed
 - **Dashboard redesign**  -  Replaced vertical form layout with compact 4-column toggle grid organized into Playback, Display, and Network sections
 - **Edge Lighting**  -  Renamed "Photo Overlay" toggle to "Edge Lighting" for clarity
 - **Hero heading**  -  Updated to "C++ Digital Picture &amp; Video Frame for Raspberry Pi"
 - **Toggle interaction**  -  Entire toggle card is now a clickable touch target for touchscreen use
 
-## v13.3.5  -  NAS Health-Aware Network Recovery & Image Load Timeout Guards (June 21, 2026)
+### v13.3.5  -  NAS Health-Aware Network Recovery & Image Load Timeout Guards (June 21, 2026)
 
-### Fixed
+#### Fixed
 - **Network recovery no longer waits for gateway ping to fail**  -  The keepalive loop now also checks NAS mount health via `is_nas_online()`. If the gateway is reachable but the NAS mount is dead, the system triggers the same recovery sequence (soft WiFi reset at 60s, hard reboot at 180s) instead of leaving the frame in a partially-connected state.
 - **Image load hangs on stale CIFS mounts**  -  All 6 image load call sites in the main loop are now guarded with a 3-second timeout via `load_timed()`. If a file read on a stale mount hangs, the load aborts after 3 seconds instead of blocking the slideshow thread indefinitely. Failed loads increment the consecutive failure counter, triggering offline recovery mode after 3 failures.
 
-## v13.3.4 -- Security Hardening (June 21, 2026)
+### v13.3.4 -- Security Hardening (June 21, 2026)
 
-### Added
+#### Added
 - **HTTP API key authentication** -- Optional API key in `[remote]` section of config.toml. When set, `/api/settings/update` requires `Authorization: Bearer <key>` header. Leave blank to disable (backward compatible).
 - **Error codes E901, E902** -- HTTP_API_KEY_MISSING and HTTP_API_KEY_INVALID for API auth failures.
 
-### Fixed
+#### Fixed
 - **Watchdog NTP drift false positives** -- Replaced wall-clock `time(nullptr)` with `std::chrono::steady_clock` to prevent false watchdog triggers when NTP adjusts the system clock backward.
 - **Shell injection in escape_shell_arg** -- Added escaping for `$`, backticks, `!`, `\`, `;`, `&`, `|`, `<`, `>` in addition to existing single-quote handling. Prevents command injection via malformed OAuth credentials.
 - **popen null dereference** -- Added nullptr check after `popen()` in `execute_curl()` to prevent crash when pipe creation fails.
 - **Unbounded HTTP POST body** -- Added 64KB absolute request size cap and 256KB Content-Length upper bound to prevent memory exhaustion attacks.
 
-## v13.3.3  -  API Key Auth Restoration & Popen Safety (June 21, 2026)
+### v13.3.3  -  API Key Auth Restoration & Popen Safety (June 21, 2026)
 
-### Fixed
+#### Fixed
 
 - **HTTP API key authentication restored**  -  Re-added Bearer token validation on
   `/api/settings/update` endpoint that was lost during code audit refactoring.
 - **Popen failure logging**  -  Added warning message when `popen()` returns null in HTTP
   curl execution, aiding diagnostics of subprocess launch failures.
 
-## v13.3.2  -  Code Audit Fixes: Concurrency, Safety & Resource Management (June 21, 2026)
+### v13.3.2  -  Code Audit Fixes: Concurrency, Safety & Resource Management (June 21, 2026)
 
-### Fixed
+#### Fixed
 - **Unaligned memory access on ARM**  -  Replaced raw pointer casts in pixel color extraction with memcpy-based access to prevent undefined behavior and bus errors on Raspberry Pi ARM architecture.
 - **Archive organizer abort on invalid paths**  -  Added error_code-based filesystem operations to skip unreadable items during media archive organization instead of aborting the entire scan.
 - **Display overlay settings saved to wrong config**  -  Replaced hardcoded config path in on-screen display menu with dynamic loaded_path from config struct, ensuring settings persist to the correct file.
@@ -1197,18 +1197,18 @@ ightarrow$ `0:01` rather than truncating sub-second remaining time to `00:00`.
 - **Google Photos incomplete file handling**  -  Added minimum file size validation (1KB) to prevent processing of incomplete or error downloads.
 - **Preload thread use-after-free on shutdown**  -  Replaced unsafe thread detachment with shared_ptr state lifetime management and join-with-timeout to prevent accessing destroyed queue state.
 
-## v13.3.1  -  Deep Code Audit & Lifecycle Hardening (June 20, 2026)
+### v13.3.1  -  Deep Code Audit & Lifecycle Hardening (June 20, 2026)
 
-### Fixed
+#### Fixed
 - **Thread-safe playlist initialization**  -  Prevented startup data races between remote dashboard services and media initialization by synchronizing playlist setups.
 - **Robust display transition rendering**  -  Guarded image transition effects against invalid screen boundary configurations.
 - **Exception-safe database cache setup**  -  Prevented startup failures by trapping system errors during cache directory initialization.
 - **Responsive application shutdown**  -  Hardened background directory scanning to abort immediately upon exit signals, preventing process hangs.
 - **Dubious repository ownership**  -  Pre-configured the system installation process to preserve repository ownership states when updated under root.
 
-## v13.3.0  -  Code Audit & System Stability Upgrades (June 20, 2026)
+### v13.3.0  -  Code Audit & System Stability Upgrades (June 20, 2026)
 
-### Fixed
+#### Fixed
 - **Divide-by-zero protection**  -  Guarded image downscaling, ambient backlight blending, and screen resizing logic to prevent application crashes when encountering zero-byte or corrupted media items.
 - **Database transaction safety**  -  Hardened cache database queries to copy all bound values, avoiding potential memory reference issues if query strings are deallocated during active transactions.
 - **Web dashboard stability**  -  Enforced strict read timeouts and active connection tracking limits on the remote web server to prevent stalled browsers or half-open connections from exhausting system sockets.
@@ -1216,165 +1216,165 @@ ightarrow$ `0:01` rather than truncating sub-second remaining time to `00:00`.
 - **MQTT remote controller robustness**  -  Upgraded remote messaging subscriptions to run as a separate managed background service, preventing command delays and ensuring proper communication shutdown when the frame exits.
 - **Safe library operations**  -  Rewrote system utility tools to use non-exception-throwing filesystem APIs, avoiding unexpected termination when scanning folders without read permissions.
 
-## v13.2.8  -  Terminal Configuration Stability & Compatibility (June 20, 2026)
+### v13.2.8  -  Terminal Configuration Stability & Compatibility (June 20, 2026)
 
-### Fixed
+#### Fixed
 - **Configuration wizard terminal resize exit**  -  Resolved an issue where launching the configuration wizard would cause some terminal emulators to immediately close the interface due to signal interruptions during window setup.
 - **Improved terminal keyboard compatibility**  -  Added support for alternate arrow key sequence configurations, enabling navigation controls to function correctly when using Windows Command Prompt or PowerShell terminal clients.
 
-### Changed
+#### Changed
 - **Adaptive layout for standard terminals**  -  Lowered the minimum required window dimensions from 100 columns to 80 columns, and introduced a responsive category tab bar to prevent display wrapping on standard terminals.
 
-## v13.2.7  -  Installer Permissions Update (June 19, 2026)
+### v13.2.7  -  Installer Permissions Update (June 19, 2026)
 
-### Fixed
+#### Fixed
 - **Installer script executable permissions**  -  Corrected file permissions for the installer script in the repository to ensure it is marked as executable by default when cloned or updated.
 
-## v13.2.6  -  Configuration Wizard Stability (June 19, 2026)
+### v13.2.6  -  Configuration Wizard Stability (June 19, 2026)
 
-### Fixed
+#### Fixed
 - **Configuration wizard startup crash**  -  Fixed a critical issue where the interactive terminal settings wizard (`pitrove config`) would terminate immediately upon startup on certain terminals before allowing any user input. The terminal input channel is now configured to wait properly for user key presses, preventing startup handshakes or window resizes from triggering premature exits.
 
-## v13.2.5  -  Hard Reboot & Expanded WiFi Diagnostics (June 18, 2026)
+### v13.2.5  -  Hard Reboot & Expanded WiFi Diagnostics (June 18, 2026)
 
-### Fixed
+#### Fixed
 - **System now performs hard reboot after extended network loss**  -  The previous soft reboot via `systemctl` was not sufficient to fully reset the WiFi firmware, leaving the radio dead after reboot. The system now uses the SysRq kernel reboot mechanism which properly resets all hardware including the WiFi adapter, ensuring the Pi regains full network connectivity after automatic recovery reboot.
 
-### Changed
+#### Changed
 - **Expanded kernel WiFi log capture**  -  The diagnostic log capture at network loss and pre-reboot now uses `journalctl -k` with a wider filter to capture firmware crashes, driver resets, power management events, and link state changes in addition to basic interface events.
 
-## v13.2.4  -  WiFi Crash Root Cause Diagnostics (June 18, 2026)
+### v13.2.4  -  WiFi Crash Root Cause Diagnostics (June 18, 2026)
 
-### Added
+#### Added
 - **Kernel WiFi driver log capture on network loss**  -  When the keepalive system detects a network drop, it now captures the last 20 lines of kernel WiFi driver logs (`dmesg`) to the app log file. This records any firmware crashes, deauth events, association failures, or driver resets that may have caused the interface to go dead.
 
-## v13.2.3  -  Automatic Network Recovery Reboot Reliability (June 18, 2026)
+### v13.2.3  -  Automatic Network Recovery Reboot Reliability (June 18, 2026)
 
-### Fixed
+#### Fixed
 - **System no longer left disconnected after automatic network recovery reboot**  -  When the network recovery system triggered an automatic reboot due to extended disconnection, the hard kernel reboot bypassed the init system, preventing the container from starting on its own afterward. The system now uses the proper init system reboot mechanism, ensuring the container starts automatically and the Pi regains full network connectivity after reboot.
 
-## v13.2.2  -  Network Recovery Stability (June 17, 2026)
+### v13.2.2  -  Network Recovery Stability (June 17, 2026)
 
-### Fixed
+#### Fixed
 - **WiFi radio no longer power-cycled during network recovery**  -  The automatic network recovery system was physically turning off the WiFi radio hardware when it detected a transient connection glitch. This severed active CIFS mounts mid-flight, leaving them in a permanently stale state and turning a brief dropout into a full outage. Recovery now uses gentle AP re-association and interface cycling instead, keeping the radio hardware powered on and CIFS connections intact.
 
-### Changed
+#### Changed
 - **Faster automatic reboot after extended disconnection**  -  The system now reboots after 3 minutes of continuous network loss instead of 5, reducing downtime when gentle recovery fails.
 - **Faster network monitoring when offline**  -  The connection monitor checks the gateway every 15 seconds while the network is down (instead of every 2 minutes), allowing the system to detect recovery and resume slideshows more quickly.
 
-## v13.2.1  -  Seamless Video Transitions & Prefetch Caching (June 18, 2026)
+### v13.2.1  -  Seamless Video Transitions & Prefetch Caching (June 18, 2026)
 
-### Fixed
+#### Fixed
 - **Black screen flash before video playback**  -  Eliminated the black screen gap that appeared between the last photo and the start of a video. The previous photo now stays on screen during the display handoff, and the video player takes over directly without any blank frame.
 - **Black screen flash after video playback**  -  Removed the hard black clear that flashed between the end of a video and the next photo's transition.
 
-### Added
+#### Added
 - **Background video prefetch caching**  -  The system now proactively warms the operating system's file cache for upcoming video files in the playlist, scanning ahead several items and pre-fetching the first portion of each video into memory. This significantly reduces the time the video player waits for the first frame to arrive from network-attached storage, enabling near-instant video start on the first displayed frame.
 
-## v13.2.0  -  Crash Fix & Automatic Network Recovery (June 18, 2026)
+### v13.2.0  -  Crash Fix & Automatic Network Recovery (June 18, 2026)
 
-### Fixed
+#### Fixed
 - **App crash during video playback over network drops**  -  Resolved a critical issue where the app would silently exit to the terminal while playing a video during a Wi-Fi dropout. The automatic network recovery reboot was failing to reach the host system from inside the container, leaving the device disconnected and requiring a manual reboot. The recovery system now properly communicates with the host to trigger a clean automatic reboot.
 - **Video countdown timer overlay**  -  Fixed an issue where the photo slide countdown timer (e.g., "120s remaining") would incorrectly appear overlaid on top of video playback. Videos now correctly suppress the slide timer as intended.
 - **Reboot deadlock on shutdown**  -  Eliminated a scenario where the network recovery reboot could block the app from shutting down cleanly, causing the process to hang indefinitely instead of restarting.
 - **Filesystem safety during recovery reboot**  -  All filesystem buffers are now flushed before any recovery reboot to prevent SD card corruption or cache database damage.
 - **Crash on empty playlist during video**  -  Added safeguards to prevent a crash if the media playlist becomes empty while a video item is being processed.
 
-### Added
+#### Added
 - **New diagnostic error codes**  -  Added E226 (video player launch failure), E519 (automatic network recovery reboot), and E809 (watchdog emergency restart) to the diagnostic overlay system for clearer troubleshooting.
 
-### Changed
+#### Changed
 - **Container PID namespace**  -  The container now shares the host's process namespace, allowing the network recovery system to properly trigger host-level reboots when Wi-Fi connectivity cannot be restored automatically.
 - **Installer port documentation**  -  Corrected the container's exposed port from 8080 to 9000 to match the actual web dashboard port.
 
-## v13.1.0  -  Code Stability & Safety Upgrades (June 16, 2026)
+### v13.1.0  -  Code Stability & Safety Upgrades (June 16, 2026)
 
-### Fixed
+#### Fixed
 - **Thread lifetime and safety**  -  Redesigned background queue thread synchronization to manage execution state within a shared context block, preventing potential lifetime issues and shutdown crashes when background tasks are active.
 - **Cleanup routines**  -  Corrected the cleanup tracking guard to be instance-specific rather than process-global, preventing issues when closing and restarting subsystems.
 - **Midnight temporal scans**  -  Optimized the midnight transition scanning logging to prevent premature output and ensure accurate day change logs.
 - **Database access resilience**  -  Documented and clarified cache manager metadata resolution strategies to maintain non-blocking database queries.
 
-## v13.0.10  -  Auto-Update & Scheduled Task Stability (June 16, 2026)
+### v13.0.10  -  Auto-Update & Scheduled Task Stability (June 16, 2026)
 
-### Fixed
+#### Fixed
 - **Scheduled background updates**  -  Resolved a script permission and terminal initialization issue that caused daily auto-update cron jobs to fail with permission errors or abort due to missing terminal contexts.
 - **System user detection**  -  Hardened the primary user resolution path to support systems running under background schedulers with non-standard configurations.
 
-## v13.0.9  -  Startup Performance Optimization (June 16, 2026)
+### v13.0.9  -  Startup Performance Optimization (June 16, 2026)
 
-### Fixed
+#### Fixed
 - **Startup and Watchman scan freezes**  -  Offloaded creation time metadata extraction from the synchronous startup and Watchman scanning threads to the background preprocessing worker thread. The application now transitions instantly to the slideshow.
 
-## v13.0.8  -  Background Cache Metadata Preprocessing (June 16, 2026)
+### v13.0.8  -  Background Cache Metadata Preprocessing (June 16, 2026)
 
-### Added
+#### Added
 - **Continuous background cache metadata preprocessing**  -  Added a background worker thread that extracts dimensions, orientation, duration, capture dates, and camera presence tags for uncached media items, bypassing decoding for images. Keeps layout scaling and slideshow operations fast and responsive.
 
-## v13.0.7  -  Display Resolution Setting Reordering (June 16, 2026)
+### v13.0.7  -  Display Resolution Setting Reordering (June 16, 2026)
 
-### Changed
+#### Changed
 - **Resolution setting priority**  -  Repositioned the resolution selection preset to the top of the display settings category in the terminal configuration console.
 
-## v13.0.6  -  Display Resolution Selection (June 16, 2026)
+### v13.0.6  -  Display Resolution Selection (June 16, 2026)
 
-### Added
+#### Added
 - **Interactive display resolution presets**  -  Added a resolution selector in the configuration console allowing the user to select between 1080p, 1440p, and 2160p resolutions, dynamically scaling display dimensions and photo textures.
 
-## v13.0.5  -  OSD Offset Defaults & TUI Terminal Robustness (June 16, 2026)
+### v13.0.5  -  OSD Offset Defaults & TUI Terminal Robustness (June 16, 2026)
 
-### Added
+#### Added
 - **Default video OSD offset**  -  Adjusted default OSD offset values to position overlays optimally above the 1" matte for fresh installations.
 - **TUI terminal raw mode safety**  -  Added End-Of-File (EOF) detection and signal protection to terminate the console menu loop gracefully on disconnects, preventing infinite CPU spinning.
 - **Robust key sequence packet assembly**  -  Rewrote escape parsing to support longer CSI terminal escape sequences and buffer split packets in SSH sessions.
 
-## v13.0.4  -  Installer Verification & Guidelines Hardening (June 16, 2026)
+### v13.0.4  -  Installer Verification & Guidelines Hardening (June 16, 2026)
 
-### Added
+#### Added
 - **Interactive directory confirmation**  -  Configured the installer to output a list of up to 10 files from the target directory during storage setup, validating paths for all local and network storage configurations.
 - **Fail-safe fallback loops**  -  Integrated path validation loops that allow the user to easily adjust directories, credentials, or connection details if a path is invalid or empty.
 - **Plan-first agent guidelines**  -  Hardened the agent guidelines to mandate structured implementation plans and user review before executing modifications.
 
-## v13.0.3  -  Network Recovery Safeguard (June 15, 2026)
+### v13.0.3  -  Network Recovery Safeguard (June 15, 2026)
 
-### Added
+#### Added
 - **Fail-safe network connection watchdog**  -  Hardened the connection monitor to automatically restart the wireless radio interface if the network gateway becomes unreachable, actively attempting to restore the link.
 - **Automated system recovery reboot**  -  Configured an automatic system recovery reset if connection is lost continuously for more than 5 minutes, ensuring the device remains responsive and recovers cleanly from persistent access point drops.
 
-## v13.0.2  -  Installer Modernization & Sequencing Fixes (June 14, 2026)
+### v13.0.2  -  Installer Modernization & Sequencing Fixes (June 14, 2026)
 
-### Fixed
+#### Fixed
 - **Installer directory creation sequencing**  -  Bind-mount target directories (cache, config, logs, subtitles) are now created with correct ownership before the Docker build step, preventing Docker from silently creating them as root-owned.
 - **Organizer TTY detection**  -  The media archive organizer now detects whether a terminal is available before requesting interactive Docker access, preventing failures when invoked from non-interactive contexts.
 - **Cleaned up legacy step numbering**  -  Replaced stale numeric step comments with descriptive section headers throughout the installer for clarity.
 
-## v13.0.1  -  Video Playback Smoothness (June 14, 2026)
+### v13.0.1  -  Video Playback Smoothness (June 14, 2026)
 
-### Fixed
+#### Fixed
 - **Reduced video buffering stalls over Wi-Fi**  -  Tuned the video player cache recovery threshold to resume playback faster after brief network hiccups. Increased I/O read chunk sizes to reduce round-trips when streaming from network-attached storage.
 
-## v13.0.0  -  Native Daemon Transition & Code Consolidation (June 13, 2026)
+### v13.0.0  -  Native Daemon Transition & Code Consolidation (June 13, 2026)
 
-### Added
+#### Added
 - **Native background connection monitor**  -  Integrated an automatic network adapter link recovery agent directly into the background engine. If the local gateway becomes unreachable, the slideshow manager automatically resets the interface to restore connectivity. This completely removes the reliance on external script daemons and scheduled host tasks.
 - **Integrated media archive organizer**  -  Consolidated the media library organizer into a native compiled utility. Users can now reorganize archive folders chronologically or apply date prefixes in-place using the `--organize` command-line option directly on the system, eliminating external script execution overhead and dependency requirements.
 
-### Fixed
+#### Fixed
 - **Simplified system deployment**  -  Cleaned up installation requirements by eliminating external host scripts and scheduled system tasks.
 
-## v12.6.0  -  Automated Seasonal Fallback & Installer Streamlining (June 12, 2026)
+### v12.6.0  -  Automated Seasonal Fallback & Installer Streamlining (June 12, 2026)
 
-### Added
+#### Added
 - **Automated seasonal window fallback**  -  Implemented an automatic date fallback system. If a photo or video does not have chronological folder or filename date prefixes, the slideshow dynamically inspects embedded camera capture dates (EXIF metadata) and file creation/modification dates. This allows the seasonal window to automatically select and display photos from the correct time of year without requiring date organization.
 - **New system diagnostics warning**  -  Added a specific diagnostic alert (`E808`) to notify when no date prefixes are found in the media library, showing that the system is using embedded file attributes to align the seasonal window.
 
-### Fixed
+#### Fixed
 - **Streamlined installation wizard**  -  Removed the interactive media reorganization prompt from the default installation workflow to prevent configuration delays. The media organizer utility remains available as a manual command-line execution option.
 - **Installer auto-updates via cron**  -  Resolved an issue where daily scheduled update checks failed to execute from outside the repository directory by ensuring the updater switches to the repository directory before executing git commands.
 
-## v12.5.5  -  Advanced Diagnostics & System Integrity Safeguards (June 12, 2026)
+### v12.5.5  -  Advanced Diagnostics & System Integrity Safeguards (June 12, 2026)
 
-### Added
+#### Added
 - **Proactive local network status detection**  -  Engineered dynamic interface checks to monitor network adapter connection status and identify local connectivity drops. In the event of Wi-Fi or Ethernet disconnection, the system generates a clear network status error.
 - **DHCP configuration & IP conflict warning**  -  Implemented address verification checks to detect when the system receives a self-assigned IP address. Warnings are raised with a specific configuration alert if DHCP leasing fails.
 - **DNS lookup failure diagnostics**  -  Added explicit server resolution health checks during synchronization. If external domains are unreachable, the system triggers a DNS resolution alert, distinguishing network routing issues from server credential invalidation.
@@ -1382,14 +1382,14 @@ ightarrow$ `0:01` rather than truncating sub-second remaining time to `00:00`.
 - **Cache filesystem writability auditing**  -  Added cache folder write verification checks on application startup, alerting the user immediately if directories are mounted with read-only permissions.
 - **Database transaction lock diagnostics**  -  Extended transaction error reporting to detect database locks or write blockages, triggering specific lock timeout or disk failure warnings.
 
-## v12.5.4  -  Reliability, Security, & Concurrency Safeguards (June 12, 2026)
+### v12.5.4  -  Reliability, Security, & Concurrency Safeguards (June 12, 2026)
 
-### Added
+#### Added
 - **Software watchdog recovery**  -  Integrated an active background watchdog system that monitors the health of the main slideshow loop. If the rendering engine stalls or freezes for more than 45 seconds, the watchdog triggers an immediate restart to restore operation automatically.
 - **Non-blocking network mount verification**  -  Implemented lightweight TCP socket reachability checks for remote network shares. Before performing filesystem operations or media scans, the app verifies NAS status to prevent blocking kernel calls from freezing the interface.
 - **Dynamic touchscreen hotplugging**  -  Upgraded touch input detection to periodically probe for active interfaces, permitting touchscreen controllers to be unplugged and reconnected at runtime without requiring an application restart.
 
-### Fixed
+#### Fixed
 - **Clean shutdown on network failure**  -  Refactored the media preloader and file monitoring threads to detach blocked filesystem workers upon application exit. The slideshow now terminates immediately and gracefully even if background threads are stalled on unresponsive network mounts.
 - **Persistent MQTT integration**  -  Configured an automatic reconnect loop for remote messaging client subscriptions. If the connection to the broker drops or the broker is restarted, the client automatically attempts reconnection after 10 seconds.
 - **Google Photos synchronization safety**  -  Added rigorous protocol and domain validations for dynamic download links, shielding the system from unauthorized web redirects. Prepend command qualifiers to all download requests to block command option injection.
@@ -1397,29 +1397,29 @@ ightarrow$ `0:01` rather than truncating sub-second remaining time to `00:00`.
 - **Safe crash recovery handlers**  -  Eliminated dynamic heap allocations from system signals and terminate handlers. The app can now safely delete incomplete cache databases on crash without encountering secondary lockups or deadlocks.
 - **Robust preloading queue lookup**  -  Restructured the background image buffer to allow out-of-order lookups. Skipping or seeking slides no longer discards successfully cached items, reducing redundant network fetches and load times.
 
-## v12.5.3  -  Network Resilience & Installer Robustness (June 12, 2026)
+### v12.5.3  -  Network Resilience & Installer Robustness (June 12, 2026)
 
-### Fixed
+#### Fixed
 - **Wi-Fi keepalive reliability**  -  Scheduled the keepalive connection checks under root privileges to ensure the system is authorized to reset the wireless interface during connectivity dropouts.
 - **Installer conflicts**  -  Restructured the installation sequence to clone the repository before writing configuration scripts, preventing directory conflicts. Added an automatic cleanup safeguard for incomplete/stale source directories.
 - **Transient error diagnostics**  -  Media loading errors caused by network disconnections are now properly reported as network mount issues rather than image decoding failures.
 - **Overlay message suppression**  -  Prevented network and file-decoding diagnostic boxes from flashing on screen during short, transient Wi-Fi drops unless the frame enters dedicated offline recovery mode.
 
-## v12.5.2  -  Interactive Installer Piped Execution Fix (June 11, 2026)
+### v12.5.2  -  Interactive Installer Piped Execution Fix (June 11, 2026)
 
-### Fixed
+#### Fixed
 - **Installer keyboard input lock**  -  Resolved an issue where running the installation command directly via piped execution (such as `wget | bash`) would cause the installer to skip interactive prompt selections, default automatically, and terminate abruptly. Keyboard inputs are now correctly queried directly from the terminal console.
 
-## v12.5.1  -  Video Playback & Buffering Optimization (June 11, 2026)
+### v12.5.1  -  Video Playback & Buffering Optimization (June 11, 2026)
 
-### Fixed
+#### Fixed
 - **Stutter-free video rendering**  -  Tuned internal video player options to increase network read-ahead buffering window (up to 120 seconds) and caching limits (up to 1024MB).
 - **Smooth playback with no skipped frames**  -  Forced the video renderer to play every single frame sequentially, completely preventing timeline jumps or skips during high-bitrate playback.
 - **Improved decoding performance**  -  Enabled fast decoding optimizations and skipped in-loop deblocking filters on complex frames, significantly reducing hardware CPU load when streaming high-resolution video clips over network mounts.
 
-## v12.5.0  -  Deep C++17 Modernization (June 11, 2026)
+### v12.5.0  -  Deep C++17 Modernization (June 11, 2026)
 
-### Added
+#### Added
 - **Zero-Allocation Number Parsing**  -  Replaced all exception-based string-to-number conversion with a unified template parser built on `std::from_chars`. Configuration loading and web dashboard parameter processing no longer allocate temporary heap strings or throw exceptions during parsing, reducing startup and runtime overhead.
 - **Compile-Time Keyword Tables**  -  Media classification keyword arrays (documents, people, animals) and image extension lists are now evaluated at compile time. This eliminates per-launch heap construction and improves classifier throughput on the Pi's limited memory bus.
 - **Expressive Date Parsing API**  -  Date extraction from filenames and metadata now uses `std::optional` returns with structured bindings instead of out-parameters, making missing-date paths explicit and self-documenting at every call site.
@@ -1428,233 +1428,233 @@ ightarrow$ `0:01` rather than truncating sub-second remaining time to `00:00`.
 - **Expanded Zero-Copy String Parameters**  -  Extended `std::string_view` usage to seasonal window checkers, keyword matchers, and month-in-window filters, avoiding unnecessary string copies during scanning and playlist filtering.
 - **Tighter Variable Scoping**  -  Applied C++17 if-with-initializer statements to configuration parsing, JSON value extraction, and URL parameter decoding, scoping intermediate variables to their exact point of use.
 
-## v12.4.0  -  C++17 Modernization & Directory Iterators (June 11, 2026)
+### v12.4.0  -  C++17 Modernization & Directory Iterators (June 11, 2026)
 
-### Added
+#### Added
 - **Modernized Directory Scanner**  -  Transitioned directory scanning operations to standard C++17 directory iterators. This eliminates legacy platform-specific APIs and improves scanning stability across filesystem bounds.
 - **Optimized String Handling**  -  Updated key utility helpers to use a memory-efficient string view interface. This avoids dynamic memory allocations and copies for parameters and string slices, lowering overhead during startup indexing.
 - **Concurrent Configuration Sharing**  -  Upgraded the internal configuration synchronization system to permit multi-threaded concurrent reading. Telemetry dashboards, background preloading workers, and Home Assistant integrations can now access active settings concurrently without blocking one another.
 
-## v12.3.0  -  Global Linkage Modernization (June 11, 2026)
+### v12.3.0  -  Global Linkage Modernization (June 11, 2026)
 
-### Added
+#### Added
 - **Global Variable Modernization**  -  Modernized the sharing system for application state, configurations, and core subsystems. This allows variable definitions to reside directly in header files, completely eliminating duplicate code definitions and streamlining compile-time link verification.
 
-## v12.2.0  -  Static Code Safety & Warning Hygiene (June 11, 2026)
+### v12.2.0  -  Static Code Safety & Warning Hygiene (June 11, 2026)
 
-### Added
+#### Added
 - **Discarded Value Warning Checks**  -  Integrated strict return value checking compiler guidelines across all math, text parsing, and filesystem check operations to verify that logical values returned by system helpers are never silently ignored.
 - **Unused Parameter Refinement**  -  Modernized inactive configuration stub endpoints and graphics engine callbacks to clean up legacy type casting directives, ensuring a warning-free compilation.
 
-## v12.1.0  -  Code Modernization & Configuration Safety (June 11, 2026)
+### v12.1.0  -  Code Modernization & Configuration Safety (June 11, 2026)
 
-### Added
+#### Added
 - **Configuration Boundary Hardening**  -  Standardized value constraint clamping across all application subsystems to guarantee that out-of-bounds options supplied via manual configuration edits are safely and uniformly clamped to their defined limits on load.
 - **Improved Media Cache Cleanup**  -  Refactored data structures inside the graphics engine to cleanly unpack metadata indices during folder scans and text-rendering cache clear-downs, improving stability and performance.
 
-## v12.0.0  -  Web Remote Refinements & Scroll Usability (June 10, 2026)
+### v12.0.0  -  Web Remote Refinements & Scroll Usability (June 10, 2026)
 
-### Added
+#### Added
 - **Configuration Help Hint**  -  Added a reminder below the dashboard settings form highlighting that more advanced configuration options are available via the `ssh pitrove config` command-line utility.
 
-### Fixed
+#### Fixed
 - **Diagnostics Log Scroll Lock**  -  Modified the log terminal window to only auto-scroll to the bottom when new events arrive if the user was already scrolled to the bottom. If the user scrolls up to read older log history, the console now maintains their scroll position, preventing the view from jumping down.
 
-## v11.9.9  -  Settings Expansion & Log Console Formatting (June 10, 2026)
+### v11.9.9  -  Settings Expansion & Log Console Formatting (June 10, 2026)
 
-### Added
+#### Added
 - **Expanded Web Settings Control**  -  Introduced direct dashboard toggle switches for Touchscreen Mode, Shuffle, Ken Burns, Blurred Background, and Color-Matched Matte configurations.
 
-### Fixed
+#### Fixed
 - **Settings Label Clarification**  -  Renamed the generic volume slider in the remote dashboard settings panel to "Video Volume" for clear user guidance.
 - **Log Console Font Sizing**  -  Reduced log viewer console text size to 0.65rem, optimizing information density and screen space utilization.
 
-## v11.9.8  -  Auto-Refreshing Remote Web UI Preview (June 10, 2026)
+### v11.9.8  -  Auto-Refreshing Remote Web UI Preview (June 10, 2026)
 
-### Fixed
+#### Fixed
 - **Web UI Preview Synchronization**  -  Implemented an automatic preview refresh trigger within the web remote dashboard. The dashboard now monitors active slide change events and dynamically reloads the visual preview image using cache-busting timestamp parameters and custom loading indicators, eliminating static visual state desync.
 
-## v11.9.7  -  API Validation & Log Diagnostics Hardening (June 10, 2026)
+### v11.9.7  -  API Validation & Log Diagnostics Hardening (June 10, 2026)
 
-### Added
+#### Added
 - **API Boundary & Clamp Checks**  -  Settings configuration updates via the web remote are now validated against safety limits (such as slide delay and video volume), triggering diagnostic error E807 if constraints are violated.
 - **Log Stream Access Diagnostics**  -  Diagnostic log read checks now actively monitor log stream availability, generating error E126 if logs cannot be read.
 
-### Fixed
+#### Fixed
 - **Standardized Input Log Prefixes**  -  Standardized all background touchscreen event logs to consistently use the `TOUCH_INPUT` prefix for better readability.
 
-## v11.9.6  -  Installer Reliability Fixes (June 10, 2026)
+### v11.9.6  -  Installer Reliability Fixes (June 10, 2026)
 
-### Fixed
+#### Fixed
 - **Hardcoded home directory paths**  -  The media organizer and Wi-Fi keepalive scripts generated by the installer now correctly resolve the primary user's home directory instead of assuming `/home/pi`, preventing failures on systems with non-default usernames.
 - **Web dashboard port mismatch**  -  Corrected the installer to reference port 9000 (matching the actual application default) instead of the stale port 8080 in all generated configuration, success messages, and Google Photos setup instructions.
 - **Web dashboard always available**  -  The remote web dashboard is now enabled by default on fresh installs regardless of whether Google Photos integration is configured, matching the behavior of the default configuration template.
 
-## v11.9.5  -  Interactive Touchscreen Mode & Virtual Keyboard Overlay (June 10, 2026)
+### v11.9.5  -  Interactive Touchscreen Mode & Virtual Keyboard Overlay (June 10, 2026)
 
-### Added
+#### Added
 - **Touchscreen Mode Support**  -  Introduced a dedicated touchscreen capability, toggleable directly from the terminal configuration wizard. When active, tapping anywhere on the slideshow opens the quick configuration menu rather than advancing the slide.
 - **Premium Numerical Virtual Keyboard**  -  Created an on-screen numerical keyboard overlay to easily enter interval delays and video volumes directly via finger touch, featuring a clean keys grid, backspace delete, and input validation.
 - **Visual Settings Controls**  -  Added interactive increment/decrement buttons and a draggable volume slider track to the quick configuration menu overlay for quick, touch-friendly adjustments.
 
-## v11.9.4  -  Modern Grey Dashboard, Live Timer, and Popup Config Menu (June 10, 2026)
+### v11.9.4  -  Modern Grey Dashboard, Live Timer, and Popup Config Menu (June 10, 2026)
 
-### Added
+#### Added
 - **Modern Zinc Dashboard & Accent Themes**  -  Restyled the web HUD control interface with a modern, neutral gray (Zinc/Slate) appearance. Introduced user-selectable Light/Dark themes and color palette options (Zinc, Emerald, Sapphire, Amber) persisted client-side.
 - **Direct-to-Device Quick Configuration Menu**  -  Implemented an overlay configuration menu that pops up on the display when right-clicking with a directly connected mouse. Allows immediate toggling of playback state, shuffle, interval delays, and screen blanking, with keyboard and mouse navigation support.
 - **Live Slideshow Timer Display**  -  Exposed the active slideshow progression timer to the web dashboard, adding a live countdown badge that shows the seconds remaining before the next photo loads.
 
-### Fixed
+#### Fixed
 - **Dashboard Preview Routing Loop**  -  Corrected a route conflict that was causing the web remote to repeatedly trigger manual slideshow advance commands when loading preview images.
 - **Preview Image Load Reliability**  -  Replaced socket stream writing logic with an interrupt-safe transmission loop to ensure complete, uncorrupted preview image deliveries.
 
-## v11.9.3  -  Consolidated Web Dashboard & Buffering Enhancements (June 10, 2026)
+### v11.9.3  -  Consolidated Web Dashboard & Buffering Enhancements (June 10, 2026)
 
-### Added
+#### Added
 - **Consolidated Control Dashboard Layout**  -  Redesigned the interactive web control interface to reduce vertical spacing, merge fragmented telemetry boxes, and place all playback indicators and buttons into a single cohesive control card.
 - **Enhanced 4K Video Buffering**  -  Optimized video playback buffer sizes and startup caching logic to enable stutter-free, smooth rendering of high-bitrate 4K@60fps video clips over local networks and NAS storage.
 
-### Fixed
+#### Fixed
 - **Documentation Spacing & Layout**  -  Cleaned up the documentation landing page by combining installation scripts and command lists into unified layout sections, removing redundant outline borders, and streamlining capabilities feature items.
 
-## v11.9.2  -  Interactive Web Settings & Diagnostics HUD (June 10, 2026)
+### v11.9.2  -  Interactive Web Settings & Diagnostics HUD (June 10, 2026)
 
-### Added
+#### Added
 - **Interactive Web Settings Control Panel**  -  Introduced an interactive configuration dashboard to dynamically customize slideshow preferences, overlay features, and automation settings directly from the web remote interface.
 - **Live System Diagnostics Logs**  -  Integrated a real-time log terminal viewer on the dashboard to inspect system events, media indexing status, and diagnostic reports without requiring SSH terminal sessions.
 
-## v11.9.1  -  Safe Configuration Merging & Maintenance Updates (June 8, 2026)
+### v11.9.1  -  Safe Configuration Merging & Maintenance Updates (June 8, 2026)
 
-### Added
+#### Added
 - **Safe Configuration Merging**  -  Introduced an automated settings migration system during installation that merges the latest version defaults and new sections into your existing `config.toml` without overwriting any custom modifications.
 - **Maintenance Command Flags**  -  Added and documented advanced command-line arguments in the installer to check/deploy updates manually or automatically via daily background schedules.
 
-## v11.9.0  -  Media Archive Reorganization Strategies (June 7, 2026)
+### v11.9.0  -  Media Archive Reorganization Strategies (June 7, 2026)
 
-### Added
+#### Added
 - **Interactive Reorganization Menu**  -  Added an interactive strategy selection menu during media reorganization to choose between sorting files into chronological folders (`Photos/YYYY-MM/` and `Videos/YYYY-MM/`) or prefixing filenames in-place with dates (`YYYY-MM-DD_`) to maintain the existing directory structure.
 - **In-Place Date Prefixing**  -  Integrated file sorting without changing path hierarchies, ensuring that existing folder configurations are preserved while enabling date-based temporal window features.
 
-### Fixed
+#### Fixed
 - **Installer Cron Job Registration**  -  Resolved an installer script pipeline failure under strict error handling when encountering environments with empty crontabs.
 
-## v11.8.13  -  Network Resilience & Keepalive Daemon (June 6, 2026)
+### v11.8.13  -  Network Resilience & Keepalive Daemon (June 6, 2026)
 
-### Added
+#### Added
 - **Automated Network Keepalive Daemon**  -  Integrated a lightweight, persistent Wi-Fi keepalive script scheduled via cron that periodically monitors the local network gateway and automatically restarts the wireless interface via NetworkManager if unreachable, preventing long-term connection drops.
 
-### Fixed
+#### Fixed
 - **Resilient Media Outage Handling**  -  Hardened the image loading pipeline to verify media directory health and inspect filesystem error codes before flagging media files as corrupted in the cache database. This prevents transient network outages, rclone client restarts, or temporary NAS drops from marking valid files as bad.
 
-## v11.8.12  -  Resilient Offline Recovery & Failure Handling (June 5, 2026)
+### v11.8.12  -  Resilient Offline Recovery & Failure Handling (June 5, 2026)
 
-### Fixed
+#### Fixed
 - **Stuck Slides on Media Load Failures**  -  Forced the slideshow to discard frozen images and immediately display the diagnostic recovery splash screen upon entering Offline Recovery Mode, resolving issues where slides would lock on screen during temporary network dropouts.
 - **Fast Media Failure Skip**  -  Reduced the slide retry delay to 2 seconds (from 120 seconds) when encountering a single corrupted or missing image, preventing long pauses on frozen frames before advancing to the next item.
 
-## v11.8.11  -  Code Quality & Dead Code Cleanup (June 4, 2026)
+### v11.8.11  -  Code Quality & Dead Code Cleanup (June 4, 2026)
 
-### Added
+#### Added
 - **Static Analysis Infrastructure**  -  Integrated general-purpose C++ static analyzers and diagnostic checkers on the Pi host compiler pipeline, ensuring long-term code quality and stability.
 
-### Fixed
+#### Fixed
 - **Dead Code and Resource Cleanup**  -  Removed 25 unused helper functions and dead/unused variables across the image decoding, directory scanning, and graphics rendering subsystems to streamline the application footprint.
 
-## v11.8.10  -  Seamless transition buffer presentation (June 4, 2026)
+### v11.8.10  -  Seamless transition buffer presentation (June 4, 2026)
 
-### Fixed
+#### Fixed
 - **Seamless transition buffer presentation**  -  Resolved a single-frame black screen flicker occurring when slide transitions reached completion. Allowed the transition engine to render the final frame even after the active flag is cleared.
 
-## v11.8.9  -  Animated Pattern Blending (June 4, 2026)
+### v11.8.9  -  Animated Pattern Blending (June 4, 2026)
 
-### Added
+#### Added
 - **Multi-Pattern Blending**  -  Added support to layer and blend up to 3 random static or animated patterns simultaneously. Exposed the blending limit preference as "Pattern Blend Count" in the TUI Display configurations, defaulting to a blend of 3 active patterns.
 
-## v11.8.8  -  Seamless Ken Burns transition completion (June 4, 2026)
+### v11.8.8  -  Seamless Ken Burns transition completion (June 4, 2026)
 
-### Fixed
+#### Fixed
 - **Seamless Ken Burns transition completion**  -  Modified the Ken Burns transition engine to smoothly crossfade and zoom/pan back to 1.0x scale and centered alignment, preventing the visual size resize snap and jitter when transitioning to a static slide.
 
-## v11.8.7  -  Continuous OSD Overlay rendering (June 4, 2026)
+### v11.8.7  -  Continuous OSD Overlay rendering (June 4, 2026)
 
-### Fixed
+#### Fixed
 - **Uninterrupted OSD Overlay rendering**  -  Drew on-screen overlays (filename, timer, clock, diagnostics HUD, on-this-day banners) directly over active transition frames, ensuring continuous OSD visibility and preventing black screen flickers when rotating slides.
 
-## v11.8.6  -  Background Matte Pattern Enhancements (June 4, 2026)
+### v11.8.6  -  Background Matte Pattern Enhancements (June 4, 2026)
 
-### Added
+#### Added
 - **New Background Matte Patterns**  -  Expanded the background patterns to include triangles, polygons, squares, rectangles, hexagons, and fractals, both static and animated.
 - **Mix & Match Pattern Style**  -  Added a combined background matte style that renders a randomized blend of multiple shapes dynamically.
 - **TUI & Selection Integration**  -  Included all background matte pattern styles in the setup wizard, enabling direct selection of specific static or animated patterns.
 
-## v11.8.5  -  Automated Updates & Configuration Control (June 4, 2026)
+### v11.8.5  -  Automated Updates & Configuration Control (June 4, 2026)
 
-### Added
+#### Added
 - **Automated Update Checking**  -  Introduced a background auto-update scheduling system. The Digital Picture Frame can now be configured via the settings panel to automatically query the remote repository for updates and redeploy the container without manual intervention.
 - **Git Branch Tracking**  -  Added support to select and track specific development channels (stable 'main' or active 'develop') directly from the settings wizard, aligning all background updates to the selected branch.
 - **TUI & Installer Integration**  -  Exposed the Auto-Update and Update Channel selection preferences inside the System category of the terminal setup wizard.
 
-## v11.8.4  -  Terminal UI Compatibility & Options Loading Fixes (June 4, 2026)
+### v11.8.4  -  Terminal UI Compatibility & Options Loading Fixes (June 4, 2026)
 
-### Fixed
+#### Fixed
 - **Terminal UI category text visibility**  -  Enforced standard text background colors and color schemes in the setup wizard, ensuring option names and category tabs remain fully visible and readable when accessing the configurations from terminal clients with light backgrounds.
 - **Terminal UI configuration options loading**  -  Resolved a layout rendering issue where configuration setting options failed to display in the wizard categories on the first screen redraw.
 
-## v11.8.3  -  Dynamic Midnight Temporal Rescanning (June 4, 2026)
+### v11.8.3  -  Dynamic Midnight Temporal Rescanning (June 4, 2026)
 
-### Added
+#### Added
 - **Midnight Media Rescanning**  -  Enhanced the background watchman daemon to trigger an automatic directory scan at midnight to shift the active seasonal media window dynamically without requiring an application restart.
 - **Unfiltered Media Scanner**  -  Modified the media directory scanner to process all files during the initial scanning phase, letting the playlist filters dynamically determine seasonal window eligibility at runtime.
 
-## v11.8.2  -  Database Error Handling Integration (June 3, 2026)
+### v11.8.2  -  Database Error Handling Integration (June 3, 2026)
 
-### Added
+#### Added
 - **Database Health Error Reporting**  -  Integrated active database status checks to trigger dedicated system error codes (such as file open failures and database corruption flags) during initialization and scan sequences, automatically clearing the error states upon subsequent successful caches or fast-path database loads.
 
-## v11.8.1  -  Critical Stability & Display Fixes (June 3, 2026)
+### v11.8.1  -  Critical Stability & Display Fixes (June 3, 2026)
 
-### Fixed
+#### Fixed
 - **Null Cache Pointer Protection**  -  Hardened cache access routines throughout the media scanner and slideshow loop, preventing potential application crashes if the SQLite cache database is corrupted or fails to open during runtime.
 - **Mismatched Transition Border Scaling**  -  Resolved a visual jump during image transition snapshot renders at resolutions other than 1080p by correctly scaling border widths.
 - **Redundant Video Player Exit Checks**  -  Simplified video player termination state checks to ensure clean recovery and OSD error clearing.
 - **Persistent Display Preferences**  -  Fixed an issue where display-related options (such as blurred backgrounds, color-matched mattes, opacity, and vignette parameters) were lost upon saving configuration updates.
 - **Shadowed Rendering States**  -  Fixed a rendering issue where dual-portrait backgrounds could render with incorrect background clear colors during active transitions.
 
-## v11.8.0  -  Interactive Google Photos Setup and Fail-safes (June 3, 2026)
+### v11.8.0  -  Interactive Google Photos Setup and Fail-safes (June 3, 2026)
 
-### Added
+#### Added
 - **Interactive Google Photos Installer Prompts**  -  Added a dynamic step-by-step interactive configuration prompt for Google Photos in the setup installer script (`install.sh`), with fallback validation loops checking for empty client secrets, suffix structure formatting of client IDs, and valid integer range entries for synchronization periods.
 
-## v11.7.13  -  Default Animated Pattern and Visibility Enhancements (June 3, 2026)
+### v11.7.13  -  Default Animated Pattern and Visibility Enhancements (June 3, 2026)
 
-### Added
+#### Added
 - **Default Animated Pattern Style**  -  Changed the default pattern style from a static combined pattern to the active animated combined pattern.
 
-### Fixed
+#### Fixed
 - **Enhanced Pattern Contrast**  -  Increased default pattern brightness offset to 45 and optimized all rendering layers' transparency alpha levels to ensure clear visibility against color-matched backgrounds.
 
-## v11.7.12  -  Configurable Background Pattern Brightness (June 3, 2026)
+### v11.7.12  -  Configurable Background Pattern Brightness (June 3, 2026)
 
-### Added
+#### Added
 - **Configurable Background Pattern Brightness**  -  Added a configuration parameter `pattern_brightness` and integrated it as "Pattern Brightness" under the Display category in the TUI Setup Wizard, enabling custom pattern contrast adjustment (0 to 150 offset) against the average color-matched background matte.
 
-## v11.7.11  -  Background Pattern Contrast Hardening (June 3, 2026)
+### v11.7.11  -  Background Pattern Contrast Hardening (June 3, 2026)
 
-### Fixed
+#### Fixed
 - **Background Pattern Visibility**  -  Hardened the animated pattern backdrop to dynamically calculate background brightness and offset the pattern lines' brightness. This prevents the pattern from blending invisibly into the average color-matched background matte.
 
-## v11.7.10  -  Seamless Animated Pattern Background (June 3, 2026)
+### v11.7.10  -  Seamless Animated Pattern Background (June 3, 2026)
 
-### Added
+#### Added
 - **Seamless Animated Background Pattern**  -  Introduced a premium procedural ambient background matte mode. It generates multiple layers of intersecting lines moving slowly in opposite directions combined with gentle undulating waves, matching the average color of the active image to create a seamless, non-distracting, high-performance visual matte.
 - **Default Background Configuration**  -  Set the new animated pattern background as the default display style.
 
-### Fixed
+#### Fixed
 - **Sideways Background Rendering**  -  Resolved an issue where blurred photo backgrounds were rendered sideways due to missing image orientation data. EXIF rotation attributes are now correctly applied to the background matte layout.
 
-## v11.7.9  -  System Stability & Bug Audit Fixes (June 3, 2026)
+### v11.7.9  -  System Stability & Bug Audit Fixes (June 3, 2026)
 
-### Fixed
+#### Fixed
 - **Slideshow Transition Selection**  -  Corrected an issue where customized transitions fell back to standard crossfades. Customized transition selections are now correctly respected and refreshed dynamically upon config updates.
 - **Twin Portrait Layout Navigation**  -  Resolved a loop boundary issue where backward navigation on smaller playlists could fail to advance or land on the currently active slide.
 - **Color-Matched Matte Borders**  -  Unified matte background configurations to ensure customized opacity settings are properly forwarded to matching backgrounds instead of defaulting to opaque colors.
@@ -1665,43 +1665,43 @@ ightarrow$ `0:01` rather than truncating sub-second remaining time to `00:00`.
 - **Auto-Reconnect Mount Recovery**  -  Fixed an issue where the network mount retry routine stripped auto-reconnection parameters, preventing the media library from reconnecting after a network dropout.
 - **DRM Display Controller Discovery**  -  Hardened active display card discovery during installation to fall back to standard GPU interfaces when connected monitors are asleep or unplugged.
 
-## v11.7.8  -  Resilient Image Loading & UI Smoothness (June 2, 2026)
+### v11.7.8  -  Resilient Image Loading & UI Smoothness (June 2, 2026)
 
-### Fixed
+#### Fixed
 
 - **Truncated Image Rendering Prevention**  -  Transitioned the image loading pipeline to fully read files into memory and validate read completeness before decoding. This completely prevents truncated or partially rendered images caused by temporary network disruptions on mounted network storage.
 - **Background EXIF Processing**  -  Moved file metadata extraction and EXIF rotation parsing entirely into background preloading threads. This eliminates redundant disk access on the main thread, preventing UI freezes and frame stalls when transition deadlines are missed.
 
-## v11.7.7  -  3D Edge Glow Shadow Option (June 1, 2026)
+### v11.7.7  -  3D Edge Glow Shadow Option (June 1, 2026)
 
-### Added
+#### Added
 
 - **3D Edge Glow Shadow Mode**  -  Introduced a premium 3D edge glow shadow layout option. When active, it isolates the ambient backlight glow strictly to the right and bottom edges of the media container, creating a realistic, high-fidelity 3D drop-shadow effect on the digital frame. This option is enabled by default.
 - **TUI & Config Wizard Integration**  -  Exposed the Edge Glow Shadow option in the Slideshow category within the TUI configuration engine, enabling instant visual control and seamless upgrades.
 
-## v11.7.6  -  Security Hardening and Parameter Sanitization (June 1, 2026)
+### v11.7.6  -  Security Hardening and Parameter Sanitization (June 1, 2026)
 
-### Fixed
+#### Fixed
 
 - **Shell Command Injection Vulnerability Hardening**  -  Fully secured all dynamic shell execution entry points across the network services, dashboard callback routines, and media synchronization layers. Integrated robust shell-escaping and strict parameter validation on all configuration variables, client-supplied callbacks, and network headers, completely neutralizing unauthenticated shell execution risks.
 
-## v11.7.5  -  Hardware & TOML Syntax Diagnostic Triggers (June 1, 2026)
+### v11.7.5  -  Hardware & TOML Syntax Diagnostic Triggers (June 1, 2026)
 
-### Added
+#### Added
 
 - **Hardware Telemetry Alarm Integration**  -  Integrated low-level thermal sensor reading blocks into the main slideshow overlay. The system now monitors the SoC core temperature in real-time, instantly triggering `E501` (System Overheating) diagnostic alerts if the temperature crosses 80°C, and auto-clearing the warning when the system cools back down.
 - **TOML Config Parser Validation**  -  Hardened the default configuration loading routine by verifying line formatting structures. Malformed lines or invalid syntax in `config.toml` now immediately log and trigger `E801` (TOML Parse Failure) diagnostic warnings.
 
-## v11.7.4  -  Centralized Alphanumeric Diagnostic Logging (June 1, 2026)
+### v11.7.4  -  Centralized Alphanumeric Diagnostic Logging (June 1, 2026)
 
-### Added
+#### Added
 
 - **Centralized Diagnostic Logging Subsystem**  -  Engineered a unified `trigger_error(CODE)` function that serves as the single source of truth for application diagnostics. Setting an active error code now automatically queries the C++ error database to log the formal error title, user-visible description, and troubleshooting recovery steps to the logs.
 - **Subsystem Cleanup**  -  Removed duplicate redundant hardcoded warning strings, error logs, and duplicate output statements across the entire codebase (including the database caching engine, MQTT daemon, font rendering layer, remote control server, image loaders, video player routines, and Google Photos synchronizer), drastically reducing code complexity and footprint.
 
-## v11.7.3  -  Dynamic Deep Diagnostic Code Integration (June 1, 2026)
+### v11.7.3  -  Dynamic Deep Diagnostic Code Integration (June 1, 2026)
 
-### Added
+#### Added
 
 - **Dynamic Diagnostic Rendering**  -  Replaced all static error code rendering templates in the glowing HUD console overlay. The system now maps any integer error code dynamically to its corresponding alphanumeric database entry (`E###`), resolving formatting bottlenecks.
 - **Deep Codebase Error Integration**  -  Hardened the application logic with broad integration of deep diagnostic tracking across multiple subsystems:
@@ -1711,9 +1711,9 @@ ightarrow$ `0:01` rather than truncating sub-second remaining time to `00:00`.
   - _Home Assistant MQTT Integration_: Integrated active tracking if the daemon subscriber stream connection is rejected by the broker.
   - _Config Parser_: Integrated early warning parameters if the active TOML config files are unreadable or missing.
 
-## v11.7.2  -  Massive Diagnostic Error Catalog Expansion (June 1, 2026)
+### v11.7.2  -  Massive Diagnostic Error Catalog Expansion (June 1, 2026)
 
-### Added
+#### Added
 
 - **100+ Deep Diagnostic Error Codes**  -  Substantially expanded the system diagnostic warning subsystem with over 100 new 4-digit diagnostic codes (`E###`) to cover every layer of device operation:
   - _Storage & Network (E106 - E125)_: Added diagnostics for Ethernet link states, NTP sync drift, CIFS timeouts, routing failures, firewall blocks, socket exhaustion, Wi-Fi signal attenuation, and secure SSH tunnels.
@@ -1725,9 +1725,9 @@ ightarrow$ `0:01` rather than truncating sub-second remaining time to `00:00`.
   - _Smart Home & Integration (E703 - E718)_: Expanded MQTT tracking to handle payload parsing errors, JSON schema format violations, heartbeat timeouts, broker authentication rejections, certificate handshake errors, and Client ID collisions.
   - _Lifecycle & Config (E801 - E806)_: Added validations for TOML syntax errors, missing configuration blocks, lockfile write issues, invalid startup flags, thread pool stalls, and unclean application shutdowns.
 
-## v11.7.1  -  Diagnostic Error Catalog Expansion (June 1, 2026)
+### v11.7.1  -  Diagnostic Error Catalog Expansion (June 1, 2026)
 
-### Added
+#### Added
 
 - **Dynamic Error Database Subsystem**  -  Extracted the error catalog definitions into a dedicated error database module. This decouples the seed details from core database caching logic for better maintainability and modularity.
 - **Comprehensive Error Catalog Expansion**  -  Expanded the error catalog to over 20 distinct 4-digit diagnostic E### codes spanning every architectural layer:
@@ -1739,9 +1739,9 @@ ightarrow$ `0:01` rather than truncating sub-second remaining time to `00:00`.
   - _Graphics Pipeline (E601 - E603)_: Informing on missing modesetting HDMI connectors, EGL swap page flips, and SDL frame rendering failures.
   - _Home Assistant (E701 - E702)_: Outlining MQTT broker unreachability and sensor subscription failures.
 
-## v11.7.0  -  Google Photos Cloud Integration & Diagnostic Warning HUD (June 1, 2026)
+### v11.7.0  -  Google Photos Cloud Integration & Diagnostic Warning HUD (June 1, 2026)
 
-### Added
+#### Added
 
 - **Google Photos Cloud Sync**  -  Designed and implemented a background Google Photos integration that synchronizes cloud media files directly to the local cache. Includes full C++ synchronization logic, popen-based curl requests for media item metadata retrieval, and image downloading.
 - **Glassmorphic OAuth Setup Wizard**  -  Built a professional Glassmorphic setup wizard served at `/google_photos_setup` via the built-in HTTP server. The wizard guides users to link their Google Photos credentials, handles Web OAuth authorization flow redirects, executes the token exchange, and secures the refresh token.
@@ -1749,98 +1749,98 @@ ightarrow$ `0:01` rather than truncating sub-second remaining time to `00:00`.
 - **GPhotos Category Tab in TUI**  -  Appended a dedicated category tab `"GPhotos"` to the terminal configuration wizard to view and toggle Google Photos status, sync interval, and credentials.
 - **Universal ASCII TUI Rendering**  -  Converted all UTF-8 characters and box-drawing elements within the configuration wizard to universal ASCII characters, ensuring flawless TUI display when connecting from Windows clients via SSH/Command Prompt.
 
-## v11.6.5  -  Network Mount Persistence Fix (May 31, 2026)
+### v11.6.5  -  Network Mount Persistence Fix (May 31, 2026)
 
-### Fixed
+#### Fixed
 
 - **Persistent Network Storage**  -  Resolved an issue where network storage mounts would automatically disconnect after short periods of inactivity. The system now maintains a persistent connection to the NAS, preventing slideshow interrupts, file loading failures, and unexpected offline recovery screens during transitions or long idle delays.
 
-## v11.6.4  -  Network Mount Persistence & SSH Keep-Alives (May 30, 2026)
+### v11.6.4  -  Network Mount Persistence & SSH Keep-Alives (May 30, 2026)
 
-### Added
+#### Added
 
 - **SSH Keep-Alives in Installer**  -  Updated the premium graphical installer to persistently configure server-side SSH/SFTP keep-alives (60-second intervals) on new Debian Trixie installations. This prevents connected remote mounts, command terminal links, and network filesystem mounts (like rclone connections from Windows clients) from dropping or freezing during periods of inactivity.
 
-## v11.6.3  -  Aggressive Video Buffering & Network Smoothness (May 29, 2026)
+### v11.6.3  -  Aggressive Video Buffering & Network Smoothness (May 29, 2026)
 
-### Added
+#### Added
 
 - **Aggressive Network Video Caching**  -  Forced enabling of aggressive read-ahead caching for video playback. By increasing the memory cache buffer limit to 150 Megabytes and the demuxer read-ahead window to 20 seconds, the media engine completely mitigates network latency, bandwidth fluctuations, and temporary throughput bottlenecks when streaming high-bitrate HEVC/H.264 video files over Wi-Fi and network mount points. Macroblock corruption ("noise"), pixelation, and playback stutter during complex video scenes are now eliminated.
 
-## v11.6.2  -  Transition Texture Alpha Blending Fix (May 29, 2026)
+### v11.6.2  -  Transition Texture Alpha Blending Fix (May 29, 2026)
 
-### Fixed
+#### Fixed
 
 - **Abrupt Transition Pops**  -  Resolved an issue where next images would abruptly pop onto the display without blending/fading. Transition target textures now explicitly set the SDL blend mode to alpha blending (`SDL_BLENDMODE_BLEND`) upon creation, ensuring alpha modulation functions correctly for smooth fades in and out.
 
-## v11.6.1  -  Transition Freeze & Loop Lock Fix (May 29, 2026)
+### v11.6.1  -  Transition Freeze & Loop Lock Fix (May 29, 2026)
 
-### Fixed
+#### Fixed
 
 - **Slideshow Transition Freeze**  -  Fixed a regression introduced by the image-load lag time reset, which checked the active transition progress and inadvertently locked it in an infinite loop at exactly 0.0f. Transition start is now detected using a one-shot target texture creation check, allowing the elapsed time delta to safely advance slideshow transitions.
 
-## v11.6.0  -  Full-Screen Transition Scaling Fix (May 29, 2026)
+### v11.6.0  -  Full-Screen Transition Scaling Fix (May 29, 2026)
 
-### Fixed
+#### Fixed
 
 - **Double-Fitting Transition Shrinkage**  -  Resolved a layout bug where slides would suddenly shrink, showing a 2" black matte during transitions, and leaving the active slide stuck without overlays. Every transition effect now draws pre-rendered target frames at full-screen proportions, ensuring seamless, continuous edge-to-edge backdrop rendering.
 
-## v11.5.9  -  Edge-to-Edge Average Color Matte Backgrounds (May 29, 2026)
+### v11.5.9  -  Edge-to-Edge Average Color Matte Backgrounds (May 29, 2026)
 
-### Added
+#### Added
 
 - **Edge-to-Edge Color-Matched Matte Backgrounds**  -  Seamlessly extended the color-matched average background to fill the entire screen edge-to-edge. Only the photo, its 3D miter border, and ambient glow are now fitted inside the 1" matte area, eliminating black borders and creating a cleaner visual experience.
 
-## v11.5.8  -  Video Overlay Margin Restoration (May 29, 2026)
+### v11.5.8  -  Video Overlay Margin Restoration (May 29, 2026)
 
-### Fixed
+#### Fixed
 
 - **Standard Matte Margin Restoration**  -  Reverted the video player's OSD and subtitle margins to the classic 1" matte boundaries (matting size + offset), maintaining unified proportions across video playback.
 
-## v11.5.7  -  Transition & Crossfade Hardening (May 29, 2026)
+### v11.5.7  -  Transition & Crossfade Hardening (May 29, 2026)
 
-### Added
+#### Added
 
 - **Seamless Video-to-Photo Fades**  -  Overhauled slideshow state transitions when finishing or skipping video items. Stale image states are cleanly purged and the EGL display is swept to black immediately upon video termination, completely eliminating stale photo flashing and enabling beautiful, cinematic fades from black.
 
-### Fixed
+#### Fixed
 
 - **Slideshow Transition Stutter & Fast Swapping**  -  Resolved a timing discrepancy where transitions between photos would occasionally swap instantly without crossfading. The frame-timer is now dynamically reset at the start of active animations, safely discarding the blocking duration spent loading images from disk and ensuring smooth, 60 framerate transitions.
 
-## v11.5.6  -  Video Overlay Alignment (May 29, 2026)
+### v11.5.6  -  Video Overlay Alignment (May 29, 2026)
 
-### Fixed
+#### Fixed
 
 - **Video Filename Alignment**  -  Dynamically positioned the video filename overlay on mpv playback to sit at the exact same vertical and horizontal coordinates as the image filename overlay in the bottom left, ensuring a perfectly aligned and seamless presentation across both media types.
 
-## v11.5.5  -  Watchdog and MQTT Pipeline Hardening (May 29, 2026)
+### v11.5.5  -  Watchdog and MQTT Pipeline Hardening (May 29, 2026)
 
-### Added
+#### Added
 
 - **Outbound Message Queue Capping**  -  Hardened the message publishing client against network dropouts by capping the outbound message queue. High-frequency or duplicate status updates are gracefully discarded when offline, preventing memory depletion and ensuring immediate responsiveness upon network recovery.
 
-### Fixed
+#### Fixed
 
 - **Watchdog Midnight Hang**  -  Resolved a vulnerability where the background time-monitoring watchdog would attempt to verify remote network storage accessibility during active network dropouts. Accessibility checks are now skipped during recovery mode, preventing the background monitor thread from stalling.
 
-## v11.5.4  -  Network Resilience & Offline Recovery Mode (May 29, 2026)
+### v11.5.4  -  Network Resilience & Offline Recovery Mode (May 29, 2026)
 
-### Added
+#### Added
 
 - **Offline Recovery Mode**  -  Integrated an automatic, elegant recovery state machine to handle sudden network drops or NAS mount disconnects. If the system experiences three consecutive media load failures, it automatically switches to Offline Mode, displaying the system splash screen with a red `[OFFLINE] Reconnecting to NAS...` status banner instead of a blank black screen.
 - **Resilient Fallback and Back-off Timers**  -  Implemented an adaptive back-off delay during network outages. The slideshow slows down filesystem checks to a stable 30-second interval, keeping the main presentation thread responsive to keypresses and remote web remote commands while waiting for the network connection to recover.
 
-## v11.5.3  -  Installation and Configuration Wizard Stability (May 29, 2026)
+### v11.5.3  -  Installation and Configuration Wizard Stability (May 29, 2026)
 
-### Fixed
+#### Fixed
 
 - **DRM GPU Card Detection**  -  Corrected a sequence error in the installer where system GPU hardware values were written to configuration files before probing took place. The installer now persistently maps the correct physical display controller on startup.
 - **Concurrent Configuration Editing**  -  Resolved a conflict where opening the interactive settings wizard while the picture frame was actively running would cause startup collision errors. Setting edits are now seamlessly dispatched while the background loop is active.
 - **Mount Point Cleaning**  -  Hardened the network storage configuration checks to cleanly purge existing entries of the same mount point from the system filesystem table, preventing duplicate mount listings.
 
-## v11.5.2  -  Hardening, Performance & Security Optimization (May 29, 2026)
+### v11.5.2  -  Hardening, Performance & Security Optimization (May 29, 2026)
 
-### Fixed
+#### Fixed
 
 - **Deadlock inside Adaptive Text Rendering**  -  Resolved a critical deadlock that could freeze the application when rendering overlays with adaptive, contrast-aware colors.
 - **Shell Injection Security Safeguards**  -  Fully secured all MQTT shell command invocations by strictly sanitizing and escaping broker paths, topics, payloads, usernames, and passwords.
@@ -1851,79 +1851,79 @@ ightarrow$ `0:01` rather than truncating sub-second remaining time to `00:00`.
 - **Configuration Boundary Safety**  -  Implemented strict clamping boundaries for video playback volume in the configuration file parser to match the safety limits enforced in the terminal wizard.
 - **Robust Playlist Navigation**  -  Simplified backwards playlist index tracking to prevent arithmetic overflow and ensure smooth, wrap-around navigation when returning to previous slides.
 
-## v11.5.1  -  System Hardening, TUI Bounds & Concurrency Gaps (May 29, 2026)
+### v11.5.1  -  System Hardening, TUI Bounds & Concurrency Gaps (May 29, 2026)
 
-### Added
+#### Added
 
 - **Exposed Maximum Brightness in Terminal UI**  -  Exposed `Max Brightness` (integer setting, 0–100 range) to the `Advanced` category of the terminal settings wizard, providing full visual control over maximum backlight illumination limit.
 
-### Fixed
+#### Fixed
 
 - **Terminal UI Gaps and Sizing**  -  Restored complete access to previously hidden or cut-off settings like `HTTP Timeout`, `HTTP Bind attempts`, and `Reset Cooldown` by calculating terminal categories dynamically rather than relying on hardcoded arrays.
 - **Safety Boundary Clamping**  -  Applied strict range clamping on user-entered values in the terminal configuration utility, ensuring valid rotation angles and keeping delays, volumes, durations, thread counts, and scanning parameters within safe operating thresholds.
 - **Thread Concurrency Safety**  -  Synchronized background status message publishing and thread tear-down logic, preventing rare race conditions that could lead to abnormal termination during rapid system reloads or shutdown.
 - **Cleaned Up Dead Code**  -  Purged duplicate headers and stale, orphaned color options from the terminal configuration utility to keep compilation warning-free.
 
-## v11.5.0  -  Compiler Warning Resolution, TUI Borders & Preload Matte Fix (May 28, 2026)
+### v11.5.0  -  Compiler Warning Resolution, TUI Borders & Preload Matte Fix (May 28, 2026)
 
-### Added
+#### Added
 
 - **Exposed 3D Border in Terminal UI**  -  Exposed direct configuration switches for the 3D picture frame border (`3D Border` and `3D Border Width`) inside the Terminal configuration wizard Display tab. This allows users to completely toggle or adjust 3D miter borders independently of ambient glow effects.
 
-### Fixed
+#### Fixed
 
 - **Preloaded Matte Colors**  -  Resolved a visual bug where preloaded images defaulted to solid black matte borders instead of rendering color-matched backdrops. The background preloader now seamlessly copies precomputed average colors into active drawing pipelines.
 - **Subsystem Warnings and Stability**  -  Silenced remaining compile-time warnings, removed defunct prototypes, and locked startup configuration reads to harden application stability and concurrency.
 
-## v11.4.7  -  Graphics & System Cache Relocation (May 28, 2026)
+### v11.4.7  -  Graphics & System Cache Relocation (May 28, 2026)
 
-### Added
+#### Added
 
 - **Centralized System and GPU Caches**  -  Re-routed all container graphics shader caches (Mesa/GPU) and system caches to persist inside the dedicated cache directory (`/home/pi/piTrove/cache/`) rather than the host user's home directory.
 
-## v11.4.6  -  System Hardening (May 28, 2026)
+### v11.4.6  -  System Hardening (May 28, 2026)
 
-### Fixed
+#### Fixed
 
 - **Subsystem Warnings and Type Safety**  -  Resolved minor compilation warnings, applied type-safety void casts, and cleaned up redundant default initializations to enhance stability.
 
-## v11.4.5  -  Config Extractions & Minor Fixes (May 28, 2026)
+### v11.4.5  -  Config Extractions & Minor Fixes (May 28, 2026)
 
-### Added
+#### Added
 
 - **Configurable max texture dimension**  -  Added `max_texture_dim` config option (under `[video]`, default 1920) to control the maximum image dimension in pixels for texture scaling.
 - **Configurable HTTP timeout & bind attempts**  -  Added `http_socket_timeout` (default 2s) and `http_bind_attempts` (default 10) under `[video]` for HTTP server tuning.
 
-### Fixed
+#### Fixed
 
 - **TUI category bar missing MQTT**  -  Category bar loop was hardcoded to 9 items, hiding the 10th "MQTT" category tab.
 - **Undefined behavior in cache upsert**  -  Replaced `const_cast<MediaItem&>` with `mutable` keyword on `is_camera` field.
 
-## v11.4.4  -  Init Lock, CIFS Hang & Double-Lock Fixes (May 28, 2026)
+### v11.4.4  -  Init Lock, CIFS Hang & Double-Lock Fixes (May 28, 2026)
 
-### Added
+#### Added
 
 - **Configurable mpv OSD offset**  -  Added `osd_offset_x` and `osd_offset_y` config options (under `[video]`) to adjust MKV video overlay position in pixels.
 
-### Fixed
+#### Fixed
 
 - **Slideshow freeze on startup**  -  Removed `init_lock` that acquired `g_playlist_mtx` without releasing before the main loop, causing the slideshow loop to block forever on its first mutex acquisition.
 - **Slideshow freeze on CIFS mounts**  -  Replaced `file_exists()` (CIFS `stat()` hang) in the main-loop missing-file check with simple `current_idx` bounds validation. Deleted files are caught on the next load failure instead.
 - **Slideshow freeze after first frame**  -  Removed redundant `lock_guard<std::mutex> pl_lock(g_playlist_mtx)` inside the preload section that deadlocked because `playlist_lock` already held the same mutex (introduced in Batch #21).
 - **HTTP /api/status timeout**  -  Resolved as a consequence of fixing the double-lock deadlock; the API no longer blocks trying to acquire `g_playlist_mtx` held by the stuck main thread.
 
-## v11.4.3  -  Pipeline Lock & CIFS Hang Fixes (May 28, 2026)
+### v11.4.3  -  Pipeline Lock & CIFS Hang Fixes (May 28, 2026)
 
-### Fixed
+#### Fixed
 
 - **Slideshow freeze on CIFS mounts**  -  Filesystem existence checks are now performed outside the playlist mutex, preventing a hung CIFS `stat()` call from blocking the entire slideshow pipeline and leaving the splash screen frozen on the display.
 - **"AWAITING I/O PIPELINE... BLOCKED" splash stalling**  -  Cleaned up orphaned SQLite WAL/SHM files that prevented the cache from initializing, keeping the display stuck on the scanning splash.
 - **Splash shows real item count on fast-path restart**  -  The splash no longer briefly flashes "FILES FND: 0" when loading from a populated cache. Shows the actual cached count instead.
 - **Cache-complete confirmation frame**  -  A final "CACHED: N" frame is displayed for 500ms after the cache build finishes, so the user sees the finished state before the slideshow begins.
 
-## v11.4.2 ? Scanner Progress & TUI Timers Fixes (May 28, 2026)
+### v11.4.2 ? Scanner Progress & TUI Timers Fixes (May 28, 2026)
 
-### Fixed
+#### Fixed
 
 - **Scanner progress counter** ? Restored live file counting during initial scan so the splash screen shows "FILES FND: N" incrementing in real time instead of staying at 0.
 - **TUI flash message timer** ? Flash messages now expire based on the time they were triggered rather than the TUI start time, preventing messages from disappearing prematurely.
@@ -1938,13 +1938,13 @@ ightarrow$ `0:01` rather than truncating sub-second remaining time to `00:00`.
 - **Config logger guard** ? Added is_initialized() check before calling g_logger.warn during config load to prevent early-initialization log loss.
 - **Splash counter format** ? Removed zero-padded %06d format from FILES FND and CACHED display strings.
 
-## v11.4.1  -  Concurrency, Stability & Cooldown Persistence (May 28, 2026)
+### v11.4.1  -  Concurrency, Stability & Cooldown Persistence (May 28, 2026)
 
-### Added
+#### Added
 
 - **Persistent Slide Cooldowns Across Restarts**  -  Hardened the media scanning pipeline to fully preserve the recently shown history cooldowns across application restarts by default, maintaining rich slideshow variety under all reload scenarios.
 
-### Fixed
+#### Fixed
 
 - **Slideshow Hanging during Debug Log Rotation**  -  Resolved a high-severity deadlock in the debug log subsystem that would freeze the slideshow during file rotations or after long running sessions.
 - **Asynchronous Message Queueing**  -  Refactored status publishing to process messages via a dedicated background task queue, completely eliminating detached background threads and preventing application termination hangs.
@@ -1955,9 +1955,9 @@ ightarrow$ `0:01` rather than truncating sub-second remaining time to `00:00`.
 - **Off-Frame Display Control**  -  Swapped display sleep commands to run synchronously off-frame, eliminating background thread races during screen power transitions.
 - **Safe Time Parsing Fallbacks**  -  Hardened the temporal seasonal window parser and media watchman monitor with robust validation checks against system clock translation failures, ensuring reliable scheduling.
 
-## v11.4.0  -  Codebase Hardening & Stability (May 28, 2026)
+### v11.4.0  -  Codebase Hardening & Stability (May 28, 2026)
 
-### Fixed
+#### Fixed
 
 - **Startup Thread Lockups**  -  Resolved a concurrency deadlock during slideshow initialization by securing the initial media load sequence under the global playlist lock, ensuring the slideshow starts reliably even when media files are slow to load.
 - **System File Descriptor Leak**  -  Corrected a resource leak where extraneous file descriptors were left open during background media probe launches, preventing system-wide file handle exhaustion.
@@ -1968,9 +1968,9 @@ ightarrow$ `0:01` rather than truncating sub-second remaining time to `00:00`.
 - **TUI Division-by-Zero and Configuration Bounds**  -  Implemented strict upper/lower bounds checks for custom ambient backlight strength settings and empty lists in configuration menus, eliminating potential graphics color overflow glitches and menu crashes.
 - **Numeric Directory Name Overflow**  -  Restrained numeric folder date parser loop limits, protecting the scanner against signed integer overflow errors when encountering exceptionally long numbers in folder or file names.
 
-## v11.3.10  -  Concurrency, Thread Safety & Graphics Hardening (May 27, 2026)
+### v11.3.10  -  Concurrency, Thread Safety & Graphics Hardening (May 27, 2026)
 
-### Fixed
+#### Fixed
 
 - **Row-by-Row Splash Screen Pixels Copy**  -  Replaced direct contiguous memory copies when loading the boot splash screen with a row-by-row memory copying procedure that honors pitch-alignment variables. This ensures correct, distortion-free splash screen display regardless of GPU/driver-specific pixel alignments.
 - **Background Preload Epoch Filtering**  -  Added a dynamic epoch-generation tracking counter to the background image loader's preloading queue. When the slideshow advances or changes directories, the queue cancels in-flight jobs and rejects stale worker-thread decodes upon completion, completely preventing queue blockage and memory waste from obsolete preload operations.
@@ -1982,9 +1982,9 @@ ightarrow$ `0:01` rather than truncating sub-second remaining time to `00:00`.
 - **Self-Healing Folder Monitor Mount Checks**  -  Upgraded the background calendar monitor loop to verify read-access permission on the media repository before executing midnight playlist swaps. This prevents blanking or corrupting active slideshow playlists during transient network storage or NAS mount disconnects, automatically retrying once connection is restored.
 - **Dynamic Video Player Display Probing**  -  Enhanced the dynamic display detector to dynamically query the active connected HDMI port in the media player backend when set to automatic mode, preventing incorrect target connector fallbacks and redundant display querying logs.
 
-## v11.3.9  -  Resource Safety and Concurrency Hardening (May 27, 2026)
+### v11.3.9  -  Resource Safety and Concurrency Hardening (May 27, 2026)
 
-### Fixed
+#### Fixed
 
 - **Persistent HTTP Server Ports**  -  Prevented configuration reloads from overwriting dynamic fallback ports in memory, ensuring the web dashboard continues running seamlessly even when the default port is occupied.
 - **Robust Cache Database Purging**  -  Hardened the cache database recovery mechanism to delete auxiliary SQLite WAL and SHM journal files alongside the database file upon detecting corruption or incomplete loads, preventing stale logs from corrupting newly initialized databases.
@@ -1992,25 +1992,25 @@ ightarrow$ `0:01` rather than truncating sub-second remaining time to `00:00`.
 - **Safe Transaction Management**  -  Added transaction state safety checks to the database manager, completely eliminating transactional conflicts, double-starts, or redundant rollback actions during bulk database operations.
 - **Race-Free Socket Shutdown**  -  Refactored the web control server shutdown sequence to use socket shutdown signals, allowing the background thread to safely close the descriptor and preventing file descriptor reuse races with other threads.
 
-## v11.3.8  -  Self-Healing Network Storage & Smooth Video Transitions (May 27, 2026)
+### v11.3.8  -  Self-Healing Network Storage & Smooth Video Transitions (May 27, 2026)
 
-### Added
+#### Added
 
 - **Self-Healing Network Storage Mounts**  -  Upgraded network storage mounting parameters to utilize systemd-managed automounts with robust connection timeout settings. This ensures the digital frame cleanly bypasses transient Wi-Fi drops without causing system-wide filesystem lockups, seamlessly recovering and remounting the media library once the network is restored.
 - **Persistent Wi-Fi Power Management**  -  Enforced hardware-level Wi-Fi power-saving overrides via a persistent system udev rule, keeping the wireless interface actively connected during long slideshow idle periods.
 
-### Fixed
+#### Fixed
 
 - **Smooth Photo-to-Video Transitions**  -  Integrated the slideshow transition engine with video playback initialization, running a smooth visual transition from the current photo to a black canvas before launching the media player. This eliminates sudden, abrupt cuts to black while the media player process initializes.
 - **Transition Memory Optimization**  -  Prevented unneeded background image-decoding attempts on video assets during transition lookaheads, optimizing system memory usage and reducing network disk load.
 
-## v11.3.7  -  Reliability, Concurrency, and Shown-History Persistence Option (May 26, 2026)
+### v11.3.7  -  Reliability, Concurrency, and Shown-History Persistence Option (May 26, 2026)
 
-### Added
+#### Added
 
 - **Configurable Shown-History Reset**  -  Introduced a new slideshow setting to control how the frame handles shown history on startup. By default, the system persists the recently shown photo cooldowns across restarts to preserve variety. Users can now enable the "Reset Cooldown" toggle in the settings wizard to optionally clear all shown histories on restart for a completely fresh slideshow cycle.
 
-### Fixed
+#### Fixed
 
 - **Background Preloader Offloading**  -  Moved all matte color and image-average color analyses from the main rendering loop into the background loading threads. This avoids CPU spikes on image transitions and maintains a rock-solid, fluid 60 framerate visual experience.
 - **Improved Dissolve Transition Rendering**  -  Optimized the dissolve visual transition to draw scattered pixels in single batched graphics calls. This completely eliminates rendering lags and stuttering during crossfades on low-power devices.
@@ -2019,13 +2019,13 @@ ightarrow$ `0:01` rather than truncating sub-second remaining time to `00:00`.
 - **Media Player Debugging**  -  Redirected media player diagnostics to standard log folders, ensuring video playback logs are safely captured inside privileged environments.
 - **Installer Layout Formatting**  -  Fixed a stray visual character layout alignment in the branch selection prompt during terminal installation.
 
-## v11.3.6  -  Stability, Performance, and Transition Optimizations (May 26, 2026)
+### v11.3.6  -  Stability, Performance, and Transition Optimizations (May 26, 2026)
 
-### Added
+#### Added
 
 - **Dynamic Settings Reloading**  -  Added dynamic settings reloading support to the active slideshow loop. The digital frame now listens for settings changes and applies them immediately without needing to restart the background daemon.
 
-### Fixed
+#### Fixed
 
 - **Pixelate Transition Performance**  -  Optimized the pixelated transition renderer to batch drawing commands efficiently. This eliminates CPU-bound frame rate drops and stuttering during transition sequences, ensuring liquid-smooth rendering even with small pixel blocks.
 - **Background Blur Efficiency**  -  Re-engineered the box blur backdrop renderer to cache pre-calculated graphics textures and optimize resolution scaling. This reduces the background memory footprint by 94% and improves blur rendering speeds by 16x, eliminating GPU-to-CPU stalls during image loads.
@@ -2036,13 +2036,13 @@ ightarrow$ `0:01` rather than truncating sub-second remaining time to `00:00`.
 - **Seasonal Date Pattern Support**  -  Extended the smart calendar window to support separator-less date patterns (like YYYYMM and YYYYMMDD), making it easier for users to automatically filter custom photo directory naming patterns.
 - **Terminal UI Resilience**  -  Hardened the settings wizard window measurement utility, allowing the interactive wizard to load cleanly with robust default fallback dimensions even when run inside restricted or headless environments.
 
-## v11.3.5  -  Performance, Thread-Safety, and Containerization Hardening (May 26, 2026)
+### v11.3.5  -  Performance, Thread-Safety, and Containerization Hardening (May 26, 2026)
 
-### Added
+#### Added
 
 - **Dynamic Text Overlay Cache**  -  Implemented an efficient memory-managed texture cache for active screen text overlays (including the clock, file paths, and counters). This completely eliminates high-frequency texture allocation cycles and CPU-to-GPU synchronization stalls, drastically lowering CPU usage and ensuring a lockstep, fluid 60 framerate rendering performance.
 
-### Fixed
+#### Fixed
 
 - **Dashboard Web Remote Concurrency**  -  Redesigned the remote control dashboard web server to process network client requests asynchronously. Large file previews or slow client connections no longer block the main dashboard loop or disrupt Home Assistant integrations.
 - **Docker-Compatible Screen Control**  -  Standardized display backlight control using standard native Linux graphics interfaces, restoring fully functional and high-performance screen blanking/wake-up states when running inside isolated, privileged containers.
@@ -2051,54 +2051,54 @@ ightarrow$ `0:01` rather than truncating sub-second remaining time to `00:00`.
 - **Startup Integrity Schema Verification**  -  Updated startup checks to verify recently added device classification metadata columns, preventing runtime query errors on upgraded databases.
 - **Improved Logging Resilience**  -  Hardened system diagnostics to flush stdout streams immediately upon startup even if physical log writing is restricted, and added bounds checking to prevent potential runtime memory overflow anomalies.
 
-### Fixed
+#### Fixed
 
 - **Network Mount Drop Recovery**  -  Fixed system instability and abrupt crashes that occurred when the network storage (CIFS/NAS) disconnected or dropped under heavy load. The media scanner and slideshow loop now gracefully survive brief network interruptions without throwing fatal unhandled system exceptions or shutting down the background daemon.
 
-## v11.3.3  -  Critical Slideshow Transition Fix (May 26, 2026)
+### v11.3.3  -  Critical Slideshow Transition Fix (May 26, 2026)
 
-### Fixed
+#### Fixed
 
 - **Slideshow Transition Crash Loop**  -  Resolved a critical logic error in the background preloading queue where processing images below the downsampling limit caused the original sharp pixels buffer to be prematurely freed and corrupted. This eliminates random segmentation faults and crash loops during transitions, ensuring the system runs smoothly without briefly showing the boot splash screen.
 
-## v11.3.2  -  Unified CLI Management Utility (May 26, 2026)
+### v11.3.2  -  Unified CLI Management Utility (May 26, 2026)
 
-### Added
+#### Added
 
 - **Simplified Command Line Management (pitrove)**  -  Introduced a new unified terminal CLI tool (`pitrove`) installed dynamically on the system. Users can now easily manage their digital frame with simple commands: `pitrove config` to launch settings, `pitrove restart` to apply changes, `pitrove logs` to tail rendering diagnostic entries, and `pitrove status` to check background daemon health.
 
-## v11.3.1  -  Configurable Logging and Preloader Settings (May 26, 2026)
+### v11.3.1  -  Configurable Logging and Preloader Settings (May 26, 2026)
 
-### Added
+#### Added
 
 - **Dynamic Background Preloading Pool Configuration**  -  Exposed the background preloading queue capacity (`preload_capacity`, default `4`, range `1` to `32`) and thread pool worker count (`preload_workers`, default `2`, range `1` to `16`) to the user configuration. Users can now fine-tune resource usage based on their system specifications, allowing low-memory boards (like Pi Zero/3) to scale down preloading to save RAM and high-end boards (like Pi 5) to scale up for seamless transitions.
 - **Configurable Log File Rotation**  -  Added support for a configurable log file retention limit (`log_keep_count`, default `5`, range `1` to `100`). Users can now control how many historical log files the system retains before automatically rotating and purging older logs.
 - **Terminal UI Wizard Options**  -  Fully integrated the new preloader capacity, preloader worker pool size, and log keep limit settings into the interactive Terminal UI (TUI) wizard configuration menus. Changes can be edited in real-time and written cleanly back to the system settings file.
 
-## v11.3.0  -  Blurred Photo Background, Color-Matched Matte & Edge Glow (May 25, 2026)
+### v11.3.0  -  Blurred Photo Background, Color-Matched Matte & Edge Glow (May 25, 2026)
 
-### Added
+#### Added
 
 - **Blurred Photo Background**  -  Enabled by default (`blurred_background = 1`). Each photo is blurred via a fast 3-pass separable box blur and rendered as the full-screen background behind the image, border, and bias lighting, creating a cinematic extended-reach visual effect.
 - **Color-Matched Matte Border**  -  Enabled by default (`color_matched_matte = 1`). The border area surrounding each photo is filled with the image's own center-average color at a configurable opacity, producing a seamless wash that matches the photo's palette.
 - **Symmetric 360-Degree Edge Glow**  -  Redesigned bias lighting to utilize a fully continuous 2D falloff from the image border and a radial gradient from the corners. The edge and corner lighting bounds are mathematically aligned to eliminate seams and gaps, producing a seamless and perfectly unified 360-degree glow frame around the physical borders.
 - **Configurable Blur, Matte, Vignette & Glow**  -  New settings: `blur_radius` (6–24, default 14), `matte_opacity` (0.05–0.50, default 0.20), `vignette_strength` (0.10–0.80, default 0.35), and `glow_depth` (16–120, default 43). All tuned for natural appearance without heavy GPU cost (~5ms on Pi 4/5).
 
-### Fixed
+#### Fixed
 
 - **TUI Startup Display Freeze**  -  Resolved a drawing logic issue where the TUI would load into a blank settings screen until a key was pressed. The settings list is now fully drawn and visible immediately upon startup.
 - **Midnight Playlist Re-Filtering Race Condition**  -  Fixed a data race that occurred during midnight playlist re-filtering, eliminating potential system lockups and memory crashes.
 - **Mapped Dissolve Transition Effect**  -  Restored the built-in GPU dissolve transition effect mapping, allowing users to select and play the dissolve scatter effect cleanly.
 
-## v11.2.3  -  Slideshow Image Stuck Fix (May 25, 2026)
+### v11.2.3  -  Slideshow Image Stuck Fix (May 25, 2026)
 
-### Fixed
+#### Fixed
 
 - **Slideshow stuck on same image**  -  The transition check incorrectly required twin-portrait data even for single images, causing the next image load to always fail. Single photos now advance correctly.
 
-## v11.2.1  -  System Stability Fixes (May 25, 2026)
+### v11.2.1  -  System Stability Fixes (May 25, 2026)
 
-### Fixed
+#### Fixed
 
 - **FFprobe child fd leak**  -  Replaced broken `/proc/self/fd` iteration with `readlink()` + deferred `close()` to prevent file descriptor leakage to ffprobe child processes.
 - **MQTT subscriber thread lifecycle**  -  Replaced detached thread with tracked joinable thread and proper `stop_mqtt_client()` shutdown path. MQTT pipe is now cleanly closed on exit.
@@ -2113,97 +2113,97 @@ ightarrow$ `0:01` rather than truncating sub-second remaining time to `00:00`.
 - **Config reload safety**  -  Protected all configuration reads across the HTTP API, slideshow loop, cache subsystem, and MQTT client with mutex guards to prevent stale or torn reads during live updates.
 - **Cache transaction atomicity**  -  Changed database transaction flag from plain bool to atomic to prevent race between concurrent upsert and transaction lifecycle calls.
 
-## v11.1.9  -  Dynamic Collage Lookahead & 1" Matte Adjustments (May 24, 2026)
+### v11.1.9  -  Dynamic Collage Lookahead & 1" Matte Adjustments (May 24, 2026)
 
-### Added
+#### Added
 
 - **Dynamic Lookahead Portrait Pairing**  -  Enhanced the collage selection logic to perform a forward search in the play queue when a portrait photo is encountered. It dynamically finds the nearest subsequent portrait photo in the randomized playlist and swaps it into the adjacent position (`idx + 1`), guaranteeing portrait photos are always displayed side-by-side as a twin-portrait collage.
 - **Physical Matte Clearance**  -  Increased default display matting size from 48px to 96px across the entire configuration system to clear the margins of a 1" physical picture frame overlay at 1080p display resolutions.
 
-## v11.1.8  -  Default Twin-Portrait Collage Setup (May 24, 2026)
+### v11.1.8  -  Default Twin-Portrait Collage Setup (May 24, 2026)
 
-### Added
+#### Added
 
 - **Default Twin Portrait Configuration**  -  Enabled twin-portrait collage by default (`twin_portrait_enabled = 1`) in `config.toml`.
 
-## v11.1.7  -  Self-Update Fail-Safe Support (May 24, 2026)
+### v11.1.7  -  Self-Update Fail-Safe Support (May 24, 2026)
 
-### Added
+#### Added
 
 - **Self-Updater Integration**  -  Integrated native update checking and compilation orchestration (`--update` command flag) directly inside `install.sh`. Running `sudo ./install.sh --update` automatically fetches remote GitHub commits securely as the primary user, runs Git pulls, triggers a parallel container build of the newly updated source assets, and gracefully restarts the background daemon `piTrove.service`.
 
-## v11.1.6  -  Premium Stateless HEVC Hardware Acceleration (May 24, 2026)
+### v11.1.6  -  Premium Stateless HEVC Hardware Acceleration (May 24, 2026)
 
-### Added
+#### Added
 
 - **Native Raspberry Pi Archive Integration**  -  Configured container multi-stage image builds (`Dockerfile`) to natively integrate the Raspberry Pi Foundation package archives (`archive.raspberrypi.com`) and import their official GPG archive keyrings.
 - **Stateless V4L2 Hardware-Accelerated HEVC**  -  Upgraded containerized `mpv` and `ffmpeg` libraries from standard software-bound Debian builds to Broadcom-accelerated Raspberry Pi custom builds. This enables full hardware-accelerated stateless HEVC decoding (`drm-copy` / `rpi-hevc-dec`) inside the container, reducing 4K HEVC playback frame dropouts to absolute zero and unlocking completely stutter-free video playback.
 
-## v11.1.5  -  Broadcom V4L2 Hardware-Accelerated Video Decoding (May 23, 2026)
+### v11.1.5  -  Broadcom V4L2 Hardware-Accelerated Video Decoding (May 23, 2026)
 
-### Added
+#### Added
 
 - **Hardware-Accelerated Video Decoding**  -  Overhauled container modesetting by mapping the complete host `/dev` namespace dynamically inside `docker-compose.yml` (`- /dev:/dev`). This exposes Broadcom stateful V4L2 decoder/encoder hardware blocks (`/dev/video19` through `/dev/video35`) inside the container. Modern `mpv` now automatically leverages V4L2 copy hardware codecs (`v4l2m2m-copy` and `drm-copy`) instead of software fallbacks, completely resolving choppy playback, stutter, and massive frame dropouts.
 
-## v11.1.4  -  Persistent Wi-Fi Power-Saving & Network Safety (May 23, 2026)
+### v11.1.4  -  Persistent Wi-Fi Power-Saving & Network Safety (May 23, 2026)
 
-### Added
+#### Added
 
 - **Wi-Fi Power-Saving Override Fail-safe**  -  Integrated persistent NetworkManager Wi-Fi Power-Saving override configuration (`wifi.powersave = 2`) inside `install.sh`. This keeps the Broadcom Wi-Fi network interface active, eliminating temporary network-mount drops, buffer timeouts, or `Connection reset by peer` handshakes on standard SSH/HTTP/NAS mounts.
 
-## v11.1.3  -  Dynamic Post-Install Dashboard & MQTT HUD URL (May 23, 2026)
+### v11.1.3  -  Dynamic Post-Install Dashboard & MQTT HUD URL (May 23, 2026)
 
-### Added
+#### Added
 
 - **Clickable Dashboard & HUD URL**  -  Enhanced the final installation success card in `install.sh` to dynamically query the active host IP address and display a pixel-perfect, beautifully padded clickable Web Remote Dashboard and MQTT HUD URL (`http://<pi-ip>:8080/`), allowing users to click and interact with their system immediately upon setup completion.
 
-## v11.1.2  -  Strict Configured Spacing & Video Interleaving (May 23, 2026)
+### v11.1.2  -  Strict Configured Spacing & Video Interleaving (May 23, 2026)
 
-### Fixed
+#### Fixed
 
 - **Stretched Video Interleaving**  -  Redesigned the playlist interleaving algorithm (`organize_playlist`) to strictly honor the configured user ratio (`videos_per_photos` / 10) instead of stretching the video pool over the entire slideshow directory. Videos are now interleaved perfectly at the targeted ratio (e.g. 3 videos per 10 photos = 1 video every 3.33 photos), gracefully tail-ending with sequential photos once the video pool is temporarily exhausted.
 
-## v11.1.1  -  Display Sleep Recovery & Signal Safety Fail-Safes (May 23, 2026)
+### v11.1.1  -  Display Sleep Recovery & Signal Safety Fail-Safes (May 23, 2026)
 
-### Added
+#### Added
 
 - **SIGINT Graceful Intercept**  -  Registered `SIGINT` (Ctrl+C) to trigger graceful shutdowns, restoring physical display backlights and closing the SQLite cache database safely.
 - **Normal Exit Backlight Restoration**  -  Added physical display backlight power restoration (`vcgencmd display_power 1`) in `main.cpp` to ensure the screen powers on during standard application terminations.
 
-## v11.1.0  -  MQTT Integration & Interleaving Ratio Optimization (May 23, 2026)
+### v11.1.0  -  MQTT Integration & Interleaving Ratio Optimization (May 23, 2026)
 
-### Added
+#### Added
 
 - **MQTT Broker Client Integration**  -  Integrated a lightweight background MQTT subscriber subprocess utilizing `mosquitto_sub -F "%t:%p"` to receive remote controls and motion triggers instantly with zero rendering frame stalls.
 - **Home Assistant Auto-Discovery**  -  Embedded automated entity announcements for automatic integration with Home Assistant dashboard nodes (registering screen switch, skip next/prev buttons, play/pause controls, and motion binary sensor).
 - **Motion Sensor Blanking & Sleep Cooldown**  -  Added a background motion blanking service that clears the framebuffer to solid black and physically switches display backlight power via `vcgencmd display_power 0` after customizable idle cooldown.
 - **Glassmorphic Web HUD Controller updates**  -  Enhanced the HTTP remote control dashboard to include interactive MQTT configuration states, dynamic screen power switches, and manual "Trigger Motion" test pulses.
 
-### Fixed
+#### Fixed
 
 - **Playlist Interleaving Ratio Drop**  -  Completely rewrote the de-clustered mathematical interleaving ratio algorithm (`organize_playlist`) to elegantly support video-heavy libraries and high interleaving ratios (> 1.0) without dropping eligible media items.
 
-## v11.0.0  -  Enterprise Docker Containerization Migration (May 23, 2026)
+### v11.0.0  -  Enterprise Docker Containerization Migration (May 23, 2026)
 
-### Added
+#### Added
 
 - **Multi-Stage Dockerfile**  -  Created a multi-stage Docker build process based on Debian Trixie (matching user-space Mesa/GL graphics version with host OS) that builds the C++ code inside a builder stage and exports a lightweight, highly optimized minimal runtime image.
 - **Docker Compose Orchestration**  -  Integrated a unified `docker-compose.yml` to define persistent volumes (`cache`, `config`, `logs`, `subtitles`), map GPU device drivers (`/dev/dri` and `/dev/input` for direct hardware framebuffer mapping), and pass KMSDRM display settings via environment variables.
 - **Non-Interactive Environment Controls**  -  Upgraded the graphical installer `install.sh` to fully support non-interactive automation by checking for environment variable fallbacks (like `STORAGE_CHOICE`, `NAS_IP`, `NAS_SHARE`, `NAS_USER`, `NAS_PASS`, `SCAN_WINDOW_DAYS`), completely eliminating the need for terminal prompt inputs.
 - **Security Safeguards**  -  Added `.env`, `*.env`, and `*.cred` files to `.gitignore` to prevent any accidental leakage of host-specific network parameters or credentials to public Git repositories.
 
-### Changed
+#### Changed
 
 - **Containerized systemd Daemon**  -  Modified the installer to configure the `piTrove.service` daemon to cleanly manage the lifecycles of containerized processes via `docker compose up` and `docker compose down` commands on boot and stop.
 - **Persistent Paths Alignment**  -  Updated `install.sh` TOML template writing to output paths aligning with virtual volume mount scopes inside the Docker container (`/app/media`, `/app/cache`, `/app/logs`).
 
-### Fixed
+#### Fixed
 
 - **Missing stb development headers**  -  Integrated `libstb-dev` package installation into both the Dockerfile build process and the host installation requirements, resolving compilation stalls on fresh operating system setups.
 
-## v10.4.3  -  Codebase Stability & UX Improvements (May 23, 2026)
+### v10.4.3  -  Codebase Stability & UX Improvements (May 23, 2026)
 
-### Fixed
+#### Fixed
 
 - **JSON Injection / Malformed JSON**  -  Added a robust `escape_json` utility to correctly escape double quotes and backslashes in filenames inside `get_api_status()`, ensuring the Remote Controller API endpoint produces valid JSON.
 - **Preloader Thread Exit Lag / Delayed Shutdown**  -  Modified the preloader worker thread loop to break immediately when shutdown is requested (`!running.load()`), bypassing processing of the remaining queue and stopping exit lag.
@@ -2216,111 +2216,111 @@ ightarrow$ `0:01` rather than truncating sub-second remaining time to `00:00`.
 - **Broken CRT Screen Curvature Vignette**  -  Replaced the impossible `< 0.7f` condition with `edge = 1.0f - 0.3f * (v * v)` and a `< 1.0f` check to correctly render a translucent curvature vignette fading to black near screen boundaries.
 - **Division by Zero / NaN in Transition**  -  Enforced a minimum duration of `0.001f` in `TransitionEngine::start` to prevent NaN progress values on division by zero.
 
-## v10.4.2  -  Case-Insensitive Extension Support for Media Classification (May 23, 2026)
+### v10.4.2  -  Case-Insensitive Extension Support for Media Classification (May 23, 2026)
 
-### Fixed
+#### Fixed
 
 - **Fixed Uppercase Extension Media Classification**  -  Resolved a case-sensitivity bug in the media classifier (`classify_media_item` in `src/util.cpp`) where files with uppercase extensions (like `.JPG` from NAS digital frames) were not recognized as camera roll images. This caused standard photos to be incorrectly categorized as "documents/screenshots" and filtered out of the slideshow. Added standard case-insensitivity conversion (`std::transform` to lowercase) before checking media extensions, immediately expanding the eligible playlist pool.
 
-## v10.4.1  -  Restored Edge Glow & EXIF Rotated Dimensions (May 23, 2026)
+### v10.4.1  -  Restored Edge Glow & EXIF Rotated Dimensions (May 23, 2026)
 
-### Fixed
+#### Fixed
 
 - **Restored Bias Lighting Edge Glow**  -  Corrected a layer rendering order bug in `main.cpp` (both single and twin-collage rendering blocks). Previously, bias lighting was drawn first and the solid black matte borders second, completely painting solid black over the transparency glow strips. Reversed the sequence to draw matte borders first (as the base layer) and bias lighting second, allowing the dynamic edge glow to overlay beautifully on top of the black borders.
 - **Fixed Rotated Image Right-Side Black Bars**  -  Discovered and resolved a bug in the preloader (`preload.cpp`) where the in-memory dimensions (`width`/`height`) of decoded images were not updated to the rotated surface's dimensions after applying EXIF rotation (portrait photos). This caused `ImageLoader::load_texture` to blit the rotated portrait surface using unrotated landscape dimensions, creating a squished texture with a massive black bar on its right side.
 - **Dynamic Glow Border Adjustments**  -  Dynamically set the edge glow's border width offset parameter to `0` when `border_enabled` is disabled. This makes the ambient glow begin exactly at the edge of the photo rather than leaving an artificial 10px black gap.
 
-## v10.4.0  -  Decoupled 3D Border & Correct Margin Offsets (May 23, 2026)
+### v10.4.0  -  Decoupled 3D Border & Correct Margin Offsets (May 23, 2026)
 
-### Added
+#### Added
 
 - **Decoupled 3D Miter Border**  -  Extracted the custom 3D picture frame miter rendering from `draw_bias_lighting` into its own modular `Renderer::draw_3d_border()` function. Configured the system to honor `border_enabled` independently of `bias_lighting`, allowing users to have a border without a glow, a glow without a border, both, or neither.
 - **Dynamic Playlist Dimension Updates**  -  Updated the slideshow swap routine to automatically query the actual decoded texture size (`current_data->width` and `height`) on image transition. It now dynamically updates the in-memory metadata in `g_eligible` and `g_scanned_items` and writes the correct sizes into `cache.db` on texture swap, which resolves dynamic scale mismatches (e.g. `NaN` scale / `0x0` margins) on first-time or uncached image displays.
 
-### Fixed
+#### Fixed
 
 - **Margin Offset Bug**  -  Rewrote the layout geometry calculation inside `Renderer::calculate_fit_rect` and `calculate_fit_rect_in_area`. The system now only subtracts the 48-pixel `matting_size` when `matting` is **explicitly enabled** in config, cleanly resolving the issue where turning off matting still left a large black margin.
 - **Robust Clean OS Installer**  -  Removed legacy external shader installation steps from `install.sh` and `CMakeLists.txt` (as native GLES rendering in SDL3 does not require external shader files). This completely resolves potential glob copy failures under `set -eo pipefail` on a fresh OS installation.
 - **Installer Version Sync**  -  Synchronized the graphical installer's version labels and configuration templates from `10.1.0` to `10.4.0`.
 
-## v10.3.15  -  Thread & Memory Safety Stability Release (May 23, 2026)
+### v10.3.15  -  Thread & Memory Safety Stability Release (May 23, 2026)
 
-### Fixed
+#### Fixed
 
 - **Preload Double-Free Crash**  -  Resolved a critical double-free memory corruption bug in the preloader's queue mismatch discarding branch. Replaced unsafe manual pointer freeing with robust, standard C++ RAII container destructions (`std::queue::pop()`) which safely deallocate raw pixel memory without risk of double-free crashes.
 - **Redundant Parallel Preloads**  -  Replaced the transient lookahead set with a unified `active_preloads` container tracking preloads across all pipeline phases (queued, in-flight, and decoded in memory). This completely eliminates duplicate parallel background decoding of identical files, reducing CPU and NAS disk I/O load.
 - **Startup Playlist Statistics Log**  -  Corrected a minor statistics log display bug where moving playlist vectors before logging caused startup counts to show as `0 photos + 0 videos = 254 total`.
 
-## v10.3.14  -  Asynchronous Multi-Threaded Background Preloader (May 22, 2026)
+### v10.3.14  -  Asynchronous Multi-Threaded Background Preloader (May 22, 2026)
 
-### Added
+#### Added
 
 - **Integrated Background Preloading**  -  Integrated the multi-threaded `PreloadQueue` pipeline into the active slideshow treadmill loop. While the slideshow is resting on the current image, it looks ahead and enqueues future items to be fetched and decoded asynchronously on background worker threads. This completely resolves the main thread connection locks and high I/O wait (`wa`) states during transitions.
 - **Safety Preload Verification & Stale Purging**  -  Updated `try_dequeue` to verify that the path of the preloaded raw pixel buffer matches the targeted path. If a mismatch is detected (e.g. because of manual skips or remote pauses), the queue automatically and safely discards stale preloads and frees their memory immediately.
 
-## v10.3.13  -  Metadata-Cached Camera EXIF Checking (May 22, 2026)
+### v10.3.13  -  Metadata-Cached Camera EXIF Checking (May 22, 2026)
 
-### Added
+#### Added
 
 - **EXIF Caching Layer**  -  Extended the SQLite metadata cache and `MediaItem` struct with an `is_camera` column to track camera EXIF status (`-1` = unknown, `0` = screenshot/document, `1` = camera photo). The `ImageLoader::has_camera_exif` filesystem check is now executed exactly once per file and permanently cached, eliminating synchronous network NAS reads during playlist generation. This completely resolves the remote mount connection hangs (kernel `D` state blocks in `cifs_strict_readv`) and ensures instant, robust application startup.
 
-## v10.3.12  -  Precise Word-Boundary Keyword Matching (May 22, 2026)
+### v10.3.12  -  Precise Word-Boundary Keyword Matching (May 22, 2026)
 
-### Fixed
+#### Fixed
 
 - **Screenshot False Positive Leak**  -  Discovered and fixed a subtle bug in the media classifier's keyword matching logic. Short keywords (like `"me"` and `"us"`) were triggering false positives on common words (e.g. `"me"` matching inside `"Chrome"` and `"Messages"` in file paths like `/mnt/nas/Photos/..._Chrome.jpg`), bypassing optical EXIF checks and leaking screenshots into the slideshow. Added strict alphanumeric word-boundary checks for these short tokens.
 - **Fast-Path Cache Extension Mismatch**  -  Normalized file extension comparisons between the filesystem scanner (which returns `".jpg"` with a leading dot) and the database fast-path loader (which extracts `"jpg"` dotless), ensuring uniform classification in both modes.
 
-## v10.3.11  -  Seamless Video-to-Video Transitions (May 22, 2026)
+### v10.3.11  -  Seamless Video-to-Video Transitions (May 22, 2026)
 
-### Added
+#### Added
 
 - **Seamless Video-to-Video Transitions**  -  Integrated an intelligent playlist peeking mechanism inside the video player's status check routine. If the next queued item is also a video, the application holds onto the active DRM Master lock instead of dropping and reclaiming it recursively. This prevents consecutive mode-setting flips on HDMI displays, eliminating intermediate black screens and glitches entirely.
 - **Removed Skip Consecutive Video Hack**  -  Cleanly removed the temporary skip consecutive video loop workaround in the slideshow treadmill, restoring correct playlist execution and allowing video-only play queues to work properly.
 
-## v10.3.10  -  Unconditional Screenshot Filter & Triple-Entropy Seeding (May 22, 2026)
+### v10.3.10  -  Unconditional Screenshot Filter & Triple-Entropy Seeding (May 22, 2026)
 
-### Added
+#### Added
 
 - **Unconditional Screenshot & Document Skip**  -  Standardized slideshow and On-This-Day anniversary filters to unconditionally exclude documents, receipts, screenshots, and graphics (`is_doc`) from playback, independent of active people/animals category settings.
 - **Triple-Entropy Seeding Engine**  -  Overhauled startup playlist shuffling to use standard hardware `std::random_device`, `/dev/urandom` byte streams, high-resolution system clock nanosecond timestamps, and standard PID offsets. This ensures unique random seeds on every startup even when executed within systemd sandbox environments.
 
-## v10.3.9  -  Optical EXIF Screenshot Filter (May 22, 2026)
+### v10.3.9  -  Optical EXIF Screenshot Filter (May 22, 2026)
 
-### Fixed
+#### Fixed
 
 - **Facebook screenshots still showing**  -  Phone screenshots include `Make` (Apple) and `Model` (iPhone) EXIF tags, which falsely triggered the "camera photo" check. `has_camera_exif()` now only checks **optical** tags (`ExposureTime`, `FNumber`, `ISOSpeedRatings`, `FocalLength`, `DateTimeOriginal`) that screenshots never have. Screenshots without optical EXIF are now correctly classified as documents and filtered out.
 
-## v10.3.8  -  EXIF Rotation Multi-IFD & Camera EXIF Screenshot Filter (May 22, 2026)
+### v10.3.8  -  EXIF Rotation Multi-IFD & Camera EXIF Screenshot Filter (May 22, 2026)
 
-### Fixed
+#### Fixed
 
 - **Sideways photos**  -  `read_exif_rotation()` now checks both `EXIF_IFD_0` and `EXIF_IFD_EXIF` for orientation tag. Many cameras (especially phones) write orientation to `EXIF_IFD_EXIF`, causing photos to display sideways when only checking `EXIF_IFD_0`.
 - **Screenshots bypassing filter**  -  `classify_media_item()` now requires camera-specific EXIF tags (Make, Model, ExposureTime, FNumber, DateTimeOriginal) before applying the 90/10 people/animals heuristic. Screenshots saved as `.jpg`/`.jpeg`/`.heic` without camera EXIF are classified as documents and filtered out when "Keep People" or "Keep Animals" is active.
 
-## v10.3.7  -  Graceful Shutdown & Collage Filename Fix (May 22, 2026)
+### v10.3.7  -  Graceful Shutdown & Collage Filename Fix (May 22, 2026)
 
-### Fixed
+#### Fixed
 
 - **Graceful SIGTERM shutdown**  -  `pkill piTrove` or `systemctl stop` now triggers clean exit: mpv child process is stopped, DRM master reclaimed, resources freed. No more orphaned mpv processes leaving black screens on restart.
 - **Collage twin filename styling**  -  Second filename in twin-portrait collage now uses the same adaptive color/outline/shadow as the primary filename (both derive from the primary image instead of each image individually).
 
-## v10.3.6  -  Subtitles Folder, No Consecutive Videos, Classification Fix (May 22, 2026)
+### v10.3.6  -  Subtitles Folder, No Consecutive Videos, Classification Fix (May 22, 2026)
 
-### Added
+#### Added
 
 - **Centralized Subtitles Folder**  -  New `subtitles_dir` config option (default `/home/pi/piTrove/subtitles/`). Drop `.srt` files here matching video basenames (e.g., `family_trip.srt` for `family_trip.mp4`) and mpv loads them automatically. No match = video plays without external subs. Editable via TUI → Videos → Subtitles Dir.
 - **install.sh Subtitles Folder**  -  `mkdir -p /home/pi/piTrove/subtitles` added to installer.
 
-### Fixed
+#### Fixed
 
 - **No consecutive videos**  -  Video EOF now skips any consecutive videos in the playlist to reach a photo, eliminating 30-second black screen gaps. Skipped videos are NOT marked as shown (not added to cooldown), so they play later in the cycle.
 - **Interleave guard**  -  Playlist organization now stops placing videos when photos run out, guaranteeing at least 1 photo between any two videos.
 - **Classification gap**  -  Camera photo hash distribution changed from 75/20/5 to 90/10  -  eliminated the 5% "unclassified" gap where camera photos slipped through the people/animals filter.
 
-## v10.3.4  -  Dead Code Cleanup, Real Transitions, CPU Metric Fix (May 22, 2026)
+### v10.3.4  -  Dead Code Cleanup, Real Transitions, CPU Metric Fix (May 22, 2026)
 
-### Fixed
+#### Fixed
 
 - **Dead global**  -  Removed unused `g_http_server_fd` from `util.h`/`util.cpp`
 - **Fake transitions**  -  `render_pixelate` now draws blocky pixel overlay with growing block size; `render_dissolve` draws random scatter patches increasing with progress
@@ -2329,9 +2329,9 @@ ightarrow$ `0:01` rather than truncating sub-second remaining time to `00:00`.
 - **Config unknown keys**  -  Now logs WARN for unrecognized config keys in config.toml
 - **Dead code**  -  Removed `test_render.cpp` (standalone test never integrated into CMake)
 
-## v10.3.2  -  Code Scan Fixes (May 22, 2026)
+### v10.3.2  -  Code Scan Fixes (May 22, 2026)
 
-### Fixed
+#### Fixed
 
 - **Transition trace spam**  -  Removed per-frame TRACE logging from `TransitionEngine::render()` (~80 log lines per 1.5s transition)
 - **Blocking CPU usage**  -  Replaced `usleep(500000)` in `read_cpu_usage()` with non-blocking instantaneous `/proc/stat` read
@@ -2343,15 +2343,15 @@ ightarrow$ `0:01` rather than truncating sub-second remaining time to `00:00`.
 - **Config key ambiguity**  -  Removed `key == "auto"` fallback; only matches `brightness_auto` exactly
 - **Trim underflow**  -  Added `end < start` guard in `trim()` to prevent unsigned underflow
 
-## v10.3.1  -  Balanced Skew Video Interleaving (May 22, 2026)
+### v10.3.1  -  Balanced Skew Video Interleaving (May 22, 2026)
 
-### Added
+#### Added
 
 - **Balanced Skew Video Interleaving**  -  Implemented an automatic photo-to-video pool capping ratio constraint (`max_videos = photos.size() * (videos_per_photos / 10.0)`) to resolve heavy media pool skews. Shuffled media item pools are now mathematical-interleave capped and dynamically resized, eliminating long consecutive runs of videos (clustering) in slideshow play queues.
 
-## v10.3.0  -  Dynamic Hardware Auto-Probing, Custom Typography & Robust Socket Fallbacks (May 22, 2026)
+### v10.3.0  -  Dynamic Hardware Auto-Probing, Custom Typography & Robust Socket Fallbacks (May 22, 2026)
 
-### Added
+#### Added
 
 - **Dynamic DRM/KMS Auto-Probing**  -  Implemented a zero-config display probe that scans `/sys/class/drm/card*-*/status` to detect active connected video outputs (HDMI) and GPU index on-the-fly, programmatically injecting stable `SDL_VIDEO_KMSDRM_DEVICE` and `SDL_KMSDRM_DEVICE_INDEX` environment settings at startup without hardcoded paths.
 - **Custom Font Path Selection & System Fallback**  -  Added configuration and OSD engine support for customized `.ttf`/`.otf` font paths. If the font is configured as `"auto"` or invalid, the renderer gracefully falls back through standard system directories to guarantee consistent display presentation.
@@ -2360,28 +2360,28 @@ ightarrow$ `0:01` rather than truncating sub-second remaining time to `00:00`.
 - **Interactive TUI "Hardware Settings" Submenu**  -  Designed and integrated a brand new category (TUI Category 7) dedicated to live hardware adjustments, enabling seamless configuration of active DRM cards, connectors, custom font paths, and audio devices over SSH.
 - **Aesthetic Cleanliness**  -  Stripped all lingering/stale SDL2 mentions from debugging logs, initialization sequences, and splash screens to ensure clean and correct SDL3 terminology throughout the modern codebase.
 
-### Fixed
+#### Fixed
 
 - **Closed Caption visibility and alignment**  -  Programmatically configured mpv to enforce ATSC A53/EIA-608 closed caption track generation (`--sub-create-cc-track=yes`) to resolve invisible captions. Standardized vertical closed caption positioning (`--sub-margin-y`) to align perfectly with the filename OSD on the bottom left, while keeping captions beautifully centered.
 - **mpv Subprocess Argument Safety**  -  Restructured child process argument building in the video player pipeline using standard `std::vector<std::string>` vectors evaluated cleanly on execution, resolving previous code redundancy and potential argument parsing bugs.
 
-## v10.2.0  -  Dynamic Core limit, Twin-Portrait Collage & Robust Media Skip (May 22, 2026)
+### v10.2.0  -  Dynamic Core limit, Twin-Portrait Collage & Robust Media Skip (May 22, 2026)
 
-### Added
+#### Added
 
 - **Dynamic Core limit**  -  Overhauled the mpv video player backend to automatically detect available CPU cores using `std::thread::hardware_concurrency()` and dedicate exactly `max_cores - 1` decoding threads to video decoding, ensuring dynamic hardware compatibility and preventing overall system and background thread starvation on future or alternative hardware platforms.
 - **Twin-Portrait Split Collage Layout**  -  Implemented twin portrait collage mode that automatically pairs adjacent portrait-format images and displays them side-by-side in a split view. Accompanied by stacked layout filenames, smart border boundaries, double-advance support (advancing playlist by 2), and seamless texture-target rendering for smooth layout transition crossfades.
 - **Robust Missing/Corrupted Media Skip**  -  Added a graceful error-handling pipeline that marks missing, deleted, or corrupted photo/video files as bad in the cache database (`g_cache->mark_bad(path)`) and erases them dynamically from active playback vectors, preventing crashes and offering seamless continuous playback.
 - **Default Closed Captions & TUI Preferences**  -  Turned on web remote dashboard and closed caption overlays by default in config and TUI settings, ensuring high-quality accessibility out-of-the-box.
 
-### Fixed
+#### Fixed
 
 - **CMake build system integration**  -  Added missing `http_server.cpp` to the `PISTROVE_SOURCES` build definitions in `CMakeLists.txt`, resolving compiling and linking failures.
 - **slideshow loop syntax repair**  -  Repaired and resolved two critical compilation and syntax errors inside `src/main.cpp` caused by previous source truncations.
 
-## v10.1.0  -  Smart Content-Based Photo Filters & Clutter Skipping (May 22, 2026)
+### v10.1.0  -  Smart Content-Based Photo Filters & Clutter Skipping (May 22, 2026)
 
-### Added
+#### Added
 
 - **Smart Content Filtering**  -  Integrated a highly robust, zero-overhead classifier using hierarchical keyword matching (path + filename) and deterministic camera roll hash distribution to identify photo subjects without slow neural network dependencies.
 - **Auto-Filter Clutter & Documents**  -  By default, the slideshow automatically skips screenshots, scanned documents, receipts, text pages, banners, logos, and graphics, keeping the display strictly photographic.
@@ -2389,83 +2389,83 @@ ightarrow$ `0:01` rather than truncating sub-second remaining time to `00:00`.
 - **Keep Animals**  -  A new configuration option and interactive TUI toggle (`keep_animals = 1` by default) that retains captures of family pets, wildlife, and general animals.
 - **TUI & Config Integration**  -  Integrated interactive toggles under the "Scanning" TUI block and default `config.toml` structure, ensuring effortless setup.
 
-## v10.0.0  -  SDL3 Migration, Aggressive Shuffle, & Precision Fallback Repairs (May 22, 2026)
+### v10.0.0  -  SDL3 Migration, Aggressive Shuffle, & Precision Fallback Repairs (May 22, 2026)
 
-### Added
+#### Added
 
 - **SDL3 Migration**  -  Upgraded the entire core architecture from SDL2 to SDL3. Modernized all window, renderer, surface, and event loops. Leveraged high-performance SDL3 rendering routines (`SDL_RenderTexture`), floating-point layout calculations (`SDL_FRect`), and native texture sizing APIs (`SDL_GetTextureSize`).
 - **Aggressive Combined Shuffle**  -  Completely overhauled the media pipeline to perform a highly randomized shuffle of all eligible photos and videos using robust, unique system-level entropy seeds, ensuring a beautiful, non-repeating mix.
 - **Smart Cooldown Degradation**  -  Added dynamic cooldown fallback logic that decreases requirements on-the-fly when the total eligible media pool is small, preventing playlist lockouts while maintaining excellent diversity.
 - **Video Cooldown Integration**  -  Added full metadata and cooldown tracking for video files, forcing them to respect the configurable cooldown pool (default 330 days) in identical fashion to photos.
 
-### Changed
+#### Changed
 
 - **Default Slide Delay to 120s**  -  Adjusted the default photo slideshow transition delay to `120.0s` inside `src/config.toml` and defaults to offer a premium, cinematic viewing pace suitable for digital frames.
 - **Unified SDL3 systemd Service**  -  Upgraded `install.sh` systemd service unit to supply advanced SDL3-compatible variables (`SDL_VIDEO_DRIVER=kmsdrm` and `SDL_KMSDRM_DEVICE_INDEX=1`) alongside standard environment flags to guarantee clean DRM master acquisition.
 
-### Fixed
+#### Fixed
 
 - **Transition Fallback Cooldown Bypass**  -  Fixed a bug where skipping from video playback to standard photos bypassed crossfade completion callbacks, exempting subsequent photos from the 330-day cooldown. Now, all fallback transitions explicitly invoke `mark_item_shown`.
 - **Temporal Scan Folder Boundary**  -  Solved an integer-division bug where folder names for adjacent months were ignored under the default `window_days = 15`. Now calculates directory spreads with precise mathematical ceiling logic.
 - **High-Precision Date Math**  -  Replaced the coarse `month * 30 + day` logic in `is_in_seasonal_window` with an exact cumulative day-of-year table, eliminating a 4-day drift at seasonal boundaries.
 
-## v9.4.1  -  Fix Video EOF DRM Context Crash & Lower mpv Overlay (May 22, 2026)
+### v9.4.1  -  Fix Video EOF DRM Context Crash & Lower mpv Overlay (May 22, 2026)
 
-### Changed
+#### Changed
 
 - **Lower mpv status overlay**  -  Moved the mpv playback info overlay (filename and remaining time) down by 25 pixels vertically (`std::max(0, matte_px - 17)`) as requested.
 
-### Fixed
+#### Fixed
 
 - **DRM context crash on video EOF**  -  Configured systemd background service environment variables (`SDL_VIDEODRIVER=kmsdrm` and `SDL_VIDEO_KMSDRM_DEVICE=/dev/dri/card1`) to guarantee SDL2 correctly initializes the modesetting device. This ensures the DRM/KMS card interface descriptor is successfully opened, allowing the application to drop/reclaim master lock context cleanly and preventing crash-to-terminal events during subsequent photo transitions.
 - **Version bump**  -  Bumped project version to `9.4.1` across the codebase.
 
-## v9.4.0  -  Fix Wide Photo Corners & Robust Playback (May 22, 2026)
+### v9.4.0  -  Fix Wide Photo Corners & Robust Playback (May 22, 2026)
 
-### Changed
+#### Changed
 
 - **Version bump**  -  Version updated to 9.4.0 across all codebase files.
 
-### Fixed
+#### Fixed
 
 - **Wide photo corner clipping**  -  Solved layout bug where 3D borders and side corners of horizontal (wide) photos were cut off behind the physical 1" matte. Dynamically expanded the safe-area margin by `g_cfg.border_width` inside `calculate_fit_rect` when `g_cfg.bias_lighting` is enabled. Outer border now aligns perfectly with the inner boundary of the 1" physical matte.
 - **Season-neutral seasonal scanning**  -  Standard date-less filenames (such as video files and standard photo files) are now correctly categorized as season-neutral instead of being filtered out when seasonal window scanning is active, ensuring mixed video/photo playback works flawlessly.
 - **Dynamic interleave pipeline**  -  Balanced video-to-photo interleave cycle math prevents video starvation and ensures a consistent flow of video content over small video pools.
 - **Compiler warning cleanup**  -  Cleaned up all unused variables, parameter warnings, and macro redefinitions, achieving a clean compile with zero warnings on the Raspberry Pi ARM64 platform.
 
-## v9.3.0  -  Legacy 3D border + seamless glow (May 22, 2026)
+### v9.3.0  -  Legacy 3D border + seamless glow (May 22, 2026)
 
-### Changed
+#### Changed
 
 - **3D picture-frame border**  -  Replaced custom per-row corner triangles with legacy v8.7.0 approach: solid hi/lo squares + triangle overlays + seam lines (hi=avg+65, lo=avg×0.25, TL dark crease, TR/BL bright glint, BR near-black crease)
 - **Configurable border width**  -  Border now uses `border_width` from config (default 10px) instead of hardcoded 3px
 - **Seamless glow**  -  Edge glow strips extend full corner-to-corner, corner glow fills diagonal area (i≥1, j≥1) with no overlap gap, eliminating 1px bright/dark seams
 - **1px photo outline**  -  Added black outline at exact photo boundary for crisp separation
 
-## v9.1.4  -  Gradient stops: chunked edge color sampling for bias lighting (May 21, 2026)
+### v9.1.4  -  Gradient stops: chunked edge color sampling for bias lighting (May 21, 2026)
 
-### Changed
+#### Changed
 
 - **Bias lighting gradient stops**  -  Replaced single-color-per-edge with up to 24 gradient stops per edge. Each stop averages a chunk of ~80 pixels (width/24) × 5 pixels deep, capturing color variation along edges. Drawn as 12 alpha fade layers × 24 colored segments per edge, producing smooth multi-color gradients from photo to matte.
 
-## v9.1.2  -  Bias lighting: per-edge color gradient from photo to black matte (May 21, 2026)
+### v9.1.2  -  Bias lighting: per-edge color gradient from photo to black matte (May 21, 2026)
 
-### Added
+#### Added
 
 - **Bias lighting**  -  4 edge colors sampled per photo (8px depth), drawn as 8-step gradient fading into matte
 - **Animation styles**  -  `edge_glow` (default), `pulse`, `breathe`, `none`
 - **Config knobs**  -  `bias_strength` (0-200), `bias_anim_speed`, `bias_anim_style`
 
-## v9.1.0  -  Video interleave, overlay fixes, scan optimizations (May 21, 2026)
+### v9.1.0  -  Video interleave, overlay fixes, scan optimizations (May 21, 2026)
 
-### Changed
+#### Changed
 
 - **Video interleave**  -  Photos and videos shuffled separately with same seed, interleaved at 3 videos per 10 photos
 - **Video cooldown**  -  Videos now respect cooldown_days like photos
 - **Overlay fix**  -  Added missing `g_overlay->init()` call, timer and filename now display on photos
 - **Timer position**  -  Moved timer to `y=0.05` (54px from top) accounting for 1" matte border
 
-### Fixed
+#### Fixed
 
 - **Scan window**  -  Fixed `scan_days` passing `0` instead of config value to scanner
 - **Month filter**  -  Tightened to only scan current month with `window_days=5` (was ±1 month)
@@ -2473,15 +2473,15 @@ ightarrow$ `0:01` rather than truncating sub-second remaining time to `00:00`.
 - **Per-frame TRACE**  -  Removed log spam from splash, overlay, and transition (30fps flooding)
 - **Present order**  -  Moved `draw_all` before `present()` so overlay actually renders
 
-## v9.0.1  -  Fix scanner hanging on Synology @eaDir/@Recycle (May 21, 2026)
+### v9.0.1  -  Fix scanner hanging on Synology @eaDir/@Recycle (May 21, 2026)
 
-### Fixed
+#### Fixed
 
 - **CRITICAL · Scan freeze on CIFS/Synology NAS**  -  `ignore_folders` config (`@eaDir`, `@Recycle`, `Thumbs.db`) was only checked after the scan completed, not during traversal. The scanner recursed into massive Synology metadata directories, causing the app to hang indefinitely during the scan phase. Fixed by passing `ignore_folders` to `MediaScanner::scan()` and filtering directories during recursive traversal.
 
-## v9.0.0  -  SDL2 kmsdrm migration (May 21, 2026)
+### v9.0.0  -  SDL2 kmsdrm migration (May 21, 2026)
 
-### Changed
+#### Changed
 
 - **Raylib → SDL2 kmsdrm**  -  Replaced Raylib EGL/DRM backend with SDL2 kmsdrm video driver for native framebuffer access on Pi 5.
 - **Modular architecture**  -  Monolithic `piTrove.cpp` split into 12 source modules: `main.cpp`, `scanner.cpp`, `cache.cpp`, `config.cpp`, `preload.cpp`, `renderer.cpp`, `overlay.cpp`, `transition.cpp`, `mpv_player.cpp`, `image_loader.cpp`, `font_render.cpp`, `util.cpp`.
@@ -2493,212 +2493,212 @@ ightarrow$ `0:01` rather than truncating sub-second remaining time to `00:00`.
 - **config.cpp refactored**  -  Removed local lambdas, uses global `util.h` functions (`trim`, `safe_stoi`, `safe_stof`, `safe_stod`, `safe_stoll`).
 - **Scanner fixed**  -  Added `#define _GNU_SOURCE` and `#include <dirent.h>` for `getdents64`.
 
-### Fixed
+#### Fixed
 
 - **Build system**  -  SQLite3 via pkg-config, explicit png16/jpeg/webp/tiff/heif linking (not via SDL2_image transitive).
 - **VRAM budget**  -  ~72MB max: current image ≤16MB, 3 preloaded ≤48MB, fonts ≤2MB, shaders ≤1MB, overhead ≤5MB.
 - **Aspect ratio math**  -  Compare image aspect to screen aspect; wider → pillarbox, taller → letterbox.
 
-## v8.7.0  -  Video aspect ratio preservation (May 20, 2026)
+### v8.7.0  -  Video aspect ratio preservation (May 20, 2026)
 
-### Fixed
+#### Fixed
 
 - **Video aspect ratio**  -  Replaced `--no-keepaspect` with `--keepaspect=force` so videos render with correct proportions (letterboxed/pillarboxed on 16:9 display instead of stretched to fullscreen).
 
-## v8.6.0  -  Robust shuffle entropy (May 20, 2026)
+### v8.6.0  -  Robust shuffle entropy (May 20, 2026)
 
-### Changed
+#### Changed
 
 - **Shuffle entropy**  -  Replaced `std::random_device` with `/dev/urandom` + `clock_gettime(CLOCK_MONOTONIC)` + PID + function address for robust, unique shuffle order on every boot.
 - **Video shuffle**  -  Videos are now shuffled independently before interleaving (previously only photos were shuffled).
 - **Combined list shuffle**  -  Final combined photo+video list is shuffled one last time, so items don't appear in the same order every boot.
 
-## v8.5.0  -  mpv native OSD with matte accounting (May 20, 2026)
+### v8.5.0  -  mpv native OSD with matte accounting (May 20, 2026)
 
-### Added
+#### Added
 
 - **mpv native OSD overlay**  -  Videos now show `filename.ext - MM:SS` in lower-left corner via mpv's built-in `--osd-status-msg`. Positioned below the matte border (48px default) + 8px padding.
 
-### Changed
+#### Changed
 
 - **OSD font size**  -  Set to 10 for unobtrusive text that doesn't compete with video content.
 - **OSD margins**  -  Automatically offset by `matting_size + 8` so the text appears below the matte border.
 
-### Fixed
+#### Fixed
 
 - **Video filename invisible**  -  Restored `--osd-status-msg` with `--no-osd-bar` (no dark progress bar, only the text overlay).
 
-## v8.4.0  -  Clean fullscreen video playback (May 20, 2026)
+### v8.4.0  -  Clean fullscreen video playback (May 20, 2026)
 
-### Fixed
+#### Fixed
 
 - **Video fullscreen  -  no OSD overlay bar**  -  Removed `--osd-bar` which rendered a dark progress bar across the bottom of the video. Videos now render clean fullscreen via mpv `--vo=drm`.
 - **Subtitle overlay removed**  -  Added `--no-sub` to prevent hardcoded subtitles from rendering over video content.
 
-## v8.3.0  -  30% video ratio, OSD progress, splash fallback, 5-day scan (May 20, 2026)
+### v8.3.0  -  30% video ratio, OSD progress, splash fallback, 5-day scan (May 20, 2026)
 
-### Added
+#### Added
 
 - **30% video ratio**  -  Videos now play 3 per cycle of `videos_per_photos` items (default 10 = 30%). Replaced hardcoded `10 photos + N videos` with dynamic `photos_per_cycle = v_pp - 3`. Configurable via `videos_per_photos` (1–100).
 - **Splash fallback chain**  -  If `splash_file` is empty or path not found, searches: `src/splash.png` → exe dir → `/proc/self/exe` resolution → parent `src/` dir. Falls back to solid dark background if none found.
 
-### Changed
+#### Changed
 
 - **Scan window reduced**  -  `scan_window_days` default changed from `15` to `5` (configurable). Cuts scan time from ~5 min to ~2.5 min, reduces cache from 45K to ~12K items.
 - **Video OSD moved to bottom**  -  mpv OSD now shows `filename.ext - MM:SS` bottom-left (native mpv rendering). Removed redundant in-process filename overlay during video playback.
 
-### Fixed
+#### Fixed
 
 - **Splash crash on empty config**  -  `splash_file = ""` no longer causes `create_directories("")` crash.
 - **videos_per_photos clamped to 9**  -  Removed `min(9, ...)` limit; now allows `min(100, ...)`.
 
-## v8.0.4  -  DRM rendering fix, mpv argument fix, scan window reduced (May 20, 2026)
+### v8.0.4  -  DRM rendering fix, mpv argument fix, scan window reduced (May 20, 2026)
 
-### Fixed
+#### Fixed
 
 - **Black screen during video playback**  -  Raylib's `BeginDrawing()`/`EndDrawing()` was called every main loop iteration, even while mpv owned the DRM display. This caused DRM/EGL conflicts and a permanent black screen. Fixed by skipping Raylib drawing cycle entirely when `current_is_video && g_video_subprocess_active`.
 - **mpv `--volume` argument crash**  -  `--volume 0` (space-separated) is invalid in newer mpv; requires `--volume=0` (equals sign). Fixed by using `snprintf()` to build `--volume=<val>` string.
 - **mpv `--hwdec=no` degrades 4K HEVC playback**  -  Replaced `--hwdec=no` with `--hwdec=auto` for hardware-accelerated decoding on Pi 5.
 - **mpv stderr invisible**  -  Added stdout/stderr redirect to `/home/pi/mpv_debug.log` for subprocess diagnostics.
 
-### Changed
+#### Changed
 
 - **Scan temporal window reduced**  -  `window_days` changed from `15` to `5` in `config.toml`. 45K→12K files, scan time reduced from ~5 min to ~2.5 min.
 - **Photo+video mode restored**  -  Both `play_just_photos` and `play_just_videos` set to `0` (disabled filters), enabling mixed slideshow.
 
-## v8.0.3  -  Immediate Skip Integration and Robust Subprocess Control (May 20, 2026)
+### v8.0.3  -  Immediate Skip Integration and Robust Subprocess Control (May 20, 2026)
 
-### Fixed
+#### Fixed
 
 - Fixed skip responsiveness during video playback by integrating `stop_video_subprocess()` directly inside the core `advance()` pipeline, ensuring touch, remote, and physical skips reliably release DRM and terminate mpv immediately.
 
-## v8.0.2  -  Slideshow transitions, config filters, and ratio updates (May 20, 2026)
+### v8.0.2  -  Slideshow transitions, config filters, and ratio updates (May 20, 2026)
 
-### Added
+#### Added
 
 - Config options `play_just_photos` and `play_just_videos` to easily filter slideshow to single media types.
 - TUI interactive settings toggles under the **Videos** settings block.
 
-### Changed
+#### Changed
 
 - Default `videos_per_photos` set to `3`. Clamped between `1` and `9`.
 - Shuffling ratio bias rule adjusted: force video every `10 / videos_per_photos` photos.
 
-### Fixed
+#### Fixed
 
 - Fixed transition lockout bug when preload gets an empty texture: reset `preload_running` to false and trigger recovery `preload_next()`.
 - Fixed `preload_next()` video index-advance bug: keep `next_index` pointing to the probed video, allowing correct transitions.
 - Fixed keyboard, mouse, and touch skips to kill active subprocess mpv immediately on skipped videos.
 
-## v8.0.1  -  Dynamic ratio tracking, shuffle all items, ratio-biased advance (May 20, 2026)
+### v8.0.1  -  Dynamic ratio tracking, shuffle all items, ratio-biased advance (May 20, 2026)
 
-### Changed
+#### Changed
 
 - **Dynamic ratio tracking**  -  Replaced rigid 10-then-N interleaving in `treadmill_worker()` with `photos_since_video` counter in `Slideshow` struct. Counter resets to 0 on video, increments by 1 on each photo display. When `photos_since_video >= videos_per_photos`, next `advance()` scans forward in playlist to force video selection.
 - **Shuffle all items together**  -  `treadmill_worker()` merges photos and videos into single shuffled list. Previously: shuffle photos, rigid interleaving (10 photos + N videos), shuffle again  -  destroying the ratio entirely.
 - **Preload advances past videos**  -  Video preload now advances `next_index` (same as photo preload). Videos don't need texture preloading, so preloaded items are skipped. Prevents video from appearing as "next" item.
 - **Ratio counter reset on hot-swap**  -  `photos_since_video` reset to 0 when `treadmill_worker` replaces playlist at midnight.
 
-### Fixed
+#### Fixed
 
 - **Videos never play with shuffle=1**  -  Root cause: random index selection from fully-shuffled list made videos statistically impossible to hit among 45K+ photos. Dynamic ratio tracking ensures videos are forced every N photos regardless of shuffle position.
 - **Config read without lock in advance()**  -  `g_cfg.videos_per_photos` captured inside `g_config_mtx` lock before ratio check.
 - **No fallback when no video found**  -  If ratio scan wraps around without finding video, falls back to normal random shuffle.
 
-## v8.0.1  -  Fix preload deadlock on video items (May 20, 2026)
+### v8.0.1  -  Fix preload deadlock on video items (May 20, 2026)
 
-### Fixed
+#### Fixed
 
 - **Preload deadlock on videos**  -  When preload encountered a video, it probed duration but did not advance the index or set `preloaded_img_valid`. The main loop discarded the empty preload and called `preload_next()`, but `preload_running` was still `true`, blocking the slideshow indefinitely. Fixed by advancing `next_index` when preload hits a video (videos don't need texture preloading).
 
-## v8.0.0  -  Replace in-process libmpv with subprocess mpv --vo=drm (May 20, 2026)
+### v8.0.0  -  Replace in-process libmpv with subprocess mpv --vo=drm (May 20, 2026)
 
-### Changed
+#### Changed
 
 - **Video playback architecture**  -  Replaced in-process `libmpv` render API with subprocess `mpv --vo=drm`. The in-process approach (v3.0.0–v7.10.3) required sharing Raylib's EGL context, explicit FBO binding, and an event drain thread  -  all of which produced black screens on Pi 5 (GLES2/DRM FBO incompatibilities). Subprocess mpv renders directly to the DRM display via `drmDropMaster`/`drmSetMaster`.
 - **Countdown timer**  -  Removed because subprocess mpv provides no in-process time tracking. Timer overlay shows `--:--` during video playback.
 
-### Fixed
+#### Fixed
 
 - **Video black screen on Pi 5**  -  Fundamental architecture fix: mpv now controls the DRM display directly (`--vo=drm`), bypassing all GLES2/FBO/texture pipeline issues.
 
-## v7.10.1  -  Concurrency and timeout fixes, mmap scale increase (May 20, 2026)
+### v7.10.1  -  Concurrency and timeout fixes, mmap scale increase (May 20, 2026)
 
-### Fixed
+#### Fixed
 
 - **CIFS Mount Hangs in Media Scanner**  -  Replaced raw `directory_iterator` in root scanner with safe `read_dir_timeout` and `stat_timeout` to protect the main scanning threads.
 - **Racy Timeout Handling**  -  Fixed critical data races in `read_dir_timeout` and `read_exif_rotation_timeout` by returning safe fallback/empty values immediately without reading worker-owned pointers upon a thread detach.
 - **HTTP Playlist Data Race**  -  Changed `http_thread_func` to retrieve `slide.items` via the thread-safe `slide.get_items()` helper instead of an unprotected direct read.
 - **mmap_size Overflow**  -  Changed `cache_mmap_size` from signed `int` to `long long` to prevent overflows/truncation on larger databases (e.g. >= 2GB) and replaced `std::stoi` with `std::stoll`.
 
-## v7.10.1  -  Restore install.sh (711 lines), version bump, raylib-src cleanup (May 20, 2026)
+### v7.10.1  -  Restore install.sh (711 lines), version bump, raylib-src cleanup (May 20, 2026)
 
-### Fixed
+#### Fixed
 
 - **install.sh corrupted**  -  Was truncated to 35 lines (only echo statements) since v7.1.0. Restored from v6.0.13 (711 lines), updated version refs to v7.10.1.
 - **raylib-src cleanup**  -  After install, `~/raylib-src` (~500MB+) is removed since only `libraylib.a` + `raylib.h` are needed on Pi.
 
-## v7.10.0  -  Restore vo=libmpv, explicit FBO internal_format, render logging (May 20, 2026)
+### v7.10.0  -  Restore vo=libmpv, explicit FBO internal_format, render logging (May 20, 2026)
 
-### Fixed
+#### Fixed
 
 - **Video black screen persisted**  -  `vo=libmpv` was accidentally removed in v7.9.0, which is required for `mpv_render_context` to receive frames. Re-added. Explicit `fbo.internal_format=0x1908` (GL_RGBA) restored  -  `fbo.internal_format=0` (auto-detect) fails silently on DRM/GLES2. Added render success/failure logging for diagnostics.
 
-## v7.9.0  -  MPV black screen fix, countdown timer overlay (May 20, 2026)
+### v7.9.0  -  MPV black screen fix, countdown timer overlay (May 20, 2026)
 
-### Fixed
+#### Fixed
 
 - **Video black screen on Pi 5**  -  `hwdec=auto-safe` defaulted to `drmprime` which bypasses the Raylib FBO texture pipeline. Changed to `hwdec=v4l2m2m-copy` which brings decoded frames into shared GPU memory. Set `fbo.internal_format=0` (auto-detect) instead of `0x1908` which chokes GLES2 layout allocations.
 - **EGL surface asymmetry**  -  `make_egl_current()` and `release_egl_current()` now map both `EGL_DRAW` and `EGL_READ` surfaces instead of a single surface, preventing context flip draw validation failures.
 - **Countdown timer missing**  -  Replaced synchronous 60fps `mpv_get_property("time-remaining")` polling (which flooded IPC and caused thread locks) with `mpv_observe_property()` async listeners on the event thread. Timer overlay now shows `MM:SS` countdown during video playback.
 
-## v7.8.1  -  EXIF rotation at display time, skip video probing in Phase 2 (May 20, 2026)
+### v7.8.1  -  EXIF rotation at display time, skip video probing in Phase 2 (May 20, 2026)
 
-### Fixed
+#### Fixed
 
 - **EXIF rotation now read at display time**  -  Phase 2 cache only stored placeholder value of 1. Now `preload_next()` and `load_item()` call `read_exif_rotation_timeout()` at preload/load time (3s timeout) so EXIF orientation is applied to every image.
 - **Phase 2 caching skip video probing**  -  `probe_video_meta()` had 8s timeout per video × 905 videos = hours of blocking on CIFS. Phase 2 now skips video probing entirely; duration is probed lazily during preload at display time (3s timeout).
 
-## v7.8.0  -  Preload thread explosion fix (May 20, 2026)
+### v7.8.0  -  Preload thread explosion fix (May 20, 2026)
 
-### Fixed
+#### Fixed
 
 - **CRITICAL · Preload thread explosion**  -  `preload_running` flag raced between `update()`, `advance()`, and the preload thread, causing ~30 threads/sec spawned for the same image → SIGKILL by systemd in ~30s. Fixed with 4-part atomic lifecycle: (1) `preload_next()` atomically check-and-sets `preload_running=true` under `preload_lifecycle_mtx` before spawning, (2) preload thread keeps `preload_running=true` on success (prevents `update()` from restarting loop), (3) swap path resets `preload_running=false` so guard block can trigger next preload, (4) `advance()` joins in-flight thread then resets flag.
 
-## v7.7.0  -  CacheManager double-close fix, transaction mutex (May 20, 2026)
+### v7.7.0  -  CacheManager double-close fix, transaction mutex (May 20, 2026)
 
-### Fixed
+#### Fixed
 
 - **CRITICAL · CacheManager double-close crash**  -  `close()` finalized statements and closed the DB handle but left pointers dangling (not `nullptr`). If `open()` failed during statement compilation, it called `close()` then returned `false`; the caller deleted the `CacheManager` instance, triggering a double-`close()` in the destructor → double-finalize → heap corruption crash. Fixed by nullifying all pointers after freeing.
 - **HIGH · Transaction methods missing mutex guard**  -  `begin_transaction()` and `commit_transaction()` executed raw SQLite commands without `std::lock_guard<std::mutex>` while all other `CacheManager` methods were protected. Concurrent HTTP/cache requests could interleave with transaction boundaries → `SQLITE_BUSY` or internal connection faults. Added `db_mutex` lock to both methods.
 
-## v7.6.0  -  Async logger, flock PID locking, ESC deadlock, treadmill responsiveness (May 20, 2026)
+### v7.6.0  -  Async logger, flock PID locking, ESC deadlock, treadmill responsiveness (May 20, 2026)
 
-### Fixed
+#### Fixed
 
 - **CRITICAL · ESC systemctl restart deadlock**  -  `system("systemctl restart piTrove.service")` blocked the main thread synchronously while systemd tried to stop the same process via SIGTERM, creating a circular dependency deadlock (killed by SIGKILL after 90s). Fixed by backgrounding with `&`.
 - **HIGH · 30-second treadmill shutdown lag**  -  `sleep_for(seconds(30))` meant the main thread could block up to 30s at `treadmill_thread.join()` after `g_running=false`. Subdivided into 1-second steps with `g_running` check each iteration.
 - **HIGH · Stale PID file lockout**  -  Power loss left `.pid` file on disk, causing `std::filesystem::exists` to reject reboots. Replaced with POSIX `flock(LOCK_EX | LOCK_NB)` advisory locking with stale PID recovery via `kill(pid, 0)` liveness check.
 - **MEDIUM · Synchronous logger blocking worker threads**  -  Logger `log()` performed blocking `printf` + file write inside a shared mutex, stalling scan workers and main loop on slow SD card/CIFS. Converted to double-buffered async logger with background flush thread  -  log() now only acquires a brief queue lock.
 
-## v7.5.0  -  Preload tight-loop fix (May 20, 2026)
+### v7.5.0  -  Preload tight-loop fix (May 20, 2026)
 
-### Fixed
+#### Fixed
 
 - **CRITICAL · Preload tight-loop CPU exhaustion**  -  `preload_next()` called `preload_running.store(true)` _before_ thread spawn, then `advance()` reset it to false before the thread started, creating a race where `update()` saw both flags false and forked a new thread every frame. Fixed by setting `preload_running=false` and resetting state atomically before thread spawn, eliminating the race window.
 
-## v7.4.0  -  Preload logic trap, config consolidation, subprocess removal (May 20, 2026)
+### v7.4.0  -  Preload logic trap, config consolidation, subprocess removal (May 20, 2026)
 
-### Fixed
+#### Fixed
 
 - **CRITICAL · Preload logic trap in main()**  -  Removed ~250 lines of inline thread spawning (first image preload thread + remaining preload thread + wait loop) that duplicated `Slideshow::preload_next()`. Replaced with single `preload_next()` call  -  fixes nested null-check structuring bug where the success pipeline was nested inside the null pointer verification block, and eliminates thread explosion from failed preload recovery.
 - **HIGH · Config duplication in load_config()**  -  Replaced section-aware config parser with flat key=value parser that handles both sectioned `[paths]` and flat config files uniformly  -  eliminates maintenance risk of key drift between sections.
 - **HIGH · Orphaned mpv subprocess layer**  -  Removed `mpv_video_play()` method (170 lines), `mpv_pid`/`mpv_monitor`/`mpv_running` members, and related DRM master drop/reclaim code  -  legacy fork/exec architecture fully replaced by in-process `g_mpv` render API.
 - **MEDIUM · Month bounds validation**  -  Added `1-12` range check in `is_month_in_window()` to prevent signed arithmetic overflow on non-standard folder names like `2026-99`.
 
-## v7.1.7  -  Structural Build Fixes (May 19, 2026)
+### v7.1.7  -  Structural Build Fixes (May 19, 2026)
 
-### Fixed
+#### Fixed
 
 - **CRITICAL · Duplicate code blocks causing build failure**  -  Removed massive orphaned duplicate of `preload_next()` (~260 lines) that caused Slideshow methods (`init`, `render`, `advance`, `update`, `cleanup`) to be unreachable.
 - **CRITICAL · Duplicate `sqlite3_stmt* stmt` in `CacheManager::open()`**  -  Integrity check block was duplicated, causing redeclaration error.
@@ -2709,13 +2709,13 @@ ightarrow$ `0:01` rather than truncating sub-second remaining time to `00:00`.
 - **LOW · Missing closing brace for `main()`**  -  File ended without `}` closing `main()`, causing "expected '}' at end of input" error.
 - **LOW · `safe_stod`/`safe_stol` used `g_logger` before declaration**  -  Replaced with `fprintf(stderr, ...)` to match `safe_stoi`/`safe_stof` pattern.
 
-## v7.1.1  -  Stability and Version Bump (May 19, 2026)
+### v7.1.1  -  Stability and Version Bump (May 19, 2026)
 
 - Bumped version to 7.1.1 across all system files.
 
-## v7.1.0  -  Concurrency and Memory Hardening (May 19, 2026)
+### v7.1.0  -  Concurrency and Memory Hardening (May 19, 2026)
 
-### Fixed
+#### Fixed
 
 - **CRITICAL · SQLite Concurrent Access Crash (B282)**  -  Implemented `SQLITE_OPEN_FULLMUTEX`, `sqlite3_busy_timeout(5000)`, and `std::lock_guard` across all `CacheManager` methods to eliminate segfaults and deadlocks between the UI thread and the background scanner.
 - **HIGH · Memory/VRAM Leaks (Round 22-23)**  -  Resolved multiple resource leaks including FBO leaks in `MPVPlayer::update_frame` and dangling textures during rapid navigation.
@@ -2728,22 +2728,22 @@ ightarrow$ `0:01` rather than truncating sub-second remaining time to `00:00`.
   - Fixed `current_index` out-of-bounds (OOB) in `Slideshow::update`.
   - Fixed shell escaping and buffer overflows in `MPVPlayer::play`.
 
-## v7.0.10  -  Corrected photo rotation and forced drmprime hwdec (May 19, 2026)
+### v7.0.10  -  Corrected photo rotation and forced drmprime hwdec (May 19, 2026)
 
-### Fixed
+#### Fixed
 
 - **MEDIUM · Photos not rotated correctly**  -  `render()` ignored `mi.exif_rotation`. Added logic to swap width/height and apply rotation angle to `DrawTexturePro` when `auto_display_rotation` is enabled.
 - **MEDIUM · Video black screen / software fallback**  -  Changed `hwdec` from `auto-safe` to `drmprime` and explicitly set `drm-device` to `/dev/dri/renderD128`. Verified `MPVPlayer initialized (hwdec=drmprime, EGL+RenderTexture)` on Pi 5.
 
-## v7.0.9  -  Added gpu-context=drm for Pi 5 DRM rendering path (May 19, 2026)
+### v7.0.9  -  Added gpu-context=drm for Pi 5 DRM rendering path (May 19, 2026)
 
-### Fixed
+#### Fixed
 
 - **MEDIUM · Video still black  -  missing DRM context binding**  -  `gpu-api=opengl` and `opengl-es=yes` enable GLES2 shaders but do not tell mpv which rendering backend context to use. On Pi 5 with vc4 DRM driver, mpv may autodetect X11/Wayland context which doesn't exist on headless systems, causing frames to decode but never pipe to texture buffer → black screen. Added `gpu-context=drm` to `MPVPlayer::init()` to explicitly bind the DRM rendering path.
 
-## v7.0.8  -  Black video + corrupted files persist fixed: GLES2 shaders, DB bad flag (May 19, 2026)
+### v7.0.8  -  Black video + corrupted files persist fixed: GLES2 shaders, DB bad flag (May 19, 2026)
 
-### Fixed
+#### Fixed
 
 - **CRITICAL · Video playback showed black screen on Pi 5**  -  mpv defaults to Desktop OpenGL shaders which silently fail to compile on the Pi's GLES2 (`vc4`) driver, leaving the video texture black while Raylib overlays rendered fine. Added `gpu-api="opengl"` and `opengl-es="yes"` to `mpv_set_option_string()` in `MPVPlayer::init()` to force GLES2 shader compilation.
 
@@ -2751,38 +2751,38 @@ ightarrow$ `0:01` rather than truncating sub-second remaining time to `00:00`.
 
 - **MEDIUM · Debian missing proprietary codecs**  -  Debian Trixie's default `ffmpeg` package sometimes strips H.264/HEVC patents. Added `libavcodec-extra` to `apt-get install` block in `install.sh` to ensure complete codec support.
 
-## v7.0.7  -  Phase 2 caching crash fixed: removed per-file EXIF rotation thread spawn (May 19, 2026)
+### v7.0.7  -  Phase 2 caching crash fixed: removed per-file EXIF rotation thread spawn (May 19, 2026)
 
-### Fixed
+#### Fixed
 
 - **CRITICAL · Phase 2 caching crashed after ~11 minutes with "exif rotation timeout" warnings**  -  `read_exif_rotation_timeout()` spawned a **thread per file** for every JPEG (22K+ threads total). Each thread called libexif's `exif_data_new_from_file()` over CIFS, which could hang. On timeout, threads were `pthread_detached` but the `shared_ptr` to `TimeoutState` was destroyed, causing UAF crashes. EXIF rotation is now set to `1` for all files in Phase 2  -  actual rotation is handled at display time by `auto_display_rotation = 1` in config.
 
-## v7.0.6  -  Scan stuck at 888 fixed: removed 1ms sleep in directory iterator (May 19, 2026)
+### v7.0.6  -  Scan stuck at 888 fixed: removed 1ms sleep in directory iterator (May 19, 2026)
 
-### Fixed
+#### Fixed
 
 - **MEDIUM · Scan appears stuck at 888 then restarts**  -  `MediaScanner::scan()` had `std::this_thread::sleep_for(1ms)` on every loop iteration of the recursive directory iterator. With ~24K files in the 15-day temporal window, this adds **24 seconds of pure idle time** on top of CIFS I/O latency. The scan crawls at ~1K files/min instead of the expected ~10K/min. Removed the sleep  -  CIFS operations already take far longer than 1ms, so the yield is pointless and slows throughput by 3-4x.
 
-## v7.0.5  -  Complete MPVPlayer::update_frame() rewrite: crashes, black screen, and overlays fixed (May 18, 2026)
+### v7.0.5  -  Complete MPVPlayer::update_frame() rewrite: crashes, black screen, and overlays fixed (May 18, 2026)
 
-### Fixed
+#### Fixed
 
 - **CRITICAL · Crashing / deadlock on video transition**  -  `mpv_get_property("eof-reached")` was polled 60fps inside `update_frame()`. This synchronous command allocates memory and locks mpv's core thread. Flooding the IPC caused mpv to deadlock, crashing the service when transitioning. Removed both `eof-reached` calls (early-return path and end-of-function). EOF is handled asynchronously by `event_thread`.
 - **CRITICAL · Black screen  -  FBO format rejected by GLES2**  -  `fbo.internal_format = 0x8058` (`GL_RGBA8`) hardcoded in v7.0.3. Pi's GLES2 driver (`vc4`) rejects this value. mpv silently fails to write pixels → permanent blank texture. Changed to `0x1908` (`GL_RGBA`), accepted by GLES2/vc4.
 - **CRITICAL · Missing overlays  -  rlBindTexture removed**  -  `rlBindTexture(0)` was removed in v7.0.3 (compile error on Pi). It IS needed for texture cache sync: mpv unbinds textures, Raylib's cache desyncs, DrawText renders invisible text. _Note: rlBindTexture not available on Pi's Raylib (GLES2) build  -  texture reset achieved via `glActiveTexture(GL_TEXTURE0)` + `glBindTexture(GL_TEXTURE_2D, 0)` + `rlDisableShader()`_
 - **MEDIUM · Stack corruption  -  BLOCK_FOR_TARGET_TIME type mismatch**  -  `block_time` declared as `int` (32-bit) but mpv expects `uint64_t*` (64-bit) for `MPV_RENDER_PARAM_BLOCK_FOR_TARGET_TIME`. On ARM64 stack, this causes memory corruption. Removed `BLOCK_FOR_TARGET_TIME` param entirely.
 
-## v7.0.4  -  Black screen regression fix: remove raw glBindBuffer, keep rlDisableShader (May 18, 2026)
+### v7.0.4  -  Black screen regression fix: remove raw glBindBuffer, keep rlDisableShader (May 18, 2026)
 
-### Fixed
+#### Fixed
 
 - **CRITICAL · Full black screen regression (v7.0.3)**  -  Raw `glBindBuffer(GL_ARRAY_BUFFER, 0)` and `glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0)` calls desynced Raylib's internal VBO cache. rlgl remembered its buffers were still bound, skipped rebinding, and drew overlays + video into an empty void. Fixed by removing raw glBindBuffer calls entirely. Kept `rlDisableShader()` (safe via rlgl API) and `glActiveTexture/GLBindTexture` (OpenGL texture reset).
 
 - **v7.0.4**: `rlBindTexture(0)` not available on Pi's Raylib (GLES2) build  -  excluded. Texture reset via `glActiveTexture(GL_TEXTURE0)` + `glBindTexture(GL_TEXTURE_2D, 0)` is sufficient.
 
-## v7.0.3  -  Video black screen fix: unconditional MPV polling + FBO format + pointer lifetimes (May 18, 2026)
+### v7.0.3  -  Video black screen fix: unconditional MPV polling + FBO format + pointer lifetimes (May 18, 2026)
 
-### Fixed
+#### Fixed
 
 - **CRITICAL · Video screen remaining black  -  event-loop desync**  -  Relied on edge-triggered `g_mpv_frame_available` flag. If mpv fires OSD/metadata callbacks before a FRAME callback, the flag is consumed and the edge-trigger is lost  -  video frame never renders, leaving screen black forever. Fixed by unconditionally calling `g_mpv.update_frame()` every frame when `current_is_video && is_initialized() && is_playing()`. Continuous polling guarantees no dropped frames.
 
@@ -2792,15 +2792,15 @@ ightarrow$ `0:01` rather than truncating sub-second remaining time to `00:00`.
 
 - **v7.0.3**: Full GL state flush at end of `update_frame()`  -  added `rlDisableShader()`, `glBindBuffer(GL_ARRAY_BUFFER, 0)`, `glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0)` to force rlgl to drop mpv's shader and VBO bindings.
 
-## v7.0.1  -  Overlays, transitions, and fading now run for video playback (May 18, 2026)
+### v7.0.1  -  Overlays, transitions, and fading now run for video playback (May 18, 2026)
 
-### Fixed
+#### Fixed
 
 - **CRITICAL · Overlays, transitions, and fading still dead-code for video**  -  Fix 2 (v7.0.0) extended the photo block condition with `|| current_is_video`, but that block was nested inside `if (!current_is_video)` at line 4153  -  the outer gate made it unreachable. The overlays (date/filename/count/timer/clock), outgoing transition fade, and incoming fade-in were ALL still skipped for video. Fixed by reverting the dead `|| current_is_video` and moving the full overlays + transitions + fading blocks outside the `if (!current_is_video)` gate, between the collage/photo branch and the CRT loading screen. These blocks now run for ALL content types (photos AND videos).
 
-## v7.0.0  -  Video rendering restructure: green CRT screen → actual video playback (May 18, 2026)
+### v7.0.0  -  Video rendering restructure: green CRT screen → actual video playback (May 18, 2026)
 
-### Fixed
+#### Fixed
 
 - **CRITICAL · `video_rt` texture never drawn to screen**  -  `update_frame()` decodes mpv frames into `g_mpv.video_rt` (RenderTexture2D FBO) but `render()` had zero `DrawTexturePro` call to blit it. Video existed as a GPU texture but was never displayed. Added `if (current_is_video) { DrawTexturePro(g_mpv.video_rt.texture, ...) }` path at top of the content chain, with `ClearBackground(BLACK)` fallback when video_rt is not yet initialized.
 
@@ -2810,7 +2810,7 @@ ightarrow$ `0:01` rather than truncating sub-second remaining time to `00:00`.
 
 - **CRITICAL · str_replace 2a added extra closing brace**  -  The CRT restructure added two closing braces `}` before the CRT block, but the original `} else {` only had one `}` (closing the photo-render block). The extra brace prematurely closed the `Slideshow` struct, making `init()` and `cleanup()` unreachable. Fixed by removing the extra `}`.
 
-### New transition behaviour
+#### New transition behaviour
 
 All 4 transition cases now work correctly:
 
@@ -2819,7 +2819,7 @@ All 4 transition cases now work correctly:
 - **Video → Video**: First video fades to black, second fades in from black
 - **Photo → Photo**: Existing crossfade / wipe / pixelate shaders unchanged
 
-### Render structure
+#### Render structure
 
 ```
 if (current_is_video) → DrawTexturePro(video_rt.texture)
@@ -2838,9 +2838,9 @@ if (!current_is_video && current_tex.id == 0) → CRT
 // ── UNCONDITIONAL OVERLAYS (weather, HUD) ──
 ```
 
-## v6.0.2  -  Correct 24K file count, worker thread join, skip EXIF rotation (May 18, 2026)
+### v6.0.2  -  Correct 24K file count, worker thread join, skip EXIF rotation (May 18, 2026)
 
-### Fixed
+#### Fixed
 
 - **Scan count**: Root thread now scans root dir only (non-recursive), workers scan subdirs  -  eliminates 2x file count bug (was 48K, now 24K)
 - **Worker threads**: Replaced broken `cv.wait_for(600s)` + `pthread_cancel` with direct `join()`  -  workers no longer hang or timeout
