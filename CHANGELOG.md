@@ -1,3 +1,19 @@
+# Release v17.6.3 — 128-Frame Lookahead Buffer, Cold-Start Pre-Warm & Double-Delay Elimination (August 15, 2026)
+
+### Video Decoding & Buffer Management
+- **128-Frame Lookahead Capacity**:
+  - `video_decoder.h`: Expanded `MAX_QUEUED_FRAMES` to 128 frames (~4.3 seconds of buffered video at 30fps, ~2.1s at 60fps), occupying ~396 MB RAM in compact NV12 format. Completely absorbs I/O jitter and high-bitrate 4K decode spikes.
+- **Cold-Start & Pre-Warmed Full Buffer Initialization**:
+  - `main.cpp`: Cold-starts now pre-buffer all 128 frames (or up to EOF for shorter clips) before presenting the first frame on screen, while background transitions start with 0ms delay with the buffer pre-filled.
+- **Background Video Pre-Warming**:
+  - `video_decoder.cpp`, `main.cpp`: Added `VideoDecoder::prewarm()` to proactively decode the next video in the background during photo display intervals.
+
+### Render Pacing & Frame Timing
+- **Render Loop Double-Delay Elimination**:
+  - `main.cpp`: Removed the duplicate 60Hz frame throttle sleep during video playback, allowing PTS-paced frames (`due_ms`) to present precisely and yielding 1ms to decode workers without artificial delay.
+- **Dynamic B-Frame Discard & Displayed-Frame Countdown Lock**:
+  - `video_decoder.cpp`, `main.cpp`: Dynamically drops non-reference B-frames (`AVDISCARD_NONREF`) when decode lag exceeds 100ms, and locked the overlay countdown timer directly to visible frame PTS so the timer and video finish simultaneously at EOF.
+
 # Release v17.6.2 — Unified NV12 GPU Pipeline, Presentation Clock Sync & Framerate Optimization (August 15, 2026)
 
 ### Rendering Pipeline & GPU Acceleration
