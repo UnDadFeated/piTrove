@@ -3249,7 +3249,7 @@ int main(int argc, char** argv) {
                         if (g_eligible[vi].type == "video") {
                             prefetch_video(g_eligible[vi].path);
                             // Pre-warm the upcoming video into background decode queue if idle
-                            if (i == 0 && !g_video_decoder.is_running()) {
+                            if (i <= 1 && !g_video_decoder.is_running()) {
                                 int sw, sh;
                                 {
                                     std::lock_guard lock(g_config_mtx);

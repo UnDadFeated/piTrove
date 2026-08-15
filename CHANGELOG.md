@@ -1,3 +1,14 @@
+# Release v17.6.7 — 2048-Frame Lookahead Buffer & High-Frame-Rate 4K@60 Pacing (August 15, 2026)
+
+### Video Decoding & Buffer Management
+- **2048-Frame Lookahead Buffer Capacity**:
+  - `video_decoder.h`: Expanded `MAX_QUEUED_FRAMES` to **2048 frames** (~68.2 seconds at 30fps / ~34.1s at 60fps).
+  - Provides a massive memory buffer to hold lengthy 4K 60fps streams entirely in RAM.
+- **Enhanced Adaptive Buffer Refill Threshold**:
+  - `video_decoder.cpp`: Raised buffer refill trigger from 96 to **300 frames**. When playback consumes 60fps and the buffer dips below 300 frames, non-reference B-frame dropping (`AVDISCARD_NONREF`) automatically engages to accelerate decode throughput to 60+ fps, keeping the buffer permanently ahead of playback.
+- **Multi-Item Background Pre-Warming**:
+  - `main.cpp`: Proactively starts background pre-warming up to 2 items ahead, giving workers extra time to pre-decode videos into RAM while photos are displaying.
+
 # Release v17.6.6 — 1536-Frame Deep RAM Buffer & Extended 30s Cold-Start Pre-Warm (August 15, 2026)
 
 ### Video Decoding & Buffer Management

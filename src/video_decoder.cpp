@@ -977,13 +977,13 @@ void VideoDecoder::decode_loop() {
                     std::lock_guard lk(m_queue_mtx);
                     q_size = m_frame_queue.size();
                 }
-                if (q_size < 96) {
-                    // Buffer running low (<96 frames): discard non-reference B-frames to double decode rate and refill queue
+                if (q_size < 300) {
+                    // Buffer running below 300 frames: discard non-reference B-frames to boost decode throughput to 60+ fps and keep buffer permanently filled
                     vcc->skip_frame = AVDISCARD_NONREF;
                     vcc->skip_loop_filter = AVDISCARD_NONREF;
                     vcc->skip_idct = AVDISCARD_NONREF;
-                } else if (q_size >= 256) {
-                    // Buffer healthy (>=256 frames): restore full reference decode
+                } else if (q_size >= 600) {
+                    // Buffer full and healthy (>=600 frames): restore full reference decode
                     vcc->skip_frame = AVDISCARD_DEFAULT;
                     vcc->skip_loop_filter = AVDISCARD_DEFAULT;
                     vcc->skip_idct = AVDISCARD_DEFAULT;
