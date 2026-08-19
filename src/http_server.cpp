@@ -1208,7 +1208,7 @@ static std::string get_dashboard_html() {
                 <button onclick="toggleTheme()" id="theme-btn" style="background: var(--card-bg); color: var(--text-main); border: 1px solid var(--card-border); border-radius: 8px; padding: 0.25rem 0.5rem; font-size: 0.75rem; cursor: pointer; outline: none; color-scheme:dark;">🌙</button>
             </div>
             <h1>piTrove controller</h1>
-            <div class="subtitle">v17.7.4 glassmorphic system</div>
+            <div class="subtitle">v17.7.5 glassmorphic system</div>
         </header>
 
         <div class="tabs">
@@ -1796,6 +1796,8 @@ static std::string get_api_settings() {
   "geotag_enabled": {},
   "geotag_x": {},
   "geotag_y": {},
+  "geotag_offset_x": {},
+  "geotag_offset_y": {},
   "geotag_font_size": {},
   "geotag_color": "{}",
   "log_level": "{}",
@@ -1830,6 +1832,8 @@ static std::string get_api_settings() {
         g_cfg.geotag_enabled,
         g_cfg.geotag_x,
         g_cfg.geotag_y,
+        g_cfg.geotag_offset_x,
+        g_cfg.geotag_offset_y,
         g_cfg.geotag_font_size,
         escape_json(g_cfg.geotag_color),
         escape_json(g_cfg.log_level),
@@ -2312,6 +2316,14 @@ static void handle_client(int client_fd) {
                         std::string val = get_query_param(request, "geotag_enabled");
                         bool desired = (val == "true" || val == "1");
                         if (g_cfg.geotag_enabled != desired) { g_cfg.geotag_enabled = desired; changed = true; }
+                    }
+                    if (has_query_param(request, "geotag_offset_x")) {
+                        std::string val = get_query_param(request, "geotag_offset_x");
+                        try { int v = std::stoi(val); if (g_cfg.geotag_offset_x != v) { g_cfg.geotag_offset_x = v; changed = true; } } catch(...) {}
+                    }
+                    if (has_query_param(request, "geotag_offset_y")) {
+                        std::string val = get_query_param(request, "geotag_offset_y");
+                        try { int v = std::stoi(val); if (g_cfg.geotag_offset_y != v) { g_cfg.geotag_offset_y = v; changed = true; } } catch(...) {}
                     }
                     if (has_query_param(request, "log_level")) {
                         std::string val = get_query_param(request, "log_level");

@@ -1,3 +1,22 @@
+### Release v17.7.5 — Dynamic 90% RAM Video Buffering & Centered Geotagging (August 19, 2026)
+
+#### Video Playback & Dynamic RAM Management
+- **Dynamic 90% Available RAM Lookahead Buffer**:
+  - `video_decoder.cpp`, `video_decoder.h`: Replaced static hardcoded queue sizing with dynamic allocation based on 90% of available system memory (`get_available_ram_bytes() * 0.90 / frame_bytes`). Automatically adapts buffer depth across Raspberry Pi 4 (2GB/4GB), Pi 5 (4GB/8GB), and future boards.
+  - `main.cpp`: Updated prefill startup synchronization to pre-buffer up to dynamic `get_max_queued_frames()` or natural EOF.
+  - `video_decoder.cpp`: Scaled kernel page-cache prefetch threshold dynamically up to 90% of available RAM.
+  - `video_decoder.cpp`: Replaced hardcoded adaptive lookahead discard thresholds with dynamic scaling relative to dynamic queue depth.
+- **Hardware Telemetry & Memory Utilities**:
+  - `util.h`, `util.cpp`: Added `get_available_ram_bytes()` and `get_total_ram_bytes()` with `/proc/meminfo` `MemAvailable` parsing and `sysinfo` fallbacks.
+
+#### Geotagging Alignment & Offset Configuration
+- **Bottom-Center Screen Placement**:
+  - `overlay.cpp`: Centered GPS coordinates horizontally (`x = 0.5`) aligned with the filename vertical baseline (`y = 0.966`), applying real-time font measurement for precise center justification.
+- **Pixel Offset Controls**:
+  - `config.h`, `config.cpp`, `config.toml`: Added `offset_x` and `offset_y` configuration parameters under `[geotag]`. Defaulted `geotag_enabled` to disabled (`false`).
+  - `tui.cpp`: Added `Geotag Offset X` and `Geotag Offset Y` controls to Overlays (Category 2).
+  - `http_server.cpp`: Exposed `geotag_offset_x` and `geotag_offset_y` via `/api/settings` and `/api/settings/update`.
+
 ### Release v17.7.4 — EXIF GPS Geotagging, Logging Configuration & TUI Integration (August 19, 2026)
 
 #### Geotagging & Metadata Extraction

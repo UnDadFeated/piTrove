@@ -1,7 +1,7 @@
 #ifndef PITROVE_UTIL_H
 #define PITROVE_UTIL_H
 
-#define VERSION "17.7.4"
+#define VERSION "17.7.5"
 #define APP_NAME "piTrove"
 
 #include <atomic>
@@ -195,6 +195,8 @@ struct WifiStats {
 [[nodiscard]] WifiStats read_wifi_stats(const std::string& iface = "wlan0");
 
 // System diagnostics and file path helpers
+[[nodiscard]] uint64_t get_available_ram_bytes();
+[[nodiscard]] uint64_t get_total_ram_bytes();
 [[nodiscard]] std::string get_exe_dir();
 [[nodiscard]] bool file_exists(const std::string& path);
 [[nodiscard]] std::string get_timestamp();
