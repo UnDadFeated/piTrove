@@ -73,7 +73,7 @@ ignore_folders = ["@eaDir", "@Recycle", "Thumbs.db"]
 mmap_size = 67108864
 
 [log]
-level = "trace"
+level = "info"
 log_keep_count = 5
 
 [overlay]
@@ -129,6 +129,13 @@ on_this_day_range = 0
 diagnostics_hud_enabled = 0
 adaptive_text_enabled = 1
 twin_portrait_enabled = 1
+
+[geotag]
+enabled = 0
+x = 0.04
+y = 0.92
+font_size = 14
+color = "white"
 
 [date_overlay]
 enabled = 0

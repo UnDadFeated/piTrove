@@ -1548,7 +1548,7 @@ void Renderer::render_splash(int phase, int progress, int total, int done, [[may
 
     draw_splash_box(box_x, box_y, box_w, box_h);
 
-   // 4. Dense Phosphorous Green Scanlines over bottom area (CRT effect)
+   // 4. Dense Phosphor Green Scanlines over bottom area (CRT effect)
     int scanline_start = terminal_start_y - (sh * 0.02f);
     int scanline_end = black_area_end + (sh * 0.03f);
 

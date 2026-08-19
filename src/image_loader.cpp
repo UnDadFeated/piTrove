@@ -222,6 +222,9 @@ std::shared_ptr<ImageData> ImageLoader::load(const std::string& path) {
     result->exif_rotation = exif;
     result->is_camera = meta.is_camera;
     result->creation_time = meta.creation_time;
+    result->latitude = meta.latitude;
+    result->longitude = meta.longitude;
+    result->has_gps = meta.has_gps;
     result->valid = true;
 
    GpuColor avg = Renderer::get_average_color(surf);
@@ -661,6 +664,53 @@ ImageMetadata ImageLoader::read_metadata_from_memory(std::span<const uint8_t> bu
                 if (t != -1) {
                     meta.creation_time = static_cast<int64_t>(t);
                 }
+            }
+        }
+    }
+
+    // 4. GPS Geotagging coordinates (latitude and longitude)
+    if (ed->ifd[EXIF_IFD_GPS]) {
+        ExifEntry* lat_entry = exif_content_get_entry(ed->ifd[EXIF_IFD_GPS], static_cast<ExifTag>(EXIF_TAG_GPS_LATITUDE));
+        ExifEntry* lat_ref = exif_content_get_entry(ed->ifd[EXIF_IFD_GPS], static_cast<ExifTag>(EXIF_TAG_GPS_LATITUDE_REF));
+        ExifEntry* lon_entry = exif_content_get_entry(ed->ifd[EXIF_IFD_GPS], static_cast<ExifTag>(EXIF_TAG_GPS_LONGITUDE));
+        ExifEntry* lon_ref = exif_content_get_entry(ed->ifd[EXIF_IFD_GPS], static_cast<ExifTag>(EXIF_TAG_GPS_LONGITUDE_REF));
+
+        if (lat_entry && lon_entry && lat_entry->data && lon_entry->data &&
+            lat_entry->format == EXIF_FORMAT_RATIONAL && lon_entry->format == EXIF_FORMAT_RATIONAL &&
+            lat_entry->components == 3 && lon_entry->components == 3) {
+            
+            ExifByteOrder bo = exif_data_get_byte_order(ed);
+            unsigned int rat_size = exif_format_get_size(EXIF_FORMAT_RATIONAL);
+
+            auto parse_coord = [&](ExifEntry* entry) -> double {
+                ExifRational r0 = exif_get_rational(entry->data, bo);
+                ExifRational r1 = exif_get_rational(entry->data + rat_size, bo);
+                ExifRational r2 = exif_get_rational(entry->data + rat_size * 2, bo);
+
+                double d = (r0.denominator != 0) ? ((double)r0.numerator / r0.denominator) : 0.0;
+                double m = (r1.denominator != 0) ? ((double)r1.numerator / r1.denominator) : 0.0;
+                double s = (r2.denominator != 0) ? ((double)r2.numerator / r2.denominator) : 0.0;
+
+                return d + (m / 60.0) + (s / 3600.0);
+            };
+
+            double lat = parse_coord(lat_entry);
+            double lon = parse_coord(lon_entry);
+
+            if (lat_ref && lat_ref->data && lat_ref->size > 0) {
+                char ref_c = static_cast<char>(lat_ref->data[0]);
+                if (ref_c == 'S' || ref_c == 's') lat = -lat;
+            }
+
+            if (lon_ref && lon_ref->data && lon_ref->size > 0) {
+                char ref_c = static_cast<char>(lon_ref->data[0]);
+                if (ref_c == 'W' || ref_c == 'w') lon = -lon;
+            }
+
+            if (lat >= -90.0 && lat <= 90.0 && lon >= -180.0 && lon <= 180.0 && (lat != 0.0 || lon != 0.0)) {
+                meta.latitude = lat;
+                meta.longitude = lon;
+                meta.has_gps = true;
             }
         }
     }

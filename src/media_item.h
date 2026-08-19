@@ -20,6 +20,9 @@ struct MediaItem {
     int64_t     last_shown{0};
     mutable int is_camera{-1}; // -1 = unknown, 0 = no camera EXIF (screenshot), 1 = has camera EXIF
     mutable int64_t creation_time{0};
+    mutable double latitude{0.0};
+    mutable double longitude{0.0};
+    mutable bool has_gps{false};
 };
 
 #endif // PITROVE_MEDIA_ITEM_H

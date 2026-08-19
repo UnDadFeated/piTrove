@@ -1337,7 +1337,15 @@ int main(int argc, char** argv) {
     std::strncpy(g_crash_cache_dir_safe, cache_dir.c_str(), sizeof(g_crash_cache_dir_safe) - 1);
     g_crash_cache_dir_safe[sizeof(g_crash_cache_dir_safe) - 1] = '\0';
 
-    g_logger.init(log_dir, g_cfg.verbose ? LogLevel::DEBUG : LogLevel::INFO, keep_count);
+    LogLevel effective_log_level = LogLevel::INFO;
+    if (g_cfg.log_level == "debug" || g_cfg.verbose) {
+        effective_log_level = LogLevel::DEBUG;
+    } else if (g_cfg.log_level == "warn") {
+        effective_log_level = LogLevel::WARN;
+    } else if (g_cfg.log_level == "error") {
+        effective_log_level = LogLevel::ERROR;
+    }
+    g_logger.init(log_dir, effective_log_level, keep_count);
     g_logger.info("Media dir: {}, Cache dir: {}", media_dir.c_str(), cache_dir.c_str());
 
     // Verify cache directory available space (E403) and writability (E405)

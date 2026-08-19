@@ -21,7 +21,7 @@ static std::jthread g_preprocess_thread;
 static std::atomic<bool> g_preprocess_running{false};
 static std::atomic<bool> g_preprocess_finished{true};
 
-static bool get_image_metadata_fast(const std::string& path, int& out_w, int& out_h, int& out_exif, int& out_is_camera, int64_t& out_creation_time) {
+static bool get_image_metadata_fast(const std::string& path, int& out_w, int& out_h, int& out_exif, int& out_is_camera, int64_t& out_creation_time, double& out_lat, double& out_lon, bool& out_has_gps) {
     std::vector<uint8_t> buffer = ImageLoader::read_file_to_buffer(path);
     if (buffer.empty()) return false;
 
@@ -36,6 +36,9 @@ static bool get_image_metadata_fast(const std::string& path, int& out_w, int& ou
     out_exif = meta.rotation;
     out_is_camera = meta.is_camera ? 1 : 0;
     out_creation_time = meta.creation_time;
+    out_lat = meta.latitude;
+    out_lon = meta.longitude;
+    out_has_gps = meta.has_gps;
     return true;
 }
 
@@ -132,12 +135,17 @@ static void preprocess_loop() {
                 if (type == "image") {
                     int w = 0, h = 0, exif = 1, is_camera = 0;
                     int64_t creation = 0;
-                    if (get_image_metadata_fast(path, w, h, exif, is_camera, creation)) {
+                    double lat = 0.0, lon = 0.0;
+                    bool has_gps = false;
+                    if (get_image_metadata_fast(path, w, h, exif, is_camera, creation, lat, lon, has_gps)) {
                         pr->item.width = w;
                         pr->item.height = h;
                         pr->item.exif_rotation = exif;
                         pr->item.is_camera = is_camera;
                         pr->item.creation_time = creation;
+                        pr->item.latitude = lat;
+                        pr->item.longitude = lon;
+                        pr->item.has_gps = has_gps;
                         pr->success = true;
                     }
                 } else if (type == "video") {
