@@ -1,3 +1,10 @@
+### Release v17.7.8 — Adjusted Portrait Margins for Bottom Shadow Clearance (August 19, 2026)
+
+#### Layout & Visual Polish
+- **Portrait Margin Adjusted to 1.75"**:
+  - `renderer.cpp`, `main.cpp`: Adjusted vertical portrait margin factor to 0.75 of matte size (1.75" total distance from monitor border: 1" matte border + 0.75" gap / 72px on 1080p).
+  - Provides optimal clearance so bottom drop shadows and edge glow effects never touch or clip into the 1" matte border while preserving reclaimed screen space.
+
 ### Release v17.7.7 — Portrait Layout Optimization & Matte Border Controls (August 19, 2026)
 
 #### Layout & Visual Rendering
