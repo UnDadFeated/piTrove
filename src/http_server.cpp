@@ -1208,7 +1208,7 @@ static std::string get_dashboard_html() {
                 <button onclick="toggleTheme()" id="theme-btn" style="background: var(--card-bg); color: var(--text-main); border: 1px solid var(--card-border); border-radius: 8px; padding: 0.25rem 0.5rem; font-size: 0.75rem; cursor: pointer; outline: none; color-scheme:dark;">🌙</button>
             </div>
             <h1>piTrove controller</h1>
-            <div class="subtitle">v17.7.6 glassmorphic system</div>
+            <div class="subtitle">v17.7.7 glassmorphic system</div>
         </header>
 
         <div class="tabs">
@@ -1312,6 +1312,8 @@ static std::string get_dashboard_html() {
                         <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 0.8rem;">
                             <div style="display:flex; align-items:center; gap:0.4rem;"><input type="checkbox" id="set-blurred-background" style="cursor:pointer;"><label for="set-blurred-background" style="font-size:0.85rem; color:var(--text-muted); cursor:pointer;">Blurred Background</label></div>
                             <div style="display:flex; align-items:center; gap:0.4rem;"><input type="checkbox" id="set-color-matched-matte" style="cursor:pointer;"><label for="set-color-matched-matte" style="font-size:0.85rem; color:var(--text-muted); cursor:pointer;">Color-Matched Matte</label></div>
+                            <div style="display:flex; align-items:center; gap:0.4rem;"><input type="checkbox" id="set-matting" style="cursor:pointer;"><label for="set-matting" style="font-size:0.85rem; color:var(--text-muted); cursor:pointer;">Matte Border (1")</label></div>
+                            <div style="display:flex; align-items:center; gap:0.4rem;"><label for="set-matting-size" style="font-size:0.85rem; color:var(--text-muted);">Matte Size:</label><input type="number" id="set-matting-size" min="0" max="500" style="width:65px; background:rgba(0,0,0,0.3); border:1px solid var(--border-color); color:var(--text); border-radius:4px; padding:2px 5px; font-size:0.85rem;"><span style="font-size:0.75rem; color:var(--text-muted);">px</span></div>
                             <div style="display:flex; align-items:center; gap:0.4rem;"><input type="checkbox" id="set-geotag-enabled" style="cursor:pointer;"><label for="set-geotag-enabled" style="font-size:0.85rem; color:var(--text-muted); cursor:pointer;">GPS Geotag Overlay</label></div>
                         </div>
                     </div>
@@ -1410,6 +1412,12 @@ static std::string get_dashboard_html() {
                     document.getElementById('set-ken-burns').checked = settings.ken_burns;
                     document.getElementById('set-blurred-background').checked = settings.blurred_background;
                     document.getElementById('set-color-matched-matte').checked = settings.color_matched_matte;
+                    if (document.getElementById('set-matting')) {
+                        document.getElementById('set-matting').checked = !!settings.matting;
+                    }
+                    if (document.getElementById('set-matting-size')) {
+                        document.getElementById('set-matting-size').value = settings.matting_size !== undefined ? settings.matting_size : 96;
+                    }
                     document.getElementById('set-touch-enabled').checked = settings.touch_enabled;
                     if (document.getElementById('set-geotag-enabled')) {
                         document.getElementById('set-geotag-enabled').checked = !!settings.geotag_enabled;
@@ -1431,12 +1439,14 @@ static std::string get_dashboard_html() {
             const kenBurns = document.getElementById('set-ken-burns').checked ? "1" : "0";
             const blurredBg = document.getElementById('set-blurred-background').checked ? "1" : "0";
             const matte = document.getElementById('set-color-matched-matte').checked ? "1" : "0";
+            const matting = (document.getElementById('set-matting') && document.getElementById('set-matting').checked) ? "1" : "0";
+            const mattingSize = document.getElementById('set-matting-size') ? document.getElementById('set-matting-size').value : "96";
             const touch = document.getElementById('set-touch-enabled').checked ? "1" : "0";
             const geotag = (document.getElementById('set-geotag-enabled') && document.getElementById('set-geotag-enabled').checked) ? "1" : "0";
             
             try {
                 const apiKey = document.getElementById('set-api-key').value;
-                const url = `/api/settings/update?transition_delay=${delay}&video_volume=${volume}&shuffle=${shuffle}&ken_burns=${kenBurns}&blurred_background=${blurredBg}&color_matched_matte=${matte}&touch_enabled=${touch}&geotag_enabled=${geotag}`;
+                const url = `/api/settings/update?transition_delay=${delay}&video_volume=${volume}&shuffle=${shuffle}&ken_burns=${kenBurns}&blurred_background=${blurredBg}&color_matched_matte=${matte}&matting=${matting}&matting_size=${mattingSize}&touch_enabled=${touch}&geotag_enabled=${geotag}`;
                 const headers = {};
                 if (apiKey) {
                     headers['Authorization'] = 'Bearer ' + apiKey;
@@ -1784,6 +1794,8 @@ static std::string get_api_settings() {
   "clock_enabled": {},
   "blurred_background": {},
   "color_matched_matte": {},
+  "matting": {},
+  "matting_size": {},
   "mqtt_enabled": {},
   "mqtt_broker": "{}",
   "mqtt_port": {},
@@ -1820,6 +1832,8 @@ static std::string get_api_settings() {
         g_cfg.clock_enabled,
         g_cfg.blurred_background,
         g_cfg.color_matched_matte,
+        g_cfg.matting,
+        g_cfg.matting_size,
         g_cfg.mqtt_enabled,
         escape_json(g_cfg.mqtt_broker),
         g_cfg.mqtt_port,
@@ -2311,6 +2325,15 @@ static void handle_client(int client_fd) {
                         std::string val = get_query_param(request, "color_matched_matte");
                         bool desired = (val == "true" || val == "1");
                         if (g_cfg.color_matched_matte != desired) { g_cfg.color_matched_matte = desired; changed = true; }
+                    }
+                    if (has_query_param(request, "matting")) {
+                        std::string val = get_query_param(request, "matting");
+                        bool desired = (val == "true" || val == "1");
+                        if (g_cfg.matting != desired) { g_cfg.matting = desired; changed = true; }
+                    }
+                    if (has_query_param(request, "matting_size")) {
+                        std::string val = get_query_param(request, "matting_size");
+                        try { int v = std::clamp(std::stoi(val), 0, 500); if (g_cfg.matting_size != v) { g_cfg.matting_size = v; changed = true; } } catch(...) {}
                     }
                     if (has_query_param(request, "geotag_enabled")) {
                         std::string val = get_query_param(request, "geotag_enabled");

@@ -1,3 +1,12 @@
+### Release v17.7.7 — Portrait Layout Optimization & Matte Border Controls (August 19, 2026)
+
+#### Layout & Visual Rendering
+- **Reclaimed Screen Space for Portrait Photos**:
+  - `renderer.cpp`, `main.cpp`: Scaled vertical portrait margins down to 1.5" total from the monitor border (0.5" top/bottom gap + 1" matte border) when matting is enabled, allowing portrait photos to expand in height and width to reclaim valuable display space.
+- **1-Inch Matte Border Default & Configurability**:
+  - Preserved 1" matte border enabled by default (`matting = 1`, `matting_size = 96` on 1080p).
+  - Exposed `matting` and `matting_size` controls in the Web Remote UI settings panel, REST API (`/api/settings` and `/api/settings/update`), and TUI configuration wizard.
+
 ### Release v17.7.6 — Dynamic System-Aware Resource Scaling (August 19, 2026)
 
 #### Dynamic Memory & Concurrency Optimization

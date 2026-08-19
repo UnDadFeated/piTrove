@@ -289,6 +289,13 @@ void Renderer::calculate_fit_rect(int img_w, int img_h, SDL_Rect& out_rect) {
     int top_margin = (has_matting ? mat_size : 0) + ((border_mode != "off") ? border_w : 0);
     int bottom_margin = (has_matting ? mat_size : 0) + ((border_mode != "off") ? ((border_mode == "polaroid") ? (border_w * 4) : border_w) : 0);
 
+    // Reclaim monitor space for portrait photos: scale vertical margin to 1.5" (0.5" gap + 1" matte border)
+    if (img_h > img_w && has_matting) {
+        int portrait_mat_size = scale_px((int)(g_cfg.matting_size * 0.5));
+        top_margin = portrait_mat_size + ((border_mode != "off") ? border_w : 0);
+        bottom_margin = portrait_mat_size + ((border_mode != "off") ? ((border_mode == "polaroid") ? (border_w * 4) : border_w) : 0);
+    }
+
     int area_w = screen_w - (left_margin + right_margin);
     int area_h = screen_h - (top_margin + bottom_margin);
 

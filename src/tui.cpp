@@ -945,8 +945,8 @@ void config_wizard(const std::string& config_path) {
                             g_cfg.transition_effect = "dissolve"; g_cfg.ken_burns = true;
                             g_cfg.ken_burns_speed = 0.05f; g_cfg.bias_lighting = true;
                             g_cfg.bias_anim_speed = 1.0f; g_cfg.bias_anim_style = "aura";
-                            g_cfg.bias_color_mode = "auto"; g_cfg.matting = false;
-                            g_cfg.matting_size = 25; g_cfg.cooldown_days = 0;
+                            g_cfg.bias_color_mode = "auto"; g_cfg.matting = true;
+                            g_cfg.matting_size = 96; g_cfg.cooldown_days = 0;
                             g_cfg.shuffle = true; g_cfg.twin_portrait_enabled = false;
                             g_cfg.preload_capacity = 4; g_cfg.preload_workers = 2;
                             g_cfg.reset_cooldown_on_restart = false; g_cfg.edge_glow_shadow = true;
