@@ -264,6 +264,13 @@ static void calculate_fit_rect_in_area(int img_w, int img_h, int area_x, int are
     int top_margin = (has_matting ? mat_size : 0) + ((border_mode != "off") ? border_w : 0);
     int bottom_margin = (has_matting ? mat_size : 0) + ((border_mode != "off") ? ((border_mode == "polaroid") ? (border_w * 4) : border_w) : 0);
 
+    // Reclaim monitor space for portrait photos: scale vertical margin to 1.5" (0.5" gap + 1" matte border)
+    if (img_h > img_w && has_matting) {
+        int portrait_mat_size = g_renderer.scale_px((int)(g_cfg.matting_size * 0.5));
+        top_margin = portrait_mat_size + ((border_mode != "off") ? border_w : 0);
+        bottom_margin = portrait_mat_size + ((border_mode != "off") ? ((border_mode == "polaroid") ? (border_w * 4) : border_w) : 0);
+    }
+
     int effective_x = area_x + left_margin;
     int effective_y = area_y + top_margin;
     int effective_w = area_w - (left_margin + right_margin);
