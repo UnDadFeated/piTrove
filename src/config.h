@@ -8,6 +8,7 @@
 #include <shared_mutex>
 
 struct Config {
+    Config();
     std::string media_dir;
     std::string cache_dir;
     std::string log_dir;

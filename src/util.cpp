@@ -992,7 +992,8 @@ void prefetch_video(const std::string& path) {
             off_t file_size = lseek(fd, 0, SEEK_END);
             if (file_size <= 0) { close(fd); return; }
             lseek(fd, 0, SEEK_SET);
-            size_t prefetch_bytes = std::min((size_t)file_size, (size_t)(8 * 1024 * 1024));
+            size_t max_budget = std::clamp(static_cast<size_t>(get_available_ram_bytes() * 0.02), static_cast<size_t>(8 * 1024 * 1024), static_cast<size_t>(64 * 1024 * 1024));
+            size_t prefetch_bytes = std::min(static_cast<size_t>(file_size), max_budget);
             posix_fadvise(fd, 0, (off_t)prefetch_bytes, POSIX_FADV_WILLNEED);
             readahead(fd, 0, prefetch_bytes);
             close(fd);

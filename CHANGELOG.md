@@ -1,3 +1,21 @@
+### Release v17.7.6 — Dynamic System-Aware Resource Scaling (August 19, 2026)
+
+#### Dynamic Memory & Concurrency Optimization
+- **Dynamic File & Video Prefetching**:
+  - `util.cpp`: Replaced static 8MB video prefetch size with dynamic 2% available RAM allocation (clamped 8MB–64MB) for smoother high-bitrate playback over network CIFS shares.
+- **CPU-Scaled Scanner Thread Limits**:
+  - `scanner.cpp`: Scaled detached directory scanner thread ceiling dynamically with CPU core count (`hardware_concurrency * 4`, clamped 8–64).
+- **RAM-Aware Image Size Protections**:
+  - `image_loader.cpp`: Scaled image file load safety threshold with available RAM (budgeting 25% of available memory, 100MB–1GB), preventing OOM on low-memory Pis while allowing high-resolution panoramas on 8GB/16GB models.
+- **Adaptive Blur Dimension Scaling**:
+  - `blur.cpp`: Dynamically scaled box blur downsampling dimension with source image resolution (`clamp(max_dim / 4, 360, 960)`), eliminating blockiness on 4K displays.
+- **Dynamic Font & Audio Buffering**:
+  - `font_render.cpp`: Scaled font text cache capacity with available system memory (64–256 entries).
+  - `video_decoder.cpp`: Dynamically resized audio resampling buffer to accommodate high sample-rate (96kHz/192kHz) multi-channel streams without clipping.
+- **Hardware-Informed Configuration Defaults**:
+  - `config.h`: Defaulted preload workers, preload capacity, and SQLite mmap size dynamically according to CPU core count and system RAM.
+  - `preprocess.cpp`: Scaled background metadata preprocessing batch query size with hardware concurrency.
+
 ### Release v17.7.5 — Dynamic 90% RAM Video Buffering & Centered Geotagging (August 19, 2026)
 
 #### Video Playback & Dynamic RAM Management

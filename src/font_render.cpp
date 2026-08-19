@@ -152,7 +152,8 @@ void FontRenderer::draw_text(int x, int y, const FontHandle& font, const std::st
         return;
     }
 
-    if (text_cache.size() >= 64) {
+    size_t max_text_cache = std::clamp(static_cast<size_t>(get_available_ram_bytes() / (32 * 1024 * 1024)), (size_t)64, (size_t)256);
+    if (text_cache.size() >= max_text_cache) {
         auto it = text_cache.begin();
         if (it->second.texture) SDL_DestroyTexture(it->second.texture);
         text_cache.erase(it);

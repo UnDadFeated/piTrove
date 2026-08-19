@@ -75,9 +75,10 @@ static std::vector<std::pair<std::string, std::string>> fetch_preprocess_batch()
     std::lock_guard<std::mutex> lk(g_cache->db_mutex);
     if (!g_cache->db) return batch;
 
+    int batch_size = std::clamp(static_cast<int>(std::thread::hardware_concurrency() * 5), 10, 50);
+    std::string sql = std::format("SELECT path, type FROM cache WHERE bad = 0 AND preprocessed = 0 LIMIT {};", batch_size);
     sqlite3_stmt* stmt = nullptr;
-    const char* sql = "SELECT path, type FROM cache WHERE bad = 0 AND preprocessed = 0 LIMIT 20;";
-    if (sqlite3_prepare_v2(g_cache->db, sql, -1, &stmt, nullptr) == SQLITE_OK) {
+    if (sqlite3_prepare_v2(g_cache->db, sql.c_str(), -1, &stmt, nullptr) == SQLITE_OK) {
         while (sqlite3_step(stmt) == SQLITE_ROW) {
             const char* p = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0));
             const char* t = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1));

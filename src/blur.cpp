@@ -117,16 +117,17 @@ RawImage box_blur(const RawImage& src, int radius) {
     out.valid = false;
 
     if (!src.valid || src.width <= 0 || src.height <= 0) return out;
-    static constexpr int MAX_DIM = 480;
+    // Dynamically scale downsample dimension with source image resolution (360px - 960px)
+    int max_dim = std::clamp(std::max(src.width, src.height) / 4, 360, 960);
     // Scale radius down proportionally to match downsampled resolution
-    if (src.width > MAX_DIM || src.height > MAX_DIM) {
-        float scale = (float)MAX_DIM / (float)std::max(src.width, src.height);
+    if (src.width > max_dim || src.height > max_dim) {
+        float scale = (float)max_dim / (float)std::max(src.width, src.height);
         radius = std::max(1, (int)std::round(radius * scale));
     }
     radius = std::max(1, std::min(radius, 24));
 
     int dw = src.width, dh = src.height;
-    uint8_t* work = downsample_image(std::span<const uint8_t>(src.pixels, (size_t)src.width * src.height * 4), src.width, src.height, dw, dh, MAX_DIM);
+    uint8_t* work = downsample_image(std::span<const uint8_t>(src.pixels, (size_t)src.width * src.height * 4), src.width, src.height, dw, dh, max_dim);
     if (!work) {
         // No downsample needed, but we MUST copy the pixels so we don't modify/free the original sharp pixels!
         size_t buf_size = (size_t)src.width * src.height * 4;
