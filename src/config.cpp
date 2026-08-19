@@ -130,6 +130,8 @@ bool Config::load(const std::string& path) {
         else if ((key == "enabled" && section == "geotag") || key == "geotag_enabled") this->geotag_enabled = (val == "1" || val == "true");
         else if ((key == "x" && section == "geotag") || key == "geotag_x")             this->geotag_x = safe_stof(val, this->geotag_x);
         else if ((key == "y" && section == "geotag") || key == "geotag_y")             this->geotag_y = safe_stof(val, this->geotag_y);
+        else if ((key == "offset_x" && section == "geotag") || key == "geotag_offset_x") this->geotag_offset_x = safe_stoi(val, this->geotag_offset_x);
+        else if ((key == "offset_y" && section == "geotag") || key == "geotag_offset_y") this->geotag_offset_y = safe_stoi(val, this->geotag_offset_y);
         else if ((key == "font_size" && section == "geotag") || key == "geotag_font_size") this->geotag_font_size = safe_stoi(val, this->geotag_font_size);
         else if ((key == "color" && section == "geotag") || key == "geotag_color")     this->geotag_color = val;
         else if (key == "enabled" && section == "touch")        this->touch_enabled = (val == "1" || val == "true");
@@ -499,6 +501,8 @@ bool Config::save(const std::string& path) {
     f << "enabled = " << (this->geotag_enabled ? "1" : "0") << "\n";
     f << "x = " << this->geotag_x << "\n";
     f << "y = " << this->geotag_y << "\n";
+    f << "offset_x = " << this->geotag_offset_x << "\n";
+    f << "offset_y = " << this->geotag_offset_y << "\n";
     f << "font_size = " << this->geotag_font_size << "\n";
     f << "color = \"" << this->geotag_color << "\"\n\n";
 

@@ -149,6 +149,8 @@ void config_wizard(const std::string& config_path) {
         {"Geotag Enabled", TGL, "Show GPS location coordinates overlay on photos"},
         {"Geotag X Pos", FLT, "Horizontal position of geotag overlay (0.0 to 1.0)"},
         {"Geotag Y Pos", FLT, "Vertical position of geotag overlay (0.0 to 1.0)"},
+        {"Geotag Offset X", INT, "Horizontal pixel offset for geotag overlay"},
+        {"Geotag Offset Y", INT, "Vertical pixel offset for geotag overlay"},
         {"Geotag Size", INT, "Font size of geotag overlay text in pixels"},
         {"Geotag Color", ENM, "Color of geotag overlay text"}
     };
@@ -305,8 +307,10 @@ void config_wizard(const std::string& config_path) {
             case 16: return g_cfg.geotag_enabled?"[ON]":"[OFF]";
             case 17: return std::format("{}", g_cfg.geotag_x);
             case 18: return std::format("{}", g_cfg.geotag_y);
-            case 19: return std::format("{}", g_cfg.geotag_font_size);
-            case 20: return g_cfg.geotag_color;
+            case 19: return std::format("{}", g_cfg.geotag_offset_x);
+            case 20: return std::format("{}", g_cfg.geotag_offset_y);
+            case 21: return std::format("{}", g_cfg.geotag_font_size);
+            case 22: return g_cfg.geotag_color;
         }
         if (c == 3) switch(i) {
             case 0: return std::format("{}", g_cfg.video_volume);
@@ -451,8 +455,10 @@ void config_wizard(const std::string& config_path) {
                 case 16:g_cfg.geotag_enabled=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
                 case 17:{ try { g_cfg.geotag_x=std::clamp(std::stof(v), 0.0f, 1.0f); } catch(...) {} break; }
                 case 18:{ try { g_cfg.geotag_y=std::clamp(std::stof(v), 0.0f, 1.0f); } catch(...) {} break; }
-                case 19:{ try { g_cfg.geotag_font_size=std::clamp(std::stoi(v), 8, 72); } catch(...) {} break; }
-                case 20:g_cfg.geotag_color=v;break;
+                case 19:{ try { g_cfg.geotag_offset_x=std::clamp(std::stoi(v), -1000, 1000); } catch(...) {} break; }
+                case 20:{ try { g_cfg.geotag_offset_y=std::clamp(std::stoi(v), -1000, 1000); } catch(...) {} break; }
+                case 21:{ try { g_cfg.geotag_font_size=std::clamp(std::stoi(v), 8, 72); } catch(...) {} break; }
+                case 22:g_cfg.geotag_color=v;break;
             }
             else if(c==3) switch(i){
                 case 0:{ try { int val = std::stoi(v); g_cfg.video_volume=std::clamp(val, 0, 150); } catch(...) {} break; }
@@ -580,7 +586,7 @@ void config_wizard(const std::string& config_path) {
         if(c==1&&i==8) return {"auto","rainbow"};
         if(c==2&&i==4) return {"yellow","white","cyan","red"};
         if(c==2&&i==9) return {"yellow","white","cyan","red"};
-        if(c==2&&i==20) return {"white","yellow","cyan","red"};
+        if(c==2&&i==22) return {"white","yellow","cyan","red"};
         if(c==8&&i==0) return {"debug","info","warn","error"};
         return {};
     };
@@ -953,8 +959,9 @@ void config_wizard(const std::string& config_path) {
                             g_cfg.clock_24h = false; g_cfg.count_enabled = true;
                             g_cfg.diagnostics_hud_enabled = false; g_cfg.adaptive_text_enabled = true;
                             g_cfg.splash_overlay_y = 0.85f; g_cfg.progress_bar_enabled = false;
-                            g_cfg.geotag_enabled = false; g_cfg.geotag_x = 0.04f; g_cfg.geotag_y = 0.92f;
-                            g_cfg.geotag_font_size = 14; g_cfg.geotag_color = "white";
+                            g_cfg.geotag_enabled = false; g_cfg.geotag_x = 0.5f; g_cfg.geotag_y = 0.966f;
+                            g_cfg.geotag_offset_x = 0; g_cfg.geotag_offset_y = 0;
+                            g_cfg.geotag_font_size = 12; g_cfg.geotag_color = "white";
                         } else if (sel == 3) { // Videos
                             g_cfg.video_volume = 0; g_cfg.videos_per_photos = 3;
                             g_cfg.video_probe_timeout = 5; g_cfg.play_just_photos = false;

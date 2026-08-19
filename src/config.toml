@@ -132,9 +132,11 @@ twin_portrait_enabled = 1
 
 [geotag]
 enabled = 0
-x = 0.04
-y = 0.92
-font_size = 14
+x = 0.5
+y = 0.966
+offset_x = 0
+offset_y = 0
+font_size = 12
 color = "white"
 
 [date_overlay]

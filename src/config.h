@@ -107,10 +107,12 @@ struct Config {
     std::string date_color{"cyan"};
 
     // [geotag]
-    bool    geotag_enabled{false};
-    float   geotag_x{0.04f};
-    float   geotag_y{0.92f};
-    int     geotag_font_size{14};
+    bool        geotag_enabled{false};
+    float       geotag_x{0.5f};
+    float       geotag_y{0.966f};
+    int         geotag_offset_x{0};
+    int         geotag_offset_y{0};
+    int         geotag_font_size{12};
     std::string geotag_color{"white"};
 
     // [brightness]

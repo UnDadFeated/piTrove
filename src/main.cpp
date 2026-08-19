@@ -2729,9 +2729,9 @@ int main(int argc, char** argv) {
                     SDL_Delay(50);
                     continue;
                 }
-                // Pre-buffer before first present: buffer full 1024-frame lookahead queue (or EOF for short clips)
+                // Pre-buffer before first present: buffer full dynamic lookahead queue based on 90% available RAM (or EOF for short clips)
                 {
-                    size_t pre_target = VideoDecoder::MAX_QUEUED_FRAMES;
+                    size_t pre_target = g_video_decoder.get_max_queued_frames();
                     uint64_t pre_t0 = SDL_GetTicks();
                     while (g_video_decoder.frame_queue_size() < pre_target &&
                            SDL_GetTicks() - pre_t0 < 30000 &&
@@ -2739,8 +2739,8 @@ int main(int argc, char** argv) {
                            !g_video_decoder.consume_start_failed()) {
                         SDL_Delay(10);
                     }
-                    g_logger.info("VIDEO: buffer ready with {} frames (prewarmed={}, wait={}ms)",
-                                  g_video_decoder.frame_queue_size(), was_prewarmed, (int)(SDL_GetTicks() - pre_t0));
+                    g_logger.info("VIDEO: buffer ready with {} frames (prewarmed={}, target={}, wait={}ms)",
+                                  g_video_decoder.frame_queue_size(), was_prewarmed, pre_target, (int)(SDL_GetTicks() - pre_t0));
                 }
                 // Cache FPS from decoder to SQLite
                 double video_fps = g_video_decoder.get_fps();

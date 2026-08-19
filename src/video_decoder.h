@@ -81,9 +81,11 @@ public:
     void set_displayed_pts(double pts_s);
  double get_video_duration() const { return m_video_total_duration.load(std::memory_order_relaxed); }
  double get_fps() const { return m_frame_duration > 0 ? 1.0 / m_frame_duration : 0; }
- static constexpr size_t MAX_QUEUED_FRAMES = 2048; // ~4.3s at 30fps / ~2.1s at 60fps (NV12 1080p ~3.1MB -> ~396MB)
+ size_t get_max_queued_frames() const { return m_max_queued_frames.load(std::memory_order_relaxed); }
+ static size_t calculate_max_queued_frames(int target_w, int target_h);
 
 private:
+ std::atomic<size_t> m_max_queued_frames{512};
  std::string m_path;
  mutable std::mutex m_path_mtx;
  int m_target_width;

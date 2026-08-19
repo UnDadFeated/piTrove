@@ -1,3 +1,46 @@
+#include <sys/sysinfo.h>
+#include <fstream>
+
+uint64_t get_available_ram_bytes() {
+    std::ifstream meminfo("/proc/meminfo");
+    if (meminfo.is_open()) {
+        std::string line;
+        while (std::getline(meminfo, line)) {
+            if (line.rfind("MemAvailable:", 0) == 0) {
+                uint64_t kb = 0;
+                if (std::sscanf(line.c_str(), "MemAvailable: %lu kB", &kb) == 1) {
+                    return kb * 1024ULL;
+                }
+            }
+        }
+    }
+    struct sysinfo si;
+    if (sysinfo(&si) == 0) {
+        return (uint64_t)si.freeram * si.mem_unit;
+    }
+    return 1024ULL * 1024 * 1024;
+}
+
+uint64_t get_total_ram_bytes() {
+    std::ifstream meminfo("/proc/meminfo");
+    if (meminfo.is_open()) {
+        std::string line;
+        while (std::getline(meminfo, line)) {
+            if (line.rfind("MemTotal:", 0) == 0) {
+                uint64_t kb = 0;
+                if (std::sscanf(line.c_str(), "MemTotal: %lu kB", &kb) == 1) {
+                    return kb * 1024ULL;
+                }
+            }
+        }
+    }
+    struct sysinfo si;
+    if (sysinfo(&si) == 0) {
+        return (uint64_t)si.totalram * si.mem_unit;
+    }
+    return 2048ULL * 1024 * 1024;
+}
+
 #include "util.h"
 #include <regex>
 #include "media_item.h"

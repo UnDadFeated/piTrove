@@ -102,6 +102,22 @@ static AVBufferRef* create_hw_device() {
 #define DEBUG_LOG(fmt, ...) \
     do { g_logger.debug(fmt, ##__VA_ARGS__); } while (0)
 
+size_t VideoDecoder::calculate_max_queued_frames(int target_w, int target_h) {
+    if (target_w <= 0) target_w = 1920;
+    if (target_h <= 0) target_h = 1080;
+
+    // NV12 frame buffer size: width * height * 1.5 bytes + struct overhead
+    size_t frame_bytes = static_cast<size_t>(target_w) * static_cast<size_t>(target_h) * 3 / 2 + 64;
+
+    uint64_t avail_ram = get_available_ram_bytes();
+    // Budget 90% of available RAM for video prefill and postfill lookahead frames
+    uint64_t ram_budget = static_cast<uint64_t>(avail_ram * 0.90);
+
+    size_t max_frames = static_cast<size_t>(ram_budget / frame_bytes);
+    // Ensure safe bounds: at least 64 frames (~2s at 30fps) and max 4096 frames (~2.2m at 30fps)
+    return std::clamp(max_frames, (size_t)64, (size_t)4096);
+}
+
 VideoDecoder::VideoDecoder() {}
 
 
@@ -274,6 +290,7 @@ bool VideoDecoder::start(const std::string& path, int target_width, int target_h
     }
     m_target_width = target_width;
     m_target_height = target_height;
+    m_max_queued_frames.store(calculate_max_queued_frames(target_width, target_height), std::memory_order_relaxed);
     m_eof.store(false);
     m_anchor_set.store(false);
     m_v0_set.store(false);
@@ -416,22 +433,18 @@ void VideoDecoder::decode_loop() {
         return;
     }
 
-    // Prefault the whole file into the kernel page cache. Over the WiFi
-    // CIFS share a cold read is ~1 MB/s (~== a 1080p30 H.264 stream rate),
-    // so without this the decode loop is I/O-bound and playback chatters
-    // fast/slow/pause; cached reads are memory-speed, and a WiFi dropout
-    // then pauses nothing. Capped at 2GB so a 4K feature-length clip does
-    // not thrash the box's 8GB of RAM.
+    // Prefault the whole file into the kernel page cache using up to 90% of available RAM.
     {
         struct stat vst;
+        uint64_t max_prefetch = static_cast<uint64_t>(get_available_ram_bytes() * 0.90);
         if (::stat(m_path.c_str(), &vst) == 0 && vst.st_size > 0 &&
-            vst.st_size <= 2LL * 1024 * 1024 * 1024) {
+            static_cast<uint64_t>(vst.st_size) <= max_prefetch) {
             int vfd = ::open(m_path.c_str(), O_RDONLY);
             if (vfd >= 0) {
                 posix_fadvise(vfd, 0, 0, POSIX_FADV_WILLNEED);
                 ::close(vfd);
-                g_logger.info("VIDEO_DEC: prefetching {} ({} MB) into page cache",
-                              m_path.c_str(), vst.st_size / 1024 / 1024);
+                g_logger.info("VIDEO_DEC: prefetching {} ({} MB) into page cache (90% RAM budget {} MB)",
+                              m_path.c_str(), vst.st_size / 1024 / 1024, max_prefetch / 1024 / 1024);
             }
         }
     }
@@ -948,7 +961,7 @@ void VideoDecoder::decode_loop() {
                         {
                             std::unique_lock<std::mutex> lk(m_queue_mtx);
                             m_queue_cv.wait(lk, [this] {
-                                return m_frame_queue.size() < MAX_QUEUED_FRAMES || !m_running.load();
+                                return m_frame_queue.size() < m_max_queued_frames.load(std::memory_order_relaxed) || !m_running.load();
                             });
                             if (!m_running.load()) break;
                             if (decode_start_time.load(std::memory_order_relaxed) == 0.0) {
@@ -981,18 +994,19 @@ void VideoDecoder::decode_loop() {
                     std::lock_guard lk(m_queue_mtx);
                     q_size = m_frame_queue.size();
                 }
-                if (q_size < 300) {
-                    // Buffer running below 300 frames: discard non-reference B-frames to boost decode throughput to 60+ fps and keep buffer permanently filled
+                size_t max_q = m_max_queued_frames.load(std::memory_order_relaxed);
+                size_t low_thresh = std::max((size_t)30, max_q / 4);
+                size_t high_thresh = std::max((size_t)60, max_q / 2);
+                if (q_size < low_thresh) {
                     if (vcc->skip_frame != AVDISCARD_NONREF) {
-                        g_logger.info("[TRACE] VIDEO_DEC: Buffer low (q_size={}) -> activating AVDISCARD_NONREF (boost throughput)", q_size);
+                        g_logger.info("[TRACE] VIDEO_DEC: Buffer low (q_size={} < {}) -> activating AVDISCARD_NONREF (boost throughput)", q_size, low_thresh);
                     }
                     vcc->skip_frame = AVDISCARD_NONREF;
                     vcc->skip_loop_filter = AVDISCARD_NONREF;
                     vcc->skip_idct = AVDISCARD_NONREF;
-                } else if (q_size >= 600) {
-                    // Buffer full and healthy (>=600 frames): restore full reference decode
+                } else if (q_size >= high_thresh) {
                     if (vcc->skip_frame != AVDISCARD_DEFAULT) {
-                        g_logger.info("[TRACE] VIDEO_DEC: Buffer healthy (q_size={}) -> restoring AVDISCARD_DEFAULT", q_size);
+                        g_logger.info("[TRACE] VIDEO_DEC: Buffer healthy (q_size={} >= {}) -> restoring AVDISCARD_DEFAULT", q_size, high_thresh);
                     }
                     vcc->skip_frame = AVDISCARD_DEFAULT;
                     vcc->skip_loop_filter = AVDISCARD_DEFAULT;
@@ -1034,7 +1048,7 @@ void VideoDecoder::decode_loop() {
                     note_frame_anchor(vf.pts, pts_raw2 != AV_NOPTS_VALUE, eof);
                     {
                         std::unique_lock<std::mutex> lk(m_queue_mtx);
-                        m_queue_cv.wait(lk, [this] { return m_frame_queue.size() < MAX_QUEUED_FRAMES || !m_running.load(); });
+                        m_queue_cv.wait(lk, [this] { return m_frame_queue.size() < m_max_queued_frames.load(std::memory_order_relaxed) || !m_running.load(); });
                         if (!m_running.load()) break;
                         m_frame_queue.push(std::move(vf));
                     }
@@ -1110,7 +1124,7 @@ void VideoDecoder::decode_loop() {
             {
                 std::unique_lock<std::mutex> lk(m_queue_mtx);
                 m_queue_cv.wait(lk, [this] {
-                    return m_frame_queue.size() < MAX_QUEUED_FRAMES || !m_running.load();
+                    return m_frame_queue.size() < m_max_queued_frames.load(std::memory_order_relaxed) || !m_running.load();
                 });
                 if (!m_running.load()) break;
                 m_frame_queue.push(std::move(vf));
