@@ -1,6 +1,14 @@
 #include "config.h"
 #include "util.h"
 #include "auth.h"
+
+Config::Config() {
+    unsigned int cores = std::thread::hardware_concurrency();
+    if (cores == 0) cores = 4;
+    preload_workers = std::clamp(static_cast<int>(cores / 2), 1, 8);
+    preload_capacity = std::clamp(preload_workers * 2, 2, 16);
+    cache_mmap_size = std::clamp(static_cast<long long>(get_total_ram_bytes() * 0.02), 16LL * 1024 * 1024, 256LL * 1024 * 1024);
+}
 #include <filesystem>
 #include <fstream>
 #include <sstream>

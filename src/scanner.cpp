@@ -1,6 +1,5 @@
 #include <atomic>
 std::atomic<int> g_scanner_detached_threads{0};
-static constexpr int MAX_DETACHED_SCANNER_THREADS = 16;
 #ifndef _GNU_SOURCE
 #define _GNU_SOURCE
 #endif
@@ -28,6 +27,12 @@ static constexpr int MAX_DETACHED_SCANNER_THREADS = 16;
 
 
 #include <ctime>
+
+static inline int get_max_detached_scanner_threads() {
+    unsigned int cores = std::thread::hardware_concurrency();
+    if (cores == 0) cores = 4;
+    return std::clamp(static_cast<int>(cores * 4), 8, 64);
+}
 
 static std::atomic<int64_t> g_scanner_last_reset_time{0};
 static constexpr int SCANNER_THREAD_RESET_INTERVAL_S = 120;
@@ -75,7 +80,7 @@ std::vector<std::string> read_dir(const std::string& path) {
 
 std::vector<std::string> read_dir_timeout(const std::string& path, int timeout_ms) {
     maybe_reset_leaked_thread_counter();
-    if (g_scanner_detached_threads.load() >= MAX_DETACHED_SCANNER_THREADS) {
+    if (g_scanner_detached_threads.load() >= get_max_detached_scanner_threads()) {
         g_logger.warn("Scanner: max detached threads limit reached ({}), skipping read_dir for {}",
                       g_scanner_detached_threads.load(), path.c_str());
         return {};
@@ -117,7 +122,7 @@ struct StatResult {
 
 bool stat_timeout(const std::string& path, struct stat& st, int timeout_ms) {
     maybe_reset_leaked_thread_counter();
-    if (g_scanner_detached_threads.load() >= MAX_DETACHED_SCANNER_THREADS) {
+    if (g_scanner_detached_threads.load() >= get_max_detached_scanner_threads()) {
         return false;
     }
     struct SharedResult { std::atomic<bool> done{false}; struct stat data{}; };

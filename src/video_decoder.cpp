@@ -902,7 +902,10 @@ void VideoDecoder::decode_loop() {
                         ret = avcodec_receive_frame(acc, aframe);
                         if (ret != 0) break;
                         if (swr && aframe->nb_samples > 0 && aframe->extended_data) {
-                            int max_s = av_rescale_rnd(aframe->nb_samples, 48000, audio_sample_rate, AV_ROUND_UP);
+                            int max_s = (int)av_rescale_rnd(aframe->nb_samples, 48000, audio_sample_rate, AV_ROUND_UP);
+                            if ((size_t)max_s * 2 > audio_resample_buf.size()) {
+                                audio_resample_buf.resize((size_t)max_s * 2 + 1024);
+                            }
                             uint8_t* outbuf[1] = { (uint8_t*)audio_resample_buf.data() };
                             int os = swr_convert(swr, outbuf, max_s,
                                                  (const uint8_t**)aframe->extended_data, aframe->nb_samples);
@@ -1149,7 +1152,10 @@ void VideoDecoder::decode_loop() {
                 ret = avcodec_receive_frame(acc, aframe);
                 if (ret != 0) break;
                 if (swr && aframe->nb_samples > 0 && aframe->extended_data) {
-                    int max_s = std::min((int)av_rescale_rnd(aframe->nb_samples, 48000, audio_sample_rate, AV_ROUND_UP), MAX_AUDIO_SAMPLES);
+                    int max_s = (int)av_rescale_rnd(aframe->nb_samples, 48000, audio_sample_rate, AV_ROUND_UP);
+                    if ((size_t)max_s * 2 > audio_resample_buf.size()) {
+                        audio_resample_buf.resize((size_t)max_s * 2 + 1024);
+                    }
                     uint8_t* outbuf[1] = { (uint8_t*)audio_resample_buf.data() };
                     int os = swr_convert(swr, outbuf, max_s,
                                          (const uint8_t**)aframe->extended_data, aframe->nb_samples);

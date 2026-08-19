@@ -121,8 +121,9 @@ std::vector<uint8_t> ImageLoader::read_file_to_buffer(const std::string& path) {
         fclose(f);
         return buffer;
     }
-    // Safety check to prevent out-of-memory on invalid/massive files (e.g. > 200MB)
-    if (size > 200 * 1024 * 1024) {
+    // Dynamic safety limit: budget up to 25% of available RAM (100MB - 1GB)
+    size_t max_img_size = std::clamp(static_cast<size_t>(get_available_ram_bytes() * 0.25), static_cast<size_t>(100 * 1024 * 1024), static_cast<size_t>(1024 * 1024 * 1024));
+    if (static_cast<size_t>(size) > max_img_size) {
         fclose(f);
         return buffer;
     }
