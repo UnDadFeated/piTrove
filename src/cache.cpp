@@ -125,18 +125,30 @@ bool CacheManager::open(const std::string& dir) {
                   nullptr, nullptr, &err) != SQLITE_OK) {
         if (err) sqlite3_free(err);
     }
+    if (sqlite3_exec(db, "ALTER TABLE cache ADD COLUMN lat REAL DEFAULT 0.0",
+                  nullptr, nullptr, &err) != SQLITE_OK) {
+        if (err) sqlite3_free(err);
+    }
+    if (sqlite3_exec(db, "ALTER TABLE cache ADD COLUMN lon REAL DEFAULT 0.0",
+                  nullptr, nullptr, &err) != SQLITE_OK) {
+        if (err) sqlite3_free(err);
+    }
+    if (sqlite3_exec(db, "ALTER TABLE cache ADD COLUMN has_gps INT DEFAULT 0",
+                  nullptr, nullptr, &err) != SQLITE_OK) {
+        if (err) sqlite3_free(err);
+    }
 
     sqlite3_finalize(stmt_upsert); stmt_upsert = nullptr;
     sqlite3_finalize(stmt_load); stmt_load = nullptr;
     sqlite3_finalize(stmt_mark); stmt_mark = nullptr;
 
     if (sqlite3_prepare_v2(db,
-        "INSERT INTO cache (path, type, w, h, exif, duration, framerate, bad, last_shown, timestamp, is_camera, creation_time, preprocessed) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+        "INSERT INTO cache (path, type, w, h, exif, duration, framerate, bad, last_shown, timestamp, is_camera, creation_time, preprocessed, lat, lon, has_gps) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
         "ON CONFLICT(path) DO UPDATE SET "
         "w=excluded.w, h=excluded.h, exif=excluded.exif, "
         "duration=excluded.duration, framerate=excluded.framerate, bad=excluded.bad, "
-        "last_shown=MAX(cache.last_shown, excluded.last_shown), timestamp=excluded.timestamp, is_camera=excluded.is_camera, creation_time=excluded.creation_time, preprocessed=excluded.preprocessed",
+        "last_shown=MAX(cache.last_shown, excluded.last_shown), timestamp=excluded.timestamp, is_camera=excluded.is_camera, creation_time=excluded.creation_time, preprocessed=excluded.preprocessed, lat=excluded.lat, lon=excluded.lon, has_gps=excluded.has_gps",
         -1, &stmt_upsert, nullptr) != SQLITE_OK) {
     [[unlikely]]
         trigger_error(410); // E410: SQLITE_PREPARE_STMT_FAIL
@@ -145,7 +157,7 @@ bool CacheManager::open(const std::string& dir) {
     }
 
     if (sqlite3_prepare_v2(db,
-        "SELECT w, h, duration, framerate, exif, bad, last_shown, timestamp, is_camera, creation_time FROM cache WHERE path = ?",
+        "SELECT w, h, duration, framerate, exif, bad, last_shown, timestamp, is_camera, creation_time, lat, lon, has_gps FROM cache WHERE path = ?",
         -1, &stmt_load, nullptr) != SQLITE_OK) {
         g_logger.error("Failed to prepare load statement.");
         close();
@@ -240,6 +252,9 @@ bool CacheManager::load_cached(MediaItem& mi) {
         mi.modified_time = sqlite3_column_int64(stmt_load, 7);
         mi.is_camera  = sqlite3_column_int(stmt_load, 8);
         mi.creation_time = sqlite3_column_int64(stmt_load, 9);
+        mi.latitude   = sqlite3_column_double(stmt_load, 10);
+        mi.longitude  = sqlite3_column_double(stmt_load, 11);
+        mi.has_gps    = (sqlite3_column_int(stmt_load, 12) != 0);
         if (bad == 0) found = true;
     }
     sqlite3_reset(stmt_load);
@@ -277,6 +292,11 @@ void CacheManager::upsert(MediaItem mi, int bad, int preprocessed) {
                 ImageMetadata meta = ImageLoader::read_metadata_from_memory(buffer);
                 mi.is_camera = meta.is_camera ? 1 : 0;
                 mi.creation_time = meta.creation_time;
+                if (!mi.has_gps && meta.has_gps) {
+                    mi.latitude = meta.latitude;
+                    mi.longitude = meta.longitude;
+                    mi.has_gps = true;
+                }
             } else {
                 mi.is_camera = 0;
             }
@@ -297,6 +317,9 @@ void CacheManager::upsert(MediaItem mi, int bad, int preprocessed) {
     sqlite3_bind_int(stmt_upsert, 11, mi.is_camera);
     sqlite3_bind_int64(stmt_upsert, 12, mi.creation_time);
     sqlite3_bind_int(stmt_upsert, 13, preprocessed);
+    sqlite3_bind_double(stmt_upsert, 14, mi.latitude);
+    sqlite3_bind_double(stmt_upsert, 15, mi.longitude);
+    sqlite3_bind_int(stmt_upsert, 16, mi.has_gps ? 1 : 0);
     int step_ret = sqlite3_step(stmt_upsert);
     [[unlikely]]
     if (step_ret != SQLITE_DONE) {

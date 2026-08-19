@@ -34,6 +34,7 @@ struct Config {
     int     scan_window_days{5};
     long long cache_mmap_size{67108864};
     bool    verbose{false};
+    std::string log_level{"info"};
     int     slideshow_fps{30};
     int     cooldown_days{330};
     bool    reset_cooldown_on_restart{false};
@@ -104,6 +105,13 @@ struct Config {
     float   date_x{0.1f}, date_y{0.08f};
     int     date_font_size{20};
     std::string date_color{"cyan"};
+
+    // [geotag]
+    bool    geotag_enabled{false};
+    float   geotag_x{0.04f};
+    float   geotag_y{0.92f};
+    int     geotag_font_size{14};
+    std::string geotag_color{"white"};
 
     // [brightness]
     bool    brightness_auto{false};

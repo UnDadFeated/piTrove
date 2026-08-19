@@ -145,7 +145,12 @@ void config_wizard(const std::string& config_path) {
         {"Diagnostics HUD", TGL, "Monospace OSD overlay showing FPS, SoC temp, SQLite size, tags"},
         {"Adaptive Text", TGL, "Color text outline dynamically based on background brightness"},
         {"Splash Overlay Y", FLT, "Vertical position of splash UI (0.0 to 1.0)"},
-        {"Progress Bar", TGL, "Show transition progress indicator bar at bottom of screen"}
+        {"Progress Bar", TGL, "Show transition progress indicator bar at bottom of screen"},
+        {"Geotag Enabled", TGL, "Show GPS location coordinates overlay on photos"},
+        {"Geotag X Pos", FLT, "Horizontal position of geotag overlay (0.0 to 1.0)"},
+        {"Geotag Y Pos", FLT, "Vertical position of geotag overlay (0.0 to 1.0)"},
+        {"Geotag Size", INT, "Font size of geotag overlay text in pixels"},
+        {"Geotag Color", ENM, "Color of geotag overlay text"}
     };
     static const CI CD[] = {
         {"Video Volume", INT, "Volume level for video playback (0=muted)"},
@@ -297,6 +302,11 @@ void config_wizard(const std::string& config_path) {
             case 13: return g_cfg.adaptive_text_enabled?"[ON]":"[OFF]";
             case 14: return std::format("{}", g_cfg.splash_overlay_y);
             case 15: return g_cfg.progress_bar_enabled?"[ON]":"[OFF]";
+            case 16: return g_cfg.geotag_enabled?"[ON]":"[OFF]";
+            case 17: return std::format("{}", g_cfg.geotag_x);
+            case 18: return std::format("{}", g_cfg.geotag_y);
+            case 19: return std::format("{}", g_cfg.geotag_font_size);
+            case 20: return g_cfg.geotag_color;
         }
         if (c == 3) switch(i) {
             case 0: return std::format("{}", g_cfg.video_volume);
@@ -362,7 +372,7 @@ void config_wizard(const std::string& config_path) {
             case 6: return std::format("{}", g_cfg.fan_speed);
         }
         if (c == 8) switch(i) {
-            case 0: return g_cfg.verbose?"debug":"info";
+            case 0: return g_cfg.log_level;
             case 1: return std::format("{}", g_cfg.http_socket_timeout);
             case 2: return std::format("{}", g_cfg.http_bind_attempts);
             case 3: return std::format("{}", g_cfg.cache_mmap_size);
@@ -438,6 +448,11 @@ void config_wizard(const std::string& config_path) {
                 case 13:g_cfg.adaptive_text_enabled=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
                 case 14:{ try { g_cfg.splash_overlay_y=std::stof(v); } catch(...) {} break; }
                 case 15:g_cfg.progress_bar_enabled=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
+                case 16:g_cfg.geotag_enabled=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
+                case 17:{ try { g_cfg.geotag_x=std::clamp(std::stof(v), 0.0f, 1.0f); } catch(...) {} break; }
+                case 18:{ try { g_cfg.geotag_y=std::clamp(std::stof(v), 0.0f, 1.0f); } catch(...) {} break; }
+                case 19:{ try { g_cfg.geotag_font_size=std::clamp(std::stoi(v), 8, 72); } catch(...) {} break; }
+                case 20:g_cfg.geotag_color=v;break;
             }
             else if(c==3) switch(i){
                 case 0:{ try { int val = std::stoi(v); g_cfg.video_volume=std::clamp(val, 0, 150); } catch(...) {} break; }
@@ -522,7 +537,11 @@ void config_wizard(const std::string& config_path) {
                 case 6:{ try { int val = std::stoi(v); g_cfg.fan_speed=std::clamp(val, 0, 100); pitrove::thermal::set_fan_speed_percent(g_cfg.fan_speed); } catch(...) {} break; }
             }
             else if(c==8) switch(i){
-                case 0:{ if(v=="debug") g_cfg.verbose=true; else g_cfg.verbose=false; }break;
+                case 0:{
+                    g_cfg.log_level = v;
+                    g_cfg.verbose = (v == "debug");
+                    break;
+                }
                 case 1:{ try { int val = std::stoi(v); g_cfg.http_socket_timeout=std::clamp(val, 1, 60); } catch(...) {} break; }
                 case 2:{ try { int val = std::stoi(v); g_cfg.http_bind_attempts=std::clamp(val, 1, 100); } catch(...) {} break; }
                 case 3:{ try { g_cfg.cache_mmap_size = std::clamp(std::stoll(v), 0LL, 268435456LL); } catch(...) {} break; }
@@ -561,6 +580,7 @@ void config_wizard(const std::string& config_path) {
         if(c==1&&i==8) return {"auto","rainbow"};
         if(c==2&&i==4) return {"yellow","white","cyan","red"};
         if(c==2&&i==9) return {"yellow","white","cyan","red"};
+        if(c==2&&i==20) return {"white","yellow","cyan","red"};
         if(c==8&&i==0) return {"debug","info","warn","error"};
         return {};
     };
@@ -933,6 +953,8 @@ void config_wizard(const std::string& config_path) {
                             g_cfg.clock_24h = false; g_cfg.count_enabled = true;
                             g_cfg.diagnostics_hud_enabled = false; g_cfg.adaptive_text_enabled = true;
                             g_cfg.splash_overlay_y = 0.85f; g_cfg.progress_bar_enabled = false;
+                            g_cfg.geotag_enabled = false; g_cfg.geotag_x = 0.04f; g_cfg.geotag_y = 0.92f;
+                            g_cfg.geotag_font_size = 14; g_cfg.geotag_color = "white";
                         } else if (sel == 3) { // Videos
                             g_cfg.video_volume = 0; g_cfg.videos_per_photos = 3;
                             g_cfg.video_probe_timeout = 5; g_cfg.play_just_photos = false;
@@ -957,7 +979,7 @@ void config_wizard(const std::string& config_path) {
                             g_cfg.drm_card = "auto"; g_cfg.drm_connector = "auto";
                             g_cfg.font_path = ""; g_cfg.video_audio_device = "auto";
                         } else if (sel == 8) { // Advanced
-                            g_cfg.verbose = false; g_cfg.http_socket_timeout = 10;
+                            g_cfg.verbose = false; g_cfg.log_level = "info"; g_cfg.http_socket_timeout = 10;
                             g_cfg.http_bind_attempts = 10;
                             g_cfg.cache_mmap_size = 67108864; g_cfg.log_keep_count = 5;
                         } else if (sel == 9) { // MQTT

@@ -1208,7 +1208,7 @@ static std::string get_dashboard_html() {
                 <button onclick="toggleTheme()" id="theme-btn" style="background: var(--card-bg); color: var(--text-main); border: 1px solid var(--card-border); border-radius: 8px; padding: 0.25rem 0.5rem; font-size: 0.75rem; cursor: pointer; outline: none; color-scheme:dark;">🌙</button>
             </div>
             <h1>piTrove controller</h1>
-            <div class="subtitle">v17.7.3 glassmorphic system</div>
+            <div class="subtitle">v17.7.4 glassmorphic system</div>
         </header>
 
         <div class="tabs">
@@ -1312,6 +1312,7 @@ static std::string get_dashboard_html() {
                         <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 0.8rem;">
                             <div style="display:flex; align-items:center; gap:0.4rem;"><input type="checkbox" id="set-blurred-background" style="cursor:pointer;"><label for="set-blurred-background" style="font-size:0.85rem; color:var(--text-muted); cursor:pointer;">Blurred Background</label></div>
                             <div style="display:flex; align-items:center; gap:0.4rem;"><input type="checkbox" id="set-color-matched-matte" style="cursor:pointer;"><label for="set-color-matched-matte" style="font-size:0.85rem; color:var(--text-muted); cursor:pointer;">Color-Matched Matte</label></div>
+                            <div style="display:flex; align-items:center; gap:0.4rem;"><input type="checkbox" id="set-geotag-enabled" style="cursor:pointer;"><label for="set-geotag-enabled" style="font-size:0.85rem; color:var(--text-muted); cursor:pointer;">GPS Geotag Overlay</label></div>
                         </div>
                     </div>
 
@@ -1410,6 +1411,9 @@ static std::string get_dashboard_html() {
                     document.getElementById('set-blurred-background').checked = settings.blurred_background;
                     document.getElementById('set-color-matched-matte').checked = settings.color_matched_matte;
                     document.getElementById('set-touch-enabled').checked = settings.touch_enabled;
+                    if (document.getElementById('set-geotag-enabled')) {
+                        document.getElementById('set-geotag-enabled').checked = !!settings.geotag_enabled;
+                    }
                     document.getElementById('api-key-status').textContent = settings.api_key_set ? '(configured)' : '(not set)';
                     if (settings.api_key_set && apiKey) {
                         document.getElementById('set-api-key').value = apiKey;
@@ -1428,10 +1432,11 @@ static std::string get_dashboard_html() {
             const blurredBg = document.getElementById('set-blurred-background').checked ? "1" : "0";
             const matte = document.getElementById('set-color-matched-matte').checked ? "1" : "0";
             const touch = document.getElementById('set-touch-enabled').checked ? "1" : "0";
+            const geotag = (document.getElementById('set-geotag-enabled') && document.getElementById('set-geotag-enabled').checked) ? "1" : "0";
             
             try {
                 const apiKey = document.getElementById('set-api-key').value;
-                const url = `/api/settings/update?transition_delay=${delay}&video_volume=${volume}&shuffle=${shuffle}&ken_burns=${kenBurns}&blurred_background=${blurredBg}&color_matched_matte=${matte}&touch_enabled=${touch}`;
+                const url = `/api/settings/update?transition_delay=${delay}&video_volume=${volume}&shuffle=${shuffle}&ken_burns=${kenBurns}&blurred_background=${blurredBg}&color_matched_matte=${matte}&touch_enabled=${touch}&geotag_enabled=${geotag}`;
                 const headers = {};
                 if (apiKey) {
                     headers['Authorization'] = 'Bearer ' + apiKey;
@@ -1787,7 +1792,14 @@ static std::string get_api_settings() {
   "google_photos_album_id": "{}",
   "google_photos_sync_interval": {},
   "api_key_set": {},
-  "touch_enabled": {}
+  "touch_enabled": {},
+  "geotag_enabled": {},
+  "geotag_x": {},
+  "geotag_y": {},
+  "geotag_font_size": {},
+  "geotag_color": "{}",
+  "log_level": "{}",
+  "log_keep_count": {}
 }})JSON",
         g_cfg.transition_delay,
         g_cfg.transition_duration,
@@ -1814,7 +1826,14 @@ static std::string get_api_settings() {
         escape_json(g_cfg.google_photos_album_id),
         g_cfg.google_photos_sync_interval,
         !g_cfg.http_api_key.empty(),
-        g_cfg.touch_enabled);
+        g_cfg.touch_enabled,
+        g_cfg.geotag_enabled,
+        g_cfg.geotag_x,
+        g_cfg.geotag_y,
+        g_cfg.geotag_font_size,
+        escape_json(g_cfg.geotag_color),
+        escape_json(g_cfg.log_level),
+        g_cfg.log_keep_count);
 }
 
 static const std::string VIDEO_FALLBACK_SVG = R"SVG(
@@ -2288,6 +2307,19 @@ static void handle_client(int client_fd) {
                         std::string val = get_query_param(request, "color_matched_matte");
                         bool desired = (val == "true" || val == "1");
                         if (g_cfg.color_matched_matte != desired) { g_cfg.color_matched_matte = desired; changed = true; }
+                    }
+                    if (has_query_param(request, "geotag_enabled")) {
+                        std::string val = get_query_param(request, "geotag_enabled");
+                        bool desired = (val == "true" || val == "1");
+                        if (g_cfg.geotag_enabled != desired) { g_cfg.geotag_enabled = desired; changed = true; }
+                    }
+                    if (has_query_param(request, "log_level")) {
+                        std::string val = get_query_param(request, "log_level");
+                        if (!val.empty() && g_cfg.log_level != val) {
+                            g_cfg.log_level = val;
+                            g_cfg.verbose = (val == "debug" || val == "trace");
+                            changed = true;
+                        }
                     }
                     if (has_query_param(request, "mqtt_enabled")) {
                         std::string val = get_query_param(request, "mqtt_enabled");

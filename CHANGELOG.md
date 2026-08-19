@@ -1,3 +1,24 @@
+### Release v17.7.4 — EXIF GPS Geotagging, Logging Configuration & TUI Integration (August 19, 2026)
+
+#### Geotagging & Metadata Extraction
+- **Native EXIF GPS Coordinate Parsing**:
+  - `image_loader.cpp`, `image_loader.h`: Added multi-rational GPS latitude/longitude and reference direction extraction from `EXIF_IFD_GPS` via `libexif` in `read_metadata_from_memory()` and `load()`.
+  - `media_item.h`, `preprocess.cpp`: Extended `MediaItem` and background worker pipeline to retain `latitude`, `longitude`, and `has_gps` flags.
+- **SQLite Metadata Caching & Migration**:
+  - `cache.cpp`, `cache.h`: Added non-destructive database migrations (`lat REAL`, `lon REAL`, `has_gps INT`), persisting GPS coordinates across application runs with zero rescanning overhead.
+- **Geotag OSD Screen Overlay**:
+  - `overlay.cpp`: Implemented real-time GPS coordinate on-screen display with adaptive contrast outline and customizable font sizing, color, and positional coordinates.
+
+#### Logging & Configuration Architecture
+- **Unified Log Level Management**:
+  - `config.h`, `config.cpp`: Replaced binary verbosity toggle with unified `log_level` (`"debug"`, `"info"`, `"warn"`, `"error"`), standardizing `[log]` and `[geotag]` TOML sections.
+  - `main.cpp`: Mapped configured `log_level` directly to runtime `LogLevel` enum for exact logger initialization.
+- **TUI & Web Dashboard Integration**:
+  - `tui.cpp`: Added interactive Geotag overlay toggles, coordinate offsets, font size, and color pickers to Overlays (Category 2) and live `Log Level` selection in Advanced (Category 8).
+  - `http_server.cpp`: Exposed geotagging toggles and log level settings via REST API and Web Dashboard settings form.
+- **Codebase Hygiene & Spellcheck**:
+  - `renderer.cpp`: Corrected phosphor green scanline spelling and performed codebase-wide spelling audit.
+
 ### Release v17.7.3 — Codebase-Wide Audit: Error Code Linkages, Dead Code Removal & Include Hygiene (August 15, 2026)
 
 #### Error Catalog Linkage & Diagnostics

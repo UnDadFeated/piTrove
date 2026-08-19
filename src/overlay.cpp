@@ -202,6 +202,11 @@ void OverlayManager::draw_all(int current_idx, int total_items, const MediaItem*
     int date_size = 20;
     GpuColor date_col = {200, 200, 200, 255};
 
+    bool geotag_enabled = false;
+    float geotag_x = 0.04f, geotag_y = 0.92f;
+    int geotag_size = 14;
+    GpuColor geotag_col = {255, 255, 255, 255};
+
     bool file_enabled = false;
     float file_x = 0.04f, file_y = 0.966f;
     int file_size = 12;
@@ -235,6 +240,12 @@ void OverlayManager::draw_all(int current_idx, int total_items, const MediaItem*
         date_y = g_cfg.date_y;
         date_size = g_cfg.date_font_size;
         date_col = get_color_from_str(g_cfg.date_color);
+
+        geotag_enabled = g_cfg.geotag_enabled;
+        geotag_x = g_cfg.geotag_x;
+        geotag_y = g_cfg.geotag_y;
+        geotag_size = g_cfg.geotag_font_size;
+        geotag_col = get_color_from_str(g_cfg.geotag_color);
 
         file_enabled = g_cfg.filename_enabled;
         file_x = g_cfg.filename_x;
@@ -308,6 +319,19 @@ void OverlayManager::draw_all(int current_idx, int total_items, const MediaItem*
         } else {
             draw_contrast_text(fx, fy, font, item->filename, {255, 255, 255, 255}, current_data);
         }
+    }
+
+    // 2b. Geotag (EXIF GPS Coordinates) Overlay
+    if (geotag_enabled && item && item->has_gps && (item->latitude != 0.0 || item->longitude != 0.0)) {
+        double lat = item->latitude;
+        double lon = item->longitude;
+        std::string geo_str = std::format("{:.4f}Â° {}, {:.4f}Â° {}",
+                                          std::abs(lat), lat >= 0.0 ? "N" : "S",
+                                          std::abs(lon), lon >= 0.0 ? "E" : "W");
+        int gx = pad + (int)((sw - pad * 2) * geotag_x);
+        int gy = pad + (int)((sh - pad * 2) * geotag_y);
+        FontHandle& font = font_renderer->load_font(overlay_font->path, geotag_size);
+        draw_contrast_text(gx, gy, font, geo_str, geotag_col, current_data);
     }
 
     // 3. Count Overlay

@@ -127,6 +127,11 @@ bool Config::load(const std::string& path) {
         else if (key == "y" && section == "date_overlay")       this->date_y = safe_stof(val, this->date_y);
         else if (key == "font_size" && section == "date_overlay") this->date_font_size = safe_stoi(val, this->date_font_size);
         else if (key == "color" && section == "date_overlay")   this->date_color = val;
+        else if ((key == "enabled" && section == "geotag") || key == "geotag_enabled") this->geotag_enabled = (val == "1" || val == "true");
+        else if ((key == "x" && section == "geotag") || key == "geotag_x")             this->geotag_x = safe_stof(val, this->geotag_x);
+        else if ((key == "y" && section == "geotag") || key == "geotag_y")             this->geotag_y = safe_stof(val, this->geotag_y);
+        else if ((key == "font_size" && section == "geotag") || key == "geotag_font_size") this->geotag_font_size = safe_stoi(val, this->geotag_font_size);
+        else if ((key == "color" && section == "geotag") || key == "geotag_color")     this->geotag_color = val;
         else if (key == "enabled" && section == "touch")        this->touch_enabled = (val == "1" || val == "true");
         else if (key == "enabled" && section == "collage")      this->collage_enabled = (val == "1" || val == "true");
         else if (key == "transition_delay")  this->transition_delay = std::max(1.0, safe_stod(val, this->transition_delay));
@@ -199,7 +204,21 @@ bool Config::load(const std::string& path) {
         else if (key == "max_concurrent")    this->max_concurrent = std::clamp(safe_stoi(val, this->max_concurrent), 1, 64);
         else if (key == "window_days")       this->scan_window_days = std::clamp(safe_stoi(val, this->scan_window_days), 0, 365);
         else if (key == "mmap_size")         this->cache_mmap_size = std::clamp(safe_stoll(val, this->cache_mmap_size), 0LL, 268435456LL);
-        else if (key == "level")             this->verbose = (val == "debug");
+        else if (key == "level" || key == "log_level") {
+            if (val == "debug" || val == "trace") {
+                this->log_level = "debug";
+                this->verbose = true;
+            } else if (val == "warn" || val == "warning") {
+                this->log_level = "warn";
+                this->verbose = false;
+            } else if (val == "error") {
+                this->log_level = "error";
+                this->verbose = false;
+            } else {
+                this->log_level = "info";
+                this->verbose = false;
+            }
+        }
         else if (key == "log_keep_count")    this->log_keep_count = std::clamp(safe_stoi(val, this->log_keep_count), 1, 100);
         else if (key == "preload_capacity")  this->preload_capacity = std::clamp(safe_stoi(val, this->preload_capacity), 1, 32);
         else if (key == "preload_workers")   this->preload_workers = std::clamp(safe_stoi(val, this->preload_workers), 1, 16);
@@ -476,8 +495,15 @@ bool Config::save(const std::string& path) {
     f << "[collage]\n";
     f << "enabled = " << (this->collage_enabled ? "1" : "0") << "\n\n";
 
+    f << "[geotag]\n";
+    f << "enabled = " << (this->geotag_enabled ? "1" : "0") << "\n";
+    f << "x = " << this->geotag_x << "\n";
+    f << "y = " << this->geotag_y << "\n";
+    f << "font_size = " << this->geotag_font_size << "\n";
+    f << "color = \"" << this->geotag_color << "\"\n\n";
+
     f << "[log]\n";
-    f << "level = \"" << (this->verbose ? "debug" : "info") << "\"\n";
+    f << "level = \"" << this->log_level << "\"\n";
     f << "log_keep_count = " << this->log_keep_count << "\n\n";
 
     f << "[mqtt]\n";

@@ -15,6 +15,9 @@ struct ImageMetadata {
     int rotation = 1;
     bool is_camera = false;
     int64_t creation_time = 0;
+    double latitude = 0.0;
+    double longitude = 0.0;
+    bool has_gps = false;
 };
 
 // Raw decoded image data (no SDL dependency) — safe to use in worker threads
@@ -90,6 +93,9 @@ struct ImageData {
     uint8_t matte_r = 0, matte_g = 0, matte_b = 0;
     bool is_camera = false;
     int64_t creation_time = 0;
+    double latitude = 0.0;
+    double longitude = 0.0;
+    bool has_gps = false;
     std::string filename;
 
     ImageData() = default;
@@ -128,7 +134,10 @@ struct ImageData {
           avg_g(other.avg_g),
           avg_b(other.avg_b),
           is_camera(other.is_camera),
-          creation_time(other.creation_time) {
+          creation_time(other.creation_time),
+          latitude(other.latitude),
+          longitude(other.longitude),
+          has_gps(other.has_gps) {
         memcpy(edge_r, other.edge_r, sizeof(edge_r));
         memcpy(edge_g, other.edge_g, sizeof(edge_g));
         memcpy(edge_b, other.edge_b, sizeof(edge_b));
@@ -147,6 +156,9 @@ struct ImageData {
         other.valid = false;
         other.is_camera = false;
         other.creation_time = 0;
+        other.latitude = 0.0;
+        other.longitude = 0.0;
+        other.has_gps = false;
     }
  
     ImageData& operator=(ImageData&& other) noexcept {
@@ -178,6 +190,9 @@ struct ImageData {
             matte_b = other.matte_b;
             is_camera = other.is_camera;
             creation_time = other.creation_time;
+            latitude = other.latitude;
+            longitude = other.longitude;
+            has_gps = other.has_gps;
             filename = std::move(other.filename);
             other.filename.clear();
             other.surface = nullptr;
@@ -186,6 +201,9 @@ struct ImageData {
             other.valid = false;
             other.is_camera = false;
             other.creation_time = 0;
+            other.latitude = 0.0;
+            other.longitude = 0.0;
+            other.has_gps = false;
         }
         return *this;
     }
