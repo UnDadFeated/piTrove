@@ -315,6 +315,24 @@ void Renderer::clear(uint8_t r, uint8_t g, uint8_t b, uint8_t a) {
 }
 
 void Renderer::present() {
+    if (g_screenshot_requested.load(std::memory_order_acquire)) {
+        SDL_Surface* surf = SDL_RenderReadPixels(sdl_renderer, NULL);
+        if (surf) {
+            std::string out_p;
+            {
+                std::lock_guard lk(g_screenshot_mtx);
+                out_p = g_screenshot_out_path;
+            }
+            IMG_SavePNG(surf, out_p.c_str());
+            SDL_DestroySurface(surf);
+            {
+                std::lock_guard lk(g_screenshot_mtx);
+                g_screenshot_ready.store(true, std::memory_order_release);
+            }
+            g_screenshot_cv.notify_all();
+        }
+        g_screenshot_requested.store(false, std::memory_order_release);
+    }
     SDL_RenderPresent(sdl_renderer);
 }
 

@@ -7,6 +7,7 @@
 #include "google_photos.h"
 #include "news_ticker.h"
 #include "calendar.h"
+#include "renderer.h"
 
 #include <iostream>
 #include <sstream>
@@ -1999,6 +2000,40 @@ static void send_response(int fd, const std::string& status_line, const std::str
     }
 }
 
+static void handle_screenshot(int fd) {
+    {
+        std::lock_guard lk(g_screenshot_mtx);
+        g_screenshot_ready.store(false);
+        g_screenshot_out_path = "/app/cache/screenshot.png";
+    }
+    g_screenshot_requested.store(true, std::memory_order_release);
+
+    std::unique_lock lk(g_screenshot_mtx);
+    bool ready = g_screenshot_cv.wait_for(lk, std::chrono::milliseconds(800), []{
+        return g_screenshot_ready.load(std::memory_order_acquire);
+    });
+
+    if (!ready) {
+        send_response(fd, "HTTP/1.1 504 Gateway Timeout", "text/plain", "Screenshot capture timed out");
+        return;
+    }
+
+    std::ifstream file("/app/cache/screenshot.png", std::ios::binary | std::ios::ate);
+    if (!file.is_open()) {
+        send_response(fd, "HTTP/1.1 500 Internal Server Error", "text/plain", "Failed to open screenshot file");
+        return;
+    }
+
+    std::streamsize size = file.tellg();
+    file.seekg(0, std::ios::beg);
+    std::string buffer(size, '\0');
+    if (file.read(&buffer[0], size)) {
+        send_response(fd, "HTTP/1.1 200 OK", "image/png", buffer);
+    } else {
+        send_response(fd, "HTTP/1.1 500 Internal Server Error", "text/plain", "Failed to read screenshot file");
+    }
+}
+
 static void handle_preview(int fd) {
     std::string path = "";
     std::string type = "image";
@@ -2664,6 +2699,9 @@ static void handle_client(int client_fd) {
             g_remote_command.store(1);
             send_response(client_fd, "HTTP/1.1 200 OK", "application/json", "{\"status\":\"ok\"}");
         } 
+        else if (request.rfind("GET /api/screenshot", 0) == 0) {
+            handle_screenshot(client_fd);
+        }
         else if (request.rfind("GET /api/preview", 0) == 0) {
             handle_preview(client_fd);
         } 

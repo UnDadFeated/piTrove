@@ -1,3 +1,11 @@
+### Release v18.0.9 — Native Live Screen Capture API Endpoint (August 24, 2026)
+
+#### Live Diagnostics & Screenshot Capture
+- **Native In-Process Screen Capture (`/api/screenshot`)**:
+  - `renderer.h`, `renderer.cpp`: Integrated thread-safe pixel read-back (`SDL_RenderReadPixels`) right before `SDL_RenderPresent()`.
+  - Captures the exact composite display output (photos/videos, Google Calendar, News Ticker, overlays, matting).
+  - `http_server.cpp`: Added HTTP GET `/api/screenshot` endpoint returning live lossless PNG stream (`image/png`).
+
 ### Release v18.0.8 — Independent Smooth Transitions & Full-Bleed Infopanel Alignment (August 24, 2026)
 
 #### Subsystem Decoupling & Transition Smoothing
