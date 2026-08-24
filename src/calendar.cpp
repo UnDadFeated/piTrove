@@ -330,7 +330,7 @@ void GoogleCalendar::render(SDL_Renderer* renderer, FontRenderer* font_renderer,
     // 1. Glassmorphic card backdrop
     SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
     SDL_SetRenderDrawColor(renderer, 14, 18, 28, 235); // Sleek dark glass card
-    SDL_FRect bg_rect = { (float)bounds.x, (float)bounds.y, (float)bounds.w, (float)bounds.h };
+    SDL_FRect bg_rect = { (float)bounds.x, (float)bounds.y, (float)(bounds.w + 25), (float)bounds.h };
     SDL_RenderFillRect(renderer, &bg_rect);
 
     // Left divider accent border

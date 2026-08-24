@@ -1,3 +1,13 @@
+### Release v18.0.5 — Matte Edge Alignment & Infopanel Margin Refinement (August 24, 2026)
+
+#### Visual Layout & Geometry Tuning
+- **News Streamer Downward Shift**:
+  - `main.cpp` (`calculate_infopanel_layout`): Shifted the bottom 2-line news ticker down by ~0.5" (48px) to cleanly meet the bottom 1-inch physical matte border.
+  - Sized the 16:9 slideshow panel downward to seamlessly meet the lower news bar with zero background gap.
+- **Calendar Right Border Extension**:
+  - `calendar.cpp`: Extended the dark card background rectangle by +25px to the right so it meets and tucks under the physical right 1-inch matte border, eliminating the side gap.
+  - `news_ticker.cpp`: Extended news streamer background rectangle downward by +25px to eliminate any bottom matte light leaks.
+
 ### Release v18.0.4 — Zipcode News Configuration & Independent Subsystem Pipeline (August 24, 2026)
 
 #### News Ticker Configuration
