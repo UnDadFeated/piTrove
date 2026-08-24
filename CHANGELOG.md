@@ -1,3 +1,10 @@
+### Release v18.0.17 — Strict 2-Line News UI Geometry (August 24, 2026)
+
+#### News Ticker Geometry Fix
+- **Strict 2-Line Bounding Box (`main.cpp`, `news_ticker.cpp`, `renderer.cpp`)**:
+  - Fixed `layout.news_area` height to strictly match `news_h` (36px total, 18px per row), eliminating trailing blank space that caused the news UI to occupy 100+ pixels.
+  - Row 1 (Local) and Row 2 (World) are now each 1 single compact line of text vertically.
+
 ### Release v18.0.16 — Unified Slideshow Viewport Fitting (August 24, 2026)
 
 #### Viewport Centering Calibration

@@ -300,7 +300,7 @@ void Renderer::calculate_fit_rect(int img_w, int img_h, SDL_Rect& out_rect) {
 
     int bottom_border = 0;
     if (show_news) {
-        int news_h = (int)round(26.0 * screen_w / 1920.0);
+        int news_h = (int)round(36.0 * screen_w / 1920.0);
         int news_bottom = has_matting ? (screen_h - (int)round(mat_size * 0.8)) : screen_h;
         bottom_border = screen_h - (news_bottom - news_h);
     } else {
