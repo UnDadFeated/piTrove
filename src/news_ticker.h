@@ -28,8 +28,9 @@ private:
 
     float m_scroll_offset{0.0f};
     uint64_t m_last_render_ticks{0};
-    std::string m_cached_ticker_str{};
-    int m_cached_text_width{0};
+    std::vector<std::pair<std::string, int>> m_cached_segments{};
+    int m_cached_total_width{0};
+    int m_cached_font_size{0};
 
     std::string execute_http_get(const std::string& url);
     void parse_rss(const std::string& xml_data);
