@@ -320,8 +320,8 @@ void OverlayManager::draw_all(int current_idx, int total_items, const MediaItem*
         FontHandle& font = font_renderer->load_font(overlay_font->path, file_size);
         int tw = 0, th = 0;
         font_renderer->measure(font, item->filename, tw, th);
-        int fx = vx + pad + (int)((vw - pad * 2) * file_x) - 10;
-        int fy = vy + vh - th - (int)round(6.0 * sw / 1920.0);
+        int fx = vx + (int)round(((double)(g_renderer.scale_px(g_cfg.matting_size)) * 0.5) + 10.0);
+        int fy = vy + vh - th - (int)round(4.0 * sw / 1920.0);
 
         if (twin_item) {
             // Stack both filenames vertically in lower-left
@@ -366,7 +366,7 @@ void OverlayManager::draw_all(int current_idx, int total_items, const MediaItem*
         int tw = 0, th = 0;
         font_renderer->measure(font, tbuf, tw, th);
         int tx = vx + vw - tw - (int)round(12.0 * sw / 1920.0);
-        int ty = vy + (int)round(10.0 * sw / 1920.0);
+        int ty = vy + (int)round(((double)(g_renderer.scale_px(g_cfg.matting_size)) * 0.5) + 10.0);
 
         if (is_video && !video_remaining.empty()) {
             g_logger.debug("REM: remaining={}", video_remaining.c_str());
