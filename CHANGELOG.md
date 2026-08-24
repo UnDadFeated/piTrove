@@ -1,3 +1,17 @@
+### Release v18.0.1 — 16:9 Slideshow Geometry & Dynamic Overlay Positioning (August 24, 2026)
+
+#### Layout & Infopanel Geometry
+- **Exact 16:9 Slideshow Aspect Ratio Preservation**:
+  - `main.cpp`: Dynamically adjusted Google Calendar sidebar width to $280\text{px}$ (on 1080p), calculating the slideshow area to exact 16:9 aspect ratio ($1640 \times 922\text{px}$) with zero letterboxing or stretching for 16:9 media.
+  - Sized bottom news streamer to occupy remaining bottom area ($1640 \times 158\text{px}$) with vertical centering.
+  - Video render scaling constrained to the active 16:9 slideshow panel.
+
+#### Dynamic Overlay Placement
+- **Viewport-Aware Photo & Video Overlays**:
+  - `overlay.h`, `overlay.cpp`: Extended `draw_all()` to accept the active `slideshow_area` viewport.
+  - Moved countdown and video remaining timers to the top-right corner of the **slideshow/video area** (preventing any overlap with the Google Calendar sidebar).
+  - Moved filenames, geotag coordinates, progress bar, and telemetry HUD to bottom/center of the **slideshow/video area** (positioned cleanly above the bottom news streamer).
+
 ### Release v18.0.0 — Infopanels: Live News Ticker, Google Calendar & Timezone Engine (August 24, 2026)
 
 #### Major Feature: Infopanels & Screen Partitioning

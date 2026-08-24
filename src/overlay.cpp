@@ -188,12 +188,20 @@ void OverlayManager::get_adaptive_colors(const ImageData* img, int x, int y, Gpu
     }
 }
 
-void OverlayManager::draw_all(int current_idx, int total_items, const MediaItem* item, const MediaItem* twin_item, double item_timer, bool is_video, int active_fps, const ImageData* current_data, [[maybe_unused]] const ImageData* current_twin_data, const std::string& video_remaining) {
+void OverlayManager::draw_all(int current_idx, int total_items, const MediaItem* item, const MediaItem* twin_item, double item_timer, bool is_video, int active_fps, const ImageData* current_data, [[maybe_unused]] const ImageData* current_twin_data, const std::string& video_remaining, const SDL_Rect* viewport) {
     if (!font_loaded || !font_renderer || !overlay_font) return;
 
-    int pad = 15;
     int sw = g_renderer.screen_w;
     int sh = g_renderer.screen_h;
+    int vx = 0, vy = 0, vw = sw, vh = sh;
+    if (viewport && viewport->w > 0 && viewport->h > 0) {
+        vx = viewport->x;
+        vy = viewport->y;
+        vw = viewport->w;
+        vh = viewport->h;
+    }
+    int pad = (int)round(15.0 * vw / 1920.0);
+    if (pad < 8) pad = 8;
 
     // Load configurations thread-safely
     bool date_enabled = false;
@@ -300,8 +308,8 @@ void OverlayManager::draw_all(int current_idx, int total_items, const MediaItem*
         struct tm tm_buf;
         struct tm* tm_info = localtime_r(&now, &tm_buf);
         if (tm_info && strftime(datebuf, sizeof(datebuf), date_text.c_str(), tm_info) != 0) {
-            int dx = pad + (int)((sw - pad * 2) * date_x);
-            int dy = pad + (int)((sh - pad * 2) * date_y);
+            int dx = vx + pad + (int)((vw - pad * 2) * date_x);
+            int dy = vy + pad + (int)((vh - pad * 2) * date_y);
             FontHandle& font = font_renderer->load_font(overlay_font->path, date_size);
             draw_contrast_text(dx, dy, font, datebuf, date_col, current_data);
         }
@@ -309,8 +317,8 @@ void OverlayManager::draw_all(int current_idx, int total_items, const MediaItem*
 
     // 2. Filename Overlay
     if (file_enabled && item) {
-        int fx = pad + (int)((sw - pad * 2) * file_x) - 10;
-        int fy = pad + (int)((sh - pad * 2) * file_y);
+        int fx = vx + pad + (int)((vw - pad * 2) * file_x) - 10;
+        int fy = vy + pad + (int)((vh - pad * 2) * file_y);
         FontHandle& font = font_renderer->load_font(overlay_font->path, file_size);
 
         if (twin_item) {
@@ -334,16 +342,16 @@ void OverlayManager::draw_all(int current_idx, int total_items, const MediaItem*
         FontHandle& font = font_renderer->load_font(overlay_font->path, geotag_size);
         int tw = 0, th = 0;
         font_renderer->measure(font, geo_str, tw, th);
-        int gx = pad + (int)((sw - pad * 2) * geotag_x) - (tw / 2) + geotag_offset_x;
-        int gy = pad + (int)((sh - pad * 2) * geotag_y) + geotag_offset_y;
+        int gx = vx + pad + (int)((vw - pad * 2) * geotag_x) - (tw / 2) + geotag_offset_x;
+        int gy = vy + pad + (int)((vh - pad * 2) * geotag_y) + geotag_offset_y;
         draw_contrast_text(gx, gy, font, geo_str, geotag_col, current_data);
     }
 
     // 3. Count Overlay
     if (count_enabled && total_items > 0) {
         std::string cntbuf = std::format("{}/{}", current_idx + 1, total_items);
-        int cx = pad + (int)((sw - pad * 2) * count_x);
-        int cy = pad + (int)((sh - pad * 2) * count_y);
+        int cx = vx + pad + (int)((vw - pad * 2) * count_x);
+        int cy = vy + pad + (int)((vh - pad * 2) * count_y);
         FontHandle& font = font_renderer->load_font(overlay_font->path, count_size);
         int tw, th;
         font_renderer->measure(font, cntbuf, tw, th);
@@ -353,8 +361,8 @@ void OverlayManager::draw_all(int current_idx, int total_items, const MediaItem*
 
     // 4. Timer Overlay (photo countdown or video remaining)
     if (timer_enabled) {
-        int tx = pad + (int)((sw - pad * 2) * timer_x) + 25;
-        int ty = pad + (int)((sh - pad * 2) * timer_y) - 10;
+        int tx = vx + pad + (int)((vw - pad * 2) * timer_x); if (tx + 40 > vx + vw) tx = vx + vw - 45;
+        int ty = vy + pad + (int)((vh - pad * 2) * timer_y);
         FontHandle& font = font_renderer->load_font(overlay_font->path, timer_size);
         if (is_video && !video_remaining.empty()) {
             // Uncached draw for video timer to ensure countdown updates every frame
@@ -379,8 +387,8 @@ void OverlayManager::draw_all(int current_idx, int total_items, const MediaItem*
             FontHandle& font = font_renderer->load_font(overlay_font->path, clock_size);
             int clkw, clkh;
             font_renderer->measure(font, clkbuf, clkw, clkh);
-            int clkx = pad + (int)((sw - pad * 2) * clock_x) - clkw / 2;
-            int clky = pad + (int)((sh - pad * 2) * clock_y);
+            int clkx = vx + pad + (int)((vw - pad * 2) * clock_x) - clkw / 2;
+            int clky = vy + pad + (int)((vh - pad * 2) * clock_y);
             draw_contrast_text(clkx, clky, font, clkbuf, clock_col, current_data);
         }
     }
@@ -459,8 +467,8 @@ void OverlayManager::draw_all(int current_idx, int total_items, const MediaItem*
             total_h += lh + 2;
         }
 
-        int hx = pad + 10;
-        int hy = pad + 10;
+        int hx = vx + pad + 10;
+        int hy = vy + pad + 10;
 
         SDL_Rect container = { hx - 8, hy - 8, max_w + 16, total_h + 16 };
         SDL_SetRenderDrawBlendMode(renderer->sdl_renderer, SDL_BLENDMODE_BLEND);
@@ -483,9 +491,9 @@ void OverlayManager::draw_all(int current_idx, int total_items, const MediaItem*
     // 6b. Transition Progress Bar
     if (g_cfg.progress_bar_enabled && !is_video && transition_delay > 0.0) {
         int bar_h = 4;
-        int bar_w = sw - pad * 2;
-        int bar_x = pad;
-        int bar_y = sh - bar_h - pad;
+        int bar_w = vw - pad * 2;
+        int bar_x = vx + pad;
+        int bar_y = vy + vh - bar_h - pad;
         double progress = std::min(1.0, item_timer / transition_delay);
         int fill_w = (int)(bar_w * progress);
         // Background bar

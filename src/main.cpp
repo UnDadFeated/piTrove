@@ -265,15 +265,45 @@ static InfopanelLayout calculate_infopanel_layout(int screen_w, int screen_h) {
     layout.show_news = infopanels && news_on;
     layout.show_calendar = infopanels && cal_on;
     
-    int news_h = layout.show_news ? std::max(40, (int)round(56.0 * screen_h / 1080.0)) : 0;
-    int cal_w = layout.show_calendar ? std::max(320, (int)round(460.0 * screen_w / 1920.0)) : 0;
-    
-    int main_h = screen_h - news_h;
-    int slide_w = screen_w - cal_w;
-    
-    layout.slideshow_area = { 0, 0, slide_w, main_h };
-    layout.calendar_area = { slide_w, 0, cal_w, main_h };
-    layout.news_area = { 0, main_h, screen_w, news_h };
+    if (!infopanels || (!layout.show_news && !layout.show_calendar)) {
+        layout.slideshow_area = { 0, 0, screen_w, screen_h };
+        layout.calendar_area = { 0, 0, 0, 0 };
+        layout.news_area = { 0, 0, 0, 0 };
+        return layout;
+    }
+
+    if (layout.show_news && layout.show_calendar) {
+        // Both Calendar & News enabled: 16:9 slideshow panel with right calendar & bottom news
+        int cal_w = std::clamp((int)round(280.0 * screen_w / 1920.0), 220, screen_w / 3);
+        int slide_w = screen_w - cal_w;
+        int slide_h = (int)round((double)slide_w * 9.0 / 16.0); // Exact 16:9
+        int news_h = screen_h - slide_h;
+        if (news_h < 40) news_h = 40;
+
+        layout.slideshow_area = { 0, 0, slide_w, slide_h };
+        layout.calendar_area = { slide_w, 0, cal_w, screen_h };
+        layout.news_area = { 0, slide_h, slide_w, news_h };
+    } else if (layout.show_calendar) {
+        // Only Calendar enabled:
+        int cal_w = std::clamp((int)round(280.0 * screen_w / 1920.0), 220, screen_w / 3);
+        int slide_w = screen_w - cal_w;
+        int slide_h = (int)round((double)slide_w * 9.0 / 16.0); // Exact 16:9
+        int pad_y = (screen_h - slide_h) / 2;
+
+        layout.slideshow_area = { 0, pad_y, slide_w, slide_h };
+        layout.calendar_area = { slide_w, 0, cal_w, screen_h };
+        layout.news_area = { 0, 0, 0, 0 };
+    } else if (layout.show_news) {
+        // Only News enabled:
+        int news_h = std::max(48, (int)round(56.0 * screen_h / 1080.0));
+        int slide_h = screen_h - news_h;
+        int slide_w = (int)round((double)slide_h * 16.0 / 9.0); // Exact 16:9
+        int slide_x = (screen_w - slide_w) / 2;
+
+        layout.slideshow_area = { slide_x, 0, slide_w, slide_h };
+        layout.calendar_area = { 0, 0, 0, 0 };
+        layout.news_area = { 0, slide_h, screen_w, news_h };
+    }
     
     return layout;
 }
@@ -2617,22 +2647,24 @@ int main(int argc, char** argv) {
                         // Scale video to fill screen while maintaining aspect ratio
                         SDL_FRect dst_rect;
                         // FIX: Letterbox/pillarbox - maintain video aspect ratio
+                        InfopanelLayout v_layout = calculate_infopanel_layout(g_renderer.screen_w, g_renderer.screen_h);
                         int vw = frame.width, vh = frame.height;
-                        int sw = g_renderer.screen_w, sh = g_renderer.screen_h;
+                        int sw = v_layout.slideshow_area.w, sh = v_layout.slideshow_area.h;
+                        int ox = v_layout.slideshow_area.x, oy = v_layout.slideshow_area.y;
                         double video_ar = (double)vw / (double)vh;
                         double screen_ar = (double)sw / (double)sh;
                         if (video_ar > screen_ar) {
                             // Video is wider: letterbox (black bars top/bottom)
                             dst_rect.w = sw;
                             dst_rect.h = (int)(sw / video_ar);
-                            dst_rect.x = 0;
-                            dst_rect.y = (sh - dst_rect.h) / 2;
+                            dst_rect.x = ox;
+                            dst_rect.y = oy + (sh - dst_rect.h) / 2;
                         } else {
                             // Video is taller: pillarbox (black bars left/right)
                             dst_rect.h = sh;
                             dst_rect.w = (int)(sh * video_ar);
-                            dst_rect.x = (sw - dst_rect.w) / 2;
-                            dst_rect.y = 0;
+                            dst_rect.x = ox + (sw - dst_rect.w) / 2;
+                            dst_rect.y = oy;
                         }
                         SDL_RenderTexture(g_renderer.sdl_renderer, g_video_tex, nullptr, &dst_rect);
                         // FIX: Overlay rendering + draw overlays BEFORE present()
@@ -2647,10 +2679,19 @@ int main(int argc, char** argv) {
                                 int secs = total_secs % 60;
                                 remaining_str = std::format("{}:{:02d}", mins, secs);
                             }
+                            InfopanelLayout v_layout = calculate_infopanel_layout(g_renderer.screen_w, g_renderer.screen_h);
+                            std::string font_p = g_overlay->get_font_path();
+                            FontRenderer* fr = g_overlay->get_font_renderer();
+                            if (v_layout.show_calendar) {
+                                g_calendar.render(g_renderer.sdl_renderer, fr, font_p, v_layout.calendar_area, g_renderer.screen_w);
+                            }
+                            if (v_layout.show_news) {
+                                g_news_ticker.render(g_renderer.sdl_renderer, fr, font_p, v_layout.news_area, g_renderer.screen_w);
+                            }
                             g_overlay->draw_all(current_idx, std::ssize(g_eligible),
                                 &g_eligible[current_idx],
                                 nullptr,
-                                0.0, true, 0, nullptr, nullptr, remaining_str);
+                                0.0, true, 0, nullptr, nullptr, remaining_str, &v_layout.slideshow_area);
                         }
                         g_renderer.present();
                     }
@@ -2962,10 +3003,11 @@ int main(int argc, char** argv) {
                     g_transition->render(transition_prev_target, transition_next_target, g_renderer.screen_w, g_renderer.screen_h);
                     if (g_overlay) {
                         bool cur_is_video = (!g_eligible.empty() && current_idx >= 0 && current_idx < std::ssize(g_eligible) && g_eligible[current_idx].type == "video");
+                        InfopanelLayout t_layout = calculate_infopanel_layout(g_renderer.screen_w, g_renderer.screen_h);
                         g_overlay->draw_all(current_idx, std::ssize(g_eligible),
                             &g_eligible[current_idx],
                             nullptr,
-                            0.0, cur_is_video, active_fps, next_data ? next_data.get() : nullptr, next_twin_data ? next_twin_data.get() : nullptr);
+                            0.0, cur_is_video, active_fps, next_data ? next_data.get() : nullptr, next_twin_data ? next_twin_data.get() : nullptr, "", &t_layout.slideshow_area);
                     }
                     g_renderer.present();
 
@@ -3304,7 +3346,7 @@ int main(int argc, char** argv) {
                     g_overlay->draw_all(current_idx, std::ssize(g_eligible),
                         &g_eligible[current_idx],
                         twin_item_ptr,
-                        item_timer, cur_is_video, active_fps, current_data.get(), current_twin_data.get());
+                        item_timer, cur_is_video, active_fps, current_data.get(), current_twin_data.get(), "", &layout.slideshow_area);
                 }
                 g_renderer.present();
             }
