@@ -1,3 +1,18 @@
+### Release v18.0.3 — 1-Inch Matte Workspace Inset & Dual-Line Local/Global News Ticker (August 24, 2026)
+
+#### Screen Workspace & Matte Integration
+- **Physical Matte Inset Workspace Modeling**:
+  - `main.cpp` (`calculate_infopanel_layout`): Constrained all Infopanel UI regions (16:9 Slideshow canvas, Google Calendar agenda sidebar, 2-line News streamer) strictly inside the usable workspace defined by the 1-inch physical matte border (`g_cfg.matting_size`, e.g. 96px on 1080p).
+  - Guarantees zero UI elements or headlines are hidden or clipped behind the physical picture frame matte.
+
+#### Dual-Line News Streamer
+- **2-Line Thick News Streamer (Local on Top, Global on Bottom)**:
+  - `news_ticker.h`, `news_ticker.cpp`: Structured the news bar into two parallel streaming rows:
+    - **Top Row (Local News)**: Streams location/zipcode-based local news headlines (e.g. `news_local_query = "98101"` or city) with pinned `LOCAL` badge and cyan indicator dot.
+    - **Bottom Row (Global News)**: Streams world news headlines with pinned `WORLD` badge and amber indicator dot.
+  - Sub-pixel smooth scrolling at a comfortable, readable pace (~35px/s).
+  - Subtle 1px translucent divider line separating the two headline rows.
+
 ### Release v18.0.2 — Segmented Live News Ticker & OpenGL Texture Optimization (August 24, 2026)
 
 #### News Ticker Subsystem

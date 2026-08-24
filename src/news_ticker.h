@@ -18,7 +18,8 @@ struct NewsItem {
 
 class NewsTicker {
 private:
-    std::vector<NewsItem> m_items;
+    std::vector<NewsItem> m_local_items;
+    std::vector<NewsItem> m_global_items;
     mutable std::shared_mutex m_items_mtx;
     std::jthread m_worker_thread;
     std::atomic<bool> m_running{false};
@@ -26,14 +27,17 @@ private:
     std::atomic<int> m_last_error{0};
     std::atomic<time_t> m_last_fetch_time{0};
 
-    float m_scroll_offset{0.0f};
+    float m_local_scroll_offset{0.0f};
+    float m_global_scroll_offset{0.0f};
     uint64_t m_last_render_ticks{0};
-    std::vector<std::pair<std::string, int>> m_cached_segments{};
-    int m_cached_total_width{0};
+    std::vector<std::pair<std::string, int>> m_cached_local_segs{};
+    std::vector<std::pair<std::string, int>> m_cached_global_segs{};
+    int m_cached_local_total_w{0};
+    int m_cached_global_total_w{0};
     int m_cached_font_size{0};
 
     std::string execute_http_get(const std::string& url);
-    void parse_rss(const std::string& xml_data);
+    std::vector<NewsItem> parse_rss(const std::string& xml_data);
 
 public:
     NewsTicker();
