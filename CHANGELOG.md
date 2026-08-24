@@ -1,3 +1,16 @@
+### Release v18.0.4 — Zipcode News Configuration & Independent Subsystem Pipeline (August 24, 2026)
+
+#### News Ticker Configuration
+- **Zipcode & Location Queries**:
+  - `config.h`, `config.toml`: Updated default local news query to Manhattan, NY (`10001`), with develop Pi configured to `95624`.
+  - `tui.cpp`: Added interactive zipcode/location editing under Category 11 (`Infopanels`) with whitespace trimming and immediate background refresh trigger.
+  - `http_server.cpp`: Integrated `news_local_query` field in Web Remote settings modal and `/api/settings/update` REST endpoint with real-time news refresh.
+
+#### Independent Subsystem Decoupling
+- **Decoupled Render Architecture**:
+  - Validated that `NewsTicker`, `GoogleCalendar`, and `VideoDecoder`/`ImageLoader` operate with completely isolated worker threads, animation clocks, and cache layers.
+  - Slideshow/video frame updates and photo transitions exclusively redraw their assigned `slideshow_area` canvas without disrupting the continuous news scroll or agenda cards.
+
 ### Release v18.0.3 — 1-Inch Matte Workspace Inset & Dual-Line Local/Global News Ticker (August 24, 2026)
 
 #### Screen Workspace & Matte Integration

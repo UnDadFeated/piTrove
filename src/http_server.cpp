@@ -1474,6 +1474,9 @@ static std::string get_dashboard_html() {
                     if (document.getElementById('set-news-source') && settings.news_source) {
                         document.getElementById('set-news-source').value = settings.news_source;
                     }
+                    if (document.getElementById('set-news-query') && settings.news_local_query) {
+                        document.getElementById('set-news-query').value = settings.news_local_query;
+                    }
                     if (document.getElementById('set-gcalendar-enabled')) {
                         document.getElementById('set-gcalendar-enabled').checked = !!settings.gcalendar_enabled;
                     }
@@ -1510,6 +1513,7 @@ static std::string get_dashboard_html() {
             const info = (document.getElementById('set-infopanels-enabled') && document.getElementById('set-infopanels-enabled').checked) ? "1" : "0";
             const news = (document.getElementById('set-news-enabled') && document.getElementById('set-news-enabled').checked) ? "1" : "0";
             const newsSrc = document.getElementById('set-news-source') ? encodeURIComponent(document.getElementById('set-news-source').value) : "global";
+            const newsQuery = document.getElementById('set-news-query') ? encodeURIComponent(document.getElementById('set-news-query').value) : "10001";
             const gcal = (document.getElementById('set-gcalendar-enabled') && document.getElementById('set-gcalendar-enabled').checked) ? "1" : "0";
             const gcalName = document.getElementById('set-gcalendar-name') ? encodeURIComponent(document.getElementById('set-gcalendar-name').value) : "Family";
             const gcalUrl = document.getElementById('set-gcalendar-url') ? encodeURIComponent(document.getElementById('set-gcalendar-url').value) : "";
@@ -1517,7 +1521,7 @@ static std::string get_dashboard_html() {
             
             try {
                 const apiKey = document.getElementById('set-api-key').value;
-                const url = `/api/settings/update?timezone=${tz}&infopanels_enabled=${info}&news_enabled=${news}&news_source=${newsSrc}&gcalendar_enabled=${gcal}&gcalendar_name=${gcalName}&gcalendar_ical_url=${gcalUrl}&transition_delay=${delay}&video_volume=${volume}&shuffle=${shuffle}&ken_burns=${kenBurns}&blurred_background=${blurredBg}&color_matched_matte=${matte}&matting=${matting}&matting_size=${mattingSize}&touch_enabled=${touch}&geotag_enabled=${geotag}`;
+                const url = `/api/settings/update?timezone=${tz}&infopanels_enabled=${info}&news_enabled=${news}&news_source=${newsSrc}&news_local_query=${newsQuery}&gcalendar_enabled=${gcal}&gcalendar_name=${gcalName}&gcalendar_ical_url=${gcalUrl}&transition_delay=${delay}&video_volume=${volume}&shuffle=${shuffle}&ken_burns=${kenBurns}&blurred_background=${blurredBg}&color_matched_matte=${matte}&matting=${matting}&matting_size=${mattingSize}&touch_enabled=${touch}&geotag_enabled=${geotag}`;
                 const headers = {};
                 if (apiKey) {
                     headers['Authorization'] = 'Bearer ' + apiKey;
@@ -2473,8 +2477,13 @@ static void handle_client(int client_fd) {
                         if (!val.empty() && g_cfg.news_source != val) { g_cfg.news_source = val; changed = true; }
                     }
                     if (has_query_param(request, "news_local_query")) {
-                        std::string val = get_query_param(request, "news_local_query");
-                        if (g_cfg.news_local_query != val) { g_cfg.news_local_query = val; changed = true; }
+                        std::string val = trim(get_query_param(request, "news_local_query"));
+                        if (!val.empty() && g_cfg.news_local_query != val) {
+                            g_cfg.news_local_query = val;
+                            changed = true;
+                            g_logger.info("HTTP: Updated news local query/zipcode to '{}'", val);
+                            g_news_ticker.fetch_sync();
+                        }
                     }
                     if (has_query_param(request, "gcalendar_enabled")) {
                         std::string val = get_query_param(request, "gcalendar_enabled");

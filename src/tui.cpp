@@ -2,6 +2,8 @@
 #include "config.h"
 #include "thermal.h"
 #include "util.h"
+#include "news_ticker.h"
+#include "calendar.h"
 #include <iostream>
 #include <fstream>
 #include <string>
@@ -240,7 +242,7 @@ void config_wizard(const std::string& config_path) {
         {"Infopanels Master", TGL, "Master switch for sidebar calendar & bottom news ticker"},
         {"News Ticker", TGL, "Show live scrolling news headlines ticker at bottom of screen"},
         {"News Source", ENM, "Live news feed type (global, local)"},
-        {"News Query/Region", STR, "Country code (e.g. US, GB) or topic query for news feed"},
+        {"News Zipcode/Loc", STR, "Zipcode (e.g. 10001, 95624) or city query for top-line local news"},
         {"News Refresh Mins", INT, "Minutes between background news headline updates (5-120)"},
         {"News Scroll Speed", INT, "Horizontal scrolling speed in pixels per second (10-300)"},
         {"News Font Size", INT, "Font size in pixels for news ticker (10-24)"},
@@ -611,7 +613,14 @@ void config_wizard(const std::string& config_path) {
                 case 1:g_cfg.infopanels_enabled=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
                 case 2:g_cfg.news_enabled=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
                 case 3:g_cfg.news_source=v;break;
-                case 4:g_cfg.news_local_query=v;break;
+                case 4:{
+                    std::string clean_v = trim(v);
+                    if (clean_v.empty()) clean_v = "10001";
+                    g_cfg.news_local_query = clean_v;
+                    g_logger.info("TUI: Updated local news zipcode/query to '{}'", clean_v);
+                    g_news_ticker.fetch_sync();
+                    break;
+                }
                 case 5:{ try { g_cfg.news_refresh_minutes=std::clamp(std::stoi(v), 5, 120); } catch(...) {} break; }
                 case 6:{ try { g_cfg.news_scroll_speed=std::clamp(std::stoi(v), 10, 300); } catch(...) {} break; }
                 case 7:{ try { g_cfg.news_font_size=std::clamp(std::stoi(v), 10, 24); } catch(...) {} break; }

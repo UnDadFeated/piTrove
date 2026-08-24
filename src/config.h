@@ -195,10 +195,10 @@ struct Config {
     // [news]
     bool        news_enabled{false};
     std::string news_source{"global"};
-    std::string news_local_query{"US"};
+    std::string news_local_query{"10001"};
     int         news_refresh_minutes{15};
-    int         news_scroll_speed{60};
-    int         news_font_size{14};
+    int         news_scroll_speed{35};
+    int         news_font_size{12};
 
     // [gcalendar]
     bool        gcalendar_enabled{false};
