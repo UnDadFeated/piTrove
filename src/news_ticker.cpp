@@ -113,29 +113,58 @@ std::vector<NewsItem> NewsTicker::parse_rss(const std::string& xml_data) {
     std::regex title_regex("<title[^>]*>([\\s\\S]*?)</title>");
     std::regex pubdate_regex("<pubDate[^>]*>([\\s\\S]*?)</pubDate>");
     std::regex source_regex("<source[^>]*>([\\s\\S]*?)</source>");
+    std::regex link_regex("<link[^>]*>([\\s\\S]*?)</link>");
+    std::regex guid_regex("<guid[^>]*>([\\s\\S]*?)</guid>");
 
     auto items_begin = std::sregex_iterator(xml_data.begin(), xml_data.end(), item_regex);
     auto items_end = std::sregex_iterator();
 
     std::string tz = "UTC";
+    std::vector<std::string> blacklist;
     {
         std::shared_lock lk(g_config_mtx);
         tz = g_cfg.timezone;
+        blacklist = g_cfg.news_blacklist;
     }
+
+    auto is_blacklisted = [&](const std::string& text) {
+        if (text.empty()) return false;
+        std::string lower_text = text;
+        std::transform(lower_text.begin(), lower_text.end(), lower_text.begin(), ::tolower);
+        for (const auto& b : blacklist) {
+            if (b.empty()) continue;
+            std::string lower_b = b;
+            std::transform(lower_b.begin(), lower_b.end(), lower_b.begin(), ::tolower);
+            if (lower_text.find(lower_b) != std::string::npos) {
+                return true;
+            }
+        }
+        return false;
+    };
 
     for (std::sregex_iterator i = items_begin; i != items_end; ++i) {
         std::string item_xml = (*i)[1].str();
         std::smatch m;
         std::string raw_title, raw_pubdate, raw_source;
 
+        std::string raw_link, raw_guid;
         if (std::regex_search(item_xml, m, title_regex)) raw_title = m[1].str();
         if (std::regex_search(item_xml, m, pubdate_regex)) raw_pubdate = m[1].str();
         if (std::regex_search(item_xml, m, source_regex)) raw_source = m[1].str();
+        if (std::regex_search(item_xml, m, link_regex)) raw_link = m[1].str();
+        if (std::regex_search(item_xml, m, guid_regex)) raw_guid = m[1].str();
 
         std::string title = decode_html_entities(raw_title);
         if (title.empty()) continue;
 
         std::string source = decode_html_entities(raw_source);
+        std::string link = decode_html_entities(raw_link);
+        std::string guid = decode_html_entities(raw_guid);
+
+        if (is_blacklisted(source) || is_blacklisted(title) || is_blacklisted(link) || is_blacklisted(guid)) {
+            g_logger.info("NEWS: Filtered out blacklisted headline '{}' (source: '{}', link: '{}')", title, source, link);
+            continue;
+        }
         time_t pub_time = parse_rfc822_date(raw_pubdate);
 
         // Remove source suffix if already embedded in title (e.g. "Headline - CNN")

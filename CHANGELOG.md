@@ -1,3 +1,19 @@
+### Release v18.0.6 — News Domain Blacklist & Micro-Layout Alignment (August 24, 2026)
+
+#### News Ticker Blacklist Filtering
+- **Domain Blacklist (`realtor.com` default)**:
+  - `config.h`, `config.toml`, `config.cpp`: Added `news_blacklist` configuration option (defaults to `["realtor.com"]`).
+  - `news_ticker.cpp` (`parse_rss`): Added filtering to drop headlines from blacklisted domains (matching against source, link, GUID, or title).
+  - `tui.cpp`: Added `Blacklist News` editor in Category 11 (`Infopanels`) with immediate background refresh.
+  - `http_server.cpp`: Added `news_blacklist` setting to Web Remote modal and `/api/settings/update` REST endpoint.
+
+#### Visual Geometry Fine-Tuning
+- **Micro-Position Adjustments**:
+  - `main.cpp` (`calculate_infopanel_layout`):
+    - Shifted Google Calendar frame left by 5px.
+    - Shifted News streamer down by an additional 5px to align flush with the bottom 1-inch physical matte.
+    - Fixed news bar height to exactly 2 compact rows (48px total height, 24px per row).
+
 ### Release v18.0.5 — Matte Edge Alignment & Infopanel Margin Refinement (August 24, 2026)
 
 #### Visual Layout & Geometry Tuning
