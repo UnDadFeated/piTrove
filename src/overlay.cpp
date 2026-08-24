@@ -315,16 +315,16 @@ void OverlayManager::draw_all(int current_idx, int total_items, const MediaItem*
         }
     }
 
-    // 2. Filename Overlay
+    // 2. Filename Overlay (aligned neatly right above the bottom separator line)
     if (file_enabled && item) {
-        int fx = vx + pad + (int)((vw - pad * 2) * file_x) - 10;
-        int fy = vy + pad + (int)((vh - pad * 2) * file_y);
         FontHandle& font = font_renderer->load_font(overlay_font->path, file_size);
+        int tw = 0, th = 0;
+        font_renderer->measure(font, item->filename, tw, th);
+        int fx = vx + pad + (int)((vw - pad * 2) * file_x) - 10;
+        int fy = vy + vh - th - 6;
 
         if (twin_item) {
             // Stack both filenames vertically in lower-left
-            int th = 0, tw = 0;
-            font_renderer->measure(font, item->filename, tw, th);
             draw_contrast_text(fx, fy - th - 4, font, item->filename, {255, 255, 255, 255}, current_data);
             draw_contrast_text(fx, fy, font, twin_item->filename, {255, 255, 255, 255}, current_data);
         } else {
@@ -359,19 +359,20 @@ void OverlayManager::draw_all(int current_idx, int total_items, const MediaItem*
         draw_contrast_text(cx, cy, font, cntbuf, {200, 200, 200, 220}, current_data);
     }
 
-    // 4. Timer Overlay (photo countdown or video remaining)
+    // 4. Timer Overlay (photo countdown or video remaining, right-aligned close to separator line)
     if (timer_enabled) {
-        int tx = vx + pad + (int)((vw - pad * 2) * timer_x); if (tx + 40 > vx + vw) tx = vx + vw - 45;
-        int ty = vy + pad + (int)((vh - pad * 2) * timer_y);
         FontHandle& font = font_renderer->load_font(overlay_font->path, timer_size);
+        std::string tbuf = (is_video && !video_remaining.empty()) ? video_remaining : std::format("{}s", std::max(0, (int)(transition_delay - item_timer)));
+        int tw = 0, th = 0;
+        font_renderer->measure(font, tbuf, tw, th);
+        int tx = vx + vw - tw - 12;
+        int ty = vy + pad + (int)((vh - pad * 2) * timer_y);
+
         if (is_video && !video_remaining.empty()) {
-            // Uncached draw for video timer to ensure countdown updates every frame
             g_logger.debug("REM: remaining={}", video_remaining.c_str());
             font_renderer->draw_text_uncached(tx + 2, ty + 2, font, video_remaining, 0, 0, 0, 180);
             font_renderer->draw_text_uncached(tx, ty, font, video_remaining, timer_col.r, timer_col.g, timer_col.b, timer_col.a);
         } else if (!is_video) {
-            int rem = std::max(0, (int)(transition_delay - item_timer));
-            std::string tbuf = std::format("{}s", rem);
             draw_contrast_text(tx, ty, font, tbuf, timer_col, current_data);
         }
     }

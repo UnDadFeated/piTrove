@@ -330,7 +330,7 @@ void GoogleCalendar::render(SDL_Renderer* renderer, FontRenderer* font_renderer,
     // 1. Glassmorphic card backdrop
     SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
     SDL_SetRenderDrawColor(renderer, 14, 18, 28, 235); // Sleek dark glass card
-    SDL_FRect bg_rect = { (float)bounds.x, (float)bounds.y, (float)(bounds.w + 25), (float)bounds.h };
+    SDL_FRect bg_rect = { (float)bounds.x, (float)bounds.y, (float)bounds.w, (float)bounds.h };
     SDL_RenderFillRect(renderer, &bg_rect);
 
     // Left divider accent border
@@ -341,10 +341,14 @@ void GoogleCalendar::render(SDL_Renderer* renderer, FontRenderer* font_renderer,
     // 2. Header: Current Day & Date in configured Timezone
     std::string tz = "UTC";
     std::string cal_name = "Family";
+    bool has_matting = false;
+    int mat_size = 0;
     {
         std::shared_lock lk(g_config_mtx);
         tz = g_cfg.timezone;
         cal_name = g_cfg.gcalendar_name;
+        has_matting = g_cfg.matting;
+        mat_size = (int)round((double)g_cfg.matting_size * screen_w / 1920.0);
     }
 
     time_t now = time(nullptr);
@@ -359,8 +363,8 @@ void GoogleCalendar::render(SDL_Renderer* renderer, FontRenderer* font_renderer,
     FontHandle& body_font = font_renderer->load_font(font_path, body_font_size);
     FontHandle& sub_font = font_renderer->load_font(font_path, sub_font_size);
 
-    int pad_x = bounds.x + (int)round(24.0 * screen_w / 1920.0);
-    int cur_y = bounds.y + (int)round(24.0 * screen_w / 1920.0);
+    int pad_x = bounds.x + (int)round(18.0 * screen_w / 1920.0);
+    int cur_y = bounds.y + (has_matting ? (mat_size + 14) : (int)round(24.0 * screen_w / 1920.0));
 
     // Header title
     font_renderer->draw_text(pad_x, cur_y, title_font, day_str, 255, 255, 255, 255);
