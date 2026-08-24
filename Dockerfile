@@ -123,6 +123,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     v4l-utils \
     network-manager \
     sudo \
+    tzdata \
     && rm -rf /var/lib/apt/lists/*
 
 # Establish runtime directory tree

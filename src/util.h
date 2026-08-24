@@ -1,7 +1,7 @@
 #ifndef PITROVE_UTIL_H
 #define PITROVE_UTIL_H
 
-#define VERSION "17.7.10"
+#define VERSION "18.0.0"
 #define APP_NAME "piTrove"
 
 #include <atomic>
@@ -214,6 +214,10 @@ void classify_media_item(const MediaItem& item, bool& has_people, bool& has_anim
 [[nodiscard]] std::optional<std::tuple<int,int,int>> parse_filename_date(std::string_view filename);
 void get_modified_time_date(int64_t mtime, int& y, int& m, int& d);
 [[nodiscard]] std::optional<std::tuple<int,int,int>> get_item_date(const MediaItem& item);
+
+// Timezone formatting
+[[nodiscard]] std::string format_epoch_tz(time_t epoch_sec, const std::string& tz_name, const std::string& fmt_str = "%I:%M %p");
+[[nodiscard]] std::vector<std::string> get_supported_timezones();
 
 #endif // PITROVE_UTIL_H
 

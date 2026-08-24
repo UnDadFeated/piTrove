@@ -1,3 +1,39 @@
+### Release v18.0.0 — Infopanels: Live News Ticker, Google Calendar & Timezone Engine (August 24, 2026)
+
+#### Major Feature: Infopanels & Screen Partitioning
+- **Dynamic Multi-Panel Screen Partitioning**:
+  - `main.cpp`, `renderer.cpp`: Added `calculate_infopanel_layout()` enabling seamless display partitioning. When infopanels are active, the primary slideshow/video area shrinks proportionally (preserving exact 16:9 or source aspect ratio and 1" matte border) to accommodate a right-side glassmorphic Google Calendar panel ($480\text{px}$ on 1080p) and a bottom scrolling live news ticker ($56\text{px}$ on 1080p).
+  - Clean modularity: single-panel configurations (only News or only Calendar) dynamically reclaim all unused screen space.
+
+#### Live Scrolling News Ticker
+- **In-Process News Ticker (`news_ticker.cpp`, `news_ticker.h`)**:
+  - Fetches top world/local headlines from Google News RSS feeds with fallback to BBC News via libcurl.
+  - Supports Global World News and Local News (by region / country query).
+  - Decodes HTML character entities and parses RFC 822 timestamps into the configured timezone.
+  - Hardware-accelerated continuous smooth sub-pixel scrolling ticker with a pinned glowing live status indicator badge.
+
+#### Google Calendar Integration
+- **Google Calendar Agenda Sidebar (`calendar.cpp`, `calendar.h`)**:
+  - Background async iCal / API sync with multi-calendar filtering (e.g. "Family" calendar).
+  - Parses standard `VEVENT` blocks, date-time / all-day events, and recurrence rules.
+  - Glassmorphic translucent card design with date header, day indicator pills, time ranges, event titles, and locations.
+
+#### Timezone Subsystem
+- **Native C++20 Timezone Engine (`util.cpp`, `util.h`)**:
+  - Implemented `format_epoch_tz()` with `std::chrono::zoned_time` and IANA timezone database.
+  - Default timezone is UTC; configurable via TUI and Web UI with pre-filled timezone options.
+
+#### TUI & Web Remote UI Controls
+- **Interactive TUI Infopanels Category (`tui.cpp`)**:
+  - Added dedicated Category 11 (`Infopanels`) with timezone selector, news/calendar toggles, refresh intervals, font sizes, and scroll speed controls.
+- **Web Remote Management (`http_server.cpp`)**:
+  - Added `/api/news` and `/api/calendar` REST JSON endpoints.
+  - Added Infopanels & Widgets configuration card to the Web Remote UI.
+
+#### Diagnostics & Health
+- **Error Codes E536–E539 (`error_db.cpp`)**:
+  - Registered E536 (`GCALENDAR_SYNC_FAILED`), E537 (`NEWS_TICKER_FETCH_FAILED`), E538 (`TIMEZONE_CONFIG_ERROR`), and E539 (`INFOPANEL_LAYOUT_WARNING`).
+
 ### Release v17.7.10 — Reserved Core for System Watchdogs & Render Loop (August 24, 2026)
 
 #### Core Utilization & Thread Safety

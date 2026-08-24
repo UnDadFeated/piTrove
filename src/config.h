@@ -186,6 +186,29 @@ struct Config {
     bool        mqtt_tls_enabled{false};
     std::string mqtt_ca_cert{""};
 
+    // [timezone]
+    std::string timezone{"UTC"};
+
+    // [infopanels]
+    bool        infopanels_enabled{false};
+
+    // [news]
+    bool        news_enabled{false};
+    std::string news_source{"global"};
+    std::string news_local_query{"US"};
+    int         news_refresh_minutes{15};
+    int         news_scroll_speed{60};
+    int         news_font_size{14};
+
+    // [gcalendar]
+    bool        gcalendar_enabled{false};
+    std::string gcalendar_source_type{"ical"};
+    std::string gcalendar_ical_url{""};
+    std::string gcalendar_name{"Family"};
+    std::string gcalendar_api_key{""};
+    int         gcalendar_refresh_minutes{15};
+    int         gcalendar_max_events{8};
+
     // [google_photos]
     bool        google_photos_enabled{false};
     std::string google_photos_client_id{""};

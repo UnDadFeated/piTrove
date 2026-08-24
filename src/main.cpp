@@ -20,6 +20,9 @@
 #include "google_photos.h"
 #include "organizer.h"
 #include "preprocess.h"
+#include "news_ticker.h"
+#include "calendar.h"
+
 
 #include <SDL3/SDL.h>
 #include <SDL3_image/SDL_image.h>
@@ -238,6 +241,43 @@ static bool should_be_twin_portrait(std::vector<MediaItem>& eligible, int idx) {
 
 // NOTE: Matting/border offset logic duplicates Renderer::calculate_fit_rect (renderer.cpp:251)
 // Keep in sync if adjusting matte or border inset calculations
+
+struct InfopanelLayout {
+    SDL_Rect slideshow_area;
+    SDL_Rect calendar_area;
+    SDL_Rect news_area;
+    bool show_calendar{false};
+    bool show_news{false};
+};
+
+static InfopanelLayout calculate_infopanel_layout(int screen_w, int screen_h) {
+    InfopanelLayout layout;
+    bool infopanels = false;
+    bool news_on = false;
+    bool cal_on = false;
+    {
+        std::shared_lock lk(g_config_mtx);
+        infopanels = g_cfg.infopanels_enabled;
+        news_on = g_cfg.news_enabled;
+        cal_on = g_cfg.gcalendar_enabled;
+    }
+    
+    layout.show_news = infopanels && news_on;
+    layout.show_calendar = infopanels && cal_on;
+    
+    int news_h = layout.show_news ? std::max(40, (int)round(56.0 * screen_h / 1080.0)) : 0;
+    int cal_w = layout.show_calendar ? std::max(320, (int)round(460.0 * screen_w / 1920.0)) : 0;
+    
+    int main_h = screen_h - news_h;
+    int slide_w = screen_w - cal_w;
+    
+    layout.slideshow_area = { 0, 0, slide_w, main_h };
+    layout.calendar_area = { slide_w, 0, cal_w, main_h };
+    layout.news_area = { 0, main_h, screen_w, news_h };
+    
+    return layout;
+}
+
 static void calculate_fit_rect_in_area(int img_w, int img_h, int area_x, int area_y, int area_w, int area_h, SDL_Rect& out_rect) {
     if (img_w <= 0 || img_h <= 0) {
         out_rect.w = 0;
@@ -313,11 +353,13 @@ static SDL_Texture* render_state_to_texture(
     }
     SDL_RenderClear(renderer);
 
+    InfopanelLayout layout = calculate_infopanel_layout(sw, sh);
     if (twin && twin->texture && primary && primary->texture) {
         // Draw twin portrait layout!
         SDL_Rect rect_l, rect_r;
-        calculate_fit_rect_in_area(primary->width, primary->height, 0, 0, sw / 2, sh, rect_l);
-        calculate_fit_rect_in_area(twin->width, twin->height, sw / 2, 0, sw - (sw / 2), sh, rect_r);
+        int half_w = layout.slideshow_area.w / 2;
+        calculate_fit_rect_in_area(primary->width, primary->height, layout.slideshow_area.x, layout.slideshow_area.y, half_w, layout.slideshow_area.h, rect_l);
+        calculate_fit_rect_in_area(twin->width, twin->height, layout.slideshow_area.x + half_w, layout.slideshow_area.y, layout.slideshow_area.w - half_w, layout.slideshow_area.h, rect_r);
 
         bool has_bias = false;
         bool has_matting = false;
@@ -393,7 +435,7 @@ static SDL_Texture* render_state_to_texture(
     } else if (primary && primary->texture) {
         // Draw single image layout!
         SDL_Rect rect;
-        g_renderer.calculate_fit_rect(primary->width, primary->height, rect);
+        calculate_fit_rect_in_area(primary->width, primary->height, layout.slideshow_area.x, layout.slideshow_area.y, layout.slideshow_area.w, layout.slideshow_area.h, rect);
 
         bool has_bias = false;
         bool has_matting = false;
@@ -1797,6 +1839,21 @@ int main(int argc, char** argv) {
 
     // Start MQTT subscriber client
     start_mqtt_client();
+    // Start Infopanels background sync (News ticker & Google Calendar)
+    {
+        bool info_on = false, news_on = false, cal_on = false;
+        {
+            std::shared_lock lk(g_config_mtx);
+            info_on = g_cfg.infopanels_enabled;
+            news_on = g_cfg.news_enabled;
+            cal_on = g_cfg.gcalendar_enabled;
+        }
+        if (info_on) {
+            if (news_on) g_news_ticker.start();
+            if (cal_on) g_calendar.start();
+        }
+    }
+
 
     // Start Google Photos background sync thread
     g_google_photos.start();
@@ -3104,11 +3161,11 @@ int main(int argc, char** argv) {
                     g_renderer.clear(0, 0, 0, 255);
                 }
 
+                InfopanelLayout layout = calculate_infopanel_layout(g_renderer.screen_w, g_renderer.screen_h);
                 SDL_Rect rect_l, rect_r;
-                int sw = g_renderer.screen_w;
-                int sh = g_renderer.screen_h;
-                calculate_fit_rect_in_area(current_data->width, current_data->height, 0, 0, sw / 2, sh, rect_l);
-                calculate_fit_rect_in_area(current_twin_data->width, current_twin_data->height, sw / 2, 0, sw - (sw / 2), sh, rect_r);
+                int half_w = layout.slideshow_area.w / 2;
+                calculate_fit_rect_in_area(current_data->width, current_data->height, layout.slideshow_area.x, layout.slideshow_area.y, half_w, layout.slideshow_area.h, rect_l);
+                calculate_fit_rect_in_area(current_twin_data->width, current_twin_data->height, layout.slideshow_area.x + half_w, layout.slideshow_area.y, layout.slideshow_area.w - half_w, layout.slideshow_area.h, rect_r);
 
                 // 1. Draw background based on style
                 std::string snap_bg_style;
@@ -3220,6 +3277,10 @@ int main(int argc, char** argv) {
                         current_data->avg_r, current_data->avg_g, current_data->avg_b, snap_border_width, current_data->filename);
                 }
 
+                InfopanelLayout layout = calculate_infopanel_layout(g_renderer.screen_w, g_renderer.screen_h);
+                if (current_data) {
+                    calculate_fit_rect_in_area(current_data->width, current_data->height, layout.slideshow_area.x, layout.slideshow_area.y, layout.slideshow_area.w, layout.slideshow_area.h, fit_rect);
+                }
                 // 6. Draw texture
                 SDL_FRect dst = {(float)fit_rect.x, (float)fit_rect.y, (float)fit_rect.w, (float)fit_rect.h};
                 SDL_RenderTexture(g_renderer.sdl_renderer, current_tex, nullptr, &dst);
@@ -3228,6 +3289,15 @@ int main(int argc, char** argv) {
 
             if (rendered) {
                 if (g_overlay) {
+                    InfopanelLayout layout = calculate_infopanel_layout(g_renderer.screen_w, g_renderer.screen_h);
+                    std::string font_p = g_overlay->get_font_path();
+                    FontRenderer* fr = g_overlay->get_font_renderer();
+                    if (layout.show_calendar) {
+                        g_calendar.render(g_renderer.sdl_renderer, fr, font_p, layout.calendar_area, g_renderer.screen_w);
+                    }
+                    if (layout.show_news) {
+                        g_news_ticker.render(g_renderer.sdl_renderer, fr, font_p, layout.news_area, g_renderer.screen_w);
+                    }
                     bool cur_is_video = (!g_eligible.empty() && current_idx >= 0 && current_idx < std::ssize(g_eligible) && g_eligible[current_idx].type == "video");
                     int twin_idx = (current_idx + 1) % std::ssize(g_eligible);
                     const MediaItem* twin_item_ptr = (current_twin_data && !g_eligible.empty()) ? &g_eligible[twin_idx] : nullptr;
@@ -3352,6 +3422,8 @@ int main(int argc, char** argv) {
     
     // Stop background HTTP server
     stop_http_server();
+        g_news_ticker.stop();
+    g_calendar.stop();
     
     // Stop background MQTT client safely
     stop_mqtt_client();

@@ -733,6 +733,31 @@ std::vector<ErrorSeed> get_all_error_seeds() {
             "Unsupported video pixel format encountered during decode.",
             "Ensure video pixel format is supported (e.g. YUV420P, NV12)."
         },
+        // --- Infopanels, Calendar & News Ticker (E536-E539) ---
+        {
+            "E536",
+            "GCALENDAR_SYNC_FAILED",
+            "Google Calendar iCal feed or API request failed to sync events.",
+            "Verify the iCal URL or API key in Settings, and check internet connectivity."
+        },
+        {
+            "E537",
+            "NEWS_TICKER_FETCH_FAILED",
+            "Live news ticker headline feed fetch failed.",
+            "Verify network connection to news RSS provider or adjust feed query in Settings."
+        },
+        {
+            "E538",
+            "TIMEZONE_CONFIG_ERROR",
+            "Configured timezone name was not found in system tzdata database.",
+            "Defaulted to UTC. Select a valid IANA timezone in Settings (e.g., America/Los_Angeles)."
+        },
+        {
+            "E539",
+            "INFOPANEL_LAYOUT_WARNING",
+            "Display resolution is constrained for multiple simultaneous infopanels.",
+            "Infopanels were scaled down dynamically to maintain slideshow aspect ratio."
+        },
         {
             "E601", 
             "DRM_CONNECTOR_MISSING", 
