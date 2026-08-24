@@ -329,7 +329,7 @@ void NewsTicker::render(SDL_Renderer* renderer, FontRenderer* font_renderer, con
     std::string local_badge_name = "LOCAL";
     {
         std::shared_lock lk_cfg(g_config_mtx);
-        font_size = std::clamp(g_cfg.news_font_size, 8, 11);
+        font_size = std::clamp(g_cfg.news_font_size, 9, 12);
         scroll_speed = std::clamp(g_cfg.news_scroll_speed, 10, 150);
         if (!g_cfg.news_local_query.empty()) {
             local_badge_name = "LOCAL " + g_cfg.news_local_query;

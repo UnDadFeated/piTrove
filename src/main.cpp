@@ -282,7 +282,7 @@ static InfopanelLayout calculate_infopanel_layout(int screen_w, int screen_h) {
     }
 
     // Skinny compact 2-line news bar (36px on 1080p, scaled for 4k etc.)
-    int news_h = layout.show_news ? (int)round(26.0 * screen_w / 1920.0) : 0;
+    int news_h = layout.show_news ? (int)round(36.0 * screen_w / 1920.0) : 0;
     // Bottom edge sits directly above the physical 1" matte opening
     int news_bottom = has_matting ? (screen_h - (int)round((double)mat_size * 0.8)) : screen_h;
     int news_y = news_bottom - news_h;
@@ -296,7 +296,7 @@ static InfopanelLayout calculate_infopanel_layout(int screen_w, int screen_h) {
         // Calendar goes from top of screen down to top of news bar
         layout.calendar_area = { cal_x, 0, screen_w - cal_x, news_y };
         // News spans full screen width across bottom with continuous separator line
-        layout.news_area = { 0, news_y, screen_w, screen_h - news_y };
+        layout.news_area = { 0, news_y, screen_w, news_h };
     } else if (layout.show_calendar) {
         layout.slideshow_area = { ws_x, ws_y, cal_x - ws_x, ws_h };
         layout.calendar_area = { cal_x, 0, screen_w - cal_x, screen_h };
@@ -304,7 +304,7 @@ static InfopanelLayout calculate_infopanel_layout(int screen_w, int screen_h) {
     } else if (layout.show_news) {
         layout.slideshow_area = { ws_x, ws_y, ws_w, news_y - ws_y };
         layout.calendar_area = { 0, 0, 0, 0 };
-        layout.news_area = { 0, news_y, screen_w, screen_h - news_y };
+        layout.news_area = { 0, news_y, screen_w, news_h };
     }
     
     return layout;
