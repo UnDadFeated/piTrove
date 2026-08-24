@@ -1,3 +1,17 @@
+### Release v18.0.7 — Physical Matte Infopanel Geometry & Alignment Calibration (August 24, 2026)
+
+#### Visual Layout & Position Calibration
+- **Google Calendar Full-Height Extension & Right-Margin Relief**:
+  - `main.cpp` (`calculate_infopanel_layout`): Extended calendar card frame from $Y = 0$ to $Y = 1080$ (full screen height), eliminating the top background gap.
+  - Expanded calendar width to 295px with left alignment, giving event times and text plenty of horizontal breathing room so nothing is cut off by the right physical matte border.
+  - `calendar.cpp`: Positioned header text cleanly below the top matte while keeping the backdrop full-bleed.
+- **News Streamer Strict 2-Line Geometry**:
+  - `news_ticker.cpp`, `main.cpp`: Set news bar height to strictly 44px (two 22px rows), positioned flush down against the bottom matte border with zero trailing black padding underneath.
+- **Overlay Positioning Polish**:
+  - `overlay.cpp`:
+    - Positioned countdown timer right-aligned with a clean 12px margin to the vertical blue separator line.
+    - Positioned filename overlay neatly 6px above the bottom horizontal blue separator line.
+
 ### Release v18.0.6 — News Domain Blacklist & Micro-Layout Alignment (August 24, 2026)
 
 #### News Ticker Blacklist Filtering
