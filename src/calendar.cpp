@@ -364,7 +364,7 @@ void GoogleCalendar::render(SDL_Renderer* renderer, FontRenderer* font_renderer,
     FontHandle& sub_font = font_renderer->load_font(font_path, sub_font_size);
 
     int pad_x = bounds.x + (int)round(18.0 * screen_w / 1920.0);
-    int cur_y = bounds.y + (int)round(24.0 * screen_w / 1920.0);
+    int cur_y = bounds.y + (has_matting ? mat_size : 0) + (int)round(8.0 * screen_w / 1920.0);
 
     // Header title
     font_renderer->draw_text(pad_x, cur_y, title_font, day_str, 255, 255, 255, 255);

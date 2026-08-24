@@ -281,26 +281,30 @@ static InfopanelLayout calculate_infopanel_layout(int screen_w, int screen_h) {
         return layout;
     }
 
-    // Exactly 2 compact rows for news (44px total height, 22px per row)
-    int news_h = layout.show_news ? 44 : 0;
-    int news_y = layout.show_news ? (screen_h - news_h) : screen_h;
+    // Exactly 2 compact rows for news (scaled for 1080p, 4k, etc.)
+    int news_h = layout.show_news ? (int)round(44.0 * screen_w / 1920.0) : 0;
+    // Bottom edge of news aligns with the inside edge of the bottom matte
+    int news_bottom = has_matting ? (screen_h - mat_size) : screen_h;
+    int news_y = news_bottom - news_h;
 
-    // Calendar width (285px)
-    int cal_w = layout.show_calendar ? std::clamp((int)round(285.0 * screen_w / 1920.0), 250, screen_w / 3) : 0;
+    // Calendar width (scaled)
+    int cal_w = layout.show_calendar ? std::clamp((int)round(300.0 * screen_w / 1920.0), 260, screen_w / 3) : 0;
     int cal_x = screen_w - cal_w;
 
     if (layout.show_news && layout.show_calendar) {
         layout.slideshow_area = { ws_x, ws_y, cal_x - ws_x, news_y - ws_y };
-        layout.calendar_area = { cal_x, 0, cal_w, screen_h };
-        layout.news_area = { 0, news_y, cal_x, news_h };
+        // Calendar goes from top of screen down to top of news bar
+        layout.calendar_area = { cal_x, 0, screen_w - cal_x, news_y };
+        // News spans full screen width across bottom with continuous separator line
+        layout.news_area = { 0, news_y, screen_w, screen_h - news_y };
     } else if (layout.show_calendar) {
         layout.slideshow_area = { ws_x, ws_y, cal_x - ws_x, ws_h };
-        layout.calendar_area = { cal_x, 0, cal_w, screen_h };
+        layout.calendar_area = { cal_x, 0, screen_w - cal_x, screen_h };
         layout.news_area = { 0, 0, 0, 0 };
     } else if (layout.show_news) {
         layout.slideshow_area = { ws_x, ws_y, ws_w, news_y - ws_y };
         layout.calendar_area = { 0, 0, 0, 0 };
-        layout.news_area = { 0, news_y, screen_w, news_h };
+        layout.news_area = { 0, news_y, screen_w, screen_h - news_y };
     }
     
     return layout;

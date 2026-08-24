@@ -1,3 +1,16 @@
+### Release v18.0.11 — Full-Width News Bar & Matte Alignment Calibration (August 24, 2026)
+
+#### Full-Width News & Calendar Alignment
+- **Continuous Full-Width Separator Line**:
+  - `main.cpp`, `news_ticker.cpp`: Extended the news ticker across the full screen width ($X \in [0, screen\_w]$), rendering one continuous horizontal separator line across the entire screen.
+  - `visible_end_x = screen_w - mat_size`: News headlines stream in directly from the right 1" matte border across the full width.
+  - `badge_start_x = mat_size`: `LOCAL` and `WORLD` category badges start cleanly at the inside edge of the left 1" matte border.
+  - Anchored bottom edge of news rows to `screen_h - mat_size` ($Y = 984	ext{px}$ on 1080p) with dark backdrop extending to $screen\_h$ ($1080	ext{px}$).
+- **Google Calendar Header Alignment**:
+  - `calendar.cpp`: Positioned "Monday" header title at `cur_y = mat_size + 8px`, ensuring it starts right inside the top 1" matte border without being cut off.
+- **Resolution-Independent Dynamic Scaling**:
+  - All UI elements, padding, font sizes, and line thicknesses scale dynamically based on `screen_w / 1920.0` for 1080p, 4K, and other resolutions.
+
 ### Release v18.0.10 — Bottom-Anchored News Streamer & Layout Calibration (August 24, 2026)
 
 #### Layout Calibration
