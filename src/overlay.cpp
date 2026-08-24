@@ -366,7 +366,7 @@ void OverlayManager::draw_all(int current_idx, int total_items, const MediaItem*
         int tw = 0, th = 0;
         font_renderer->measure(font, tbuf, tw, th);
         int tx = vx + vw - tw - 12;
-        int ty = vy + pad + (int)((vh - pad * 2) * timer_y);
+        int ty = vy + 14;
 
         if (is_video && !video_remaining.empty()) {
             g_logger.debug("REM: remaining={}", video_remaining.c_str());

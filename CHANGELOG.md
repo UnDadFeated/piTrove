@@ -1,3 +1,11 @@
+### Release v18.0.10 — Bottom-Anchored News Streamer & Layout Calibration (August 24, 2026)
+
+#### Layout Calibration
+- **Bottom-Anchored News Streamer**:
+  - `main.cpp`: Anchored `news_y` strictly to `screen_h - news_h` ($Y = 1036	ext{px}$), filling $Y \in [1036, 1080]$ and $X \in [0, 1635]$.
+  - Expanded slideshow box to fill $[96, 1635] 	imes [96, 1036]$, completely eliminating any unused black bar or gap beneath the news ticker.
+  - `overlay.cpp`: Placed countdown timer at $Y = vy + 14	ext{px}$ right near the top-right corner of the slideshow area.
+
 ### Release v18.0.9 — Native Live Screen Capture API Endpoint (August 24, 2026)
 
 #### Live Diagnostics & Screenshot Capture
