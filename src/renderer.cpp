@@ -276,37 +276,58 @@ void Renderer::calculate_fit_rect(int img_w, int img_h, SDL_Rect& out_rect) {
     std::string border_mode = "off";
     int mat_size = 0;
     int border_w = 0;
+    bool show_calendar = false, show_news = false;
     {
         std::shared_lock lock(g_config_mtx);
         has_matting = g_cfg.matting;
         border_mode = g_cfg.border_mode;
         mat_size = scale_px(g_cfg.matting_size);
         border_w = scale_px(g_cfg.border_width);
+        show_calendar = g_cfg.gcalendar_enabled;
+        show_news = g_cfg.news_enabled;
     }
 
-    int left_margin = (has_matting ? mat_size : 0) + ((border_mode != "off") ? border_w : 0);
-    int right_margin = (has_matting ? mat_size : 0) + ((border_mode != "off") ? border_w : 0);
-    int top_margin = (has_matting ? mat_size : 0) + ((border_mode != "off") ? border_w : 0);
-    int bottom_margin = (has_matting ? mat_size : 0) + ((border_mode != "off") ? ((border_mode == "polaroid") ? (border_w * 4) : border_w) : 0);
+    int left_border = has_matting ? mat_size : 0;
+    int top_border = has_matting ? mat_size : 0;
 
-    // Reclaim monitor space for portrait photos: scale vertical margin to 1.75" (0.75" gap + 1" matte border, shadow clearance)
-    if (img_h > img_w && has_matting) {
-        int portrait_mat_size = scale_px((int)(g_cfg.matting_size * 0.75));
-        top_margin = portrait_mat_size + ((border_mode != "off") ? border_w : 0);
-        bottom_margin = portrait_mat_size + ((border_mode != "off") ? ((border_mode == "polaroid") ? (border_w * 4) : border_w) : 0);
+    int right_border = 0;
+    if (show_calendar) {
+        int cal_w = (int)round(290.0 * screen_w / 1920.0);
+        right_border = (has_matting ? (int)round(mat_size * 0.9) : 0) + cal_w;
+    } else {
+        right_border = has_matting ? mat_size : 0;
     }
 
-    int area_w = screen_w - (left_margin + right_margin);
-    int area_h = screen_h - (top_margin + bottom_margin);
+    int bottom_border = 0;
+    if (show_news) {
+        int news_h = (int)round(26.0 * screen_w / 1920.0);
+        int news_bottom = has_matting ? (screen_h - (int)round(mat_size * 0.8)) : screen_h;
+        bottom_border = screen_h - (news_bottom - news_h);
+    } else {
+        bottom_border = has_matting ? mat_size : 0;
+    }
 
-    if (area_w < 1) area_w = 1;
-    if (area_h < 1) area_h = 1;
+    int slideshow_x = left_border;
+    int slideshow_y = top_border;
+    int slideshow_w = screen_w - (left_border + right_border);
+    int slideshow_h = screen_h - (top_border + bottom_border);
 
-    float scale = std::min((float)area_w / img_w, (float)area_h / img_h);
+    int pad = scale_px(28);
+    int eff_left = ((border_mode != "off") ? border_w : 0) + pad;
+    int eff_right = ((border_mode != "off") ? border_w : 0) + pad;
+    int eff_top = ((border_mode != "off") ? border_w : 0) + pad;
+    int eff_bottom = ((border_mode != "off") ? ((border_mode == "polaroid") ? (border_w * 4) : border_w) : 0) + pad;
+
+    int eff_w = slideshow_w - (eff_left + eff_right);
+    int eff_h = slideshow_h - (eff_top + eff_bottom);
+    if (eff_w < 1) eff_w = 1;
+    if (eff_h < 1) eff_h = 1;
+
+    float scale = std::min((float)eff_w / img_w, (float)eff_h / img_h);
     out_rect.w = (int)(img_w * scale);
     out_rect.h = (int)(img_h * scale);
-    out_rect.x = left_margin + (area_w - out_rect.w) / 2;
-    out_rect.y = top_margin + (area_h - out_rect.h) / 2;
+    out_rect.x = slideshow_x + eff_left + (eff_w - out_rect.w) / 2;
+    out_rect.y = slideshow_y + eff_top + (eff_h - out_rect.h) / 2;
 }
 
 void Renderer::clear(uint8_t r, uint8_t g, uint8_t b, uint8_t a) {

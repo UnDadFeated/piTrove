@@ -1,3 +1,29 @@
+### Release v18.0.16 — Unified Slideshow Viewport Fitting (August 24, 2026)
+
+#### Viewport Centering Calibration
+- **Unified Rect Calculation (`renderer.cpp`, `main.cpp`)**:
+  - Replaced all calls to full-screen `calculate_fit_rect` with panel-aware `calculate_fit_rect_in_area`.
+  - Updated `Renderer::calculate_fit_rect` to respect dynamic infopanel layout bounds (calendar & news UI).
+  - Guarantees portrait and landscape photos/videos are centered between the 1" top matte and the news top separator line.
+
+### Release v18.0.15 — Balanced Breathing Room & Precision Centering (August 24, 2026)
+
+#### Viewport Layout Calibration
+- **Generous Balanced Padding (`main.cpp`)**:
+  - Scaled slideshow framing padding to 28px (`pad = scale_px(28)`), ensuring photos have balanced vertical breathing room between the top 1" matte and the news top separator line.
+  - Eliminates the perception of photos touching the top matte border.
+
+### Release v18.0.14 — Ultra-Slim News Rows & Precision Viewport Centering (August 24, 2026)
+
+#### Viewport Centering Calibration
+- **Precision Slideshow Centering (`main.cpp`)**:
+  - Eliminated redundant `mat_size` double-application in `calculate_fit_rect_in_area()`.
+  - Photos and twin portraits now mathematically center between the top 1" physical matte border ($Y = 96	ext{px}$) and the news top separator line ($Y = news\_y$).
+
+#### Ultra-Slim News Rows
+- **Squished 2-Line News UI (`main.cpp`, `news_ticker.cpp`)**:
+  - Compressed total news height to 26px (13px per row), creating an ultra-compact, ribbon-style news ticker while preserving vertical anchor positioning above the bottom matte.
+
 ### Release v18.0.13 — Vibrant Colorized News Feed & Persistent Timestamped Screenshots (August 24, 2026)
 
 #### News Feed Colorization & Visual Hierarchy
