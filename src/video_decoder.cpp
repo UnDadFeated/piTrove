@@ -115,7 +115,8 @@ size_t VideoDecoder::calculate_max_queued_frames(int target_w, int target_h) {
 
     size_t max_frames = static_cast<size_t>(ram_budget / frame_bytes);
     // Ensure safe bounds: at least 64 frames (~2s at 30fps) and max 4096 frames (~2.2m at 30fps)
-    return std::clamp(max_frames, (size_t)64, (size_t)4096);
+    // Allow queue up to 8192 frames (~4.5m at 30fps) budgeted within 90% available RAM
+    return std::clamp(max_frames, (size_t)128, (size_t)8192);
 }
 
 VideoDecoder::VideoDecoder() {}
@@ -172,21 +173,9 @@ void VideoDecoder::shutdown_audio() {
 }
 
 void VideoDecoder::push_audio_samples(std::span<const int16_t> samples, double pts_s) {
-    // A/V sync: keep audio on the shared presentation clock. A chunk whose pts is
-    // pts_s seconds belongs at anchor_wall + (pts_s - anchor_pts)*1000 ms; if it would
-    // land early, delay the push (capped at 500ms - the decode loop's video queue
-    // backpressure bounds the decode lead anyway).
+    // A/V sync: anchor presentation clock on the first audio packet if audio starts first
     if (m_av_sync.load(std::memory_order_relaxed) && pts_s > 0.0) {
         note_audio_anchor(pts_s);
-        if (m_anchor_set.load(std::memory_order_acquire)) {
-            double due_ms = m_anchor_wall_ms.load(std::memory_order_acquire)
-                          + (pts_s - m_anchor_pts.load(std::memory_order_acquire)) * 1000.0;
-            double delay_ms = due_ms - SDL_GetTicks();
-            if (delay_ms > 50.0) {
-                if (delay_ms > 500.0) delay_ms = 500.0;
-                std::this_thread::sleep_for(std::chrono::microseconds((int64_t)(delay_ms * 1000.0)));
-            }
-        }
     }
     std::lock_guard lk(m_audio_mtx);
     if (!m_audio_initialized || !m_audio_stream) return;
@@ -627,11 +616,9 @@ void VideoDecoder::decode_loop() {
                 vcc = avcodec_alloc_context3(vc);
                 avcodec_parameters_to_context(vcc, vp);
                 int threads = std::thread::hardware_concurrency();
-                // M2M fallback: no GPU surface pool in use, so the software
-                // decoder gets all cores (4K HEVC in particular needs them).
+                // Fallback software decoder gets all available CPU cores for maximum decode throughput
                 vcc->flags2 |= AV_CODEC_FLAG2_FAST;
-                vcc->thread_count = is_m2m ? std::max(4, threads + 1)
-                                           : std::min(2, std::max(1, threads - 1));
+                vcc->thread_count = std::max(4, threads);
                 vcc->thread_type = FF_THREAD_FRAME | FF_THREAD_SLICE;
             }
         }
@@ -990,32 +977,14 @@ void VideoDecoder::decode_loop() {
             }
 
         if (pkt->stream_index == video_stream_idx) {
-            // Adaptive lookahead buffer controller (YouTube-style buffer maintenance)
-            if (m_anchor_set.load(std::memory_order_acquire)) {
-                size_t q_size = 0;
-                {
-                    std::lock_guard lk(m_queue_mtx);
-                    q_size = m_frame_queue.size();
-                }
-                size_t max_q = m_max_queued_frames.load(std::memory_order_relaxed);
-                size_t low_thresh = std::max((size_t)30, max_q / 4);
-                size_t high_thresh = std::max((size_t)60, max_q / 2);
-                if (q_size < low_thresh) {
-                    if (vcc->skip_frame != AVDISCARD_NONREF) {
-                        g_logger.info("[TRACE] VIDEO_DEC: Buffer low (q_size={} < {}) -> activating AVDISCARD_NONREF (boost throughput)", q_size, low_thresh);
-                    }
-                    vcc->skip_frame = AVDISCARD_NONREF;
-                    vcc->skip_loop_filter = AVDISCARD_NONREF;
-                    vcc->skip_idct = AVDISCARD_NONREF;
-                } else if (q_size >= high_thresh) {
-                    if (vcc->skip_frame != AVDISCARD_DEFAULT) {
-                        g_logger.info("[TRACE] VIDEO_DEC: Buffer healthy (q_size={} >= {}) -> restoring AVDISCARD_DEFAULT", q_size, high_thresh);
-                    }
-                    vcc->skip_frame = AVDISCARD_DEFAULT;
-                    vcc->skip_loop_filter = AVDISCARD_DEFAULT;
-                    vcc->skip_idct = AVDISCARD_DEFAULT;
-                }
+            // Periodically refresh available RAM budget as played frames are freed from memory
+            if (vf_count % 60 == 0) {
+                m_max_queued_frames.store(calculate_max_queued_frames(m_target_width, m_target_height), std::memory_order_relaxed);
             }
+            vcc->skip_frame = AVDISCARD_DEFAULT;
+            vcc->skip_loop_filter = AVDISCARD_DEFAULT;
+            vcc->skip_idct = AVDISCARD_DEFAULT;
+
             ret = avcodec_send_packet(vcc, pkt);
             if (ret == AVERROR(EAGAIN)) {
                 // GPU Decoder queue full: drain decoded frames first to release HW buffers

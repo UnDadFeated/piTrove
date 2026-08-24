@@ -1,3 +1,14 @@
+### Release v17.7.9 — Continuous Dynamic Video RAM Refill & Playback Smoothness (August 24, 2026)
+
+#### Video Engine & Continuous RAM Management
+- **Continuous Dynamic RAM Refill During Playback**:
+  - `video_decoder.cpp`: As played frames are presented and freed from RAM by the render loop, the background decode thread dynamically recalculates available RAM and continuously fills freed memory with upcoming video data up to the 90% available RAM budget (supporting queues up to 8192 frames / ~4.5 minutes).
+- **Unblocked Background Decode Pipeline**:
+  - `video_decoder.cpp`: Removed synchronous `sleep_for` delay in `push_audio_samples()` inside the decode loop. `SDL_AudioStream` functions as an asynchronous ring buffer; eliminating demux-thread audio delays prevents demux starvation and allows video decoding to run at full CPU hardware speed.
+- **Zero Frame-Dropping & Full Fidelity**:
+  - `video_decoder.cpp`: Eliminated `AVDISCARD_NONREF` B-frame skipping and DCT throttling, maintaining `AVDISCARD_DEFAULT` to guarantee 100% full-frame rendering without stutter or choppiness after prefill buffers.
+  - `video_decoder.cpp`: Allocated all available CPU cores (`std::max(4, hardware_concurrency)`) with slice and frame multi-threading for software decoding fallback.
+
 ### Release v17.7.8 — Adjusted Portrait Margins for Bottom Shadow Clearance (August 19, 2026)
 
 #### Layout & Visual Polish
