@@ -261,6 +261,21 @@ bool Config::load(const std::string& path) {
         else if (key == "topic_prefix" && section == "mqtt")        this->mqtt_topic_prefix = val;
         else if (key == "motionsensor_topic" && section == "mqtt")  this->mqtt_motionsensor_topic = val;
         else if (key == "motionsensor_cooldown" && section == "mqtt") this->mqtt_motionsensor_cooldown = safe_stoi(val, this->mqtt_motionsensor_cooldown);
+        else if (key == "timezone")                                           this->timezone = val;
+        else if (key == "enabled" && section == "infopanels")                 this->infopanels_enabled = (val == "1" || val == "true");
+        else if (key == "enabled" && section == "news")                       this->news_enabled = (val == "1" || val == "true");
+        else if (key == "source" && section == "news")                        this->news_source = val;
+        else if (key == "local_query" && section == "news")                   this->news_local_query = val;
+        else if (key == "refresh_minutes" && section == "news")               this->news_refresh_minutes = safe_stoi(val, this->news_refresh_minutes);
+        else if (key == "scroll_speed" && section == "news")                  this->news_scroll_speed = safe_stoi(val, this->news_scroll_speed);
+        else if (key == "font_size" && section == "news")                     this->news_font_size = safe_stoi(val, this->news_font_size);
+        else if (key == "enabled" && section == "gcalendar")                  this->gcalendar_enabled = (val == "1" || val == "true");
+        else if (key == "source_type" && section == "gcalendar")              this->gcalendar_source_type = val;
+        else if (key == "ical_url" && section == "gcalendar")                 this->gcalendar_ical_url = val;
+        else if (key == "calendar_name" && section == "gcalendar")            this->gcalendar_name = val;
+        else if (key == "api_key" && section == "gcalendar")                 this->gcalendar_api_key = val;
+        else if (key == "refresh_minutes" && section == "gcalendar")          this->gcalendar_refresh_minutes = safe_stoi(val, this->gcalendar_refresh_minutes);
+        else if (key == "max_events" && section == "gcalendar")              this->gcalendar_max_events = safe_stoi(val, this->gcalendar_max_events);
         else if (key == "enabled" && section == "google_photos")             this->google_photos_enabled = (val == "1" || val == "true");
         else if (key == "client_id" && section == "google_photos")            this->google_photos_client_id = val;
         else if (key == "client_secret" && section == "google_photos")        this->google_photos_client_secret = val;
@@ -527,6 +542,28 @@ bool Config::save(const std::string& path) {
     f << "topic_prefix = \"" << this->mqtt_topic_prefix << "\"\n";
     f << "motionsensor_topic = \"" << this->mqtt_motionsensor_topic << "\"\n";
     f << "motionsensor_cooldown = " << this->mqtt_motionsensor_cooldown << "\n\n";
+
+    f << "timezone = \"" << this->timezone << "\"\n\n";
+
+    f << "[infopanels]\n";
+    f << "enabled = " << (this->infopanels_enabled ? "1" : "0") << "\n\n";
+
+    f << "[news]\n";
+    f << "enabled = " << (this->news_enabled ? "1" : "0") << "\n";
+    f << "source = \"" << this->news_source << "\"\n";
+    f << "local_query = \"" << this->news_local_query << "\"\n";
+    f << "refresh_minutes = " << this->news_refresh_minutes << "\n";
+    f << "scroll_speed = " << this->news_scroll_speed << "\n";
+    f << "font_size = " << this->news_font_size << "\n\n";
+
+    f << "[gcalendar]\n";
+    f << "enabled = " << (this->gcalendar_enabled ? "1" : "0") << "\n";
+    f << "source_type = \"" << this->gcalendar_source_type << "\"\n";
+    f << "ical_url = \"" << this->gcalendar_ical_url << "\"\n";
+    f << "calendar_name = \"" << this->gcalendar_name << "\"\n";
+    f << "api_key = \"" << this->gcalendar_api_key << "\"\n";
+    f << "refresh_minutes = " << this->gcalendar_refresh_minutes << "\n";
+    f << "max_events = " << this->gcalendar_max_events << "\n\n";
 
     f << "[google_photos]\n";
     f << "enabled = " << (this->google_photos_enabled ? "1" : "0") << "\n";

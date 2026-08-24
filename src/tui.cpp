@@ -235,6 +235,23 @@ void config_wizard(const std::string& config_path) {
         {"Motion Topic", STR, "MQTT topic that transmits motion events"},
         {"Motion Cooldown", INT, "Screen off delay in seconds when no motion is detected"}
     };
+    static const CI CINFO[] = {
+        {"Timezone", ENM, "System display timezone for dates, news, and calendar"},
+        {"Infopanels Master", TGL, "Master switch for sidebar calendar & bottom news ticker"},
+        {"News Ticker", TGL, "Show live scrolling news headlines ticker at bottom of screen"},
+        {"News Source", ENM, "Live news feed type (global, local)"},
+        {"News Query/Region", STR, "Country code (e.g. US, GB) or topic query for news feed"},
+        {"News Refresh Mins", INT, "Minutes between background news headline updates (5-120)"},
+        {"News Scroll Speed", INT, "Horizontal scrolling speed in pixels per second (10-300)"},
+        {"News Font Size", INT, "Font size in pixels for news ticker (10-24)"},
+        {"Google Calendar", TGL, "Show Google Calendar agenda sidebar panel"},
+        {"Calendar Source", ENM, "Sync method (ical, api)"},
+        {"Calendar Name", STR, "Name of the calendar to sync/display (e.g. Family)"},
+        {"Calendar iCal URL", STR, "Direct Google Calendar secret/public iCal address URL"},
+        {"Calendar Refresh Mins", INT, "Minutes between background calendar syncs (5-120)"},
+        {"Max Calendar Events", INT, "Maximum number of upcoming events on sidebar (1-16)"}
+    };
+
     static const CI CGP[] = {
         {"GPhotos Enabled", TGL, "Enable Google Photos synchronization (0/1)"},
         {"Client ID", STR, "OAuth 2.0 Client ID for Google Photos API"},
@@ -257,10 +274,11 @@ void config_wizard(const std::string& config_path) {
         {"Hardware", CF, sizeof(CF)/sizeof(CF[0])},
         {"Advanced", CI2, sizeof(CI2)/sizeof(CI2[0])},
         {"MQTT", CMQ, sizeof(CMQ)/sizeof(CMQ[0])},
-        {"GPhotos", CGP, sizeof(CGP)/sizeof(CGP[0])}
+        {"GPhotos", CGP, sizeof(CGP)/sizeof(CGP[0])},
+        {"Infopanels", CINFO, sizeof(CINFO)/sizeof(CINFO[0])}
     };
     static const char* CAT_COMPACT[] = {
-        "Disp", "Slid", "Over", "Vids", "Scan", "Weath", "Sec", "HW", "Adv", "MQTT", "Cloud"
+        "Disp", "Slid", "Over", "Vids", "Scan", "Weath", "Sec", "HW", "Adv", "MQTT", "Cloud", "Info"
     };
 
     // ── DATA ACCESSORS ──
@@ -400,6 +418,22 @@ void config_wizard(const std::string& config_path) {
             case 4: return g_cfg.google_photos_album_id;
             case 5: return std::format("{}", g_cfg.google_photos_sync_interval);
             case 6: return g_cfg.google_photos_cache_dir;
+        }
+        else if (c == 11) switch(i) {
+            case 0: return g_cfg.timezone;
+            case 1: return g_cfg.infopanels_enabled ? "[ON]" : "[OFF]";
+            case 2: return g_cfg.news_enabled ? "[ON]" : "[OFF]";
+            case 3: return g_cfg.news_source;
+            case 4: return g_cfg.news_local_query;
+            case 5: return std::format("{}", g_cfg.news_refresh_minutes);
+            case 6: return std::format("{}", g_cfg.news_scroll_speed);
+            case 7: return std::format("{}", g_cfg.news_font_size);
+            case 8: return g_cfg.gcalendar_enabled ? "[ON]" : "[OFF]";
+            case 9: return g_cfg.gcalendar_source_type;
+            case 10: return g_cfg.gcalendar_name;
+            case 11: return g_cfg.gcalendar_ical_url;
+            case 12: return std::format("{}", g_cfg.gcalendar_refresh_minutes);
+            case 13: return std::format("{}", g_cfg.gcalendar_max_events);
         }
         return "";
     };
@@ -572,6 +606,22 @@ void config_wizard(const std::string& config_path) {
                 case 5:{ try { g_cfg.google_photos_sync_interval=std::stoi(v); } catch(...) {} break; }
                 case 6:g_cfg.google_photos_cache_dir=v;break;
             }
+            else if(c==11) switch(i){
+                case 0:g_cfg.timezone=v;break;
+                case 1:g_cfg.infopanels_enabled=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
+                case 2:g_cfg.news_enabled=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
+                case 3:g_cfg.news_source=v;break;
+                case 4:g_cfg.news_local_query=v;break;
+                case 5:{ try { g_cfg.news_refresh_minutes=std::clamp(std::stoi(v), 5, 120); } catch(...) {} break; }
+                case 6:{ try { g_cfg.news_scroll_speed=std::clamp(std::stoi(v), 10, 300); } catch(...) {} break; }
+                case 7:{ try { g_cfg.news_font_size=std::clamp(std::stoi(v), 10, 24); } catch(...) {} break; }
+                case 8:g_cfg.gcalendar_enabled=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
+                case 9:g_cfg.gcalendar_source_type=v;break;
+                case 10:g_cfg.gcalendar_name=v;break;
+                case 11:g_cfg.gcalendar_ical_url=v;break;
+                case 12:{ try { g_cfg.gcalendar_refresh_minutes=std::clamp(std::stoi(v), 5, 120); } catch(...) {} break; }
+                case 13:{ try { g_cfg.gcalendar_max_events=std::clamp(std::stoi(v), 1, 16); } catch(...) {} break; }
+            }
         } catch(...) {}
     };
 
@@ -588,6 +638,9 @@ void config_wizard(const std::string& config_path) {
         if(c==2&&i==9) return {"yellow","white","cyan","red"};
         if(c==2&&i==22) return {"white","yellow","cyan","red"};
         if(c==8&&i==0) return {"debug","info","warn","error"};
+        if(c==11&&i==0) return get_supported_timezones();
+        if(c==11&&i==3) return {"global", "local"};
+        if(c==11&&i==9) return {"ical", "api"};
         return {};
     };
 

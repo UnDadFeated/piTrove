@@ -5,6 +5,9 @@
 #include "config.h"
 #include "mqtt.h"
 #include "google_photos.h"
+#include "news_ticker.h"
+#include "calendar.h"
+
 #include <iostream>
 #include <sstream>
 #include <vector>
@@ -1325,6 +1328,46 @@ static std::string get_dashboard_html() {
                         </div>
                     </div>
                     
+                                        <div>
+                        <h3 style="font-size: 0.85rem; text-transform: uppercase; color: var(--accent); letter-spacing: 1px; margin-bottom: 0.6rem; border-bottom: 1px solid var(--border-color); padding-bottom: 0.2rem; font-weight: 800;">Infopanels & Widgets (News & Calendar)</h3>
+                        <div class="form-grid" style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 0.8rem; margin-bottom: 0.6rem;">
+                            <div class="form-group">
+                                <label for="set-timezone">Display Timezone</label>
+                                <select id="set-timezone" style="width:100%; padding:0.4rem; border-radius:8px; border:1px solid var(--card-border); background:var(--card-bg); color:var(--text-main); color-scheme:dark;">
+                                    <option value="UTC">UTC</option>
+                                    <option value="America/Los_Angeles">America/Los_Angeles (PST/PDT)</option>
+                                    <option value="America/Denver">America/Denver (MST/MDT)</option>
+                                    <option value="America/Chicago">America/Chicago (CST/CDT)</option>
+                                    <option value="America/New_York">America/New_York (EST/EDT)</option>
+                                    <option value="Europe/London">Europe/London (GMT/BST)</option>
+                                    <option value="Europe/Paris">Europe/Paris (CET/CEST)</option>
+                                    <option value="Europe/Berlin">Europe/Berlin (CET/CEST)</option>
+                                    <option value="Asia/Tokyo">Asia/Tokyo (JST)</option>
+                                    <option value="Asia/Shanghai">Asia/Shanghai (CST)</option>
+                                    <option value="Asia/Kolkata">Asia/Kolkata (IST)</option>
+                                    <option value="Australia/Sydney">Australia/Sydney (AEST/AEDT)</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label for="set-news-source">News Source</label>
+                                <select id="set-news-source" style="width:100%; padding:0.4rem; border-radius:8px; border:1px solid var(--card-border); background:var(--card-bg); color:var(--text-main); color-scheme:dark;">
+                                    <option value="global">Global World News</option>
+                                    <option value="local">Local News</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 0.8rem; margin-bottom: 0.6rem;">
+                            <div style="display:flex; align-items:center; gap:0.4rem;"><input type="checkbox" id="set-infopanels-enabled" style="cursor:pointer;"><label for="set-infopanels-enabled" style="font-size:0.85rem; color:var(--text-muted); cursor:pointer;">Enable Infopanels</label></div>
+                            <div style="display:flex; align-items:center; gap:0.4rem;"><input type="checkbox" id="set-news-enabled" style="cursor:pointer;"><label for="set-news-enabled" style="font-size:0.85rem; color:var(--text-muted); cursor:pointer;">Live News Ticker</label></div>
+                            <div style="display:flex; align-items:center; gap:0.4rem;"><input type="checkbox" id="set-gcalendar-enabled" style="cursor:pointer;"><label for="set-gcalendar-enabled" style="font-size:0.85rem; color:var(--text-muted); cursor:pointer;">Google Calendar Sidebar</label></div>
+                            <div style="display:flex; align-items:center; gap:0.4rem;"><label for="set-gcalendar-name" style="font-size:0.85rem; color:var(--text-muted);">Calendar Name:</label><input type="text" id="set-gcalendar-name" placeholder="Family" style="width:90px; background:rgba(0,0,0,0.3); border:1px solid var(--border-color); color:var(--text); border-radius:4px; padding:2px 5px; font-size:0.85rem;"></div>
+                        </div>
+                        <div class="form-group" style="margin-top:0.4rem;">
+                            <label for="set-gcalendar-url">Google Calendar iCal Secret URL</label>
+                            <input type="text" id="set-gcalendar-url" placeholder="https://calendar.google.com/calendar/ical/.../basic.ics" style="width:100%; background:rgba(0,0,0,0.3); border:1px solid var(--border-color); color:var(--text); border-radius:4px; padding:4px 8px; font-size:0.8rem;">
+                        </div>
+                    </div>
+
                     <button type="submit" class="btn btn-save" style="margin-top:0.4rem;">Save Configuration</button>
                 </form>
                 <div style="margin-top: 1.2rem; font-size: 0.75rem; color: var(--text-muted); text-align: center; border-top: 1px solid var(--card-border); padding-top: 0.8rem; line-height: 1.4;">
@@ -1419,6 +1462,27 @@ static std::string get_dashboard_html() {
                         document.getElementById('set-matting-size').value = settings.matting_size !== undefined ? settings.matting_size : 96;
                     }
                     document.getElementById('set-touch-enabled').checked = settings.touch_enabled;
+                    if (document.getElementById('set-timezone') && settings.timezone) {
+                        document.getElementById('set-timezone').value = settings.timezone;
+                    }
+                    if (document.getElementById('set-infopanels-enabled')) {
+                        document.getElementById('set-infopanels-enabled').checked = !!settings.infopanels_enabled;
+                    }
+                    if (document.getElementById('set-news-enabled')) {
+                        document.getElementById('set-news-enabled').checked = !!settings.news_enabled;
+                    }
+                    if (document.getElementById('set-news-source') && settings.news_source) {
+                        document.getElementById('set-news-source').value = settings.news_source;
+                    }
+                    if (document.getElementById('set-gcalendar-enabled')) {
+                        document.getElementById('set-gcalendar-enabled').checked = !!settings.gcalendar_enabled;
+                    }
+                    if (document.getElementById('set-gcalendar-name') && settings.gcalendar_name) {
+                        document.getElementById('set-gcalendar-name').value = settings.gcalendar_name;
+                    }
+                    if (document.getElementById('set-gcalendar-url') && settings.gcalendar_ical_url) {
+                        document.getElementById('set-gcalendar-url').value = settings.gcalendar_ical_url;
+                    }
                     if (document.getElementById('set-geotag-enabled')) {
                         document.getElementById('set-geotag-enabled').checked = !!settings.geotag_enabled;
                     }
@@ -1442,11 +1506,18 @@ static std::string get_dashboard_html() {
             const matting = (document.getElementById('set-matting') && document.getElementById('set-matting').checked) ? "1" : "0";
             const mattingSize = document.getElementById('set-matting-size') ? document.getElementById('set-matting-size').value : "96";
             const touch = document.getElementById('set-touch-enabled').checked ? "1" : "0";
+            const tz = document.getElementById('set-timezone') ? encodeURIComponent(document.getElementById('set-timezone').value) : "UTC";
+            const info = (document.getElementById('set-infopanels-enabled') && document.getElementById('set-infopanels-enabled').checked) ? "1" : "0";
+            const news = (document.getElementById('set-news-enabled') && document.getElementById('set-news-enabled').checked) ? "1" : "0";
+            const newsSrc = document.getElementById('set-news-source') ? encodeURIComponent(document.getElementById('set-news-source').value) : "global";
+            const gcal = (document.getElementById('set-gcalendar-enabled') && document.getElementById('set-gcalendar-enabled').checked) ? "1" : "0";
+            const gcalName = document.getElementById('set-gcalendar-name') ? encodeURIComponent(document.getElementById('set-gcalendar-name').value) : "Family";
+            const gcalUrl = document.getElementById('set-gcalendar-url') ? encodeURIComponent(document.getElementById('set-gcalendar-url').value) : "";
             const geotag = (document.getElementById('set-geotag-enabled') && document.getElementById('set-geotag-enabled').checked) ? "1" : "0";
             
             try {
                 const apiKey = document.getElementById('set-api-key').value;
-                const url = `/api/settings/update?transition_delay=${delay}&video_volume=${volume}&shuffle=${shuffle}&ken_burns=${kenBurns}&blurred_background=${blurredBg}&color_matched_matte=${matte}&matting=${matting}&matting_size=${mattingSize}&touch_enabled=${touch}&geotag_enabled=${geotag}`;
+                const url = `/api/settings/update?timezone=${tz}&infopanels_enabled=${info}&news_enabled=${news}&news_source=${newsSrc}&gcalendar_enabled=${gcal}&gcalendar_name=${gcalName}&gcalendar_ical_url=${gcalUrl}&transition_delay=${delay}&video_volume=${volume}&shuffle=${shuffle}&ken_burns=${kenBurns}&blurred_background=${blurredBg}&color_matched_matte=${matte}&matting=${matting}&matting_size=${mattingSize}&touch_enabled=${touch}&geotag_enabled=${geotag}`;
                 const headers = {};
                 if (apiKey) {
                     headers['Authorization'] = 'Bearer ' + apiKey;
@@ -1813,7 +1884,21 @@ static std::string get_api_settings() {
   "geotag_font_size": {},
   "geotag_color": "{}",
   "log_level": "{}",
-  "log_keep_count": {}
+  "log_keep_count": {},
+  "timezone": "{}",
+  "infopanels_enabled": {},
+  "news_enabled": {},
+  "news_source": "{}",
+  "news_local_query": "{}",
+  "news_refresh_minutes": {},
+  "news_scroll_speed": {},
+  "news_font_size": {},
+  "gcalendar_enabled": {},
+  "gcalendar_source_type": "{}",
+  "gcalendar_ical_url": "{}",
+  "gcalendar_name": "{}",
+  "gcalendar_refresh_minutes": {},
+  "gcalendar_max_events": {}
 }})JSON",
         g_cfg.transition_delay,
         g_cfg.transition_duration,
@@ -1851,7 +1936,21 @@ static std::string get_api_settings() {
         g_cfg.geotag_font_size,
         escape_json(g_cfg.geotag_color),
         escape_json(g_cfg.log_level),
-        g_cfg.log_keep_count);
+        g_cfg.log_keep_count,
+        escape_json(g_cfg.timezone),
+        g_cfg.infopanels_enabled,
+        g_cfg.news_enabled,
+        escape_json(g_cfg.news_source),
+        escape_json(g_cfg.news_local_query),
+        g_cfg.news_refresh_minutes,
+        g_cfg.news_scroll_speed,
+        g_cfg.news_font_size,
+        g_cfg.gcalendar_enabled,
+        escape_json(g_cfg.gcalendar_source_type),
+        escape_json(g_cfg.gcalendar_ical_url),
+        escape_json(g_cfg.gcalendar_name),
+        g_cfg.gcalendar_refresh_minutes,
+        g_cfg.gcalendar_max_events);
 }
 
 static const std::string VIDEO_FALLBACK_SVG = R"SVG(
@@ -2340,6 +2439,61 @@ static void handle_client(int client_fd) {
                         bool desired = (val == "true" || val == "1");
                         if (g_cfg.geotag_enabled != desired) { g_cfg.geotag_enabled = desired; changed = true; }
                     }
+                    if (has_query_param(request, "timezone")) {
+                        std::string val = get_query_param(request, "timezone");
+                        if (!val.empty() && g_cfg.timezone != val) { g_cfg.timezone = val; changed = true; }
+                    }
+                    if (has_query_param(request, "infopanels_enabled")) {
+                        std::string val = get_query_param(request, "infopanels_enabled");
+                        bool desired = (val == "true" || val == "1");
+                        if (g_cfg.infopanels_enabled != desired) {
+                            g_cfg.infopanels_enabled = desired;
+                            changed = true;
+                            if (desired) {
+                                if (g_cfg.news_enabled) g_news_ticker.start();
+                                if (g_cfg.gcalendar_enabled) g_calendar.start();
+                            } else {
+                                g_news_ticker.stop();
+                                g_calendar.stop();
+                            }
+                        }
+                    }
+                    if (has_query_param(request, "news_enabled")) {
+                        std::string val = get_query_param(request, "news_enabled");
+                        bool desired = (val == "true" || val == "1");
+                        if (g_cfg.news_enabled != desired) {
+                            g_cfg.news_enabled = desired;
+                            changed = true;
+                            if (desired && g_cfg.infopanels_enabled) g_news_ticker.start();
+                            else if (!desired) g_news_ticker.stop();
+                        }
+                    }
+                    if (has_query_param(request, "news_source")) {
+                        std::string val = get_query_param(request, "news_source");
+                        if (!val.empty() && g_cfg.news_source != val) { g_cfg.news_source = val; changed = true; }
+                    }
+                    if (has_query_param(request, "news_local_query")) {
+                        std::string val = get_query_param(request, "news_local_query");
+                        if (g_cfg.news_local_query != val) { g_cfg.news_local_query = val; changed = true; }
+                    }
+                    if (has_query_param(request, "gcalendar_enabled")) {
+                        std::string val = get_query_param(request, "gcalendar_enabled");
+                        bool desired = (val == "true" || val == "1");
+                        if (g_cfg.gcalendar_enabled != desired) {
+                            g_cfg.gcalendar_enabled = desired;
+                            changed = true;
+                            if (desired && g_cfg.infopanels_enabled) g_calendar.start();
+                            else if (!desired) g_calendar.stop();
+                        }
+                    }
+                    if (has_query_param(request, "gcalendar_ical_url")) {
+                        std::string val = get_query_param(request, "gcalendar_ical_url");
+                        if (g_cfg.gcalendar_ical_url != val) { g_cfg.gcalendar_ical_url = val; changed = true; }
+                    }
+                    if (has_query_param(request, "gcalendar_name")) {
+                        std::string val = get_query_param(request, "gcalendar_name");
+                        if (!val.empty() && g_cfg.gcalendar_name != val) { g_cfg.gcalendar_name = val; changed = true; }
+                    }
                     if (has_query_param(request, "geotag_offset_x")) {
                         std::string val = get_query_param(request, "geotag_offset_x");
                         try { int v = std::stoi(val); if (g_cfg.geotag_offset_x != v) { g_cfg.geotag_offset_x = v; changed = true; } } catch(...) {}
@@ -2458,6 +2612,12 @@ static void handle_client(int client_fd) {
             std::string json_oss = std::format("{{\n  \"logs\": \"{}\"\n}}", escape_json(log_content));
             send_response(client_fd, "HTTP/1.1 200 OK", "application/json", json_oss);
                     }
+        }
+        else if (request.rfind("GET /api/news", 0) == 0) {
+            send_response(client_fd, "HTTP/1.1 200 OK", "application/json", g_news_ticker.get_status_json());
+        }
+        else if (request.rfind("GET /api/calendar", 0) == 0) {
+            send_response(client_fd, "HTTP/1.1 200 OK", "application/json", g_calendar.get_status_json());
         }
         else if (request.rfind("GET /api/status", 0) == 0) {
             send_response(client_fd, "HTTP/1.1 200 OK", "application/json", get_api_status());

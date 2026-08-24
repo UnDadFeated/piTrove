@@ -168,6 +168,28 @@ topic_prefix = "piTrove"
 motionsensor_topic = "home/motionsensor"
 motionsensor_cooldown = 60
 
+timezone = "UTC"
+
+[infopanels]
+enabled = 0
+
+[news]
+enabled = 0
+source = "global"
+local_query = "US"
+refresh_minutes = 15
+scroll_speed = 60
+font_size = 14
+
+[gcalendar]
+enabled = 0
+source_type = "ical"
+ical_url = ""
+calendar_name = "Family"
+api_key = ""
+refresh_minutes = 15
+max_events = 8
+
 [google_photos]
 enabled = 0
 client_id = ""

@@ -1009,3 +1009,64 @@ void cleanup_prefetch_thread() {
         g_prefetch_thread.join();
     }
 }
+
+std::string format_epoch_tz(time_t epoch_sec, const std::string& tz_name, const std::string& fmt_str) {
+    if (epoch_sec == 0) epoch_sec = time(nullptr);
+    auto tp = std::chrono::system_clock::from_time_t(epoch_sec);
+    std::string zone = tz_name.empty() ? "UTC" : tz_name;
+    try {
+        auto zt = std::chrono::zoned_time{zone, std::chrono::floor<std::chrono::seconds>(tp)};
+        if (fmt_str == "%I:%M %p") {
+            return std::format("{:%I:%M %p}", zt);
+        } else if (fmt_str == "%I:%M %p %Z") {
+            return std::format("{:%I:%M %p %Z}", zt);
+        } else if (fmt_str == "%Y-%m-%d %H:%M") {
+            return std::format("{:%Y-%m-%d %H:%M}", zt);
+        } else if (fmt_str == "%Y-%m-%d") {
+            return std::format("{:%Y-%m-%d}", zt);
+        } else if (fmt_str == "%a, %b %d") {
+            return std::format("{:%a, %b %d}", zt);
+        } else if (fmt_str == "%A") {
+            return std::format("{:%A}", zt);
+        } else if (fmt_str == "%B %d") {
+            return std::format("{:%B %d}", zt);
+        } else {
+            return std::format("{:%Y-%m-%d %H:%M:%S}", zt);
+        }
+    } catch (...) {
+        try {
+            auto zt_utc = std::chrono::zoned_time{"UTC", std::chrono::floor<std::chrono::seconds>(tp)};
+            return std::format("{:%I:%M %p UTC}", zt_utc);
+        } catch (...) {
+            return "00:00 UTC";
+        }
+    }
+}
+
+std::vector<std::string> get_supported_timezones() {
+    return {
+        "UTC",
+        "America/Los_Angeles",
+        "America/Denver",
+        "America/Chicago",
+        "America/New_York",
+        "America/Anchorage",
+        "America/Phoenix",
+        "America/Toronto",
+        "America/Vancouver",
+        "Europe/London",
+        "Europe/Paris",
+        "Europe/Berlin",
+        "Europe/Rome",
+        "Europe/Madrid",
+        "Asia/Tokyo",
+        "Asia/Shanghai",
+        "Asia/Singapore",
+        "Asia/Kolkata",
+        "Asia/Dubai",
+        "Australia/Sydney",
+        "Australia/Melbourne",
+        "Pacific/Auckland",
+        "Pacific/Honolulu"
+    };
+}
