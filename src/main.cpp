@@ -283,37 +283,37 @@ static InfopanelLayout calculate_infopanel_layout(int screen_w, int screen_h) {
 
     // Exactly 2 compact rows for news (44px total height, 22px per row)
     int news_h = layout.show_news ? 44 : 0;
-    // Anchor news panel down so its bottom meets the physical bottom matte border
-    int news_y = (screen_h - (has_matting ? mat_size : 0)) - news_h + (has_matting ? 8 : 0);
+    // Anchor news panel flush against the bottom edge
+    int news_y = layout.show_news ? (screen_h - (has_matting ? std::max(10, mat_size - 45) : 0) - news_h) : screen_h;
+    if (news_y > screen_h - news_h) news_y = screen_h - news_h;
+
+    // Calendar width (285px)
+    int cal_w = layout.show_calendar ? std::clamp((int)round(285.0 * screen_w / 1920.0), 250, screen_w / 3) : 0;
+    int cal_x = screen_w - cal_w;
 
     if (layout.show_news && layout.show_calendar) {
         // Both Calendar & News enabled:
         int slide_h = news_y - ws_y;
         int slide_w = (int)round((double)slide_h * 16.0 / 9.0); // Exact 16:9
-        
-        // Ensure calendar has at least 295px width so text is not cut off by right matte
-        if (ws_x + slide_w > screen_w - 295) {
-            slide_w = screen_w - 295 - ws_x;
+        int avail_w = cal_x - ws_x;
+        if (slide_w > avail_w) {
+            slide_w = avail_w;
             slide_h = (int)round((double)slide_w * 9.0 / 16.0);
             news_y = ws_y + slide_h;
         }
-        int cal_x = ws_x + slide_w;
-        int cal_w = screen_w - cal_x;
 
         layout.slideshow_area = { ws_x, ws_y, slide_w, slide_h };
-        // Calendar card extends from top (y=0) to bottom (screen_h) to avoid top background gap
         layout.calendar_area = { cal_x, 0, cal_w, screen_h };
-        layout.news_area = { ws_x, news_y, slide_w, news_h };
+        layout.news_area = { 0, news_y, cal_x, news_h };
     } else if (layout.show_calendar) {
         // Only Calendar enabled:
         int slide_h = ws_h;
-        int slide_w = (int)round((double)slide_h * 16.0 / 9.0); // Exact 16:9
-        if (ws_x + slide_w > screen_w - 295) {
-            slide_w = screen_w - 295 - ws_x;
+        int slide_w = (int)round((double)slide_h * 16.0 / 9.0);
+        int avail_w = cal_x - ws_x;
+        if (slide_w > avail_w) {
+            slide_w = avail_w;
             slide_h = (int)round((double)slide_w * 9.0 / 16.0);
         }
-        int cal_x = ws_x + slide_w;
-        int cal_w = screen_w - cal_x;
 
         layout.slideshow_area = { ws_x, ws_y, slide_w, slide_h };
         layout.calendar_area = { cal_x, 0, cal_w, screen_h };
@@ -321,7 +321,7 @@ static InfopanelLayout calculate_infopanel_layout(int screen_w, int screen_h) {
     } else if (layout.show_news) {
         // Only News enabled:
         int slide_h = news_y - ws_y;
-        int slide_w = (int)round((double)slide_h * 16.0 / 9.0); // Exact 16:9
+        int slide_w = (int)round((double)slide_h * 16.0 / 9.0);
         if (slide_w > ws_w) {
             slide_w = ws_w;
             slide_h = (int)round((double)slide_w * 9.0 / 16.0);
@@ -331,7 +331,7 @@ static InfopanelLayout calculate_infopanel_layout(int screen_w, int screen_h) {
 
         layout.slideshow_area = { ws_x + pad_x, ws_y, slide_w, slide_h };
         layout.calendar_area = { 0, 0, 0, 0 };
-        layout.news_area = { ws_x, news_y, ws_w, news_h };
+        layout.news_area = { 0, news_y, screen_w, news_h };
     }
     
     return layout;
@@ -3030,9 +3030,17 @@ int main(int argc, char** argv) {
                     g_renderer.clear(0, 0, 0, 255);
                     g_transition->update(dt_scaled);
                     g_transition->render(transition_prev_target, transition_next_target, g_renderer.screen_w, g_renderer.screen_h);
+                    InfopanelLayout t_layout = calculate_infopanel_layout(g_renderer.screen_w, g_renderer.screen_h);
                     if (g_overlay) {
+                        std::string font_p = g_overlay->get_font_path();
+                        FontRenderer* fr = g_overlay->get_font_renderer();
+                        if (t_layout.show_calendar) {
+                            g_calendar.render(g_renderer.sdl_renderer, fr, font_p, t_layout.calendar_area, g_renderer.screen_w);
+                        }
+                        if (t_layout.show_news) {
+                            g_news_ticker.render(g_renderer.sdl_renderer, fr, font_p, t_layout.news_area, g_renderer.screen_w);
+                        }
                         bool cur_is_video = (!g_eligible.empty() && current_idx >= 0 && current_idx < std::ssize(g_eligible) && g_eligible[current_idx].type == "video");
-                        InfopanelLayout t_layout = calculate_infopanel_layout(g_renderer.screen_w, g_renderer.screen_h);
                         g_overlay->draw_all(current_idx, std::ssize(g_eligible),
                             &g_eligible[current_idx],
                             nullptr,

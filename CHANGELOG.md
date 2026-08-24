@@ -1,3 +1,15 @@
+### Release v18.0.8 — Independent Smooth Transitions & Full-Bleed Infopanel Alignment (August 24, 2026)
+
+#### Subsystem Decoupling & Transition Smoothing
+- **Decoupled Slideshow Transitions**:
+  - `main.cpp`: Added continuous live rendering of `g_calendar` and `g_news_ticker` during photo/video crossfade and Ken Burns transitions.
+  - When photos change, only the slideshow area crossfades; the Google Calendar agenda and News Ticker stream continuously at 60 FPS without freezing, stuttering, or flashing.
+- **News Streamer Full-Bleed & Bottom Flush Alignment**:
+  - `news_ticker.cpp`, `main.cpp`: Extended news bar backdrop from $X = 0$ all the way to the calendar divider, eliminating the left wallpaper gap. Pinned badges are placed cleanly inside the visible opening.
+  - Anchored news bar flush against the bottom physical matte border ($Y = 1080 - news\_h$).
+- **Google Calendar Header Alignment**:
+  - `calendar.cpp`: Positioned "Monday" header title near the top of the visible area (`cur_y = 24px`), eliminating unused empty black space.
+
 ### Release v18.0.7 — Physical Matte Infopanel Geometry & Alignment Calibration (August 24, 2026)
 
 #### Visual Layout & Position Calibration

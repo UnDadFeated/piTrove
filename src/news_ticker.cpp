@@ -413,9 +413,17 @@ void NewsTicker::render(SDL_Renderer* renderer, FontRenderer* font_renderer, con
         m_global_scroll_offset = std::fmod(m_global_scroll_offset, (float)m_cached_global_total_w);
     }
 
-    // Fixed left pinned badge
+    // Fixed left pinned badge (with padding inside visible matte margin)
     int badge_w = (int)round(110.0 * screen_w / 1920.0);
-    int visible_start_x = bounds.x + badge_w;
+    bool has_matting = false;
+    int mat_size = 0;
+    {
+        std::shared_lock lk_cfg(g_config_mtx);
+        has_matting = g_cfg.matting;
+        mat_size = (int)round((double)g_cfg.matting_size * screen_w / 1920.0);
+    }
+    int badge_start_x = bounds.x + (has_matting ? std::max(0, mat_size - 10) : 0);
+    int visible_start_x = badge_start_x + badge_w;
     int visible_end_x = bounds.x + bounds.w;
 
     // Helper lambda to render a scrolling news row
@@ -454,16 +462,16 @@ void NewsTicker::render(SDL_Renderer* renderer, FontRenderer* font_renderer, con
 
     // 4. Render pinned left badges
     auto render_badge = [&](int y_offset, const std::string& label, uint8_t dot_r_c, uint8_t dot_g_c, uint8_t dot_b_c) {
-        SDL_FRect b_rect = { (float)bounds.x, (float)(bounds.y + y_offset), (float)badge_w, (float)row_h };
+        SDL_FRect b_rect = { (float)badge_start_x, (float)(bounds.y + y_offset), (float)badge_w, (float)row_h };
         SDL_SetRenderDrawColor(renderer, 18, 24, 38, 250);
         SDL_RenderFillRect(renderer, &b_rect);
 
         SDL_SetRenderDrawColor(renderer, 0, 200, 255, 100);
-        SDL_FRect div = { (float)(bounds.x + badge_w - 2), (float)(bounds.y + y_offset), 2.0f, (float)row_h };
+        SDL_FRect div = { (float)(badge_start_x + badge_w - 2), (float)(bounds.y + y_offset), 2.0f, (float)row_h };
         SDL_RenderFillRect(renderer, &div);
 
         int dot_r = (int)round(3.0 * screen_w / 1920.0);
-        int dot_x = bounds.x + (int)round(10.0 * screen_w / 1920.0);
+        int dot_x = badge_start_x + (int)round(10.0 * screen_w / 1920.0);
         int dot_y = bounds.y + y_offset + row_h / 2;
         SDL_FRect dot = { (float)(dot_x - dot_r), (float)(dot_y - dot_r), (float)(dot_r * 2), (float)(dot_r * 2) };
         SDL_SetRenderDrawColor(renderer, dot_r_c, dot_g_c, dot_b_c, 255);
