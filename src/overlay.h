@@ -45,7 +45,7 @@ public:
     std::string get_font_path() const { return overlay_font ? overlay_font->path : "/app/src/fonts/DejaVuSansMono-Bold.ttf"; }
 
     // Render all configured overlays
-    void draw_all(int current_idx, int total_items, const MediaItem* item, const MediaItem* twin_item, double item_timer, bool is_video, int active_fps, const ImageData* current_data, const ImageData* current_twin_data, const std::string& video_remaining = "");
+    void draw_all(int current_idx, int total_items, const MediaItem* item, const MediaItem* twin_item, double item_timer, bool is_video, int active_fps, const ImageData* current_data, const ImageData* current_twin_data, const std::string& video_remaining = "", const SDL_Rect* viewport = nullptr);
     void draw_popup_menu();
     void draw_virtual_keyboard();
     void draw_nav_overlay();
