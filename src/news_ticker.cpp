@@ -422,9 +422,9 @@ void NewsTicker::render(SDL_Renderer* renderer, FontRenderer* font_renderer, con
         has_matting = g_cfg.matting;
         mat_size = (int)round((double)g_cfg.matting_size * screen_w / 1920.0);
     }
-    int badge_start_x = bounds.x + (has_matting ? std::max(0, mat_size - 10) : 0);
-    int visible_start_x = badge_start_x + badge_w;
-    int visible_end_x = bounds.x + bounds.w;
+    int badge_start_x = bounds.x + (has_matting ? mat_size : (int)round(16.0 * screen_w / 1920.0));
+    int visible_start_x = badge_start_x + badge_w + (int)round(6.0 * screen_w / 1920.0);
+    int visible_end_x = has_matting ? (screen_w - mat_size) : (bounds.x + bounds.w);
 
     // Helper lambda to render a scrolling news row
     auto render_news_row = [&](int y_offset, float scroll_offset, const std::vector<std::pair<std::string, int>>& segs) {
