@@ -228,8 +228,8 @@ void NewsTicker::fetch_sync() {
         std::unique_lock lk(m_items_mtx);
         m_local_items = std::move(local_items);
         m_global_items = std::move(global_items);
-        m_cached_local_segs.clear();
-        m_cached_global_segs.clear();
+        m_cached_local_spans.clear();
+        m_cached_global_spans.clear();
         m_cached_local_total_w = 0;
         m_cached_global_total_w = 0;
         m_last_error.store(0);
@@ -340,53 +340,131 @@ void NewsTicker::render(SDL_Renderer* renderer, FontRenderer* font_renderer, con
 
     FontHandle& font = font_renderer->load_font(font_path, font_size);
 
-    // 2. Build local and global segments if empty or font size changed
+    // 2. Build colorized local and global spans if empty or font size changed
     {
         std::shared_lock lk(m_items_mtx);
-        if (m_cached_local_segs.empty() || m_cached_font_size != font_size) {
-            m_cached_local_segs.clear();
+        if (m_cached_local_spans.empty() || m_cached_font_size != font_size) {
+            m_cached_local_spans.clear();
             m_cached_local_total_w = 0;
             m_cached_font_size = font_size;
 
             if (m_local_items.empty()) {
+                NewsHeadlineSpan span;
                 std::string s = "   piTrove Local News  •  Updating latest headlines...   •   ";
                 int w = 0, h = 0;
                 font_renderer->measure(font, s, w, h);
-                m_cached_local_segs.push_back({s, w});
+                span.tokens.push_back({s, w, {200, 215, 230, 255}});
+                span.total_w = w;
+                m_cached_local_spans.push_back(span);
                 m_cached_local_total_w = w;
             } else {
                 for (const auto& item : m_local_items) {
-                    std::string s = "   [" + item.formatted_time + "] " + item.title;
-                    if (!item.source.empty()) s += " (" + item.source + ")";
-                    s += "   •   ";
-                    int w = 0, h = 0;
-                    font_renderer->measure(font, s, w, h);
-                    m_cached_local_segs.push_back({s, w});
-                    m_cached_local_total_w += w;
+                    NewsHeadlineSpan span;
+                    int item_w = 0;
+
+                    // Timestamp in Warm Amber / Gold
+                    if (!item.formatted_time.empty()) {
+                        std::string t_str = "   [" + item.formatted_time + "] ";
+                        int tw = 0, th = 0;
+                        font_renderer->measure(font, t_str, tw, th);
+                        span.tokens.push_back({t_str, tw, {255, 185, 55, 255}});
+                        item_w += tw;
+                    } else {
+                        std::string sp = "   ";
+                        int tw = 0, th = 0;
+                        font_renderer->measure(font, sp, tw, th);
+                        span.tokens.push_back({sp, tw, {255, 255, 255, 255}});
+                        item_w += tw;
+                    }
+
+                    // Headline Title in Crisp White
+                    int title_w = 0, title_h = 0;
+                    font_renderer->measure(font, item.title, title_w, title_h);
+                    span.tokens.push_back({item.title, title_w, {245, 248, 255, 255}});
+                    item_w += title_w;
+
+                    // Source in Soft Sky Cyan
+                    if (!item.source.empty()) {
+                        std::string src_str = " (" + item.source + ")";
+                        int sw = 0, sh = 0;
+                        font_renderer->measure(font, src_str, sw, sh);
+                        span.tokens.push_back({src_str, sw, {90, 200, 250, 230}});
+                        item_w += sw;
+                    }
+
+                    // Separator bullet in Electric Amber
+                    std::string bul = "   •   ";
+                    int bw = 0, bh = 0;
+                    font_renderer->measure(font, bul, bw, bh);
+                    span.tokens.push_back({bul, bw, {255, 160, 30, 200}});
+                    item_w += bw;
+
+                    span.total_w = item_w;
+                    m_cached_local_spans.push_back(span);
+                    m_cached_local_total_w += item_w;
                 }
             }
             if (m_cached_local_total_w <= 0) m_cached_local_total_w = 100;
         }
 
-        if (m_cached_global_segs.empty() || m_cached_font_size != font_size) {
-            m_cached_global_segs.clear();
+        if (m_cached_global_spans.empty() || m_cached_font_size != font_size) {
+            m_cached_global_spans.clear();
             m_cached_global_total_w = 0;
 
             if (m_global_items.empty()) {
+                NewsHeadlineSpan span;
                 std::string s = "   piTrove World News  •  Updating latest headlines...   •   ";
                 int w = 0, h = 0;
                 font_renderer->measure(font, s, w, h);
-                m_cached_global_segs.push_back({s, w});
+                span.tokens.push_back({s, w, {200, 215, 230, 255}});
+                span.total_w = w;
+                m_cached_global_spans.push_back(span);
                 m_cached_global_total_w = w;
             } else {
                 for (const auto& item : m_global_items) {
-                    std::string s = "   [" + item.formatted_time + "] " + item.title;
-                    if (!item.source.empty()) s += " (" + item.source + ")";
-                    s += "   •   ";
-                    int w = 0, h = 0;
-                    font_renderer->measure(font, s, w, h);
-                    m_cached_global_segs.push_back({s, w});
-                    m_cached_global_total_w += w;
+                    NewsHeadlineSpan span;
+                    int item_w = 0;
+
+                    // Timestamp in Sky Ice Blue
+                    if (!item.formatted_time.empty()) {
+                        std::string t_str = "   [" + item.formatted_time + "] ";
+                        int tw = 0, th = 0;
+                        font_renderer->measure(font, t_str, tw, th);
+                        span.tokens.push_back({t_str, tw, {100, 215, 255, 255}});
+                        item_w += tw;
+                    } else {
+                        std::string sp = "   ";
+                        int tw = 0, th = 0;
+                        font_renderer->measure(font, sp, tw, th);
+                        span.tokens.push_back({sp, tw, {255, 255, 255, 255}});
+                        item_w += tw;
+                    }
+
+                    // Headline Title in Crisp White
+                    int title_w = 0, title_h = 0;
+                    font_renderer->measure(font, item.title, title_w, title_h);
+                    span.tokens.push_back({item.title, title_w, {245, 248, 255, 255}});
+                    item_w += title_w;
+
+                    // Source in Soft Mint
+                    if (!item.source.empty()) {
+                        std::string src_str = " (" + item.source + ")";
+                        int sw = 0, sh = 0;
+                        font_renderer->measure(font, src_str, sw, sh);
+                        span.tokens.push_back({src_str, sw, {120, 225, 180, 230}});
+                        item_w += sw;
+                    }
+
+                    // Separator bullet in Electric Cyan
+                    std::string bul = "   •   ";
+                    int bw = 0, bh = 0;
+                    font_renderer->measure(font, bul, bw, bh);
+                    span.tokens.push_back({bul, bw, {0, 210, 255, 200}});
+                    item_w += bw;
+
+                    span.total_w = item_w;
+                    m_cached_global_spans.push_back(span);
+                    m_cached_global_total_w += item_w;
                 }
             }
             if (m_cached_global_total_w <= 0) m_cached_global_total_w = 100;
@@ -423,39 +501,45 @@ void NewsTicker::render(SDL_Renderer* renderer, FontRenderer* font_renderer, con
     int visible_start_x = badge_start_x + badge_w + (int)round(6.0 * screen_w / 1920.0);
     int visible_end_x = has_matting ? (screen_w - (int)round((double)mat_size * 0.8)) : (bounds.x + bounds.w);
 
-    // Helper lambda to render a scrolling news row
-    auto render_news_row = [&](int y_offset, float scroll_offset, const std::vector<std::pair<std::string, int>>& segs) {
+    // Helper lambda to render colorized scrolling news row
+    auto render_news_row = [&](int y_offset, float scroll_offset, const std::vector<NewsHeadlineSpan>& spans) {
         SDL_Rect clip_rect = { visible_start_x, bounds.y + y_offset, bounds.w - badge_w, row_h };
         SDL_SetRenderClipRect(renderer, &clip_rect);
 
         int text_y = bounds.y + y_offset + (row_h - font_size) / 2 - 1;
         int cur_x = visible_start_x - (int)scroll_offset;
 
-        size_t start_seg_idx = 0;
-        while (start_seg_idx < segs.size() && cur_x + segs[start_seg_idx].second < visible_start_x) {
-            cur_x += segs[start_seg_idx].second;
-            start_seg_idx++;
+        size_t start_span_idx = 0;
+        while (start_span_idx < spans.size() && cur_x + spans[start_span_idx].total_w < visible_start_x) {
+            cur_x += spans[start_span_idx].total_w;
+            start_span_idx++;
         }
 
-        size_t seg_idx = start_seg_idx;
+        size_t span_idx = start_span_idx;
         int loop_guard = 0;
-        while (cur_x < visible_end_x && !segs.empty() && ++loop_guard < 100) {
-            const auto& seg = segs[seg_idx % segs.size()];
-            if (cur_x + seg.second > visible_start_x && cur_x < visible_end_x) {
-                font_renderer->draw_text(cur_x, text_y, font, seg.first, 235, 240, 250, 255);
+        while (cur_x < visible_end_x && !spans.empty() && ++loop_guard < 100) {
+            const auto& span = spans[span_idx % spans.size()];
+            if (cur_x + span.total_w > visible_start_x && cur_x < visible_end_x) {
+                int tok_x = cur_x;
+                for (const auto& tok : span.tokens) {
+                    if (tok_x + tok.w > visible_start_x && tok_x < visible_end_x) {
+                        font_renderer->draw_text(tok_x, text_y, font, tok.text, tok.color.r, tok.color.g, tok.color.b, tok.color.a);
+                    }
+                    tok_x += tok.w;
+                }
             }
-            cur_x += seg.second;
-            seg_idx++;
+            cur_x += span.total_w;
+            span_idx++;
         }
 
         SDL_SetRenderClipRect(renderer, nullptr);
     };
 
     // Render Row 1: Local News
-    render_news_row(0, m_local_scroll_offset, m_cached_local_segs);
+    render_news_row(0, m_local_scroll_offset, m_cached_local_spans);
 
     // Render Row 2: Global News
-    render_news_row(row_h, m_global_scroll_offset, m_cached_global_segs);
+    render_news_row(row_h, m_global_scroll_offset, m_cached_global_spans);
 
     // 4. Render pinned left badges
     auto render_badge = [&](int y_offset, const std::string& label, uint8_t dot_r_c, uint8_t dot_g_c, uint8_t dot_b_c) {

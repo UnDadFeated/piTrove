@@ -128,7 +128,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # Establish runtime directory tree
 WORKDIR /app
-RUN mkdir -p /app/cache /app/config /app/logs /app/subtitles /app/media
+RUN mkdir -p /app/cache /app/config /app/logs /app/subtitles /app/screenshots /app/media
 
 # Deploy compiled binary
 COPY --from=builder /build-src/src/piTrove /app/piTrove

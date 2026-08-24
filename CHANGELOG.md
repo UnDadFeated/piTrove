@@ -1,3 +1,18 @@
+### Release v18.0.13 — Vibrant Colorized News Feed & Persistent Timestamped Screenshots (August 24, 2026)
+
+#### News Feed Colorization & Visual Hierarchy
+- **Multi-Token Colorized Headlines (`news_ticker.h`, `news_ticker.cpp`)**:
+  - Structured headline spans into distinct tokens for timestamps, titles, source tags, and separator bullets.
+  - **Local News**: Amber/Gold timestamps `[04:06 PM]`, Crisp White titles, Sky Cyan sources `(FOX40)`, and Amber bullet accents.
+  - **World News**: Ice Sky Blue timestamps `[01:19 PM]`, Crisp White titles, Soft Mint sources `(BBC)`, and Electric Cyan bullet accents.
+
+#### Persistent Screenshot Storage
+- **Timestamped File Archive (`http_server.cpp`, `docker-compose.yml`)**:
+  - Saved live screenshots into `/home/pi/piTrove/screenshots/screenshot_YYYYMMDD_HHMMSS.png`.
+  - Added auto-retention policy preserving the 50 most recent captures.
+  - Added `GET /api/screenshots` to list all historical captures in JSON format.
+  - Added `GET /api/screenshots/<filename>` to view or download individual captures.
+
 ### Release v18.0.12 — Skinny 2-Line News UI & Unbroken Blue Separator (August 24, 2026)
 
 #### Visual Alignments & Skinny News UI
