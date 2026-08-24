@@ -1,3 +1,11 @@
+### Release v18.0.2 — Segmented Live News Ticker & OpenGL Texture Optimization (August 24, 2026)
+
+#### News Ticker Subsystem
+- **Segmented Headline Rendering**:
+  - `news_ticker.h`, `news_ticker.cpp`: Refactored headline streamer to render individual news segments (~600–1200px width) rather than concatenating 30+ headlines into a single massive 30,000px text surface.
+  - **OpenGL Max Texture Limit Fix**: Eliminates silent texture allocation failures on VideoCore GPU hardware caused by exceeding `GL_MAX_TEXTURE_SIZE` limits.
+  - Added smooth loop wrap-around and sub-pixel scrolling with continuous clip rect bounding.
+
 ### Release v18.0.1 — 16:9 Slideshow Geometry & Dynamic Overlay Positioning (August 24, 2026)
 
 #### Layout & Infopanel Geometry

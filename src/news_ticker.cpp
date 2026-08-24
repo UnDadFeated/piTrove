@@ -160,8 +160,8 @@ void NewsTicker::parse_rss(const std::string& xml_data) {
     if (!parsed_items.empty()) {
         std::unique_lock lk(m_items_mtx);
         m_items = std::move(parsed_items);
-        m_cached_ticker_str.clear();
-        m_cached_text_width = 0;
+        m_cached_segments.clear();
+        m_cached_total_width = 0;
         m_last_error.store(0);
         m_last_fetch_time.store(now);
         g_logger.info("NEWS: Successfully loaded {} headlines in timezone {}", m_items.size(), tz);
@@ -276,23 +276,6 @@ void NewsTicker::render(SDL_Renderer* renderer, FontRenderer* font_renderer, con
     SDL_FRect top_line = { (float)bounds.x, (float)bounds.y, (float)bounds.w, 2.0f };
     SDL_RenderFillRect(renderer, &top_line);
 
-    // 2. Build ticker string if empty or changed
-    std::string ticker_text;
-    {
-        std::shared_lock lk(m_items_mtx);
-        if (m_items.empty()) {
-            ticker_text = "  piTrove Live News  •  Updating latest headlines...  ";
-        } else {
-            std::ostringstream ss;
-            for (const auto& item : m_items) {
-                ss << "   [" << item.formatted_time << "] " << item.title;
-                if (!item.source.empty()) ss << " (" << item.source << ")";
-                ss << "   •  ";
-            }
-            ticker_text = ss.str();
-        }
-    }
-
     int font_size = 14;
     int scroll_speed = 60;
     {
@@ -304,11 +287,33 @@ void NewsTicker::render(SDL_Renderer* renderer, FontRenderer* font_renderer, con
 
     FontHandle& font = font_renderer->load_font(font_path, font_size);
 
-    if (m_cached_ticker_str != ticker_text || m_cached_text_width <= 0) {
-        m_cached_ticker_str = ticker_text;
-        int tw = 0, th = 0;
-        font_renderer->measure(font, m_cached_ticker_str, tw, th);
-        m_cached_text_width = (tw < 100) ? 100 : tw;
+    // 2. Build individual segments if empty or font size changed
+    {
+        std::shared_lock lk(m_items_mtx);
+        if (m_cached_segments.empty() || m_cached_font_size != font_size) {
+            m_cached_segments.clear();
+            m_cached_total_width = 0;
+            m_cached_font_size = font_size;
+
+            if (m_items.empty()) {
+                std::string default_str = "   piTrove Live News  •  Updating latest headlines...   •   ";
+                int w = 0, h = 0;
+                font_renderer->measure(font, default_str, w, h);
+                m_cached_segments.push_back({default_str, w});
+                m_cached_total_width = w;
+            } else {
+                for (const auto& item : m_items) {
+                    std::string seg = "   [" + item.formatted_time + "] " + item.title;
+                    if (!item.source.empty()) seg += " (" + item.source + ")";
+                    seg += "   •   ";
+                    int w = 0, h = 0;
+                    font_renderer->measure(font, seg, w, h);
+                    m_cached_segments.push_back({seg, w});
+                    m_cached_total_width += w;
+                }
+            }
+            if (m_cached_total_width <= 0) m_cached_total_width = 100;
+        }
     }
 
     // 3. Compute continuous scrolling offset
@@ -316,25 +321,42 @@ void NewsTicker::render(SDL_Renderer* renderer, FontRenderer* font_renderer, con
     if (m_last_render_ticks == 0) m_last_render_ticks = now_ticks;
     float dt = (now_ticks - m_last_render_ticks) / 1000.0f;
     m_last_render_ticks = now_ticks;
-    if (dt > 0.5f) dt = 0.016f; // Avoid huge jump on pause/unpause
+    if (dt > 0.5f) dt = 0.016f; // Avoid jump on pause/unpause
 
     m_scroll_offset += (float)scroll_speed * dt;
-    if (m_scroll_offset >= (float)m_cached_text_width) {
-        m_scroll_offset = 0.0f;
+    if (m_scroll_offset >= (float)m_cached_total_width) {
+        m_scroll_offset = std::fmod(m_scroll_offset, (float)m_cached_total_width);
     }
 
-    // Fixed left pinned badge: [ LIVE NEWS • PST ]
-    int badge_w = (int)round(160.0 * screen_w / 1920.0);
-    SDL_Rect clip_rect = { bounds.x + badge_w, bounds.y, bounds.w - badge_w, bounds.h };
+    // Fixed left pinned badge: [ LIVE NEWS ]
+    int badge_w = (int)round(150.0 * screen_w / 1920.0);
+    int visible_start_x = bounds.x + badge_w;
+    int visible_end_x = bounds.x + bounds.w;
+
+    // Set clipping rectangle so text only scrolls in the visible stream area
+    SDL_Rect clip_rect = { visible_start_x, bounds.y, bounds.w - badge_w, bounds.h };
     SDL_SetRenderClipRect(renderer, &clip_rect);
 
     int text_y = bounds.y + (bounds.h - font_size) / 2 - 2;
-    int start_x = bounds.x + badge_w - (int)m_scroll_offset;
+    int cur_x = visible_start_x - (int)m_scroll_offset;
 
-    // Draw primary string and loop extension so there's never an empty gap
-    font_renderer->draw_text(start_x, text_y, font, m_cached_ticker_str, 235, 240, 250, 255);
-    if (start_x + m_cached_text_width < bounds.x + bounds.w) {
-        font_renderer->draw_text(start_x + m_cached_text_width, text_y, font, m_cached_ticker_str, 235, 240, 250, 255);
+    // Fast forward to first visible segment
+    size_t start_seg_idx = 0;
+    while (start_seg_idx < m_cached_segments.size() && cur_x + m_cached_segments[start_seg_idx].second < visible_start_x) {
+        cur_x += m_cached_segments[start_seg_idx].second;
+        start_seg_idx++;
+    }
+
+    // Draw all segments visible in the viewport, wrapping around smoothly
+    size_t seg_idx = start_seg_idx;
+    int loop_guard = 0;
+    while (cur_x < visible_end_x && !m_cached_segments.empty() && ++loop_guard < 100) {
+        const auto& seg = m_cached_segments[seg_idx % m_cached_segments.size()];
+        if (cur_x + seg.second > visible_start_x && cur_x < visible_end_x) {
+            font_renderer->draw_text(cur_x, text_y, font, seg.first, 235, 240, 250, 255);
+        }
+        cur_x += seg.second;
+        seg_idx++;
     }
 
     // Reset clip rect before drawing badge
