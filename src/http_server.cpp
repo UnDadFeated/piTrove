@@ -1349,11 +1349,12 @@ static std::string get_dashboard_html() {
                                 </select>
                             </div>
                             <div class="form-group">
-                                <label for="set-news-source">News Source</label>
-                                <select id="set-news-source" style="width:100%; padding:0.4rem; border-radius:8px; border:1px solid var(--card-border); background:var(--card-bg); color:var(--text-main); color-scheme:dark;">
-                                    <option value="global">Global World News</option>
-                                    <option value="local">Local News</option>
-                                </select>
+                                <label for="set-news-query">News Zipcode / Location</label>
+                                <input type="text" id="set-news-query" placeholder="e.g. 10001 or 95624" style="width:100%; padding:0.4rem; border-radius:8px; border:1px solid var(--card-border); background:var(--card-bg); color:var(--text-main);">
+                            </div>
+                            <div class="form-group">
+                                <label for="set-news-blacklist">Blacklist News Domains</label>
+                                <input type="text" id="set-news-blacklist" placeholder="e.g. realtor.com" style="width:100%; padding:0.4rem; border-radius:8px; border:1px solid var(--card-border); background:var(--card-bg); color:var(--text-main);">
                             </div>
                         </div>
                         <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 0.8rem; margin-bottom: 0.6rem;">
@@ -1477,6 +1478,9 @@ static std::string get_dashboard_html() {
                     if (document.getElementById('set-news-query') && settings.news_local_query) {
                         document.getElementById('set-news-query').value = settings.news_local_query;
                     }
+                    if (document.getElementById('set-news-blacklist') && settings.news_blacklist) {
+                        document.getElementById('set-news-blacklist').value = settings.news_blacklist;
+                    }
                     if (document.getElementById('set-gcalendar-enabled')) {
                         document.getElementById('set-gcalendar-enabled').checked = !!settings.gcalendar_enabled;
                     }
@@ -1514,6 +1518,7 @@ static std::string get_dashboard_html() {
             const news = (document.getElementById('set-news-enabled') && document.getElementById('set-news-enabled').checked) ? "1" : "0";
             const newsSrc = document.getElementById('set-news-source') ? encodeURIComponent(document.getElementById('set-news-source').value) : "global";
             const newsQuery = document.getElementById('set-news-query') ? encodeURIComponent(document.getElementById('set-news-query').value) : "10001";
+            const newsBl = document.getElementById('set-news-blacklist') ? encodeURIComponent(document.getElementById('set-news-blacklist').value) : "realtor.com";
             const gcal = (document.getElementById('set-gcalendar-enabled') && document.getElementById('set-gcalendar-enabled').checked) ? "1" : "0";
             const gcalName = document.getElementById('set-gcalendar-name') ? encodeURIComponent(document.getElementById('set-gcalendar-name').value) : "Family";
             const gcalUrl = document.getElementById('set-gcalendar-url') ? encodeURIComponent(document.getElementById('set-gcalendar-url').value) : "";
@@ -1521,7 +1526,7 @@ static std::string get_dashboard_html() {
             
             try {
                 const apiKey = document.getElementById('set-api-key').value;
-                const url = `/api/settings/update?timezone=${tz}&infopanels_enabled=${info}&news_enabled=${news}&news_source=${newsSrc}&news_local_query=${newsQuery}&gcalendar_enabled=${gcal}&gcalendar_name=${gcalName}&gcalendar_ical_url=${gcalUrl}&transition_delay=${delay}&video_volume=${volume}&shuffle=${shuffle}&ken_burns=${kenBurns}&blurred_background=${blurredBg}&color_matched_matte=${matte}&matting=${matting}&matting_size=${mattingSize}&touch_enabled=${touch}&geotag_enabled=${geotag}`;
+                const url = `/api/settings/update?timezone=${tz}&infopanels_enabled=${info}&news_enabled=${news}&news_source=${newsSrc}&news_local_query=${newsQuery}&news_blacklist=${newsBl}&gcalendar_enabled=${gcal}&gcalendar_name=${gcalName}&gcalendar_ical_url=${gcalUrl}&transition_delay=${delay}&video_volume=${volume}&shuffle=${shuffle}&ken_burns=${kenBurns}&blurred_background=${blurredBg}&color_matched_matte=${matte}&matting=${matting}&matting_size=${mattingSize}&touch_enabled=${touch}&geotag_enabled=${geotag}`;
                 const headers = {};
                 if (apiKey) {
                     headers['Authorization'] = 'Bearer ' + apiKey;
@@ -1894,6 +1899,7 @@ static std::string get_api_settings() {
   "news_enabled": {},
   "news_source": "{}",
   "news_local_query": "{}",
+  "news_blacklist": "{}",
   "news_refresh_minutes": {},
   "news_scroll_speed": {},
   "news_font_size": {},
@@ -1946,6 +1952,7 @@ static std::string get_api_settings() {
         g_cfg.news_enabled,
         escape_json(g_cfg.news_source),
         escape_json(g_cfg.news_local_query),
+        escape_json([&](){ std::string r; for (size_t k=0; k<g_cfg.news_blacklist.size(); ++k) { if(k>0) r += ", "; r += g_cfg.news_blacklist[k]; } return r; }()),
         g_cfg.news_refresh_minutes,
         g_cfg.news_scroll_speed,
         g_cfg.news_font_size,
@@ -2484,6 +2491,20 @@ static void handle_client(int client_fd) {
                             g_logger.info("HTTP: Updated news local query/zipcode to '{}'", val);
                             g_news_ticker.fetch_sync();
                         }
+                    }
+                    if (has_query_param(request, "news_blacklist")) {
+                        std::string val = get_query_param(request, "news_blacklist");
+                        std::vector<std::string> bl;
+                        std::stringstream ss(val);
+                        std::string dom;
+                        while (std::getline(ss, dom, ',')) {
+                            dom = trim(dom);
+                            if (!dom.empty()) bl.push_back(dom);
+                        }
+                        g_cfg.news_blacklist = bl;
+                        changed = true;
+                        g_logger.info("HTTP: Updated news blacklist ({} entries)", bl.size());
+                        g_news_ticker.fetch_sync();
                     }
                     if (has_query_param(request, "gcalendar_enabled")) {
                         std::string val = get_query_param(request, "gcalendar_enabled");

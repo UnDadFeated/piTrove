@@ -282,12 +282,13 @@ static InfopanelLayout calculate_infopanel_layout(int screen_w, int screen_h) {
         return layout;
     }
 
-    // Two-line news streamer height (~52px on 888px usable height, scaled proportionally)
-    int news_h = layout.show_news ? std::clamp((int)round(52.0 * ws_h / 888.0), 44, 60) : 0;
-    // Move news panel down about ~0.5" (48px) to meet the bottom 1" matte cleanly
-    int news_shift_y = (has_matting && layout.show_news) ? g_renderer.scale_px(48) : 0;
-    // Extend calendar right border by 25px to seamlessly meet the right 1" matte
+    // Two-line news streamer height: exactly 2 compact rows (48px total height, 24px per row)
+    int news_h = layout.show_news ? 48 : 0;
+    // Move news panel down to meet bottom 1" matte (+5px fine-tune)
+    int news_shift_y = (has_matting && layout.show_news) ? (g_renderer.scale_px(48) + 5) : 0;
+    // Move calendar left by 5px fine-tune and extend right border by 25px + 5px
     int cal_ext_x = has_matting ? 25 : 0;
+    int cal_shift_left = 5;
 
     if (layout.show_news && layout.show_calendar) {
         // Both Calendar & News enabled:
@@ -302,7 +303,7 @@ static InfopanelLayout calculate_infopanel_layout(int screen_w, int screen_h) {
         }
 
         layout.slideshow_area = { ws_x, ws_y, slide_w, slide_h };
-        layout.calendar_area = { ws_x + slide_w, ws_y, cal_w + cal_ext_x, effective_h };
+        layout.calendar_area = { ws_x + slide_w - cal_shift_left, ws_y, cal_w + cal_ext_x + cal_shift_left, effective_h };
         layout.news_area = { ws_x, ws_y + slide_h, slide_w, news_h };
     } else if (layout.show_calendar) {
         // Only Calendar enabled:
@@ -317,7 +318,7 @@ static InfopanelLayout calculate_infopanel_layout(int screen_w, int screen_h) {
         int pad_y = (ws_h - slide_h) / 2;
 
         layout.slideshow_area = { ws_x, ws_y + pad_y, slide_w, slide_h };
-        layout.calendar_area = { ws_x + slide_w, ws_y, cal_w + cal_ext_x, ws_h };
+        layout.calendar_area = { ws_x + slide_w - cal_shift_left, ws_y, cal_w + cal_ext_x + cal_shift_left, ws_h };
         layout.news_area = { 0, 0, 0, 0 };
     } else if (layout.show_news) {
         // Only News enabled:

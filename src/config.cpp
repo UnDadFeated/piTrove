@@ -552,6 +552,10 @@ bool Config::save(const std::string& path) {
     f << "enabled = " << (this->news_enabled ? "1" : "0") << "\n";
     f << "source = \"" << this->news_source << "\"\n";
     f << "local_query = \"" << this->news_local_query << "\"\n";
+    f << "blacklist = [";
+    for (size_t j = 0; j < this->news_blacklist.size(); j++)
+        f << "\"" << this->news_blacklist[j] << "\"" << (j < this->news_blacklist.size() - 1 ? ", " : "");
+    f << "]\n";
     f << "refresh_minutes = " << this->news_refresh_minutes << "\n";
     f << "scroll_speed = " << this->news_scroll_speed << "\n";
     f << "font_size = " << this->news_font_size << "\n\n";

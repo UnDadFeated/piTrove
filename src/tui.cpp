@@ -243,9 +243,10 @@ void config_wizard(const std::string& config_path) {
         {"News Ticker", TGL, "Show live scrolling news headlines ticker at bottom of screen"},
         {"News Source", ENM, "Live news feed type (global, local)"},
         {"News Zipcode/Loc", STR, "Zipcode (e.g. 10001, 95624) or city query for top-line local news"},
+        {"Blacklist News", STR, "Comma-separated domains/sources to exclude (e.g. realtor.com)"},
         {"News Refresh Mins", INT, "Minutes between background news headline updates (5-120)"},
-        {"News Scroll Speed", INT, "Horizontal scrolling speed in pixels per second (10-300)"},
-        {"News Font Size", INT, "Font size in pixels for news ticker (10-24)"},
+        {"News Scroll Speed", INT, "Horizontal scrolling speed in pixels per second (10-150)"},
+        {"News Font Size", INT, "Font size in pixels for news ticker (9-16)"},
         {"Google Calendar", TGL, "Show Google Calendar agenda sidebar panel"},
         {"Calendar Source", ENM, "Sync method (ical, api)"},
         {"Calendar Name", STR, "Name of the calendar to sync/display (e.g. Family)"},
@@ -427,15 +428,23 @@ void config_wizard(const std::string& config_path) {
             case 2: return g_cfg.news_enabled ? "[ON]" : "[OFF]";
             case 3: return g_cfg.news_source;
             case 4: return g_cfg.news_local_query;
-            case 5: return std::format("{}", g_cfg.news_refresh_minutes);
-            case 6: return std::format("{}", g_cfg.news_scroll_speed);
-            case 7: return std::format("{}", g_cfg.news_font_size);
-            case 8: return g_cfg.gcalendar_enabled ? "[ON]" : "[OFF]";
-            case 9: return g_cfg.gcalendar_source_type;
-            case 10: return g_cfg.gcalendar_name;
-            case 11: return g_cfg.gcalendar_ical_url;
-            case 12: return std::format("{}", g_cfg.gcalendar_refresh_minutes);
-            case 13: return std::format("{}", g_cfg.gcalendar_max_events);
+            case 5: {
+                std::string res;
+                for (size_t k = 0; k < g_cfg.news_blacklist.size(); ++k) {
+                    if (k > 0) res += ", ";
+                    res += g_cfg.news_blacklist[k];
+                }
+                return res;
+            }
+            case 6: return std::format("{}", g_cfg.news_refresh_minutes);
+            case 7: return std::format("{}", g_cfg.news_scroll_speed);
+            case 8: return std::format("{}", g_cfg.news_font_size);
+            case 9: return g_cfg.gcalendar_enabled ? "[ON]" : "[OFF]";
+            case 10: return g_cfg.gcalendar_source_type;
+            case 11: return g_cfg.gcalendar_name;
+            case 12: return g_cfg.gcalendar_ical_url;
+            case 13: return std::format("{}", g_cfg.gcalendar_refresh_minutes);
+            case 14: return std::format("{}", g_cfg.gcalendar_max_events);
         }
         return "";
     };
@@ -621,15 +630,28 @@ void config_wizard(const std::string& config_path) {
                     g_news_ticker.fetch_sync();
                     break;
                 }
-                case 5:{ try { g_cfg.news_refresh_minutes=std::clamp(std::stoi(v), 5, 120); } catch(...) {} break; }
-                case 6:{ try { g_cfg.news_scroll_speed=std::clamp(std::stoi(v), 10, 300); } catch(...) {} break; }
-                case 7:{ try { g_cfg.news_font_size=std::clamp(std::stoi(v), 10, 24); } catch(...) {} break; }
-                case 8:g_cfg.gcalendar_enabled=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
-                case 9:g_cfg.gcalendar_source_type=v;break;
-                case 10:g_cfg.gcalendar_name=v;break;
-                case 11:g_cfg.gcalendar_ical_url=v;break;
-                case 12:{ try { g_cfg.gcalendar_refresh_minutes=std::clamp(std::stoi(v), 5, 120); } catch(...) {} break; }
-                case 13:{ try { g_cfg.gcalendar_max_events=std::clamp(std::stoi(v), 1, 16); } catch(...) {} break; }
+                case 5:{
+                    std::vector<std::string> bl;
+                    std::stringstream ss(v);
+                    std::string dom;
+                    while (std::getline(ss, dom, ',')) {
+                        dom = trim(dom);
+                        if (!dom.empty()) bl.push_back(dom);
+                    }
+                    g_cfg.news_blacklist = bl;
+                    g_logger.info("TUI: Updated news domain blacklist ({} entries)", bl.size());
+                    g_news_ticker.fetch_sync();
+                    break;
+                }
+                case 6:{ try { g_cfg.news_refresh_minutes=std::clamp(std::stoi(v), 5, 120); } catch(...) {} break; }
+                case 7:{ try { g_cfg.news_scroll_speed=std::clamp(std::stoi(v), 10, 150); } catch(...) {} break; }
+                case 8:{ try { g_cfg.news_font_size=std::clamp(std::stoi(v), 9, 16); } catch(...) {} break; }
+                case 9:g_cfg.gcalendar_enabled=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
+                case 10:g_cfg.gcalendar_source_type=v;break;
+                case 11:g_cfg.gcalendar_name=v;break;
+                case 12:g_cfg.gcalendar_ical_url=v;break;
+                case 13:{ try { g_cfg.gcalendar_refresh_minutes=std::clamp(std::stoi(v), 5, 120); } catch(...) {} break; }
+                case 14:{ try { g_cfg.gcalendar_max_events=std::clamp(std::stoi(v), 1, 16); } catch(...) {} break; }
             }
         } catch(...) {}
     };
