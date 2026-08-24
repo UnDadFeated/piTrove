@@ -283,53 +283,22 @@ static InfopanelLayout calculate_infopanel_layout(int screen_w, int screen_h) {
 
     // Exactly 2 compact rows for news (44px total height, 22px per row)
     int news_h = layout.show_news ? 44 : 0;
-    // Anchor news panel flush against the bottom edge
-    int news_y = layout.show_news ? (screen_h - (has_matting ? std::max(10, mat_size - 45) : 0) - news_h) : screen_h;
-    if (news_y > screen_h - news_h) news_y = screen_h - news_h;
+    int news_y = layout.show_news ? (screen_h - news_h) : screen_h;
 
     // Calendar width (285px)
     int cal_w = layout.show_calendar ? std::clamp((int)round(285.0 * screen_w / 1920.0), 250, screen_w / 3) : 0;
     int cal_x = screen_w - cal_w;
 
     if (layout.show_news && layout.show_calendar) {
-        // Both Calendar & News enabled:
-        int slide_h = news_y - ws_y;
-        int slide_w = (int)round((double)slide_h * 16.0 / 9.0); // Exact 16:9
-        int avail_w = cal_x - ws_x;
-        if (slide_w > avail_w) {
-            slide_w = avail_w;
-            slide_h = (int)round((double)slide_w * 9.0 / 16.0);
-            news_y = ws_y + slide_h;
-        }
-
-        layout.slideshow_area = { ws_x, ws_y, slide_w, slide_h };
+        layout.slideshow_area = { ws_x, ws_y, cal_x - ws_x, news_y - ws_y };
         layout.calendar_area = { cal_x, 0, cal_w, screen_h };
         layout.news_area = { 0, news_y, cal_x, news_h };
     } else if (layout.show_calendar) {
-        // Only Calendar enabled:
-        int slide_h = ws_h;
-        int slide_w = (int)round((double)slide_h * 16.0 / 9.0);
-        int avail_w = cal_x - ws_x;
-        if (slide_w > avail_w) {
-            slide_w = avail_w;
-            slide_h = (int)round((double)slide_w * 9.0 / 16.0);
-        }
-
-        layout.slideshow_area = { ws_x, ws_y, slide_w, slide_h };
+        layout.slideshow_area = { ws_x, ws_y, cal_x - ws_x, ws_h };
         layout.calendar_area = { cal_x, 0, cal_w, screen_h };
         layout.news_area = { 0, 0, 0, 0 };
     } else if (layout.show_news) {
-        // Only News enabled:
-        int slide_h = news_y - ws_y;
-        int slide_w = (int)round((double)slide_h * 16.0 / 9.0);
-        if (slide_w > ws_w) {
-            slide_w = ws_w;
-            slide_h = (int)round((double)slide_w * 9.0 / 16.0);
-            news_y = ws_y + slide_h;
-        }
-        int pad_x = (ws_w - slide_w) / 2;
-
-        layout.slideshow_area = { ws_x + pad_x, ws_y, slide_w, slide_h };
+        layout.slideshow_area = { ws_x, ws_y, ws_w, news_y - ws_y };
         layout.calendar_area = { 0, 0, 0, 0 };
         layout.news_area = { 0, news_y, screen_w, news_h };
     }
