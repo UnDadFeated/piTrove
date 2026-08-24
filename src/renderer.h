@@ -6,7 +6,15 @@
 #include <string>
 #include <vector>
 #include <mutex>
+#include <atomic>
+#include <condition_variable>
 #include "font_render.h"
+
+inline std::atomic<bool> g_screenshot_requested{false};
+inline std::mutex g_screenshot_mtx;
+inline std::condition_variable g_screenshot_cv;
+inline std::atomic<bool> g_screenshot_ready{false};
+inline std::string g_screenshot_out_path = "/app/cache/screenshot.png";
 #include "image_loader.h"
 
 // Color structure matching custom rendering needs
