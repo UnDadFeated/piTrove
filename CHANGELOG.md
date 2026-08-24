@@ -1,3 +1,9 @@
+### Release v17.7.10 — Reserved Core for System Watchdogs & Render Loop (August 24, 2026)
+
+#### Core Utilization & Thread Safety
+- **Core Reservation (`max_cores - 1`) for System Watchdogs**:
+  - `video_decoder.cpp`: Configured multi-threaded software decoding to use `std::max(1, threads - 1)` cores (e.g. 3 threads on 4-core Pi 4 / Pi 5), reserving a dedicated CPU core for the host systemd watchdog (`pitrove-watchdog.service`), software watchdog, network keepalive monitor, and KMSDRM 60Hz render presentation loop.
+
 ### Release v17.7.9 — Continuous Dynamic Video RAM Refill & Playback Smoothness (August 24, 2026)
 
 #### Video Engine & Continuous RAM Management

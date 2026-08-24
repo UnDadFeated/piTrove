@@ -587,10 +587,10 @@ void VideoDecoder::decode_loop() {
         vcc->get_format = get_hw_format;
         vcc->extra_hw_frames = 16; // Provide 16 hardware surface frames for complex 4K DPB reference structures
     }
-    // Enable multi-threaded decoding based on codec capabilities
+    // Enable multi-threaded decoding (reserve 1 core for watchdogs and render loop)
     {
         int threads = std::thread::hardware_concurrency();
-        vcc->thread_count = (threads > 1) ? threads : 4;
+        vcc->thread_count = (threads > 1) ? std::max(1, threads - 1) : 1;
         if ((vc->capabilities & AV_CODEC_CAP_FRAME_THREADS) && (vc->capabilities & AV_CODEC_CAP_SLICE_THREADS)) {
             vcc->thread_type = FF_THREAD_FRAME | FF_THREAD_SLICE;
         } else if (vc->capabilities & AV_CODEC_CAP_FRAME_THREADS) {
@@ -616,9 +616,9 @@ void VideoDecoder::decode_loop() {
                 vcc = avcodec_alloc_context3(vc);
                 avcodec_parameters_to_context(vcc, vp);
                 int threads = std::thread::hardware_concurrency();
-                // Fallback software decoder gets all available CPU cores for maximum decode throughput
+                // Software decoder uses max_cores - 1 to preserve 1 core for system watchdogs & render loop
                 vcc->flags2 |= AV_CODEC_FLAG2_FAST;
-                vcc->thread_count = std::max(4, threads);
+                vcc->thread_count = (threads > 1) ? std::max(1, threads - 1) : 1;
                 vcc->thread_type = FF_THREAD_FRAME | FF_THREAD_SLICE;
             }
         }
