@@ -1,3 +1,17 @@
+### Release v18.0.12 — Skinny 2-Line News UI & Unbroken Blue Separator (August 24, 2026)
+
+#### Visual Alignments & Skinny News UI
+- **Skinny 2-Line News Bar**:
+  - Compressed total news height to 36px (18px per row), anchored right above the bottom 1" physical matte.
+  - Full-bleed grey badge background from $X = 0$, eliminating the black gap to the left of the `LOCAL` and `WORLD` badges.
+  - Rendered top blue separator line as the top-most z-order element across $X \in [0, screen\_w]$, ensuring an unbroken continuous line across the entire screen.
+- **Header & Countdown Timer Height Alignment**:
+  - Positioned Google Calendar "Monday" header title at $Y = 58	ext{px}$ (halfway between the top and previous position).
+  - Aligned photo/video remaining timer at $Y = 58	ext{px}$, matching the exact horizontal baseline of "Monday".
+- **Filename Overlay Calibration**:
+  - Moved filename overlay to the left ($X = 58	ext{px}$), matching the category badge margin.
+  - Positioned filename 4px above the top blue news line.
+
 ### Release v18.0.11 — Full-Width News Bar & Matte Alignment Calibration (August 24, 2026)
 
 #### Full-Width News & Calendar Alignment

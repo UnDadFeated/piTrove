@@ -316,10 +316,7 @@ void NewsTicker::render(SDL_Renderer* renderer, FontRenderer* font_renderer, con
     SDL_FRect bg_rect = { (float)bounds.x, (float)bounds.y, (float)bounds.w, (float)bounds.h };
     SDL_RenderFillRect(renderer, &bg_rect);
 
-    // Accent top border line (vibrant cyan / electric blue)
-    SDL_SetRenderDrawColor(renderer, 0, 200, 255, 180);
-    SDL_FRect top_line = { (float)bounds.x, (float)bounds.y, (float)bounds.w, 2.0f };
-    SDL_RenderFillRect(renderer, &top_line);
+
 
     // Middle separator line between Line 1 (Local) and Line 2 (Global)
     int row_h = bounds.h / 2;
@@ -422,9 +419,9 @@ void NewsTicker::render(SDL_Renderer* renderer, FontRenderer* font_renderer, con
         has_matting = g_cfg.matting;
         mat_size = (int)round((double)g_cfg.matting_size * screen_w / 1920.0);
     }
-    int badge_start_x = bounds.x + (has_matting ? mat_size : (int)round(16.0 * screen_w / 1920.0));
+    int badge_start_x = bounds.x + (has_matting ? (int)round(((double)mat_size * 0.5) + 10.0) : (int)round(16.0 * screen_w / 1920.0));
     int visible_start_x = badge_start_x + badge_w + (int)round(6.0 * screen_w / 1920.0);
-    int visible_end_x = has_matting ? (screen_w - mat_size) : (bounds.x + bounds.w);
+    int visible_end_x = has_matting ? (screen_w - (int)round((double)mat_size * 0.8)) : (bounds.x + bounds.w);
 
     // Helper lambda to render a scrolling news row
     auto render_news_row = [&](int y_offset, float scroll_offset, const std::vector<std::pair<std::string, int>>& segs) {
@@ -462,7 +459,7 @@ void NewsTicker::render(SDL_Renderer* renderer, FontRenderer* font_renderer, con
 
     // 4. Render pinned left badges
     auto render_badge = [&](int y_offset, const std::string& label, uint8_t dot_r_c, uint8_t dot_g_c, uint8_t dot_b_c) {
-        SDL_FRect b_rect = { (float)badge_start_x, (float)(bounds.y + y_offset), (float)badge_w, (float)row_h };
+        SDL_FRect b_rect = { 0.0f, (float)(bounds.y + y_offset), (float)(badge_start_x + badge_w), (float)row_h };
         SDL_SetRenderDrawColor(renderer, 18, 24, 38, 250);
         SDL_RenderFillRect(renderer, &b_rect);
 
@@ -486,4 +483,9 @@ void NewsTicker::render(SDL_Renderer* renderer, FontRenderer* font_renderer, con
 
     // Badge 2: WORLD (Amber dot)
     render_badge(row_h, "WORLD", 255, 180, 50);
+
+    // Accent top border line (vibrant cyan / electric blue) - drawn last across entire screen so it is completely unbroken
+    SDL_SetRenderDrawColor(renderer, 0, 200, 255, 220);
+    SDL_FRect top_line = { (float)bounds.x, (float)bounds.y, (float)bounds.w, 2.0f };
+    SDL_RenderFillRect(renderer, &top_line);
 }

@@ -281,10 +281,10 @@ static InfopanelLayout calculate_infopanel_layout(int screen_w, int screen_h) {
         return layout;
     }
 
-    // Exactly 2 compact rows for news (scaled for 1080p, 4k, etc.)
-    int news_h = layout.show_news ? (int)round(44.0 * screen_w / 1920.0) : 0;
-    // Bottom edge of news aligns with the inside edge of the bottom matte
-    int news_bottom = has_matting ? (screen_h - mat_size) : screen_h;
+    // Skinny compact 2-line news bar (36px on 1080p, scaled for 4k etc.)
+    int news_h = layout.show_news ? (int)round(36.0 * screen_w / 1920.0) : 0;
+    // Bottom edge sits directly above the physical 1" matte opening
+    int news_bottom = has_matting ? (screen_h - (int)round((double)mat_size * 0.8)) : screen_h;
     int news_y = news_bottom - news_h;
 
     // Calendar width (scaled)
