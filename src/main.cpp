@@ -282,7 +282,7 @@ static InfopanelLayout calculate_infopanel_layout(int screen_w, int screen_h) {
     }
 
     // Skinny compact 2-line news bar (36px on 1080p, scaled for 4k etc.)
-    int news_h = layout.show_news ? (int)round(36.0 * screen_w / 1920.0) : 0;
+    int news_h = layout.show_news ? (int)round(26.0 * screen_w / 1920.0) : 0;
     // Bottom edge sits directly above the physical 1" matte opening
     int news_bottom = has_matting ? (screen_h - (int)round((double)mat_size * 0.8)) : screen_h;
     int news_y = news_bottom - news_h;
@@ -319,29 +319,25 @@ static void calculate_fit_rect_in_area(int img_w, int img_h, int area_x, int are
         return;
     }
 
-    bool has_matting = false;
     std::string border_mode = "off";
-    int mat_size = 0;
     int border_w = 0;
     {
         std::lock_guard lock(g_config_mtx);
-        has_matting = g_cfg.matting;
         border_mode = g_cfg.border_mode;
-        mat_size = g_renderer.scale_px(g_cfg.matting_size);
         border_w = g_renderer.scale_px(g_cfg.border_width);
     }
 
-    int left_margin = (has_matting ? mat_size : 0) + ((border_mode != "off") ? border_w : 0);
-    int right_margin = (has_matting ? mat_size : 0) + ((border_mode != "off") ? border_w : 0);
-    int top_margin = (has_matting ? mat_size : 0) + ((border_mode != "off") ? border_w : 0);
-    int bottom_margin = (has_matting ? mat_size : 0) + ((border_mode != "off") ? ((border_mode == "polaroid") ? (border_w * 4) : border_w) : 0);
+    int left_margin = ((border_mode != "off") ? border_w : 0);
+    int right_margin = ((border_mode != "off") ? border_w : 0);
+    int top_margin = ((border_mode != "off") ? border_w : 0);
+    int bottom_margin = ((border_mode != "off") ? ((border_mode == "polaroid") ? (border_w * 4) : border_w) : 0);
 
-    // Reclaim monitor space for portrait photos: scale vertical margin to 1.75" (0.75" gap + 1" matte border, shadow clearance)
-    if (img_h > img_w && has_matting) {
-        int portrait_mat_size = g_renderer.scale_px((int)(g_cfg.matting_size * 0.75));
-        top_margin = portrait_mat_size + ((border_mode != "off") ? border_w : 0);
-        bottom_margin = portrait_mat_size + ((border_mode != "off") ? ((border_mode == "polaroid") ? (border_w * 4) : border_w) : 0);
-    }
+    // Padding for subtle drop-shadow / border clearance
+    int pad = g_renderer.scale_px(28);
+    left_margin += pad;
+    right_margin += pad;
+    top_margin += pad;
+    bottom_margin += pad;
 
     int effective_x = area_x + left_margin;
     int effective_y = area_y + top_margin;
@@ -2126,7 +2122,10 @@ int main(int argc, char** argv) {
                     }
                     if (g_cache) g_cache->upsert(g_eligible[current_idx], 0, 1);
 
-                    g_renderer.calculate_fit_rect(g_eligible[current_idx].width, g_eligible[current_idx].height, fit_rect);
+                    {
+                        InfopanelLayout layout = calculate_infopanel_layout(g_renderer.screen_w, g_renderer.screen_h);
+                        calculate_fit_rect_in_area(g_eligible[current_idx].width, g_eligible[current_idx].height, layout.slideshow_area.x, layout.slideshow_area.y, layout.slideshow_area.w, layout.slideshow_area.h, fit_rect);
+                    }
                     g_logger.info("First item is an image, loaded successfully: {} ({}x{})", g_eligible[current_idx].path.c_str(), g_eligible[current_idx].width, g_eligible[current_idx].height);
                     break;
                 } else {
@@ -3058,7 +3057,10 @@ int main(int argc, char** argv) {
                                 }
                             }
                             if (g_cache) g_cache->upsert(g_eligible[current_idx], 0, 1);
-                            g_renderer.calculate_fit_rect(current_data->width, current_data->height, fit_rect);
+                            {
+                            InfopanelLayout layout = calculate_infopanel_layout(g_renderer.screen_w, g_renderer.screen_h);
+                            calculate_fit_rect_in_area(current_data->width, current_data->height, layout.slideshow_area.x, layout.slideshow_area.y, layout.slideshow_area.w, layout.slideshow_area.h, fit_rect);
+                        }
                         }
                     }
                 } else {
@@ -3096,7 +3098,10 @@ int main(int argc, char** argv) {
                             if (g_cache) g_cache->upsert(g_eligible[current_idx], 0, 1);
                         }
 
-                        g_renderer.calculate_fit_rect(current_data->width, current_data->height, fit_rect);
+                        {
+                            InfopanelLayout layout = calculate_infopanel_layout(g_renderer.screen_w, g_renderer.screen_h);
+                            calculate_fit_rect_in_area(current_data->width, current_data->height, layout.slideshow_area.x, layout.slideshow_area.y, layout.slideshow_area.w, layout.slideshow_area.h, fit_rect);
+                        }
                     }
                 }
             } else {
@@ -3134,7 +3139,10 @@ int main(int argc, char** argv) {
                                 current_data = fallback_data;
                                 current_twin_data = nullptr;
                                 current_tex = current_data->texture;
-                                g_renderer.calculate_fit_rect(current_data->width, current_data->height, fit_rect);
+                                {
+                            InfopanelLayout layout = calculate_infopanel_layout(g_renderer.screen_w, g_renderer.screen_h);
+                            calculate_fit_rect_in_area(current_data->width, current_data->height, layout.slideshow_area.x, layout.slideshow_area.y, layout.slideshow_area.w, layout.slideshow_area.h, fit_rect);
+                        }
                             }
                         }
                     }
@@ -3172,7 +3180,10 @@ int main(int argc, char** argv) {
                             if (g_cache) g_cache->upsert(g_eligible[current_idx], 0, 1);
                         }
 
-                        g_renderer.calculate_fit_rect(current_data->width, current_data->height, fit_rect);
+                        {
+                            InfopanelLayout layout = calculate_infopanel_layout(g_renderer.screen_w, g_renderer.screen_h);
+                            calculate_fit_rect_in_area(current_data->width, current_data->height, layout.slideshow_area.x, layout.slideshow_area.y, layout.slideshow_area.w, layout.slideshow_area.h, fit_rect);
+                        }
                     }
                 }
             }
