@@ -255,54 +255,80 @@ static InfopanelLayout calculate_infopanel_layout(int screen_w, int screen_h) {
     bool infopanels = false;
     bool news_on = false;
     bool cal_on = false;
+    bool has_matting = false;
+    int mat_size = 0;
     {
         std::shared_lock lk(g_config_mtx);
         infopanels = g_cfg.infopanels_enabled;
         news_on = g_cfg.news_enabled;
         cal_on = g_cfg.gcalendar_enabled;
+        has_matting = g_cfg.matting;
+        mat_size = g_renderer.scale_px(g_cfg.matting_size);
     }
     
+    // The matte size in config sets the actual visible screen workspace.
+    // Anything behind the 1" mat is not visible to the user, so we constrain all panels strictly inside.
+    int ws_x = has_matting ? mat_size : 0;
+    int ws_y = has_matting ? mat_size : 0;
+    int ws_w = has_matting ? std::max(640, screen_w - 2 * mat_size) : screen_w;
+    int ws_h = has_matting ? std::max(480, screen_h - 2 * mat_size) : screen_h;
+
     layout.show_news = infopanels && news_on;
     layout.show_calendar = infopanels && cal_on;
     
     if (!infopanels || (!layout.show_news && !layout.show_calendar)) {
-        layout.slideshow_area = { 0, 0, screen_w, screen_h };
+        layout.slideshow_area = { ws_x, ws_y, ws_w, ws_h };
         layout.calendar_area = { 0, 0, 0, 0 };
         layout.news_area = { 0, 0, 0, 0 };
         return layout;
     }
 
-    if (layout.show_news && layout.show_calendar) {
-        // Both Calendar & News enabled: 16:9 slideshow panel with right calendar & bottom news
-        int cal_w = std::clamp((int)round(280.0 * screen_w / 1920.0), 220, screen_w / 3);
-        int slide_w = screen_w - cal_w;
-        int slide_h = (int)round((double)slide_w * 9.0 / 16.0); // Exact 16:9
-        int news_h = screen_h - slide_h;
-        if (news_h < 40) news_h = 40;
+    // Two-line news streamer height (~52px on 888px usable height, scaled proportionally)
+    int news_h = layout.show_news ? std::clamp((int)round(52.0 * ws_h / 888.0), 44, 60) : 0;
 
-        layout.slideshow_area = { 0, 0, slide_w, slide_h };
-        layout.calendar_area = { slide_w, 0, cal_w, screen_h };
-        layout.news_area = { 0, slide_h, slide_w, news_h };
+    if (layout.show_news && layout.show_calendar) {
+        // Both Calendar & News enabled:
+        int cal_w = std::clamp((int)round(248.0 * ws_w / 1728.0), 200, ws_w / 3);
+        int slide_w = ws_w - cal_w;
+        int slide_h = (int)round((double)slide_w * 9.0 / 16.0); // Exact 16:9
+        
+        if (slide_h + news_h > ws_h) {
+            slide_h = ws_h - news_h;
+            slide_w = (int)round((double)slide_h * 16.0 / 9.0);
+            cal_w = ws_w - slide_w;
+        }
+
+        layout.slideshow_area = { ws_x, ws_y, slide_w, slide_h };
+        layout.calendar_area = { ws_x + slide_w, ws_y, cal_w, ws_h };
+        layout.news_area = { ws_x, ws_y + slide_h, slide_w, news_h };
     } else if (layout.show_calendar) {
         // Only Calendar enabled:
-        int cal_w = std::clamp((int)round(280.0 * screen_w / 1920.0), 220, screen_w / 3);
-        int slide_w = screen_w - cal_w;
+        int cal_w = std::clamp((int)round(248.0 * ws_w / 1728.0), 200, ws_w / 3);
+        int slide_w = ws_w - cal_w;
         int slide_h = (int)round((double)slide_w * 9.0 / 16.0); // Exact 16:9
-        int pad_y = (screen_h - slide_h) / 2;
+        if (slide_h > ws_h) {
+            slide_h = ws_h;
+            slide_w = (int)round((double)slide_h * 16.0 / 9.0);
+            cal_w = ws_w - slide_w;
+        }
+        int pad_y = (ws_h - slide_h) / 2;
 
-        layout.slideshow_area = { 0, pad_y, slide_w, slide_h };
-        layout.calendar_area = { slide_w, 0, cal_w, screen_h };
+        layout.slideshow_area = { ws_x, ws_y + pad_y, slide_w, slide_h };
+        layout.calendar_area = { ws_x + slide_w, ws_y, cal_w, ws_h };
         layout.news_area = { 0, 0, 0, 0 };
     } else if (layout.show_news) {
         // Only News enabled:
-        int news_h = std::max(48, (int)round(56.0 * screen_h / 1080.0));
-        int slide_h = screen_h - news_h;
+        int slide_h = ws_h - news_h;
         int slide_w = (int)round((double)slide_h * 16.0 / 9.0); // Exact 16:9
-        int slide_x = (screen_w - slide_w) / 2;
+        if (slide_w > ws_w) {
+            slide_w = ws_w;
+            slide_h = (int)round((double)slide_w * 9.0 / 16.0);
+        }
+        int pad_x = (ws_w - slide_w) / 2;
 
-        layout.slideshow_area = { slide_x, 0, slide_w, slide_h };
+        layout.slideshow_area = { ws_x + pad_x, ws_y, slide_w, slide_h };
         layout.calendar_area = { 0, 0, 0, 0 };
-        layout.news_area = { 0, slide_h, screen_w, news_h };
+        layout.news_area = { ws_x, ws_y + slide_h, ws_w, news_h };
     }
     
     return layout;
@@ -3281,6 +3307,11 @@ int main(int argc, char** argv) {
                     vignette_str = g_cfg.vignette_strength;
                 }
 
+                InfopanelLayout layout = calculate_infopanel_layout(g_renderer.screen_w, g_renderer.screen_h);
+                if (current_data) {
+                    calculate_fit_rect_in_area(current_data->width, current_data->height, layout.slideshow_area.x, layout.slideshow_area.y, layout.slideshow_area.w, layout.slideshow_area.h, fit_rect);
+                }
+
                 if (snap_matte_color && current_data) {
                     g_renderer.clear(current_data->matte_r, current_data->matte_g, current_data->matte_b, 255);
                 } else {
@@ -3319,10 +3350,6 @@ int main(int argc, char** argv) {
                         current_data->avg_r, current_data->avg_g, current_data->avg_b, snap_border_width, current_data->filename);
                 }
 
-                InfopanelLayout layout = calculate_infopanel_layout(g_renderer.screen_w, g_renderer.screen_h);
-                if (current_data) {
-                    calculate_fit_rect_in_area(current_data->width, current_data->height, layout.slideshow_area.x, layout.slideshow_area.y, layout.slideshow_area.w, layout.slideshow_area.h, fit_rect);
-                }
                 // 6. Draw texture
                 SDL_FRect dst = {(float)fit_rect.x, (float)fit_rect.y, (float)fit_rect.w, (float)fit_rect.h};
                 SDL_RenderTexture(g_renderer.sdl_renderer, current_tex, nullptr, &dst);
