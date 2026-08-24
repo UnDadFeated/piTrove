@@ -267,7 +267,6 @@ static InfopanelLayout calculate_infopanel_layout(int screen_w, int screen_h) {
     }
     
     // The matte size in config sets the actual visible screen workspace.
-    // Anything behind the 1" mat is not visible to the user, so we constrain all panels strictly inside.
     int ws_x = has_matting ? mat_size : 0;
     int ws_y = has_matting ? mat_size : 0;
     int ws_w = has_matting ? std::max(640, screen_w - 2 * mat_size) : screen_w;
@@ -285,21 +284,25 @@ static InfopanelLayout calculate_infopanel_layout(int screen_w, int screen_h) {
 
     // Two-line news streamer height (~52px on 888px usable height, scaled proportionally)
     int news_h = layout.show_news ? std::clamp((int)round(52.0 * ws_h / 888.0), 44, 60) : 0;
+    // Move news panel down about ~0.5" (48px) to meet the bottom 1" matte cleanly
+    int news_shift_y = (has_matting && layout.show_news) ? g_renderer.scale_px(48) : 0;
+    // Extend calendar right border by 25px to seamlessly meet the right 1" matte
+    int cal_ext_x = has_matting ? 25 : 0;
 
     if (layout.show_news && layout.show_calendar) {
         // Both Calendar & News enabled:
-        int cal_w = std::clamp((int)round(248.0 * ws_w / 1728.0), 200, ws_w / 3);
-        int slide_w = ws_w - cal_w;
-        int slide_h = (int)round((double)slide_w * 9.0 / 16.0); // Exact 16:9
-        
-        if (slide_h + news_h > ws_h) {
-            slide_h = ws_h - news_h;
-            slide_w = (int)round((double)slide_h * 16.0 / 9.0);
-            cal_w = ws_w - slide_w;
+        int effective_h = ws_h + news_shift_y;
+        int slide_h = effective_h - news_h;
+        int slide_w = (int)round((double)slide_h * 16.0 / 9.0); // Exact 16:9
+        int cal_w = ws_w - slide_w;
+        if (cal_w < 200) {
+            cal_w = 200;
+            slide_w = ws_w - cal_w;
+            slide_h = (int)round((double)slide_w * 9.0 / 16.0);
         }
 
         layout.slideshow_area = { ws_x, ws_y, slide_w, slide_h };
-        layout.calendar_area = { ws_x + slide_w, ws_y, cal_w, ws_h };
+        layout.calendar_area = { ws_x + slide_w, ws_y, cal_w + cal_ext_x, effective_h };
         layout.news_area = { ws_x, ws_y + slide_h, slide_w, news_h };
     } else if (layout.show_calendar) {
         // Only Calendar enabled:
@@ -314,11 +317,12 @@ static InfopanelLayout calculate_infopanel_layout(int screen_w, int screen_h) {
         int pad_y = (ws_h - slide_h) / 2;
 
         layout.slideshow_area = { ws_x, ws_y + pad_y, slide_w, slide_h };
-        layout.calendar_area = { ws_x + slide_w, ws_y, cal_w, ws_h };
+        layout.calendar_area = { ws_x + slide_w, ws_y, cal_w + cal_ext_x, ws_h };
         layout.news_area = { 0, 0, 0, 0 };
     } else if (layout.show_news) {
         // Only News enabled:
-        int slide_h = ws_h - news_h;
+        int effective_h = ws_h + news_shift_y;
+        int slide_h = effective_h - news_h;
         int slide_w = (int)round((double)slide_h * 16.0 / 9.0); // Exact 16:9
         if (slide_w > ws_w) {
             slide_w = ws_w;

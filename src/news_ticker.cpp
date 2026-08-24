@@ -284,7 +284,7 @@ void NewsTicker::render(SDL_Renderer* renderer, FontRenderer* font_renderer, con
     // 1. Draw glassmorphic background
     SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
     SDL_SetRenderDrawColor(renderer, 10, 14, 22, 235); // Sleek obsidian backdrop
-    SDL_FRect bg_rect = { (float)bounds.x, (float)bounds.y, (float)bounds.w, (float)bounds.h };
+    SDL_FRect bg_rect = { (float)bounds.x, (float)bounds.y, (float)bounds.w, (float)(bounds.h + 25) };
     SDL_RenderFillRect(renderer, &bg_rect);
 
     // Accent top border line (vibrant cyan / electric blue)
