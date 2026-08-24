@@ -9,6 +9,17 @@
 #include <atomic>
 #include "font_render.h"
 
+struct NewsToken {
+    std::string text;
+    int w{0};
+    SDL_Color color{255, 255, 255, 255};
+};
+
+struct NewsHeadlineSpan {
+    std::vector<NewsToken> tokens;
+    int total_w{0};
+};
+
 struct NewsItem {
     std::string title;
     std::string source;
@@ -30,8 +41,8 @@ private:
     float m_local_scroll_offset{0.0f};
     float m_global_scroll_offset{0.0f};
     uint64_t m_last_render_ticks{0};
-    std::vector<std::pair<std::string, int>> m_cached_local_segs{};
-    std::vector<std::pair<std::string, int>> m_cached_global_segs{};
+    std::vector<NewsHeadlineSpan> m_cached_local_spans{};
+    std::vector<NewsHeadlineSpan> m_cached_global_spans{};
     int m_cached_local_total_w{0};
     int m_cached_global_total_w{0};
     int m_cached_font_size{0};

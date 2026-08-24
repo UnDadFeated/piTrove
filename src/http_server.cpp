@@ -2001,10 +2001,23 @@ static void send_response(int fd, const std::string& status_line, const std::str
 }
 
 static void handle_screenshot(int fd) {
+    std::string dir = "/app/screenshots";
+    std::error_code ec;
+    std::filesystem::create_directories(dir, ec);
+
+    time_t now = time(nullptr);
+    struct tm tm_buf;
+    localtime_r(&now, &tm_buf);
+    char time_str[64];
+    strftime(time_str, sizeof(time_str), "%Y%m%d_%H%M%S", &tm_buf);
+
+    std::string shot_filename = std::string("screenshot_") + time_str + ".png";
+    std::string shot_path = dir + "/" + shot_filename;
+
     {
         std::lock_guard lk(g_screenshot_mtx);
         g_screenshot_ready.store(false);
-        g_screenshot_out_path = "/app/cache/screenshot.png";
+        g_screenshot_out_path = shot_path;
     }
     g_screenshot_requested.store(true, std::memory_order_release);
 
@@ -2018,7 +2031,25 @@ static void handle_screenshot(int fd) {
         return;
     }
 
-    std::ifstream file("/app/cache/screenshot.png", std::ios::binary | std::ios::ate);
+    // Auto-prune older screenshots keeping the latest 50
+    try {
+        std::vector<std::filesystem::directory_entry> entries;
+        for (const auto& entry : std::filesystem::directory_iterator(dir, ec)) {
+            if (entry.is_regular_file() && entry.path().extension() == ".png") {
+                entries.push_back(entry);
+            }
+        }
+        if (entries.size() > 50) {
+            std::sort(entries.begin(), entries.end(), [](const auto& a, const auto& b) {
+                return a.last_write_time() < b.last_write_time();
+            });
+            for (size_t i = 0; i < entries.size() - 50; ++i) {
+                std::filesystem::remove(entries[i].path(), ec);
+            }
+        }
+    } catch (...) {}
+
+    std::ifstream file(shot_path, std::ios::binary | std::ios::ate);
     if (!file.is_open()) {
         send_response(fd, "HTTP/1.1 500 Internal Server Error", "text/plain", "Failed to open screenshot file");
         return;
@@ -2026,11 +2057,61 @@ static void handle_screenshot(int fd) {
 
     std::streamsize size = file.tellg();
     file.seekg(0, std::ios::beg);
-    std::string buffer(size, '\0');
+
+    std::string buffer(size, ' ');
     if (file.read(&buffer[0], size)) {
         send_response(fd, "HTTP/1.1 200 OK", "image/png", buffer);
     } else {
-        send_response(fd, "HTTP/1.1 500 Internal Server Error", "text/plain", "Failed to read screenshot file");
+        send_response(fd, "HTTP/1.1 500 Internal Server Error", "text/plain", "Failed to read screenshot data");
+    }
+}
+
+static void handle_screenshots_list(int fd) {
+    std::string dir = "/app/screenshots";
+    std::error_code ec;
+    std::vector<std::filesystem::directory_entry> entries;
+    try {
+        for (const auto& entry : std::filesystem::directory_iterator(dir, ec)) {
+            if (entry.is_regular_file() && entry.path().extension() == ".png") {
+                entries.push_back(entry);
+            }
+        }
+        std::sort(entries.begin(), entries.end(), [](const auto& a, const auto& b) {
+            return a.last_write_time() > b.last_write_time(); // newest first
+        });
+    } catch (...) {}
+
+    std::ostringstream ss;
+    ss << "[";
+    for (size_t i = 0; i < entries.size(); ++i) {
+        if (i > 0) ss << ",";
+        std::string fname = entries[i].path().filename().string();
+        uintmax_t fsz = entries[i].file_size(ec);
+        ss << "{\"filename\":\"" << fname << "\",\"size_bytes\":" << fsz << ",\"url\":\"/api/screenshots/" << fname << "\"}";
+    }
+    ss << "]";
+    send_response(fd, "HTTP/1.1 200 OK", "application/json", ss.str());
+}
+
+static void handle_screenshot_file(int fd, const std::string& filename) {
+    // Sanitization: disallow path traversal
+    if (filename.find("..") != std::string::npos || filename.find('/') != std::string::npos) {
+        send_response(fd, "HTTP/1.1 400 Bad Request", "text/plain", "Invalid filename");
+        return;
+    }
+    std::string path = "/app/screenshots/" + filename;
+    std::ifstream file(path, std::ios::binary | std::ios::ate);
+    if (!file.is_open()) {
+        send_response(fd, "HTTP/1.1 404 Not Found", "text/plain", "Screenshot not found");
+        return;
+    }
+    std::streamsize size = file.tellg();
+    file.seekg(0, std::ios::beg);
+    std::string buffer(size, ' ');
+    if (file.read(&buffer[0], size)) {
+        send_response(fd, "HTTP/1.1 200 OK", "image/png", buffer);
+    } else {
+        send_response(fd, "HTTP/1.1 500 Internal Server Error", "text/plain", "Failed to read screenshot");
     }
 }
 
@@ -2699,6 +2780,15 @@ static void handle_client(int client_fd) {
             g_remote_command.store(1);
             send_response(client_fd, "HTTP/1.1 200 OK", "application/json", "{\"status\":\"ok\"}");
         } 
+        else if (request.rfind("GET /api/screenshots/", 0) == 0) {
+            std::string sub = request.substr(21); // length of "GET /api/screenshots/"
+            size_t space_pos = sub.find(' ');
+            if (space_pos != std::string::npos) sub = sub.substr(0, space_pos);
+            handle_screenshot_file(client_fd, sub);
+        }
+        else if (request.rfind("GET /api/screenshots", 0) == 0) {
+            handle_screenshots_list(client_fd);
+        }
         else if (request.rfind("GET /api/screenshot", 0) == 0) {
             handle_screenshot(client_fd);
         }

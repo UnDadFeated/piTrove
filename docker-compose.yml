@@ -62,6 +62,7 @@ services:
       - ./cache:/app/cache
       - ./config:/app/config
       - ./logs:/app/logs
+      - ./screenshots:/app/screenshots
       - ./subtitles:/app/subtitles
       - /sys:/sys
       - ${MEDIA_DIR:-/mnt/nas}:/app/media:ro
