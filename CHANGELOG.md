@@ -1,3 +1,10 @@
+### Release v18.0.18 — News UI Lower Positioning Adjustment (+50px) (August 24, 2026)
+
+#### UI Layout Adjustment
+- **Shift News UI Down 50px (`main.cpp`, `renderer.cpp`)**:
+  - Moved news UI bottom anchor down 50px ($Y \in [1018	ext{px}, 1054	ext{px}]$ on 1080p).
+  - Automatically expanded calendar vertical extent and centered slideshow viewport.
+
 ### Release v18.0.17 — Strict 2-Line News UI Geometry (August 24, 2026)
 
 #### News Ticker Geometry Fix
