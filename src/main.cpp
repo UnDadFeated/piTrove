@@ -277,11 +277,11 @@ static InfopanelLayout calculate_infopanel_layout(int screen_w, int screen_h) {
     }
     
     // Scale physical matte template coordinates from 1080p reference + global display offsets
-    // Left matte: 62px, Top matte: 133px, Right matte: 1858px, Bottom matte: 947px
-    int matte_left   = (has_matting ? (int)round(62.0 * screen_w / 1920.0) : 0) + off_x;
-    int matte_top    = (has_matting ? (int)round(133.0 * screen_h / 1080.0) : 0) + off_y;
-    int matte_right  = (has_matting ? (screen_w - (int)round(62.0 * screen_w / 1920.0)) : screen_w) + off_x;
-    int matte_bottom = (has_matting ? (screen_h - (int)round(133.0 * screen_h / 1080.0)) : screen_h) + off_y;
+    // Calibrated to physical frame matte: Left red line = 60px, Top red line = 42px, Right = 1860px, Bottom = 1038px
+    int matte_left   = (has_matting ? (int)round(60.0 * screen_w / 1920.0) : 0) + off_x;
+    int matte_top    = (has_matting ? (int)round(42.0 * screen_h / 1080.0) : 0) + off_y;
+    int matte_right  = (has_matting ? (screen_w - (int)round(60.0 * screen_w / 1920.0)) : screen_w) + off_x;
+    int matte_bottom = (has_matting ? (screen_h - (int)round(42.0 * screen_h / 1080.0)) : screen_h) + off_y;
 
     layout.show_news = infopanels && news_on;
     layout.show_calendar = infopanels && cal_on;
