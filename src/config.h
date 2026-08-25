@@ -218,7 +218,7 @@ struct Config {
     std::string gcalendar_name{"Family"};
     std::string gcalendar_api_key{""};
     int         gcalendar_refresh_minutes{15};
-    int         gcalendar_max_events{8};
+    int         gcalendar_max_events{10};
 
     // [google_photos]
     bool        google_photos_enabled{false};
