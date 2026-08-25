@@ -1,3 +1,15 @@
+### Release v18.1.0 — StockStreamer & 24/7 Crypto Streamer (August 24, 2026)
+
+#### Major Feature: StockStreamer Side Panel
+- **Split Infopanel Frame (`main.cpp`, `stock_streamer.cpp`)**:
+  - Divided the right-side infopanel into two synchronized modules: Google Calendar (top half) and StockStreamer (bottom half).
+  - Top 10 S&P 500 holdings displayed with realtime prices, day change %, and aftermarket quotes.
+  - Dedicated 24/7 Crypto section showcasing Bitcoin (BTC/USD) with live 24h change indicators.
+- **News UI Refinements (`news_ticker.cpp`)**:
+  - Replaced colored badge indicator dots with sleek slate grey boxes.
+- **REST API Endpoint (`http_server.cpp`)**:
+  - Added `GET /api/stocks` providing live JSON status of stock holdings and crypto quotes.
+
 ### Release v18.0.20 — Calendar & Filename Horizontal Offsets (August 24, 2026)
 
 #### UI Layout Offsets

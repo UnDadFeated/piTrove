@@ -201,6 +201,12 @@ struct Config {
     int         news_scroll_speed{35};
     int         news_font_size{12};
 
+    // [stockstreamer]
+    bool                     stockstreamer_enabled{true};
+    int                      stockstreamer_refresh_seconds{30};
+    std::vector<std::string> stockstreamer_symbols{"NVDA", "AAPL", "MSFT", "AMZN", "GOOGL", "META", "BRK-B", "TSLA", "AVGO", "JPM"};
+    std::string              stockstreamer_crypto{"BTC-USD"};
+
     // [gcalendar]
     bool        gcalendar_enabled{false};
     std::string gcalendar_source_type{"ical"};

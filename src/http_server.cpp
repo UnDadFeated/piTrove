@@ -7,6 +7,7 @@
 #include "google_photos.h"
 #include "news_ticker.h"
 #include "calendar.h"
+#include "stock_streamer.h"
 #include "renderer.h"
 
 #include <iostream>
@@ -2835,6 +2836,9 @@ static void handle_client(int client_fd) {
             g_config_changed.store(true);
             send_response(client_fd, "HTTP/1.1 200 OK", "application/json", "{\"status\":\"ok\"}");
         } 
+        else if (request.rfind("GET /api/stocks", 0) == 0) {
+                        send_response(client_fd, "HTTP/1.1 200 OK", "application/json", g_stock_streamer.get_status_json());
+        }
         else if (request.rfind("GET /api/restart", 0) == 0) {
             if (!is_authorized(request, client_fd)) return;
             static std::atomic<int64_t> last_restart_ms{0};

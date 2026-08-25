@@ -283,7 +283,7 @@ void Renderer::calculate_fit_rect(int img_w, int img_h, SDL_Rect& out_rect) {
         border_mode = g_cfg.border_mode;
         mat_size = scale_px(g_cfg.matting_size);
         border_w = scale_px(g_cfg.border_width);
-        show_calendar = g_cfg.gcalendar_enabled;
+        show_calendar = g_cfg.gcalendar_enabled || g_cfg.stockstreamer_enabled;
         show_news = g_cfg.news_enabled;
     }
 
