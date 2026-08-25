@@ -240,6 +240,7 @@ void OverlayManager::draw_all(int current_idx, int total_items, const MediaItem*
     bool on_this_day_enabled = false;
     int on_this_day_range = 0;
     bool adaptive_text_enabled = false;
+    bool has_matting = false;
 
     {
         std::shared_lock lock(g_config_mtx);
@@ -286,6 +287,7 @@ void OverlayManager::draw_all(int current_idx, int total_items, const MediaItem*
         on_this_day_enabled = g_cfg.on_this_day_enabled;
         on_this_day_range = g_cfg.on_this_day_range;
         adaptive_text_enabled = g_cfg.adaptive_text_enabled;
+        has_matting = g_cfg.matting;
     }
 
     auto draw_contrast_text = [&](int x, int y, FontHandle& font, const std::string& text, GpuColor def_col, const ImageData* img) {
@@ -366,7 +368,7 @@ void OverlayManager::draw_all(int current_idx, int total_items, const MediaItem*
         int tw = 0, th = 0;
         font_renderer->measure(font, tbuf, tw, th);
         int tx = vx + vw - tw - (int)round(12.0 * sw / 1920.0);
-        int ty = vy + (int)round(((double)(g_renderer.scale_px(g_cfg.matting_size)) * 0.5) + 10.0);
+        int ty = has_matting ? (int)round(((double)(g_renderer.scale_px(g_cfg.matting_size)) * 0.5) + 10.0) : (int)round(20.0 * sw / 1920.0);
 
         if (is_video && !video_remaining.empty()) {
             g_logger.debug("REM: remaining={}", video_remaining.c_str());

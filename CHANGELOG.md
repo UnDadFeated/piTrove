@@ -1,3 +1,11 @@
+### Release v18.0.19 — Timer Alignment & Fine News Positioning (August 24, 2026)
+
+#### UI Alignment Calibration
+- **Timer Baseline Alignment (`overlay.cpp`)**:
+  - Aligned photo/video time remaining countdown horizontally with the Google Calendar header title ('Monday') at $Y = 58	ext{px}$.
+- **News UI Fine Positioning (`main.cpp`, `renderer.cpp`)**:
+  - Moved news UI up 5px ($Y \in [1013	ext{px}, 1049	ext{px}]$ on 1080p).
+
 ### Release v18.0.18 — News UI Lower Positioning Adjustment (+50px) (August 24, 2026)
 
 #### UI Layout Adjustment
