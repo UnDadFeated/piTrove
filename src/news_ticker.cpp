@@ -201,29 +201,63 @@ void NewsTicker::fetch_sync() {
         tz = g_cfg.timezone;
     }
 
-    // 1. Fetch Local News (by zipcode or city query)
-    std::string local_url = "https://news.google.com/rss/search?q=" + url_encode(local_q) + "&hl=en-US&gl=US&ceid=US:en";
-    g_logger.info("NEWS: Fetching local headlines from {}", local_url);
+    time_t now = time(nullptr);
+
+    // 1. Fetch Local News (by zipcode for past 1 week)
+    std::string local_query_with_time = local_q;
+    if (local_query_with_time.find("when:") == std::string::npos) {
+        local_query_with_time += " when:7d";
+    }
+    std::string local_url = "https://news.google.com/rss/search?q=" + url_encode(local_query_with_time) + "&hl=en-US&gl=US&ceid=US:en";
+    g_logger.info("NEWS: Fetching local headlines (past 1 week) from {}", local_url);
     std::string local_xml = execute_http_get(local_url);
     if (local_xml.empty()) {
         local_url = "https://news.google.com/rss/headlines/section/topic/NATION?hl=en-US&gl=US&ceid=US:en";
         g_logger.info("NEWS: Attempting national fallback: {}", local_url);
         local_xml = execute_http_get(local_url);
     }
-    std::vector<NewsItem> local_items = parse_rss(local_xml);
+    std::vector<NewsItem> raw_local = parse_rss(local_xml);
+    std::vector<NewsItem> local_items;
+    time_t one_week_ago = now - (7 * 86400);
+    for (auto& item : raw_local) {
+        if (item.published_time == 0 || item.published_time >= one_week_ago) {
+            local_items.push_back(std::move(item));
+        }
+    }
+    if (local_items.empty()) {
+        local_items = std::move(raw_local);
+    }
 
-    // 2. Fetch Global News (world headlines)
+    // 2. Fetch World News (Google Top Stories for past 6 hours)
     std::string global_url = "https://news.google.com/rss?hl=en-US&gl=US&ceid=US:en";
-    g_logger.info("NEWS: Fetching global headlines from {}", global_url);
+    g_logger.info("NEWS: Fetching Google top stories (past 6 hours) from {}", global_url);
     std::string global_xml = execute_http_get(global_url);
     if (global_xml.empty()) {
         global_url = "http://feeds.bbci.co.uk/news/world/rss.xml";
         g_logger.info("NEWS: Attempting BBC fallback: {}", global_url);
         global_xml = execute_http_get(global_url);
     }
-    std::vector<NewsItem> global_items = parse_rss(global_xml);
+    std::vector<NewsItem> raw_global = parse_rss(global_xml);
+    std::vector<NewsItem> global_items;
+    time_t six_hours_ago = now - (6 * 3600);
+    for (auto& item : raw_global) {
+        if (item.published_time >= six_hours_ago) {
+            global_items.push_back(std::move(item));
+        }
+    }
+    // If fewer than 5 top stories in the exact 6h window, include freshest items
+    if (global_items.size() < 5) {
+        for (auto& item : raw_global) {
+            bool exists = false;
+            for (const auto& gi : global_items) {
+                if (gi.title == item.title) { exists = true; break; }
+            }
+            if (!exists) global_items.push_back(std::move(item));
+            if (global_items.size() >= 25) break;
+        }
+    }
 
-    time_t now = time(nullptr);
+    now = time(nullptr);
     {
         std::unique_lock lk(m_items_mtx);
         m_local_items = std::move(local_items);

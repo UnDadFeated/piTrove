@@ -1,3 +1,17 @@
+### Release v18.1.1 — Realtime Crypto/Stocks Single-Line & Query Time Filtering (August 24, 2026)
+
+#### UI Layout & Streamer Enhancements
+- **Side Panel Shift (`main.cpp`, `renderer.cpp`)**:
+  - Shifted Google Calendar and StockStreamer frame an additional 25px to the left ($W = 335	ext{px}$, $X = 1585	ext{px}$ on 1080p).
+  - Dynamically adjusted slideshow viewport to account for widened side panel.
+- **Crypto Section Refinements (`stock_streamer.cpp`)**:
+  - Unified Bitcoin (BTC) ticker into a clean single line with Symbol, Price, and 24h Change %.
+  - Removed "24/7 realtime" text from header for minimalist aesthetic.
+  - Enabled parallel asynchronous fetching across all 10 S&P stocks and BTC with a 10s realtime refresh cycle.
+- **News Query Time Filtering (`news_ticker.cpp`)**:
+  - Local news strictly filtered for past 1 week (`when:7d`).
+  - World news strictly filtered from Google Top Stories for the past 6 hours.
+
 ### Release v18.1.0 — StockStreamer & 24/7 Crypto Streamer (August 24, 2026)
 
 #### Major Feature: StockStreamer Side Panel
