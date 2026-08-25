@@ -120,27 +120,10 @@ std::vector<NewsItem> NewsTicker::parse_rss(const std::string& xml_data) {
     auto items_end = std::sregex_iterator();
 
     std::string tz = "UTC";
-    std::vector<std::string> blacklist;
     {
         std::shared_lock lk(g_config_mtx);
         tz = g_cfg.timezone;
-        blacklist = g_cfg.news_blacklist;
     }
-
-    auto is_blacklisted = [&](const std::string& text) {
-        if (text.empty()) return false;
-        std::string lower_text = text;
-        std::transform(lower_text.begin(), lower_text.end(), lower_text.begin(), ::tolower);
-        for (const auto& b : blacklist) {
-            if (b.empty()) continue;
-            std::string lower_b = b;
-            std::transform(lower_b.begin(), lower_b.end(), lower_b.begin(), ::tolower);
-            if (lower_text.find(lower_b) != std::string::npos) {
-                return true;
-            }
-        }
-        return false;
-    };
 
     for (std::sregex_iterator i = items_begin; i != items_end; ++i) {
         std::string item_xml = (*i)[1].str();
@@ -161,10 +144,7 @@ std::vector<NewsItem> NewsTicker::parse_rss(const std::string& xml_data) {
         std::string link = decode_html_entities(raw_link);
         std::string guid = decode_html_entities(raw_guid);
 
-        if (is_blacklisted(source) || is_blacklisted(title) || is_blacklisted(link) || is_blacklisted(guid)) {
-            g_logger.info("NEWS: Filtered out blacklisted headline '{}' (source: '{}', link: '{}')", title, source, link);
-            continue;
-        }
+
         time_t pub_time = parse_rfc822_date(raw_pubdate);
 
         // Remove source suffix if already embedded in title (e.g. "Headline - CNN")
@@ -233,9 +213,7 @@ void NewsTicker::fetch_sync() {
     g_logger.info("NEWS: Fetching Google top stories (past 6 hours) from {}", global_url);
     std::string global_xml = execute_http_get(global_url);
     if (global_xml.empty()) {
-        global_url = "http://feeds.bbci.co.uk/news/world/rss.xml";
-        g_logger.info("NEWS: Attempting BBC fallback: {}", global_url);
-        global_xml = execute_http_get(global_url);
+        g_logger.warn("NEWS: Google top stories fetch failed, will retry next cycle");
     }
     std::vector<NewsItem> raw_global = parse_rss(global_xml);
     std::vector<NewsItem> global_items;
