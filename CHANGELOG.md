@@ -1,3 +1,15 @@
+### Release v18.1.4 — Global Screen Display Offset & Physical Matte Calibration (August 24, 2026)
+
+#### Global Screen Display Offsets (`config.toml`, `tui.cpp`, `main.cpp`, `overlay.cpp`)
+- **Global `display_offset_x` & `display_offset_y`**:
+  - Added global horizontal and vertical canvas offset settings to nudge the entire UI and slideshow canvas in pixels.
+  - Allows users with varying physical frame cuts, bezel variations, and 1" matte tolerances to shift the whole display effortlessly without modifying individual component offsets.
+- **Universal Multi-Panel Integration**:
+  - Integrated global offsets across all 4 UI panel combinations (Calendar/Stocks, News Ticker, Filename OSD, and Slideshow centering).
+- **Human Safeguards & Error Codes**:
+  - Automatically clamps offset values within safe boundaries ($\pm 25\%$ of screen resolution) to prevent off-screen rendering or UI truncation.
+  - Registered error code `E540: DISPLAY_OFFSET_OUT_OF_BOUNDS` in `error_db.cpp`.
+
 ### Release v18.1.3 — News Blacklist Restoration & Expanded Calendar Space (August 24, 2026)
 
 #### Layout & Infopanel Optimization

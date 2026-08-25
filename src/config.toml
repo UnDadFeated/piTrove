@@ -27,6 +27,9 @@ pattern_brightness = 45
 pattern_style = "random_animated"
 pattern_blend_count = 2
 pattern_fps = 10
+# Global screen display position offsets (shifts entire rendering canvas in pixels to center across custom physical matte cutouts)
+display_offset_x = 0
+display_offset_y = 0
 blurred_background = 1
 color_matched_matte = 1
 matte_opacity = 0.5

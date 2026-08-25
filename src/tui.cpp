@@ -129,7 +129,9 @@ void config_wizard(const std::string& config_path) {
         {"Pattern Brightness", INT, "Contrast offset for animated pattern style (0 to 150)"},
         {"Pattern Style", ENM, "Design pattern type (combined, grid, waves, dots)"},
         {"Pattern Blend Count", INT, "Number of design patterns to blend (1 to 3)"},
-        {"Pattern Animated FPS", INT, "Frame rate limit for animated background patterns (1 to 30 FPS)"}
+        {"Pattern Animated FPS", INT, "Frame rate limit for animated background patterns (1 to 30 FPS)"},
+        {"Display Offset X", INT, "Shift entire screen horizontally in pixels (-300 to +300)"},
+        {"Display Offset Y", INT, "Shift entire screen vertically in pixels (-300 to +300)"}
     };
     static const CI CC[] = {
         {"Timer Enabled", TGL, "Show remaining photo/video duration overlay"},
@@ -307,6 +309,8 @@ void config_wizard(const std::string& config_path) {
             case 11: return g_cfg.pattern_style;
             case 12: return std::format("{}", g_cfg.pattern_blend_count);
             case 13: return std::format("{}", g_cfg.pattern_fps);
+            case 14: return std::format("{}", g_cfg.display_offset_x);
+            case 15: return std::format("{}", g_cfg.display_offset_y);
         }
         
         if (c == 2) switch(i) {
@@ -484,6 +488,8 @@ void config_wizard(const std::string& config_path) {
                 case 11:g_cfg.pattern_style=v;break;
                 case 12:{ try { int val = std::stoi(v); g_cfg.pattern_blend_count=std::clamp(val, 1, 3); } catch(...) {} break; }
                 case 13:{ try { int val = std::stoi(v); g_cfg.pattern_fps=std::clamp(val, 1, 60); } catch(...) {} break; }
+                case 14:{ try { int val = std::stoi(v); g_cfg.display_offset_x=std::clamp(val, -300, 300); } catch(...) {} break; }
+                case 15:{ try { int val = std::stoi(v); g_cfg.display_offset_y=std::clamp(val, -300, 300); } catch(...) {} break; }
             }
             
             else if(c==2) switch(i){
