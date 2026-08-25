@@ -271,24 +271,18 @@ static InfopanelLayout calculate_infopanel_layout(int screen_w, int screen_h) {
         mat_size = g_renderer.scale_px(g_cfg.matting_size);
     }
     
-    int ws_x = has_matting ? mat_size : 0;
-    int ws_y = has_matting ? mat_size : 0;
-    int ws_w = has_matting ? std::max(640, screen_w - 2 * mat_size) : screen_w;
-    int ws_h = has_matting ? std::max(480, screen_h - 2 * mat_size) : screen_h;
+    // Exact physical matte aperture coordinates from user calibration (scaled from 1080p)
+    // Left matte border: 62px, Top matte border: 133px, Right matte border: 1858px, Bottom matte border: 947px
+    int matte_left   = has_matting ? (int)round(62.0 * screen_w / 1920.0) : 0;
+    int matte_top    = has_matting ? (int)round(133.0 * screen_h / 1080.0) : 0;
+    int matte_right  = has_matting ? (screen_w - matte_left) : screen_w;
+    int matte_bottom = has_matting ? (screen_h - matte_top) : screen_h;
 
     layout.show_news = infopanels && news_on;
     layout.show_calendar = infopanels && cal_on;
     layout.show_stocks = infopanels && stocks_on;
 
     bool show_side = layout.show_calendar || layout.show_stocks;
-    
-    if (!infopanels || (!layout.show_news && !show_side)) {
-        layout.slideshow_area = { ws_x, ws_y, ws_w, ws_h };
-        layout.calendar_area = { 0, 0, 0, 0 };
-        layout.stocks_area = { 0, 0, 0, 0 };
-        layout.news_area = { 0, 0, 0, 0 };
-        return layout;
-    }
 
     // Skinny compact 2-line news bar (36px on 1080p, scaled for 4k etc.)
     int news_h = layout.show_news ? (int)round(36.0 * screen_w / 1920.0) : 0;
@@ -318,16 +312,22 @@ static InfopanelLayout calculate_infopanel_layout(int screen_w, int screen_h) {
         layout.stocks_area = { 0, 0, 0, 0 };
     }
 
-    if (layout.show_news && show_side) {
-        layout.slideshow_area = { ws_x, ws_y, cal_x - ws_x, news_y - ws_y };
+    if (layout.show_news) {
         layout.news_area = { 0, news_y, screen_w, news_h };
-    } else if (show_side) {
-        layout.slideshow_area = { ws_x, ws_y, cal_x - ws_x, ws_h };
+    } else {
         layout.news_area = { 0, 0, 0, 0 };
-    } else if (layout.show_news) {
-        layout.slideshow_area = { ws_x, ws_y, ws_w, news_y - ws_y };
-        layout.news_area = { 0, news_y, screen_w, news_h };
     }
+
+    // Centered Slideshow Area accounting for physical matte aperture and active UI panels:
+    int x1 = matte_left;
+    int x2 = show_side ? cal_x : matte_right;
+    int y1 = matte_top;
+    int y2 = layout.show_news ? news_y : matte_bottom;
+
+    if (x2 <= x1) x2 = screen_w;
+    if (y2 <= y1) y2 = screen_h;
+
+    layout.slideshow_area = { x1, y1, x2 - x1, y2 - y1 };
     
     return layout;
 }
