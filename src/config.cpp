@@ -269,6 +269,9 @@ bool Config::load(const std::string& path) {
         else if (key == "refresh_minutes" && section == "news")               this->news_refresh_minutes = safe_stoi(val, this->news_refresh_minutes);
         else if (key == "scroll_speed" && section == "news")                  this->news_scroll_speed = safe_stoi(val, this->news_scroll_speed);
         else if (key == "font_size" && section == "news")                     this->news_font_size = safe_stoi(val, this->news_font_size);
+        else if (key == "enabled" && section == "stockstreamer")              this->stockstreamer_enabled = (val == "1" || val == "true");
+        else if (key == "refresh_seconds" && section == "stockstreamer")      this->stockstreamer_refresh_seconds = safe_stoi(val, this->stockstreamer_refresh_seconds);
+        else if (key == "crypto" && section == "stockstreamer")               this->stockstreamer_crypto = val;
         else if (key == "enabled" && section == "gcalendar")                  this->gcalendar_enabled = (val == "1" || val == "true");
         else if (key == "source_type" && section == "gcalendar")              this->gcalendar_source_type = val;
         else if (key == "ical_url" && section == "gcalendar")                 this->gcalendar_ical_url = val;
@@ -559,6 +562,11 @@ bool Config::save(const std::string& path) {
     f << "refresh_minutes = " << this->news_refresh_minutes << "\n";
     f << "scroll_speed = " << this->news_scroll_speed << "\n";
     f << "font_size = " << this->news_font_size << "\n\n";
+
+    f << "[stockstreamer]\n";
+    f << "enabled = " << (this->stockstreamer_enabled ? "1" : "0") << "\n";
+    f << "refresh_seconds = " << this->stockstreamer_refresh_seconds << "\n";
+    f << "crypto = \"" << this->stockstreamer_crypto << "\"\n\n";
 
     f << "[gcalendar]\n";
     f << "enabled = " << (this->gcalendar_enabled ? "1" : "0") << "\n";

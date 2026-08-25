@@ -22,6 +22,7 @@
 #include "preprocess.h"
 #include "news_ticker.h"
 #include "calendar.h"
+#include "stock_streamer.h"
 
 
 #include <SDL3/SDL.h>
@@ -245,8 +246,10 @@ static bool should_be_twin_portrait(std::vector<MediaItem>& eligible, int idx) {
 struct InfopanelLayout {
     SDL_Rect slideshow_area;
     SDL_Rect calendar_area;
+    SDL_Rect stocks_area;
     SDL_Rect news_area;
     bool show_calendar{false};
+    bool show_stocks{false};
     bool show_news{false};
 };
 
@@ -255,6 +258,7 @@ static InfopanelLayout calculate_infopanel_layout(int screen_w, int screen_h) {
     bool infopanels = false;
     bool news_on = false;
     bool cal_on = false;
+    bool stocks_on = false;
     bool has_matting = false;
     int mat_size = 0;
     {
@@ -262,6 +266,7 @@ static InfopanelLayout calculate_infopanel_layout(int screen_w, int screen_h) {
         infopanels = g_cfg.infopanels_enabled;
         news_on = g_cfg.news_enabled;
         cal_on = g_cfg.gcalendar_enabled;
+        stocks_on = g_cfg.stockstreamer_enabled;
         has_matting = g_cfg.matting;
         mat_size = g_renderer.scale_px(g_cfg.matting_size);
     }
@@ -273,10 +278,14 @@ static InfopanelLayout calculate_infopanel_layout(int screen_w, int screen_h) {
 
     layout.show_news = infopanels && news_on;
     layout.show_calendar = infopanels && cal_on;
+    layout.show_stocks = infopanels && stocks_on;
+
+    bool show_side = layout.show_calendar || layout.show_stocks;
     
-    if (!infopanels || (!layout.show_news && !layout.show_calendar)) {
+    if (!infopanels || (!layout.show_news && !show_side)) {
         layout.slideshow_area = { ws_x, ws_y, ws_w, ws_h };
         layout.calendar_area = { 0, 0, 0, 0 };
+        layout.stocks_area = { 0, 0, 0, 0 };
         layout.news_area = { 0, 0, 0, 0 };
         return layout;
     }
@@ -287,23 +296,35 @@ static InfopanelLayout calculate_infopanel_layout(int screen_w, int screen_h) {
     int news_bottom = has_matting ? (screen_h - (int)round((double)mat_size * 0.8) + (int)round(45.0 * screen_w / 1920.0)) : screen_h;
     int news_y = news_bottom - news_h;
 
-    // Calendar width (scaled)
-    int cal_w = layout.show_calendar ? std::clamp((int)round(310.0 * screen_w / 1920.0), 260, screen_w / 3) : 0;
+    // Side panel width (scaled)
+    int cal_w = show_side ? std::clamp((int)round(310.0 * screen_w / 1920.0), 260, screen_w / 3) : 0;
     int cal_x = screen_w - cal_w;
+    int side_panel_h = layout.show_news ? news_y : screen_h;
 
-    if (layout.show_news && layout.show_calendar) {
-        layout.slideshow_area = { ws_x, ws_y, cal_x - ws_x, news_y - ws_y };
-        // Calendar goes from top of screen down to top of news bar
-        layout.calendar_area = { cal_x, 0, screen_w - cal_x, news_y };
-        // News spans full screen width across bottom with continuous separator line
-        layout.news_area = { 0, news_y, screen_w, news_h };
+    if (layout.show_calendar && layout.show_stocks) {
+        // Split side panel in half
+        int split_h = (int)round((double)side_panel_h * 0.44);
+        layout.calendar_area = { cal_x, 0, screen_w - cal_x, split_h };
+        layout.stocks_area = { cal_x, split_h, screen_w - cal_x, side_panel_h - split_h };
     } else if (layout.show_calendar) {
+        layout.calendar_area = { cal_x, 0, screen_w - cal_x, side_panel_h };
+        layout.stocks_area = { 0, 0, 0, 0 };
+    } else if (layout.show_stocks) {
+        layout.calendar_area = { 0, 0, 0, 0 };
+        layout.stocks_area = { cal_x, 0, screen_w - cal_x, side_panel_h };
+    } else {
+        layout.calendar_area = { 0, 0, 0, 0 };
+        layout.stocks_area = { 0, 0, 0, 0 };
+    }
+
+    if (layout.show_news && show_side) {
+        layout.slideshow_area = { ws_x, ws_y, cal_x - ws_x, news_y - ws_y };
+        layout.news_area = { 0, news_y, screen_w, news_h };
+    } else if (show_side) {
         layout.slideshow_area = { ws_x, ws_y, cal_x - ws_x, ws_h };
-        layout.calendar_area = { cal_x, 0, screen_w - cal_x, screen_h };
         layout.news_area = { 0, 0, 0, 0 };
     } else if (layout.show_news) {
         layout.slideshow_area = { ws_x, ws_y, ws_w, news_y - ws_y };
-        layout.calendar_area = { 0, 0, 0, 0 };
         layout.news_area = { 0, news_y, screen_w, news_h };
     }
     
@@ -1879,6 +1900,7 @@ int main(int argc, char** argv) {
         if (info_on) {
             if (news_on) g_news_ticker.start();
             if (cal_on) g_calendar.start();
+            bool st_on = false; { std::shared_lock lk(g_config_mtx); st_on = g_cfg.stockstreamer_enabled; } if (st_on) g_stock_streamer.start();
         }
     }
 
@@ -2686,6 +2708,9 @@ int main(int argc, char** argv) {
                             if (v_layout.show_calendar) {
                                 g_calendar.render(g_renderer.sdl_renderer, fr, font_p, v_layout.calendar_area, g_renderer.screen_w);
                             }
+                            if (v_layout.show_stocks) {
+                                g_stock_streamer.render(g_renderer.sdl_renderer, fr, font_p, v_layout.stocks_area, g_renderer.screen_w);
+                            }
                             if (v_layout.show_news) {
                                 g_news_ticker.render(g_renderer.sdl_renderer, fr, font_p, v_layout.news_area, g_renderer.screen_w);
                             }
@@ -3008,6 +3033,9 @@ int main(int argc, char** argv) {
                         FontRenderer* fr = g_overlay->get_font_renderer();
                         if (t_layout.show_calendar) {
                             g_calendar.render(g_renderer.sdl_renderer, fr, font_p, t_layout.calendar_area, g_renderer.screen_w);
+                        }
+                        if (t_layout.show_stocks) {
+                            g_stock_streamer.render(g_renderer.sdl_renderer, fr, font_p, t_layout.stocks_area, g_renderer.screen_w);
                         }
                         if (t_layout.show_news) {
                             g_news_ticker.render(g_renderer.sdl_renderer, fr, font_p, t_layout.news_area, g_renderer.screen_w);
@@ -3359,6 +3387,9 @@ int main(int argc, char** argv) {
                     if (layout.show_calendar) {
                         g_calendar.render(g_renderer.sdl_renderer, fr, font_p, layout.calendar_area, g_renderer.screen_w);
                     }
+                    if (layout.show_stocks) {
+                        g_stock_streamer.render(g_renderer.sdl_renderer, fr, font_p, layout.stocks_area, g_renderer.screen_w);
+                    }
                     if (layout.show_news) {
                         g_news_ticker.render(g_renderer.sdl_renderer, fr, font_p, layout.news_area, g_renderer.screen_w);
                     }
@@ -3488,6 +3519,7 @@ int main(int argc, char** argv) {
     stop_http_server();
         g_news_ticker.stop();
     g_calendar.stop();
+    g_stock_streamer.stop();
     
     // Stop background MQTT client safely
     stop_mqtt_client();

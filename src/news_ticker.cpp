@@ -563,10 +563,10 @@ void NewsTicker::render(SDL_Renderer* renderer, FontRenderer* font_renderer, con
     };
 
     // Badge 1: LOCAL (Cyan dot)
-    render_badge(0, local_badge_name, 0, 200, 255);
+    render_badge(0, local_badge_name, 140, 150, 165);
 
     // Badge 2: WORLD (Amber dot)
-    render_badge(row_h, "WORLD", 255, 180, 50);
+    render_badge(row_h, "WORLD", 140, 150, 165);
 
     // Accent top border line (vibrant cyan / electric blue) - drawn last across entire screen so it is completely unbroken
     SDL_SetRenderDrawColor(renderer, 0, 200, 255, 220);
