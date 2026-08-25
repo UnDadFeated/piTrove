@@ -251,6 +251,7 @@ void config_wizard(const std::string& config_path) {
         {"Calendar Source", ENM, "Sync method (ical, api)"},
         {"Calendar Name", STR, "Name of the calendar to sync/display (e.g. Family)"},
         {"Calendar iCal URL", STR, "Direct Google Calendar secret/public iCal address URL"},
+        {"Calendar API Key", STR, "Google Calendar API Key (for API source sync)"},
         {"Calendar Refresh Mins", INT, "Minutes between background calendar syncs (5-120)"},
         {"Max Calendar Events", INT, "Maximum number of upcoming events on sidebar (1-16)"}
     };
@@ -443,8 +444,9 @@ void config_wizard(const std::string& config_path) {
             case 10: return g_cfg.gcalendar_source_type;
             case 11: return g_cfg.gcalendar_name;
             case 12: return g_cfg.gcalendar_ical_url;
-            case 13: return std::format("{}", g_cfg.gcalendar_refresh_minutes);
-            case 14: return std::format("{}", g_cfg.gcalendar_max_events);
+            case 13: return g_cfg.gcalendar_api_key;
+            case 14: return std::format("{}", g_cfg.gcalendar_refresh_minutes);
+            case 15: return std::format("{}", g_cfg.gcalendar_max_events);
         }
         return "";
     };
@@ -650,8 +652,9 @@ void config_wizard(const std::string& config_path) {
                 case 10:g_cfg.gcalendar_source_type=v;break;
                 case 11:g_cfg.gcalendar_name=v;break;
                 case 12:g_cfg.gcalendar_ical_url=v;break;
-                case 13:{ try { g_cfg.gcalendar_refresh_minutes=std::clamp(std::stoi(v), 5, 120); } catch(...) {} break; }
-                case 14:{ try { g_cfg.gcalendar_max_events=std::clamp(std::stoi(v), 1, 16); } catch(...) {} break; }
+                case 13:g_cfg.gcalendar_api_key=v;break;
+                case 14:{ try { g_cfg.gcalendar_refresh_minutes=std::clamp(std::stoi(v), 5, 120); } catch(...) {} break; }
+                case 15:{ try { g_cfg.gcalendar_max_events=std::clamp(std::stoi(v), 1, 16); } catch(...) {} break; }
             }
         } catch(...) {}
     };
@@ -671,7 +674,7 @@ void config_wizard(const std::string& config_path) {
         if(c==8&&i==0) return {"debug","info","warn","error"};
         if(c==11&&i==0) return get_supported_timezones();
         if(c==11&&i==3) return {"global", "local"};
-        if(c==11&&i==9) return {"ical", "api"};
+        if(c==11&&i==10) return {"ical", "api"};
         return {};
     };
 

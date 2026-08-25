@@ -58,6 +58,7 @@ public:
     void stop();
 
     void fetch_sync();
+    void sync();
     std::vector<NewsItem> get_items() const;
     std::string get_status_json() const;
     int get_last_error() const { return m_last_error.load(); }

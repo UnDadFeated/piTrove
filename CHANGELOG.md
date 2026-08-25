@@ -1,3 +1,23 @@
+### Release v18.1.3 — News Blacklist Restoration & Expanded Calendar Space (August 24, 2026)
+
+#### Layout & Infopanel Optimization
+- **Expanded Google Calendar Space (`main.cpp`)**:
+  - Re-anchored the StockStreamer widget tightly at the bottom of the side panel so Bitcoin is positioned 6px above the news ticker.
+  - Expanded Google Calendar vertical space from 459px to 756px+ on 1080p, allowing 6-8 upcoming events, locations, and times without truncation.
+
+#### News Ticker Enhancements
+- **Restored Source & Domain Blacklist (`news_ticker.cpp`)**:
+  - Re-added blacklist filtering in `parse_rss()` to exclude specific networks, domains, or keywords listed in `news_blacklist`.
+- **Chronological Sorting & Community Fallback (`news_ticker.cpp`)**:
+  - Sorted all local and world headlines in descending chronological order (newest first).
+  - Enriched local zipcode search with nearby community queries if fewer than 3 headlines exist for a single postal code.
+- **REST Endpoints (`http_server.cpp`)**:
+  - Added `GET /api/news` and `GET /api/news/refresh` (or `POST`) for on-demand headline synchronization.
+
+#### TUI Settings
+- **Calendar API Key in TUI (`tui.cpp`)**:
+  - Added `Calendar API Key` directly to the TUI Info Panels configuration menu for seamless Google Calendar API setup.
+
 ### Release v18.1.2 — StockStreamer Table Columns & Separators (August 24, 2026)
 
 #### StockStreamer Enhancements

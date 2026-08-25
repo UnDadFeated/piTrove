@@ -302,10 +302,11 @@ static InfopanelLayout calculate_infopanel_layout(int screen_w, int screen_h) {
     int side_panel_h = layout.show_news ? news_y : screen_h;
 
     if (layout.show_calendar && layout.show_stocks) {
-        // Split side panel in half
-        int split_h = (int)round((double)side_panel_h * 0.44);
-        layout.calendar_area = { cal_x, 0, screen_w - cal_x, split_h };
-        layout.stocks_area = { cal_x, split_h, screen_w - cal_x, side_panel_h - split_h };
+        // Stocks sits tightly at the bottom (BTC 6px above newsfeed), giving maximum room to Google Calendar
+        int stocks_content_h = (int)round(288.0 * screen_w / 1920.0);
+        int stocks_y = std::max((int)round(180.0 * screen_w / 1920.0), side_panel_h - stocks_content_h);
+        layout.calendar_area = { cal_x, 0, screen_w - cal_x, stocks_y };
+        layout.stocks_area = { cal_x, stocks_y, screen_w - cal_x, side_panel_h - stocks_y };
     } else if (layout.show_calendar) {
         layout.calendar_area = { cal_x, 0, screen_w - cal_x, side_panel_h };
         layout.stocks_area = { 0, 0, 0, 0 };
