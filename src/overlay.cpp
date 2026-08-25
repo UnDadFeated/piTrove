@@ -322,7 +322,7 @@ void OverlayManager::draw_all(int current_idx, int total_items, const MediaItem*
         FontHandle& font = font_renderer->load_font(overlay_font->path, file_size);
         int tw = 0, th = 0;
         font_renderer->measure(font, item->filename, tw, th);
-        int fx = vx + (int)round(((double)(g_renderer.scale_px(g_cfg.matting_size)) * 0.5) + 10.0);
+        int fx = vx + (int)round(((double)(g_renderer.scale_px(g_cfg.matting_size)) * 0.5) - 5.0 * sw / 1920.0);
         int fy = vy + vh - th - (int)round(4.0 * sw / 1920.0);
 
         if (twin_item) {

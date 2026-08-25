@@ -1,3 +1,11 @@
+### Release v18.0.20 — Calendar & Filename Horizontal Offsets (August 24, 2026)
+
+#### UI Layout Offsets
+- **Google Calendar Frame Shift Left 10px (`main.cpp`, `renderer.cpp`)**:
+  - Expanded calendar width from 300px to 310px on 1080p, moving the frame and vertical separator 10px to the left.
+- **Filename Overlay Shift Left 15px (`overlay.cpp`)**:
+  - Adjusted filename horizontal position 15px to the left ($X = 91	ext{px}$ on 1080p).
+
 ### Release v18.0.19 — Timer Alignment & Fine News Positioning (August 24, 2026)
 
 #### UI Alignment Calibration
