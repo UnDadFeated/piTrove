@@ -1,3 +1,11 @@
+### Release v18.1.10 — 60 FPS News Ticker Scrolling Pacing (August 25, 2026)
+
+#### Display Loop & Pacing Architecture (`main.cpp`)
+- **Butter-Smooth 60 FPS News Ticker Pacing**:
+  - Dynamically targets 60 FPS when `news_enabled` and `infopanels_enabled` are active, eliminating 100ms stuttering and making text scrolling easy to read.
+  - Automatically reverts to low-power idle rate (`pattern_fps`, default 10 FPS) when news is disabled to maximize CPU/thermal efficiency.
+  - **Video Playback Untouched**: Retains precise PTS presentation clock timing (`av_sync`) and continuous ring buffer audio streaming during all video playback.
+
 ### Release v18.1.9 — Google Calendar Text Auto-Wrapping & 10 Event Default (August 25, 2026)
 
 #### Calendar Typography & Layout (`calendar.cpp`, `config.h`, `config.toml`)
