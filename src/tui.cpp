@@ -83,20 +83,13 @@ void config_wizard(const std::string& config_path) {
         term_cols = w.ws_col;
     }
     if (term_cols < 80) {
-        printf("\033[8;40;155t");
-        fflush(stdout);
-        std::this_thread::sleep_for(std::chrono::microseconds(100000));
-        std::memset(&w, 0, sizeof(w));
-        if (ioctl(STDIN_FILENO, TIOCGWINSZ, &w) >= 0 && w.ws_col > 0) {
-            term_cols = w.ws_col;
-        } else {
-            term_cols = 80;
-        }
+        term_cols = 80;
     }
     int tui_width = std::clamp(term_cols, 80, 155);
 
     set_termios_raw();
-    printf("\033[?1049h\033[40m\033[37m\033[H\033[J");
+    // Enter alternate screen, hide cursor, clear screen to default background
+    printf("\033[?1049h\033[?25l\033[0m\033[H\033[2J");
 
     // ── Dirty flag system: only redraw what changed ──
     // Row indices (0-based, matching printf output lines):
@@ -829,7 +822,7 @@ void config_wizard(const std::string& config_path) {
 
         if (cur_cols < 80 || cur_rows < 24) {
             int draw_cols = std::max(80, cur_cols);
-            printf("\033[40m\033[37m\033[H\033[J");
+            printf("\033[0m\033[H\033[2J");
             printf("\033[1;31m+"); for(int i=0; i<draw_cols-2; i++) printf("-"); printf("+\033[0m\n");
             printf("\033[1;31m|\033[0m  %-*s\033[1;31m|\033[0m\n", draw_cols-6, " [ TERMINAL WINDOW TOO SMALL ]");
             printf("\033[1;31m|\033[0m  %-*s\033[1;31m|\033[0m\n", draw_cols-6, "");
@@ -880,67 +873,36 @@ void config_wizard(const std::string& config_path) {
         if (need_render) {
             last_render_time = now;
 
-            // ── Full redraw ──
-            if (dirty_full) {
-                printf("\033[40m\033[37m\033[H\033[J");
+            // Render complete frame to top-left (0,0) without background clashes
+            printf("\033[H\033[?25l");
 
-                // Header
-                printf("\033[1;36m  piTrove Configuration Engine v%s\033[0m\n", VERSION);
-                printf("  \033[90m"); for(int i=0; i<tui_width-4; i++) printf("="); printf("\033[0m\n\n");
+            // 1. Header line
+            printf("  \033[1;36mpiTrove Configuration Engine v%s\033[0m\033[K\n", VERSION);
+            printf("  \033[90m");
+            for (int i = 0; i < tui_width - 4; i++) printf("=");
+            printf("\033[0m\033[K\n\n\033[K");
 
-                // Category bar
-                printf("  ");
-                for(int i=0; i<(int)(sizeof(CATS)/sizeof(CATS[0])); i++) {
-                    const char* name = (tui_width < 115) ? CAT_COMPACT[i] : CATS[i].n;
-                    if(i==sel) printf("\033[30;43m %s \033[0m  ", name);
-                    else printf("\033[1;37m%s\033[0m  ", name);
-                }
-                printf("\n\n");
-
-                // Column headers
-                printf("  \033[1;36m%-*s %-*s %-*s\033[0m\n", name_w, "Setting", val_w, "Value", desc_w, "Description");
-                printf("  \033[90m"); for(int i=0; i<tui_width-4; i++) printf("-"); printf("\033[0m\n");
-
-                dirty_from = ROW_ROW0;
-                dirty_to = ROW_ROW0 + CATS[sel].c - 1;
-                dirty_full = false;
-            } else {
-                // ── Dirty redraw: position cursor and redraw only changed rows ──
-                int y = dirty_from + 1;
-
-                printf("\033[%d;1H", y);
-
-                if (dirty_from <= ROW_CAT_BAR && dirty_to >= ROW_CAT_BAR) {
-                    printf("\033[1;36m  piTrove Configuration Engine v%s\033[0m\n", VERSION);
-                    printf("  \033[90m"); for(int i=0; i<tui_width-4; i++) printf("="); printf("\033[0m\n\n");
-                    printf("  ");
-                    for(int i=0; i<(int)(sizeof(CATS)/sizeof(CATS[0])); i++) {
-                        const char* name = (tui_width < 115) ? CAT_COMPACT[i] : CATS[i].n;
-                        if(i==sel) printf("\033[30;43m %s \033[0m  ", name);
-                        else printf("\033[1;37m%s\033[0m  ", name);
-                    }
-                    printf("\n\n");
-                    y += 2;
-                    printf("\033[%d;1H", y);
-                }
-
-                if (dirty_from <= ROW_COLHDR && dirty_to >= ROW_COLHDR) {
-                    printf("  \033[1;36m%-*s %-*s %-*s\033[0m\n", name_w, "Setting", val_w, "Value", desc_w, "Description");
-                    printf("  \033[90m"); for(int i=0; i<tui_width-4; i++) printf("-"); printf("\033[0m\n");
-                    y += 2;
-                    printf("\033[%d;1H", y);
+            // 2. Category tab bar
+            printf("  ");
+            for (int i = 0; i < (int)(sizeof(CATS)/sizeof(CATS[0])); i++) {
+                const char* name = (tui_width < 115) ? CAT_COMPACT[i] : CATS[i].n;
+                if (i == sel) {
+                    printf("\033[30;43m %s \033[0m  ", name);
+                } else {
+                    printf("\033[1;37m%s\033[0m  ", name);
                 }
             }
+            printf("\033[K\n\n\033[K");
 
-            // Render row lines
-            int row_start = std::max(0, dirty_from - ROW_ROW0);
-            int row_end = std::min(CATS[sel].c, dirty_to - ROW_ROW0 + 1);
-            if (edit_mode) { row_start = 0; row_end = CATS[sel].c; }
+            // 3. Column headers
+            printf("  \033[1;36m%-*s %-*s %-*s\033[0m\033[K\n", name_w, "Setting", val_w, "Value", desc_w, "Description");
+            printf("  \033[90m");
+            for (int i = 0; i < tui_width - 4; i++) printf("-");
+            printf("\033[0m\033[K\n");
 
-            // Position cursor to start printing row lines
-            printf("\033[%d;1H", ROW_ROW0 + row_start + 1);
-
-            for (int i = row_start; i < row_end; i++) {
+            // 4. Data rows for current category
+            int cat_count = CATS[sel].c;
+            for (int i = 0; i < cat_count; i++) {
                 const auto& item = CATS[sel].i[i];
                 std::string val = gv(sel, i);
                 if (item.t == TGL) {
@@ -952,40 +914,46 @@ void config_wizard(const std::string& config_path) {
                     desc += "...";
                 }
 
-                if(edit_mode && i==sel_sub)
-                    printf("  \033[1;32m%-*s \033[30;47m%-*s\033[0m \033[90m%-*s\033[0m\n", name_w, item.n, val_w, ed_buf.c_str(), desc_w, desc.c_str());
-                else if(i==sel_sub)
-                    printf("  \033[1;32m%-*s \033[1;37m%-*s\033[0m \033[90m%-*s\033[0m\n", name_w, item.n, val_w, val.c_str(), desc_w, desc.c_str());
-                else
-                    printf("  %-*s \033[37m%-*s\033[0m \033[90m%-*s\033[0m\n", name_w, item.n, val_w, val.c_str(), desc_w, desc.c_str());
+                if (edit_mode && i == sel_sub) {
+                    printf("  \033[1;32m%-*s \033[30;47m%-*s\033[0m \033[90m%-*s\033[0m\033[K\n", name_w, item.n, val_w, ed_buf.c_str(), desc_w, desc.c_str());
+                } else if (i == sel_sub) {
+                    printf("  \033[1;32m%-*s \033[1;37m%-*s\033[0m \033[90m%-*s\033[0m\033[K\n", name_w, item.n, val_w, val.c_str(), desc_w, desc.c_str());
+                } else {
+                    printf("  \033[37m%-*s\033[0m \033[1;37m%-*s\033[0m \033[90m%-*s\033[0m\033[K\n", name_w, item.n, val_w, val.c_str(), desc_w, desc.c_str());
+                }
             }
 
-            // Clear remaining rows to prevent stale text
-            for (int i = CATS[sel].c; i < 15; i++) printf("\033[K\n");
+            // 5. Dynamic separator & footer
+            printf("  \033[90m");
+            for (int i = 0; i < tui_width - 4; i++) printf("-");
+            printf("\033[0m\033[K\n");
 
-            // Footer
-            int footer_row = ROW_ROW0 + std::min(CATS[sel].c, 15) + 2;
-            printf("\033[%d;1H\n  \033[90m", footer_row);
-            for (int i = 0; i < tui_width - 4; i++) {
-                printf("-");
+            if (!edit_mode) {
+                printf("  \033[1;37m[^/v]\033[0m Select    \033[1;37m[</>]\033[0m Category    \033[1;37m[SPACE/ENTER]\033[0m Toggle/Edit    \033[1;32m[R]\033[0m Restore    \033[1;32m[S]\033[0m Save    \033[1;31m[Q]\033[0m Quit\033[K\n");
+            } else {
+                printf("  \033[1;32m[ENTER]\033[0m Confirm   \033[1;31m[ESC]\033[0m Cancel      \033[1;37m[^/v]\033[0m Cycle Options\033[K\n");
             }
-            printf("\033[0m\n");
 
-            if(!edit_mode)
-                printf("  \033[1;37m[^/v]\033[0m Select    \033[1;37m[</>]\033[0m Category    \033[1;37m[SPACE/ENTER]\033[0m Toggle/Edit    \033[1;32m[R]\033[0m Restore    \033[1;32m[S]\033[0m Save    \033[1;31m[Q]\033[0m Quit\n");
-            else
-                printf("  \033[1;32m[ENTER]\033[0m Confirm   \033[1;31m[ESC]\033[0m Cancel      \033[1;37m[^/v]\033[0m Cycle Options\n");
-
-            // Message flash (non-blocking)
+            // 6. Flash message / Notice line
             if (msg_buf.active) {
-                printf("  \033[1;31m%s\033[0m\n", msg_buf.text);
+                printf("  \033[1;32m%s\033[0m\033[K\n", msg_buf.text);
+            } else if (!edit_mode && g_config_changed.load()) {
+                printf("  \033[1;33m[NOTICE]\033[0m Previous changes detected. Use \033[1;32m[S]\033[0m to save, then \033[1;36mpitrove restart\033[0m to apply.\033[K\n");
+            } else {
+                printf("\033[K\n");
             }
 
-            // Restart notice
-            if (!edit_mode && g_config_changed.load()) {
-                printf("  \033[1;33m[NOTICE]\033[0m Previous changes detected. Use \033[1;32m[S]\033[0m to save, then \033[1;36mpitrove restart\033[0m to apply.\n");
+            // Clear any trailing lines below the TUI frame
+            printf("\033[J");
+
+            // If in edit mode, place the visible cursor at the end of the input box
+            if (edit_mode) {
+                int cursor_y = ROW_ROW0 + sel_sub + 1;
+                int cursor_x = 2 + name_w + 1 + (int)ed_buf.length() + 1;
+                printf("\033[%d;%dH\033[?25h", cursor_y, cursor_x);
             }
 
+            dirty_full = false;
             fflush(stdout);
         }
 
