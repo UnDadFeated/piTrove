@@ -8,6 +8,7 @@
 #include <cmath>
 #include <regex>
 #include <chrono>
+#include <future>
 
 extern Config g_cfg;
 extern std::shared_mutex g_config_mtx;
@@ -20,7 +21,7 @@ static size_t curl_write_cb(void* contents, size_t size, size_t nmemb, void* use
     return total_size;
 }
 
-static std::string http_get_json(const std::string& url, int timeout_secs = 6) {
+static std::string http_get_json(const std::string& url, int timeout_secs = 4) {
     CURL* curl = curl_easy_init();
     if (!curl) return "";
 
@@ -29,7 +30,7 @@ static std::string http_get_json(const std::string& url, int timeout_secs = 6) {
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, curl_write_cb);
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response);
     curl_easy_setopt(curl, CURLOPT_TIMEOUT, (long)timeout_secs);
-    curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 4L);
+    curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 3L);
     curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
     curl_easy_setopt(curl, CURLOPT_USERAGENT, "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36");
     curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
@@ -145,12 +146,25 @@ void StockStreamer::fetch_sync() {
         }
     }
 
-    std::vector<StockQuote> fetched_stocks;
+    // Parallel fetch for all stocks
+    std::vector<std::future<std::pair<std::string, std::string>>> futures;
     for (const auto& sym : symbols) {
         std::string yahoo_sym = (sym == "BRK.B") ? "BRK-B" : sym;
-        std::string url = std::format("https://query1.finance.yahoo.com/v8/finance/chart/{}?interval=1m&range=1d&includePrePost=true", yahoo_sym);
-        std::string json_resp = http_get_json(url, 4);
+        futures.push_back(std::async(std::launch::async, [sym, yahoo_sym]() {
+            std::string url = std::format("https://query1.finance.yahoo.com/v8/finance/chart/{}?interval=1m&range=1d&includePrePost=true", yahoo_sym);
+            return std::make_pair(sym, http_get_json(url, 4));
+        }));
+    }
 
+    // Parallel fetch for crypto
+    auto crypto_future = std::async(std::launch::async, [crypto_sym]() {
+        std::string url = std::format("https://query1.finance.yahoo.com/v8/finance/chart/{}?interval=1m&range=1d&includePrePost=true", crypto_sym);
+        return http_get_json(url, 4);
+    });
+
+    std::vector<StockQuote> fetched_stocks;
+    for (auto& f : futures) {
+        auto [sym, json_resp] = f.get();
         StockQuote q;
         q.symbol = sym;
         q.display_symbol = clean_display_sym(sym);
@@ -160,7 +174,6 @@ void StockStreamer::fetch_sync() {
         if (parse_yahoo_chart_meta(json_resp, q)) {
             fetched_stocks.push_back(std::move(q));
         } else {
-            // Keep previous quote if available
             std::shared_lock lk(m_quotes_mtx);
             auto it = std::find_if(m_stocks.begin(), m_stocks.end(), [&](const StockQuote& sq) { return sq.symbol == sym; });
             if (it != m_stocks.end()) {
@@ -169,19 +182,16 @@ void StockStreamer::fetch_sync() {
         }
     }
 
-    // Fetch Crypto (BTC)
+    // Process Crypto result
+    std::string btc_json = crypto_future.get();
     StockQuote fetched_crypto;
     fetched_crypto.symbol = crypto_sym;
     fetched_crypto.display_symbol = "BTC";
     fetched_crypto.name = "Bitcoin";
     fetched_crypto.is_crypto = true;
 
-    std::string btc_url = std::format("https://query1.finance.yahoo.com/v8/finance/chart/{}?interval=1m&range=1d&includePrePost=true", crypto_sym);
-    std::string btc_json = http_get_json(btc_url, 4);
-
     bool btc_ok = parse_yahoo_chart_meta(btc_json, fetched_crypto);
     if (!btc_ok) {
-        // Fallback to CoinGecko for 24/7 Bitcoin
         std::string cg_url = "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd&include_24hr_change=true";
         std::string cg_json = http_get_json(cg_url, 4);
         if (!cg_json.empty()) {
@@ -212,7 +222,7 @@ void StockStreamer::fetch_sync() {
         }
         m_last_sync_time.store(time(nullptr));
         m_last_error.store(0);
-        g_logger.info("STOCKS: Synced {} S&P 500 stocks + BTC realtime quotes", m_stocks.size());
+        g_logger.info("STOCKS: Realtime sync completed for {} S&P 500 stocks + BTC", m_stocks.size());
     }
 }
 
@@ -224,7 +234,6 @@ bool StockStreamer::start() {
     stop();
     m_running.store(true);
 
-    // Populate initial sample fallback quotes so UI is populated immediately on first frame
     {
         std::unique_lock lk(m_quotes_mtx);
         if (m_stocks.empty()) {
@@ -258,10 +267,10 @@ bool StockStreamer::start() {
         this->sync();
 
         while (this->m_running.load()) {
-            int refresh_secs = 30;
+            int refresh_secs = 10;
             {
                 std::shared_lock lk(g_config_mtx);
-                refresh_secs = std::clamp(g_cfg.stockstreamer_refresh_seconds, 10, 300);
+                refresh_secs = std::clamp(g_cfg.stockstreamer_refresh_seconds, 5, 300);
             }
             for (int i = 0; i < refresh_secs && this->m_running.load(); ++i) {
                 std::this_thread::sleep_for(std::chrono::seconds(1));
@@ -334,20 +343,17 @@ void StockStreamer::render(SDL_Renderer* renderer, FontRenderer* font_renderer, 
     int title_font_size = (int)round(13.0 * screen_w / 1920.0);
     int sym_font_size   = (int)round(12.0 * screen_w / 1920.0);
     int price_font_size = (int)round(12.0 * screen_w / 1920.0);
-    int sub_font_size   = (int)round(10.0 * screen_w / 1920.0);
-    int crypto_title_size = (int)round(13.0 * screen_w / 1920.0);
+    int sub_font_size   = (int)round(11.0 * screen_w / 1920.0);
 
     FontHandle& title_font = font_renderer->load_font(font_path, title_font_size);
     FontHandle& sym_font   = font_renderer->load_font(font_path, sym_font_size);
     FontHandle& price_font = font_renderer->load_font(font_path, price_font_size);
     FontHandle& sub_font   = font_renderer->load_font(font_path, sub_font_size);
-    FontHandle& crypto_title_font = font_renderer->load_font(font_path, crypto_title_size);
 
     int pad_x = bounds.x + (int)round(16.0 * screen_w / 1920.0);
     int cur_y = bounds.y + (int)round(12.0 * screen_w / 1920.0);
 
     // Section 1 Header: STOCKS / S&P 500 TOP 10
-    // Header dot (Slate Grey)
     int dot_r = (int)round(3.0 * screen_w / 1920.0);
     SDL_FRect dot_rect = { (float)pad_x, (float)(cur_y + 3), (float)(dot_r * 2), (float)(dot_r * 2) };
     SDL_SetRenderDrawColor(renderer, 140, 150, 165, 255);
@@ -367,12 +373,12 @@ void StockStreamer::render(SDL_Renderer* renderer, FontRenderer* font_renderer, 
 
     // 2. Render Top 10 Stocks
     int row_h = (int)round(24.0 * screen_w / 1920.0);
-    int max_y_stocks = bounds.y + bounds.h - (int)round(110.0 * screen_w / 1920.0);
+    int max_y_stocks = bounds.y + bounds.h - (int)round(75.0 * screen_w / 1920.0);
 
     for (const auto& st : stocks_copy) {
         if (cur_y + row_h > max_y_stocks) break;
 
-        // Symbol (Crisp White / Light Gold)
+        // Symbol (Crisp White)
         font_renderer->draw_text(pad_x, cur_y, sym_font, st.display_symbol, 240, 245, 255, 255);
 
         // Price (Bright White)
@@ -402,29 +408,33 @@ void StockStreamer::render(SDL_Renderer* renderer, FontRenderer* font_renderer, 
         cur_y += row_h;
     }
 
-    cur_y += 4;
+    cur_y += 6;
 
-    // 3. Section 2 Header: CRYPTO / 24/7 REALTIME
+    // 3. Section 2 Header: CRYPTO (Clean header, no "24/7 realtime" text)
     SDL_SetRenderDrawColor(renderer, 255, 255, 255, 30);
     SDL_FRect crypto_div = { (float)pad_x, (float)cur_y, (float)(bounds.w - (pad_x - bounds.x) * 2), 1.0f };
     SDL_RenderFillRect(renderer, &crypto_div);
-    cur_y += 6;
+    cur_y += 8;
 
-    // Crypto Header dot (Orange/Gold for Crypto)
+    // Crypto Header dot (Slate Grey)
     SDL_FRect c_dot = { (float)pad_x, (float)(cur_y + 3), (float)(dot_r * 2), (float)(dot_r * 2) };
-    SDL_SetRenderDrawColor(renderer, 255, 170, 0, 255);
+    SDL_SetRenderDrawColor(renderer, 140, 150, 165, 255);
     SDL_RenderFillRect(renderer, &c_dot);
 
-    font_renderer->draw_text(pad_x + dot_r * 2 + 6, cur_y, title_font, "CRYPTO  •  24/7 REALTIME", 255, 215, 120, 255);
-    cur_y += title_font_size + 6;
+    font_renderer->draw_text(pad_x + dot_r * 2 + 6, cur_y, title_font, "CRYPTO", 255, 255, 255, 255);
+    cur_y += title_font_size + 8;
 
-    // 4. Bitcoin Live Card
-    // Bitcoin Icon & Label
-    std::string btc_lbl = "BITCOIN (BTC)";
-    font_renderer->draw_text(pad_x, cur_y, sym_font, btc_lbl, 255, 180, 50, 255);
+    // 4. Bitcoin Live Card (Single Row Layout: Symbol, Price, and % all in one line)
+    // Symbol: BTC
+    font_renderer->draw_text(pad_x, cur_y, sym_font, "BTC", 255, 180, 50, 255); // Amber Gold
 
-    // 24h Change Pill Badge
-    std::string btc_chg = std::format("{}{:+.2f}% 24h", (crypto_copy.change_pct >= 0 ? "▲ " : "▼ "), crypto_copy.change_pct);
+    // Price: e.g. $79,743.07
+    std::string btc_price_str = !crypto_copy.formatted_price.empty() ? crypto_copy.formatted_price : "$79,820.00";
+    int bpx = pad_x + (int)round(80.0 * screen_w / 1920.0);
+    font_renderer->draw_text(bpx, cur_y, price_font, btc_price_str, 255, 255, 255, 255);
+
+    // 24h Change % (Right-aligned)
+    std::string btc_chg = std::format("{}{:+.2f}%", (crypto_copy.change_pct >= 0 ? "▲ " : "▼ "), crypto_copy.change_pct);
     int bcw = 0, bch = 0;
     font_renderer->measure(sub_font, btc_chg, bcw, bch);
     int bcx = bounds.x + bounds.w - bcw - (int)round(16.0 * screen_w / 1920.0);
@@ -434,10 +444,4 @@ void StockStreamer::render(SDL_Renderer* renderer, FontRenderer* font_renderer, 
     } else {
         font_renderer->draw_text(bcx, cur_y + 1, sub_font, btc_chg, 255, 82, 82, 255);
     }
-
-    cur_y += sym_font_size + 2;
-
-    // Live BTC Price (Large Bold)
-    std::string btc_price_str = !crypto_copy.formatted_price.empty() ? crypto_copy.formatted_price : "$79,820.00";
-    font_renderer->draw_text(pad_x, cur_y, crypto_title_font, btc_price_str, 255, 255, 255, 255);
 }

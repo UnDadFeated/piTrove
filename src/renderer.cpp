@@ -292,7 +292,7 @@ void Renderer::calculate_fit_rect(int img_w, int img_h, SDL_Rect& out_rect) {
 
     int right_border = 0;
     if (show_calendar) {
-        int cal_w = (int)round(310.0 * screen_w / 1920.0);
+        int cal_w = (int)round(335.0 * screen_w / 1920.0);
         right_border = (has_matting ? (int)round(mat_size * 0.9) : 0) + cal_w;
     } else {
         right_border = has_matting ? mat_size : 0;

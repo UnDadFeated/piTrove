@@ -297,7 +297,7 @@ static InfopanelLayout calculate_infopanel_layout(int screen_w, int screen_h) {
     int news_y = news_bottom - news_h;
 
     // Side panel width (scaled)
-    int cal_w = show_side ? std::clamp((int)round(310.0 * screen_w / 1920.0), 260, screen_w / 3) : 0;
+    int cal_w = show_side ? std::clamp((int)round(335.0 * screen_w / 1920.0), 285, screen_w / 3) : 0;
     int cal_x = screen_w - cal_w;
     int side_panel_h = layout.show_news ? news_y : screen_h;
 

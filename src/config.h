@@ -203,7 +203,7 @@ struct Config {
 
     // [stockstreamer]
     bool                     stockstreamer_enabled{true};
-    int                      stockstreamer_refresh_seconds{30};
+    int                      stockstreamer_refresh_seconds{10};
     std::vector<std::string> stockstreamer_symbols{"NVDA", "AAPL", "MSFT", "AMZN", "GOOGL", "META", "BRK-B", "TSLA", "AVGO", "JPM"};
     std::string              stockstreamer_crypto{"BTC-USD"};
 
