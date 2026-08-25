@@ -8,7 +8,11 @@
 <img src="https://img.shields.io/github/stars/UnDadFeated/piTrove?style=flat-square&logo=github" alt="Stars" />
 </p>
 
-Professional-grade, **containerized** digital picture & video frame application for Raspberry Pi 4 & 5. C++23, DRM/KMS GPU rendering, hardware-accelerated video decoding, NAS storage support, and zero-touch auto-updates.
+<p align="center">
+  <img src="docs/pitrove_ui_mockup.png" alt="piTrove Digital Picture & Video Frame Interface" width="880" style="border-radius: 8px; box-shadow: 0 10px 30px rgba(0,0,0,0.5);" />
+</p>
+
+Professional-grade, **containerized** digital picture & video frame application for Raspberry Pi 4 & 5. Built with C++23, SDL3 DRM/KMS direct GPU rendering, hardware-accelerated FFmpeg video decoding, live sidebar Google Calendar & StockStreamer infopanels, dual-source local/world news ticker, NAS storage auto-mounting, and zero-touch auto-updates.
 
 🌐 **[Live Documentation & Landing Page](https://undadfeated.github.io/piTrove/)**
 
@@ -53,18 +57,35 @@ sudo ./install.sh --organize /path/to/archive
 ### 🖼 Media Engine
 
 - **Broad Format Support**: JPEG, PNG, TIFF, WebP, HEIC/HEIF, BMP, TGA
-- **Video Playback**: H.264/H.265/AV1 in-process FFmpeg decode with hardware acceleration
-- **Pi 4/5 Auto-Detection**: DRM hwaccel (Pi 5) or V4L2 M2M (Pi 4) with software fallback
-- **Twin-Portrait Collage**: Side-by-side portrait layout for adjacent photos
+- **In-Process Video Playback**: H.264/H.265/AV1 in-process FFmpeg decode with hardware acceleration
+- **PTS-Based A/V Synchronization**: Wall-clock anchored presentation clock (`av_sync`) ensuring synchronized audio and video without drift
+- **Pi 4/5 Auto-Detection**: DRM hwaccel (Pi 5) or V4L2 M2M (Pi 4) with multi-threaded software fallback for high-bitrate 4K clips
+- **Twin-Portrait Collage**: Side-by-side portrait layout for adjacent vertical photos
 - **Ken Burns Effect**: Smooth zoom and pan animations
 - **Professional Transitions**: Crossfade, wipe, pixelate, dissolve
 - **Dynamic Bias Lighting**: Photo-aware edge glow with 5 animation styles
 - **Adaptive Overlays**: Filename, date, countdown timer, clock, diagnostics HUD
 - **CRT Aesthetic**: Optional vignette and scanline overlays
+- **Physical Matte Frame Calibration**: Optical centering and global canvas offset for 1" physical matte frames
+
+### 📊 Infopanels Subsystem
+
+- **Google Calendar Agenda Sync**: Native iCal feed sync (supports secret and public URLs) with text auto-wrapping bounded by the physical frame opening, multi-line cards, and dynamic accent indicator pills.
+- **Stock Streamer**: Real-time S&P 500 stocks + Bitcoin ticker with quick presets (`sp500_top10`, `big_tech`, `semiconductors`, `dividend_kings`, `custom`) and after-hours tracking.
+- **Live News Ticker**: Dual-source scrolling ticker with local community headlines (auto-geocoded ZIP/City search via Google News RSS) + Google Top Stories.
+
+### 💻 Universal TUI Configuration Wizard
+
+- **Universal Terminal Compatibility**: Standardized VT100/ANSI rendering preserving native background transparency in **Alacritty** (CachyOS/Arch/Fedora), **Windows Terminal**, **PowerShell**, **Command Prompt**, **macOS Terminal**, **Kitty**, and **WezTerm**.
+- **Smart Assist Tools**:
+  - **Weather Geocoding**: Enter a ZIP code or city name to auto-resolve latitude & longitude coordinates.
+  - **Stock Presets**: 1-click ticker bundles.
+  - **Google Calendar URL Builder**: Direct secret & public iCal setup.
+- **Dynamic Category Viewport**: Automatically scales footer navigation to fit large menus (20+ items).
 
 ### 📂 Smart Scanning & Cache
 
-- **NAS-Optimized**: CIFS hang prevention with timeout wrappers
+- **NAS-Optimized**: CIFS hang prevention with timeout wrappers and I/O throttle protection
 - **SQLite3 WAL Persistence**: Zero redundant scans across restarts
 - **Seasonal Window**: Month-based temporal filtering
 - **On-This-Day**: Anniversary photo matching with configurable tolerance
@@ -79,13 +100,6 @@ sudo ./install.sh --organize /path/to/archive
 - **HTTP Dashboard**: Glassmorphic web control panel with live telemetry
 - **Touchscreen Control**: Native evdev input with floating navigation
 - **Sleep/Wake Scheduling**: Automatic display power management
-
-
-### 📡 Motion Sensor & MQTT Integration
-
-piTrove includes native MQTT subscriber capabilities to automatically wake the display upon motion detection:
-- **Broad Sensor Compatibility**: Hardware-agnostic support for widely used PIR and microwave motion sensors including **HC-SR501**, **AM312**, **RCWL-0516**, ESP32/ESP8266 microcontrollers flashed with **ESPHome** or **Tasmota**, and Zigbee/Z-Wave sensors (via Home Assistant or Zigbee2MQTT).
-- **Home Assistant Auto-Discovery**: Automatically registers entities (`piTrove_screen`, skip/pause buttons, and binary motion sensor status `piTrove_motion`) with payload handling (`ON`, `1`, `true`, `motion`).
 
 ### 🛡 Reliability
 
@@ -107,7 +121,7 @@ Media Root → Recursive Scan → SQLite Cache → Async Preload → SDL3 Render
 ```
 
 - **Language**: C++23
-- **Core**: SDL3, SDL3_image, SDL3_ttf, FFmpeg (libavcodec/libavformat/libswscale/libswresample), SQLite3, libexif, libheif
+- **Core**: SDL3, SDL3_image, SDL3_ttf, FFmpeg 7.1.5 (libavcodec/libavformat/libswscale/libswresample), SQLite3, libexif, libheif
 - **HW Accel**: Pi 5 DRM (vc4-kms-v3d) / Pi 4 V4L2 M2M / SW fallback
 - **Target**: Debian Trixie Lite 64-bit on Raspberry Pi 4 & 5
 
@@ -118,7 +132,10 @@ Media Root → Recursive Scan → SQLite Cache → Async Preload → SDL3 Render
 ```
 src/
 ├── main.cpp              — Entry point, render loop, event handling
-├── video_decoder.cpp/h   — FFmpeg decode + hwaccel + audio
+├── calendar.cpp/h        — Google Calendar iCal sync, text wrapping, card layout
+├── stock_streamer.cpp/h  — S&P 500 stocks & Bitcoin real-time quote streamer
+├── news_ticker.cpp/h     — Dual-feed local/world RSS news crawler & ticker
+├── video_decoder.cpp/h   — FFmpeg decode + hwaccel + audio PTS synchronization
 ├── transition.cpp/h      — GPU transitions (crossfade, wipe, pixelate, dissolve, ken burns)
 ├── overlay.cpp/h         — OSD widgets (timer, date, filename, clock, diagnostics)
 ├── font_render.cpp/h     — Cached + uncached text rendering
@@ -128,7 +145,7 @@ src/
 ├── cache.cpp/h           — SQLite3 WAL-mode metadata persistence
 ├── preload.cpp/h         — Async image preloading queue
 ├── config.cpp/h          — TOML config parser & validation
-├── tui.cpp/h             — Terminal configuration wizard
+├── tui.cpp/h             — Universal terminal configuration wizard
 ├── mqtt.cpp/h            — MQTT subscriber & Home Assistant discovery
 ├── google_photos.cpp/h   — Google Photos cloud sync
 ├── http_server.cpp/h     — Web dashboard & remote control API
@@ -140,7 +157,7 @@ src/
 ├── safe_mode.cpp/h       — Crash recovery & safe mode
 ├── auth.cpp/h            — Dashboard authentication
 ├── preprocess.cpp/h      — Background EXIF preprocessing
-├── util.cpp/h            — Utilities, string parsing, safety
+├── util.cpp/h            — Utilities, string parsing, safety, geocoding
 ├── media_item.h          — Media data structures
 ├── interfaces.h          — Interface definitions
 ├── expected.h            — Expected type implementation
@@ -151,7 +168,6 @@ src/
 
 - `install.sh`: Bootstrap installer (Docker, NAS, systemd, auto-update)
 - `CHANGELOG.md`: Detailed version history
-
 
 ## License
 

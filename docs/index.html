@@ -3,30 +3,33 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>piTrove — C++ Digital Picture & Video Frame for Raspberry Pi</title>
-    <meta name="description" content="Professional-grade C++23/SDL3 digital picture frame for Raspberry Pi with hardware-accelerated DRM/KMS, NAS auto-mounting, and zero-touch updates.">
+    <title>piTrove — C++ Digital Picture &amp; Video Frame for Raspberry Pi</title>
+    <meta name="description" content="Professional-grade C++23/SDL3 digital picture &amp; video frame for Raspberry Pi with hardware-accelerated DRM/KMS, live Google Calendar &amp; StockStreamer sidebar, local news ticker, NAS auto-mounting, and zero-touch updates.">
     <!-- Google Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;600;700&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;600;700&family=Inter:wght@400;500;600;700;800&family=Outfit:wght@500;700;800&display=swap" rel="stylesheet">
     <!-- Tabler Icons -->
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/tabler-icons.min.css">
     
     <style>
         :root {
-            --bg-dark: #090d16;
-            --bg-card: rgba(15, 23, 42, 0.85);
-            --border: rgba(56, 189, 248, 0.18);
-            --border-hover: rgba(56, 189, 248, 0.4);
+            --bg-dark: #070a12;
+            --bg-card: rgba(13, 19, 33, 0.88);
+            --bg-card-hover: rgba(19, 29, 50, 0.95);
+            --border: rgba(56, 189, 248, 0.16);
+            --border-hover: rgba(56, 189, 248, 0.45);
             --text-primary: #f8fafc;
             --text-secondary: #94a3b8;
             --text-muted: #64748b;
             --cyan: #06b6d4;
+            --cyan-glow: rgba(6, 182, 212, 0.25);
             --green: #22c55e;
             --raspberry: #e11d48;
             --purple: #a855f7;
             --amber: #f59e0b;
             --font-sans: 'Inter', system-ui, -apple-system, sans-serif;
+            --font-heading: 'Outfit', var(--font-sans);
             --font-mono: 'Fira Code', ui-monospace, monospace;
         }
 
@@ -36,11 +39,12 @@
             background-color: var(--bg-dark);
             background-image: 
                 radial-gradient(at 0% 0%, rgba(225, 29, 72, 0.12) 0px, transparent 50%),
-                radial-gradient(at 100% 0%, rgba(6, 182, 212, 0.15) 0px, transparent 50%);
+                radial-gradient(at 100% 0%, rgba(6, 182, 212, 0.14) 0px, transparent 50%),
+                radial-gradient(at 50% 100%, rgba(168, 85, 247, 0.08) 0px, transparent 50%);
             background-attachment: fixed;
             color: var(--text-primary);
             font-family: var(--font-sans);
-            line-height: 1.45;
+            line-height: 1.5;
             min-height: 100vh;
             display: flex;
             flex-direction: column;
@@ -48,15 +52,15 @@
 
         .container {
             width: 100%;
-            max-width: 920px;
+            max-width: 1040px;
             margin: 0 auto;
-            padding: 0 16px;
+            padding: 0 20px;
         }
 
         header {
             border-bottom: 1px solid var(--border);
-            backdrop-filter: blur(12px);
-            background: rgba(9, 13, 22, 0.9);
+            backdrop-filter: blur(14px);
+            background: rgba(7, 10, 18, 0.92);
             position: sticky;
             top: 0;
             z-index: 100;
@@ -65,33 +69,35 @@
             display: flex;
             justify-content: space-between;
             align-items: center;
-            height: 54px;
+            height: 60px;
         }
         .brand {
             display: flex;
             align-items: center;
-            gap: 8px;
-            font-family: var(--font-mono);
-            font-weight: 700;
-            font-size: 1.15rem;
+            gap: 10px;
+            font-family: var(--font-heading);
+            font-weight: 800;
+            font-size: 1.25rem;
             color: var(--text-primary);
+            text-decoration: none;
+            letter-spacing: -0.02em;
         }
         .brand .pi-icon {
             color: var(--raspberry);
-            font-size: 1.35rem;
+            font-size: 1.45rem;
         }
 
         nav {
             display: flex;
-            gap: 16px;
+            gap: 18px;
             align-items: center;
         }
         nav a {
             color: var(--text-secondary);
             text-decoration: none;
-            font-size: 0.85rem;
+            font-size: 0.9rem;
             font-weight: 500;
-            transition: all 0.2s;
+            transition: all 0.2s ease;
         }
         nav a:hover {
             color: var(--cyan);
@@ -99,223 +105,353 @@
         .nav-btn {
             display: inline-flex;
             align-items: center;
-            gap: 5px;
-            padding: 5px 12px;
-            border-radius: 6px;
+            gap: 6px;
+            padding: 6px 14px;
+            border-radius: 8px;
             background: rgba(255, 255, 255, 0.05);
             border: 1px solid var(--border);
             color: var(--text-primary);
+            font-weight: 600;
+            font-size: 0.88rem;
         }
         .nav-btn:hover {
-            background: rgba(56, 189, 248, 0.15);
+            background: var(--cyan-glow);
             border-color: var(--cyan);
             color: #fff;
+            box-shadow: 0 0 15px var(--cyan-glow);
         }
 
+        /* Hero */
         .hero {
-            padding: 24px 0 16px;
+            padding: 44px 0 24px;
             text-align: center;
         }
+        .hero-badges {
+            display: flex;
+            justify-content: center;
+            gap: 8px;
+            margin-bottom: 18px;
+            flex-wrap: wrap;
+        }
+        .hero-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            padding: 3px 10px;
+            border-radius: 20px;
+            background: rgba(255, 255, 255, 0.06);
+            border: 1px solid var(--border);
+            color: var(--text-secondary);
+            font-family: var(--font-mono);
+        }
+        .hero-badge.cyan { border-color: rgba(6, 182, 212, 0.4); color: var(--cyan); }
+        .hero-badge.raspberry { border-color: rgba(225, 29, 72, 0.4); color: var(--raspberry); }
+        .hero-badge.green { border-color: rgba(34, 197, 94, 0.4); color: var(--green); }
+
         .hero h1 {
-            font-size: 2rem;
+            font-family: var(--font-heading);
+            font-size: 2.75rem;
             font-weight: 800;
-            line-height: 1.2;
-            letter-spacing: -0.02em;
-            background: linear-gradient(135deg, #ffffff 0%, #cbd5e1 50%, var(--cyan) 100%);
+            letter-spacing: -0.03em;
+            line-height: 1.15;
+            margin-bottom: 14px;
+            background: linear-gradient(135deg, #ffffff 40%, var(--cyan) 100%);
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
-            margin-bottom: 8px;
         }
         .hero p {
-            font-size: 0.95rem;
+            font-size: 1.12rem;
             color: var(--text-secondary);
-            max-width: 640px;
-            margin: 0 auto;
+            max-width: 740px;
+            margin: 0 auto 28px;
+            line-height: 1.6;
         }
 
+        /* Mock UI Showcase */
+        .showcase-section {
+            margin: 10px 0 40px;
+            position: relative;
+        }
+        .showcase-wrapper {
+            position: relative;
+            border-radius: 12px;
+            padding: 8px;
+            background: linear-gradient(145deg, rgba(56, 189, 248, 0.25), rgba(225, 29, 72, 0.15), rgba(15, 23, 42, 0.6));
+            box-shadow: 0 20px 50px rgba(0, 0, 0, 0.7), 0 0 40px var(--cyan-glow);
+            overflow: hidden;
+        }
+        .showcase-img {
+            width: 100%;
+            height: auto;
+            border-radius: 8px;
+            display: block;
+        }
+        .showcase-features {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 12px;
+            margin-top: 18px;
+        }
+        .showcase-pill {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 10px 14px;
+            border-radius: 8px;
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            backdrop-filter: blur(8px);
+            font-size: 0.85rem;
+            color: var(--text-primary);
+        }
+        .showcase-pill i {
+            font-size: 1.2rem;
+            color: var(--cyan);
+            flex-shrink: 0;
+        }
+
+        /* Terminal Window */
         .terminal-box {
             background: var(--bg-card);
             border: 1px solid var(--border);
-            border-radius: 10px;
+            border-radius: 12px;
             overflow: hidden;
-            box-shadow: 0 12px 30px -10px rgba(0,0,0,0.5);
-            backdrop-filter: blur(16px);
-            margin: 16px 0 24px;
+            box-shadow: 0 16px 36px rgba(0, 0, 0, 0.5);
+            margin: 32px 0;
         }
         .terminal-header {
-            background: rgba(30, 41, 59, 0.7);
-            padding: 8px 14px;
+            background: rgba(9, 13, 24, 0.95);
+            padding: 10px 16px;
             display: flex;
             align-items: center;
             justify-content: space-between;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+            border-bottom: 1px solid var(--border);
         }
         .terminal-dots {
             display: flex;
             gap: 6px;
         }
         .dot {
-            width: 9px;
-            height: 9px;
+            width: 11px;
+            height: 11px;
             border-radius: 50%;
         }
         .dot.red { background: #ef4444; }
-        .dot.yellow { background: #f59e0b; }
-        .dot.green { background: #10b981; }
+        .dot.yellow { background: #eab308; }
+        .dot.green { background: #22c55e; }
         .terminal-title {
             font-family: var(--font-mono);
-            font-size: 0.75rem;
+            font-size: 0.8rem;
             color: var(--text-muted);
         }
         .terminal-body {
-            padding: 16px;
+            padding: 20px;
         }
-        
         .cmd-container {
-            background: #020617;
-            border: 1px solid rgba(6, 182, 212, 0.35);
-            border-radius: 8px;
-            padding: 12px 14px;
             display: flex;
             align-items: center;
             justify-content: space-between;
+            background: rgba(0, 0, 0, 0.45);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 8px;
+            padding: 12px 16px;
+            font-family: var(--font-mono);
+            font-size: 0.88rem;
+            color: #38bdf8;
+            overflow-x: auto;
             gap: 12px;
-            margin-bottom: 16px;
-            box-shadow: inset 0 2px 4px rgba(0,0,0,0.5);
         }
         .cmd-text {
-            font-family: var(--font-mono);
-            font-size: 0.75rem;
-            color: var(--cyan);
-            white-space: nowrap;
             display: flex;
             align-items: center;
-            gap: 8px;
-            overflow-x: auto;
-            scrollbar-width: none; /* Firefox */
+            gap: 10px;
+            white-space: nowrap;
         }
-        .cmd-text::-webkit-scrollbar {
-            display: none; /* Safari and Chrome */
-        }
-        .cmd-text .prompt {
+        .prompt {
             color: var(--green);
             font-weight: 700;
-            user-select: none;
-            flex-shrink: 0;
         }
         .copy-btn {
-            background: rgba(6, 182, 212, 0.15);
-            border: 1px solid rgba(6, 182, 212, 0.35);
-            color: var(--cyan);
+            background: rgba(255, 255, 255, 0.08);
+            border: 1px solid var(--border);
+            color: var(--text-primary);
+            padding: 6px 14px;
             border-radius: 6px;
-            padding: 7px 12px;
-            cursor: pointer;
-            font-family: var(--font-mono);
-            font-size: 0.68rem;
+            font-family: var(--font-sans);
+            font-size: 0.8rem;
             font-weight: 600;
-            display: inline-flex;
+            cursor: pointer;
+            display: flex;
             align-items: center;
             gap: 6px;
             transition: all 0.2s;
             flex-shrink: 0;
-            white-space: nowrap;
         }
         .copy-btn:hover {
-            background: var(--cyan);
-            color: #090d16;
-            box-shadow: 0 0 10px rgba(6, 182, 212, 0.4);
+            background: rgba(56, 189, 248, 0.2);
+            border-color: var(--cyan);
+            color: #fff;
         }
 
+        /* Instructions */
         .instructions-heading {
-            font-family: var(--font-mono);
-            font-size: 0.68rem;
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
-            color: var(--text-muted);
-            margin-bottom: 10px;
+            margin: 22px 0 12px;
+            font-size: 0.92rem;
+            font-weight: 700;
+            color: var(--text-secondary);
             display: flex;
             align-items: center;
-            gap: 6px;
+            gap: 8px;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
         }
         .instructions-grid {
             display: grid;
-            grid-template-columns: repeat(2, 1fr);
-            gap: 10px;
+            grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+            gap: 12px;
         }
         .step-card {
-            background: rgba(30, 41, 59, 0.4);
+            background: rgba(255, 255, 255, 0.025);
             border: 1px solid rgba(255, 255, 255, 0.05);
-            border-radius: 6px;
-            padding: 10px 12px;
+            border-radius: 8px;
+            padding: 14px;
             display: flex;
-            gap: 10px;
+            gap: 12px;
             align-items: flex-start;
         }
         .step-num {
-            background: rgba(6, 182, 212, 0.15);
+            width: 24px;
+            height: 24px;
+            background: var(--cyan-glow);
             color: var(--cyan);
-            border: 1px solid rgba(6, 182, 212, 0.3);
-            font-family: var(--font-mono);
-            font-weight: 700;
-            font-size: 0.68rem;
-            width: 20px;
-            height: 20px;
-            border-radius: 4px;
+            border: 1px solid var(--border);
+            border-radius: 50%;
             display: flex;
             align-items: center;
             justify-content: center;
+            font-family: var(--font-mono);
+            font-weight: 700;
+            font-size: 0.78rem;
             flex-shrink: 0;
-            margin-top: 1px;
         }
         .step-content {
-            font-size: 0.82rem;
+            font-size: 0.85rem;
             color: var(--text-secondary);
-            line-height: 1.35;
+            line-height: 1.4;
         }
         .step-content strong {
             color: var(--text-primary);
         }
         .step-content code {
             font-family: var(--font-mono);
-            background: rgba(0,0,0,0.5);
-            color: var(--green);
-            padding: 1px 6px;
+            font-size: 0.78rem;
+            background: rgba(0, 0, 0, 0.3);
+            padding: 2px 5px;
             border-radius: 4px;
-            font-size: 0.75rem;
-            border: 1px solid rgba(255,255,255,0.08);
-            white-space: nowrap;
-            display: inline-block;
-            word-break: keep-all;
+            color: var(--cyan);
         }
 
+        /* Features Section */
+        .features-section {
+            padding: 30px 0;
+        }
+        .section-title {
+            text-align: center;
+            margin-bottom: 28px;
+        }
+        .section-title h2 {
+            font-family: var(--font-heading);
+            font-size: 1.9rem;
+            font-weight: 800;
+            color: var(--text-primary);
+            letter-spacing: -0.02em;
+        }
+        .section-title p {
+            color: var(--text-secondary);
+            font-size: 0.98rem;
+            margin-top: 6px;
+        }
+        .features-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(290px, 1fr));
+            gap: 16px;
+        }
+        .feature-item {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 20px;
+            transition: all 0.25s ease;
+            position: relative;
+            overflow: hidden;
+        }
+        .feature-item:hover {
+            background: var(--bg-card-hover);
+            border-color: var(--border-hover);
+            transform: translateY(-2px);
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.4);
+        }
+        .feature-icon {
+            width: 42px;
+            height: 42px;
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.35rem;
+            margin-bottom: 14px;
+        }
+        .icon-cyan { background: rgba(6, 182, 212, 0.15); color: var(--cyan); border: 1px solid rgba(6, 182, 212, 0.3); }
+        .icon-raspberry { background: rgba(225, 29, 72, 0.15); color: var(--raspberry); border: 1px solid rgba(225, 29, 72, 0.3); }
+        .icon-green { background: rgba(34, 197, 94, 0.15); color: var(--green); border: 1px solid rgba(34, 197, 94, 0.3); }
+        .icon-purple { background: rgba(168, 85, 247, 0.15); color: var(--purple); border: 1px solid rgba(168, 85, 247, 0.3); }
+        .icon-amber { background: rgba(245, 158, 11, 0.15); color: var(--amber); border: 1px solid rgba(245, 158, 11, 0.3); }
+
+        .feature-item h3 {
+            font-size: 1.05rem;
+            font-weight: 700;
+            color: var(--text-primary);
+            margin-bottom: 8px;
+        }
+        .feature-item p {
+            font-size: 0.86rem;
+            color: var(--text-secondary);
+            line-height: 1.5;
+        }
+
+        /* Video Section */
         .video-section {
-            margin-bottom: 24px;
+            padding: 20px 0 40px;
         }
         .video-card {
             background: var(--bg-card);
             border: 1px solid var(--border);
-            border-radius: 10px;
+            border-radius: 12px;
             overflow: hidden;
-            box-shadow: 0 12px 30px -10px rgba(0,0,0,0.5);
+            box-shadow: 0 16px 36px rgba(0, 0, 0, 0.5);
         }
         .video-header {
-            background: rgba(30, 41, 59, 0.7);
-            padding: 8px 14px;
+            background: rgba(9, 13, 24, 0.95);
+            padding: 12px 18px;
+            font-size: 0.9rem;
+            font-weight: 700;
             display: flex;
             align-items: center;
             gap: 8px;
-            font-family: var(--font-mono);
-            font-size: 0.68rem;
-            color: var(--text-secondary);
-            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+            border-bottom: 1px solid var(--border);
+            color: var(--text-primary);
         }
-        .video-header i { color: var(--raspberry); }
+        .video-header i {
+            color: var(--raspberry);
+            font-size: 1.2rem;
+        }
         .responsive-video {
             position: relative;
             padding-bottom: 56.25%;
             height: 0;
             overflow: hidden;
-            background: #000;
         }
         .responsive-video iframe {
             position: absolute;
@@ -326,121 +462,45 @@
             border: 0;
         }
 
-        .features-section {
-            margin-bottom: 32px;
-        }
-        .section-title {
-            text-align: center;
-            margin-bottom: 16px;
-        }
-        .section-title h2 {
-            font-size: 1.35rem;
-            font-weight: 700;
-            color: var(--text-primary);
-        }
-        .features-grid {
-            display: grid;
-            grid-template-columns: repeat(3, 1fr);
-            gap: 12px;
-        }
-        .feature-item {
-            background: var(--bg-card);
-            border: 1px solid var(--border);
-            border-radius: 8px;
-            padding: 14px;
-            transition: all 0.2s;
-        }
-        .feature-item:hover {
-            border-color: var(--border-hover);
-            transform: translateY(-2px);
-        }
-        .feature-icon {
-            width: 32px;
-            height: 32px;
-            border-radius: 6px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 1.1rem;
-            margin-bottom: 10px;
-        }
-        .icon-cyan { background: rgba(6, 182, 212, 0.15); color: var(--cyan); }
-        .icon-green { background: rgba(34, 197, 94, 0.15); color: var(--green); }
-        .icon-raspberry { background: rgba(225, 29, 72, 0.15); color: var(--raspberry); }
-        .icon-purple { background: rgba(168, 85, 247, 0.15); color: var(--purple); }
-        .icon-amber { background: rgba(245, 158, 11, 0.15); color: var(--amber); }
-
-        .feature-item h3 {
-            font-size: 0.92rem;
-            font-weight: 600;
-            margin-bottom: 4px;
-            color: var(--text-primary);
-        }
-        .feature-item p {
-            font-size: 0.8rem;
-            color: var(--text-secondary);
-            line-height: 1.4;
-        }
-
         footer {
-            margin-top: auto;
             border-top: 1px solid var(--border);
-            padding: 16px 0;
-            background: rgba(9, 13, 22, 0.95);
-            font-size: 0.8rem;
-            color: var(--text-muted);
+            background: rgba(7, 10, 18, 0.95);
+            padding: 24px 0;
+            margin-top: auto;
             text-align: center;
+            font-size: 0.85rem;
+            color: var(--text-muted);
         }
         footer a {
             color: var(--text-secondary);
             text-decoration: none;
-            margin: 0 6px;
+            transition: color 0.2s;
         }
         footer a:hover {
             color: var(--cyan);
         }
 
         @media (max-width: 768px) {
-            .hero { padding: 18px 0 12px; }
-            .hero h1 { font-size: 1.5rem; }
-            .hero p { font-size: 0.75rem; }
-            .cmd-container {
-                flex-direction: column;
-                align-items: stretch;
-                gap: 10px;
-                padding: 10px;
-            }
-            .cmd-text {
-                font-size: 0.70rem;
-                white-space: nowrap;
-            }
-            .copy-btn {
-                justify-content: center;
-                width: 100%;
-            }
-            .instructions-grid {
-                grid-template-columns: 1fr;
-            }
-            .features-grid {
-                grid-template-columns: 1fr;
-            }
-            .terminal-body {
-                padding: 12px;
-            }
+            .hero h1 { font-size: 2.1rem; }
+            .hero p { font-size: 1rem; }
+            .cmd-container { flex-direction: column; align-items: stretch; }
+            .cmd-text { overflow-x: auto; }
+            .copy-btn { justify-content: center; }
         }
     </style>
 </head>
 <body>
     <header>
         <div class="container header-inner">
-            <div class="brand">
+            <a href="#" class="brand">
                 <i class="ti ti-device-tv-old pi-icon"></i>
                 piTrove
-                
-            </div>
+            </a>
             <nav>
-                <a href="#install">Installer</a>
+                <a href="#showcase">UI Preview</a>
+                <a href="#install">Install</a>
                 <a href="#features">Features</a>
+                <a href="#demo">Demo</a>
                 <a href="https://github.com/UnDadFeated/piTrove" target="_blank" class="nav-btn">
                     <i class="ti ti-brand-github"></i> GitHub
                 </a>
@@ -451,8 +511,39 @@
     <main class="container">
         <!-- Hero Section -->
         <section class="hero">
+            <div class="hero-badges">
+                <span class="hero-badge raspberry"><i class="ti ti-brand-raspberry-pi"></i> Raspberry Pi 4 &amp; 5</span>
+                <span class="hero-badge cyan"><i class="ti ti-brand-cpp"></i> C++23 / SDL3 DRM</span>
+                <span class="hero-badge green"><i class="ti ti-video"></i> FFmpeg 7.1.5 HW Accel</span>
+                <span class="hero-badge"><i class="ti ti-license"></i> GNU GPLv3</span>
+            </div>
             <h1>C++ Digital Picture &amp; Video Frame</h1>
-            <p>High-performance slideshow engine for Raspberry Pi with direct DRM/KMS hardware acceleration, in-process FFmpeg video decoding, NAS auto-mounting, &amp; zero-touch updates.</p>
+            <p>High-performance slideshow engine with direct DRM/KMS GPU acceleration, live Google Calendar agenda, S&amp;P 500 stock streamer, dual-source news ticker, NAS auto-mounting, &amp; zero-touch updates.</p>
+        </section>
+
+        <!-- Visual UI Showcase Section -->
+        <section class="showcase-section" id="showcase">
+            <div class="showcase-wrapper">
+                <img src="pitrove_ui_mockup.png" alt="piTrove Digital Picture &amp; Video Frame Interface Preview" class="showcase-img" loading="eager" />
+            </div>
+            <div class="showcase-features">
+                <div class="showcase-pill">
+                    <i class="ti ti-calendar-event"></i>
+                    <span><strong>Google Calendar</strong><br>Word-wrapped multi-line agenda sync</span>
+                </div>
+                <div class="showcase-pill">
+                    <i class="ti ti-chart-line"></i>
+                    <span><strong>StockStreamer</strong><br>Real-time S&amp;P 500 &amp; Bitcoin quotes</span>
+                </div>
+                <div class="showcase-pill">
+                    <i class="ti ti-news"></i>
+                    <span><strong>Dual News Ticker</strong><br>Geocoded local headlines + World news</span>
+                </div>
+                <div class="showcase-pill">
+                    <i class="ti ti-movie"></i>
+                    <span><strong>In-Process Video</strong><br>PTS A/V synced FFmpeg 7.1.5 decode</span>
+                </div>
+            </div>
         </section>
 
         <!-- Terminal Window & Quick Install -->
@@ -503,9 +594,49 @@
                     <div class="step-card">
                         <div class="step-num">4</div>
                         <div class="step-content">
-                            Access web dashboard at <code>http://&lt;pi-ip&gt;:9000</code> to control playback.
+                            Run <code>pitrove config</code> to open the TUI settings wizard and customize feeds.
                         </div>
                     </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Features Grid -->
+        <section class="features-section" id="features">
+            <div class="section-title">
+                <h2>Engineered for 24/7 Unattended Elegance</h2>
+                <p>Designed for Raspberry Pi 4 &amp; 5 without compromise on performance or aesthetics.</p>
+            </div>
+            <div class="features-grid">
+                <div class="feature-item">
+                    <div class="feature-icon icon-raspberry"><i class="ti ti-device-tv"></i></div>
+                    <h3>Direct DRM/KMS Rendering</h3>
+                    <p>SDL3 GPU rendering directly to Linux kernel DRM display buffers with zero desktop environment or X11/Wayland overhead.</p>
+                </div>
+                <div class="feature-item">
+                    <div class="feature-icon icon-cyan"><i class="ti ti-video"></i></div>
+                    <h3>PTS-Synced Video Engine</h3>
+                    <p>In-process FFmpeg 7.1.5 decode with kernel V4L2 M2M hardware acceleration, PTS presentation clock, and seamless photo transitions.</p>
+                </div>
+                <div class="feature-item">
+                    <div class="feature-icon icon-amber"><i class="ti ti-layout-sidebar-right"></i></div>
+                    <h3>Infopanels Subsystem</h3>
+                    <p>Live Google Calendar agenda with auto word-wrapping, real-time S&amp;P 500 &amp; crypto ticker, and dual-feed local/world news crawler.</p>
+                </div>
+                <div class="feature-item">
+                    <div class="feature-icon icon-purple"><i class="ti ti-terminal-2"></i></div>
+                    <h3>Universal TUI Wizard</h3>
+                    <p>Cross-platform configuration wizard supporting transparent terminals (Alacritty, Windows Terminal, macOS) with auto-geocoding assist.</p>
+                </div>
+                <div class="feature-item">
+                    <div class="feature-icon icon-green"><i class="ti ti-server"></i></div>
+                    <h3>NAS &amp; CIFS Resilience</h3>
+                    <p>Automount watchdog with autofs directory probing, I/O throttle protection, and instant network reconnection recovery.</p>
+                </div>
+                <div class="feature-item">
+                    <div class="feature-icon icon-cyan"><i class="ti ti-shield-check"></i></div>
+                    <h3>Self-Healing System</h3>
+                    <p>Docker container isolation, 3-layer watchdog recovery, crash signal traps, &amp; zero-touch daily auto-updates.</p>
                 </div>
             </div>
         </section>
@@ -514,7 +645,7 @@
         <section class="video-section" id="demo">
             <div class="video-card">
                 <div class="video-header">
-                    <i class="ti ti-brand-youtube"></i> Video Overview
+                    <i class="ti ti-brand-youtube"></i> Video Overview &amp; Walkthrough
                 </div>
                 <div class="responsive-video">
                     <iframe src="https://www.youtube-nocookie.com/embed/ja7BlxqfukM" 
@@ -522,45 +653,6 @@
                             allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" 
                             allowfullscreen 
                             loading="lazy"></iframe>
-                </div>
-            </div>
-        </section>
-
-        <!-- Features Grid -->
-        <section class="features-section" id="features">
-            <div class="section-title">
-                <h2>Built for 24/7 Unattended Reliability</h2>
-            </div>
-            <div class="features-grid">
-                <div class="feature-item">
-                    <div class="feature-icon icon-raspberry"><i class="ti ti-device-tv"></i></div>
-                    <h3>Direct DRM/KMS Rendering</h3>
-                    <p>SDL3 GPU rendering straight to Linux kernel DRM display buffers with zero desktop environment overhead.</p>
-                </div>
-                <div class="feature-item">
-                    <div class="feature-icon icon-cyan"><i class="ti ti-video"></i></div>
-                    <h3>In-Process Video Engine</h3>
-                    <p>Seamless H.264/H.265/AV1 decode via FFmpeg with Pi 4/5 hardware acceleration and gapless transitions.</p>
-                </div>
-                <div class="feature-item">
-                    <div class="feature-icon icon-green"><i class="ti ti-server"></i></div>
-                    <h3>NAS &amp; CIFS Resilience</h3>
-                    <p>Automount watchdog with autofs directory probing, I/O throttle protection, and instant network auto-recovery.</p>
-                </div>
-                <div class="feature-item">
-                    <div class="feature-icon icon-purple"><i class="ti ti-brand-apple"></i></div>
-                    <h3>Integrations &amp; Web Remote</h3>
-                    <p>Home Assistant MQTT auto-discovery, Google Photos cloud sync, PIN protection, &amp; glassmorphic Web UI.</p>
-                </div>
-                <div class="feature-item">
-                    <div class="feature-icon icon-amber"><i class="ti ti-cpu"></i></div>
-                    <h3>Smart Media Engine</h3>
-                    <p>SQLite3 WAL metadata persistence, On-This-Day anniversary pairing, seasonal windowing, &amp; async preloading.</p>
-                </div>
-                <div class="feature-item">
-                    <div class="feature-icon icon-cyan"><i class="ti ti-shield-check"></i></div>
-                    <h3>Self-Healing System</h3>
-                    <p>Docker container isolation, 3-layer watchdog recovery, crash signal traps, &amp; zero-touch daily auto-updates.</p>
                 </div>
             </div>
         </section>
