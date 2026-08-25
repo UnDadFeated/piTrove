@@ -1,3 +1,17 @@
+### Release v18.1.7 — Universal TUI Terminal Compatibility & Alacritty Transparency Fix (August 24, 2026)
+
+#### TUI Engine Architecture & Transparency Fixes (`tui.cpp`)
+- **Resolved Alacritty & Transparent Terminal Rendering Artifacts**:
+  - Eliminated hardcoded `[40m` (solid black background forcing) that conflicted with terminal transparency and custom themes, fixing the "see-through text with grey borders" glitch in Alacritty / CachyOS / Windows Terminal / macOS.
+  - Implemented clean VT100/ANSI screen initialization (`[?1049h[?25l[0m[H[2J`) that honors the user's native terminal background and transparency settings seamlessly.
+  - Added line-level clear-to-end-of-line (`[0m[K
+`) across all rendered rows, headers, and separators.
+- **Dynamic Category Height & Overflow Layout**:
+  - Dynamically calculates footer position based on actual category item counts (supporting 20+ item categories like `Infopanels` without footer overlapping).
+  - Clears trailing viewport lines with `[J` on category transitions.
+- **Windows Terminal, PowerShell & Cross-Platform Support**:
+  - Fully compatible with Windows Terminal, PowerShell, Command Prompt, macOS Terminal, Alacritty, Kitty, WezTerm, Konsole, GNOME Terminal, and xterm.
+
 ### Release v18.1.6 — Slideshow Canvas Precision Vertical Alignment (August 24, 2026)
 
 #### Visual Framing & Canvas Alignment (`main.cpp`)
