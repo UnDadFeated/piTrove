@@ -278,8 +278,6 @@ bool Config::load(const std::string& path) {
         else if (key == "crypto" && section == "stockstreamer")               this->stockstreamer_crypto = val;
         else if (key == "enabled" && section == "gcalendar")                  this->gcalendar_enabled = (val == "1" || val == "true");
         else if (key == "source_type" && section == "gcalendar")              this->gcalendar_source_type = val;
-        else if (key == "email" && section == "gcalendar")                    this->gcalendar_email = val;
-        else if (key == "token" && section == "gcalendar")                    this->gcalendar_token = val;
         else if (key == "ical_url" && section == "gcalendar")                 this->gcalendar_ical_url = val;
         else if (key == "calendar_name" && section == "gcalendar")            this->gcalendar_name = val;
         else if (key == "api_key" && section == "gcalendar")                 this->gcalendar_api_key = val;
@@ -581,8 +579,6 @@ bool Config::save(const std::string& path) {
     f << "[gcalendar]\n";
     f << "enabled = " << (this->gcalendar_enabled ? "1" : "0") << "\n";
     f << "source_type = \"" << this->gcalendar_source_type << "\"\n";
-    f << "email = \"" << this->gcalendar_email << "\"\n";
-    f << "token = \"" << this->gcalendar_token << "\"\n";
     f << "ical_url = \"" << this->gcalendar_ical_url << "\"\n";
     f << "calendar_name = \"" << this->gcalendar_name << "\"\n";
     f << "api_key = \"" << this->gcalendar_api_key << "\"\n";

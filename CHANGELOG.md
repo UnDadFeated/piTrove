@@ -1,3 +1,11 @@
+### Release v18.1.8 — Streamlined Google Calendar Setup (August 25, 2026)
+
+#### Configuration & TUI Streamlining (`tui.cpp`, `config.h`, `config.cpp`)
+- **Direct iCal URL Workflow**:
+  - Removed redundant `Calendar Email` and `Calendar Secret Token` input fields.
+  - Users can directly paste their Google Calendar Secret or Public iCal URL into **`Calendar iCal URL`**.
+  - Streamlines Category 11 (`Infopanels`) configuration in TUI and config files.
+
 ### Release v18.1.7 — Universal TUI Terminal Compatibility & Alacritty Transparency Fix (August 24, 2026)
 
 #### TUI Engine Architecture & Transparency Fixes (`tui.cpp`)
