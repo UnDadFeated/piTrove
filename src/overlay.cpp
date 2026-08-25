@@ -217,7 +217,6 @@ void OverlayManager::draw_all(int current_idx, int total_items, const MediaItem*
     GpuColor geotag_col = {255, 255, 255, 255};
 
     bool file_enabled = false;
-    float file_x = 0.04f, file_y = 0.966f;
     int file_size = 12;
 
     bool count_enabled = false;
@@ -225,7 +224,6 @@ void OverlayManager::draw_all(int current_idx, int total_items, const MediaItem*
     int count_size = 20;
 
     bool timer_enabled = false;
-    float timer_x = 0.94f, timer_y = 0.03f;
     int timer_size = 12;
     GpuColor timer_col = {255, 255, 0, 255};
     double transition_delay = 120.0;
@@ -260,8 +258,6 @@ void OverlayManager::draw_all(int current_idx, int total_items, const MediaItem*
         geotag_col = get_color_from_str(g_cfg.geotag_color);
 
         file_enabled = g_cfg.filename_enabled;
-        file_x = g_cfg.filename_x;
-        file_y = g_cfg.filename_y;
         file_size = g_cfg.filename_font_size;
 
         count_enabled = g_cfg.count_enabled;
@@ -270,8 +266,6 @@ void OverlayManager::draw_all(int current_idx, int total_items, const MediaItem*
         count_size = g_cfg.count_font_size;
 
         timer_enabled = g_cfg.timer_enabled;
-        timer_x = g_cfg.timer_x;
-        timer_y = g_cfg.timer_y;
         timer_size = g_cfg.timer_font_size;
         timer_col = get_color_from_str(g_cfg.timer_color);
         transition_delay = g_cfg.transition_delay;
