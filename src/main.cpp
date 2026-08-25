@@ -3495,7 +3495,8 @@ int main(int argc, char** argv) {
             int target_fps = 60;
             if (!transitioning && !first_photo_fade) {
                 std::shared_lock lk(g_config_mtx);
-                target_fps = std::clamp(g_cfg.pattern_fps, 1, 60);
+                bool news_active = g_cfg.news_enabled && g_cfg.infopanels_enabled;
+                target_fps = news_active ? 60 : std::clamp(g_cfg.pattern_fps, 1, 60);
             }
 
             static Uint64 next_target_ticks = 0;
