@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-IMAGE="pitrove:latest"
+IMAGE="${1:-pitrove-pitrove:latest}"
 OUT="sbom.spdx.json"
 
 docker run --rm \
