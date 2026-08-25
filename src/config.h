@@ -214,8 +214,6 @@ struct Config {
     // [gcalendar]
     bool        gcalendar_enabled{false};
     std::string gcalendar_source_type{"ical"};
-    std::string gcalendar_email{""};
-    std::string gcalendar_token{""};
     std::string gcalendar_ical_url{""};
     std::string gcalendar_name{"Family"};
     std::string gcalendar_api_key{""};

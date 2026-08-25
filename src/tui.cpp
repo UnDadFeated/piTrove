@@ -251,8 +251,6 @@ void config_wizard(const std::string& config_path) {
         {"Google Calendar", TGL, "Show Google Calendar agenda sidebar panel"},
         {"Calendar Source", ENM, "Sync method (ical, api)"},
         {"Calendar Name", STR, "Name of the calendar to sync/display (e.g. Family)"},
-        {"Calendar Email", STR, "Google Account email (e.g. user@gmail.com) - auto-builds iCal URL"},
-        {"Calendar Secret Token", STR, "Secret token from Google Calendar Settings - auto-builds iCal URL"},
         {"Calendar iCal URL", STR, "Direct Google Calendar secret/public iCal address URL"},
         {"Calendar API Key", STR, "Google Calendar API Key (for API source sync)"},
         {"Calendar Refresh Mins", INT, "Minutes between background calendar syncs (5-120)"},
@@ -460,12 +458,10 @@ void config_wizard(const std::string& config_path) {
             case 13: return g_cfg.gcalendar_enabled ? "[ON]" : "[OFF]";
             case 14: return g_cfg.gcalendar_source_type;
             case 15: return g_cfg.gcalendar_name;
-            case 16: return g_cfg.gcalendar_email;
-            case 17: return g_cfg.gcalendar_token;
-            case 18: return g_cfg.gcalendar_ical_url;
-            case 19: return g_cfg.gcalendar_api_key;
-            case 20: return std::format("{}", g_cfg.gcalendar_refresh_minutes);
-            case 21: return std::format("{}", g_cfg.gcalendar_max_events);
+            case 16: return g_cfg.gcalendar_ical_url;
+            case 17: return g_cfg.gcalendar_api_key;
+            case 18: return std::format("{}", g_cfg.gcalendar_refresh_minutes);
+            case 19: return std::format("{}", g_cfg.gcalendar_max_events);
         }
         return "";
     };
@@ -713,52 +709,13 @@ void config_wizard(const std::string& config_path) {
                 case 14:g_cfg.gcalendar_source_type=v;break;
                 case 15:g_cfg.gcalendar_name=v;break;
                 case 16:{
-                    std::string em = trim(v);
-                    if (em.find("/calendar/ical/") != std::string::npos) {
-                        std::string e, t;
-                        parse_google_ical_url(em, e, t);
-                        g_cfg.gcalendar_email = e;
-                        g_cfg.gcalendar_token = t;
-                        g_cfg.gcalendar_ical_url = em;
-                    } else {
-                        g_cfg.gcalendar_email = em;
-                        if (!g_cfg.gcalendar_token.empty()) {
-                            g_cfg.gcalendar_ical_url = build_google_ical_url(g_cfg.gcalendar_email, g_cfg.gcalendar_token);
-                        }
-                    }
+                    g_cfg.gcalendar_ical_url = trim(v);
                     g_calendar.sync();
                     break;
                 }
-                case 17:{
-                    std::string tok = trim(v);
-                    if (tok.find("/calendar/ical/") != std::string::npos) {
-                        std::string e, t;
-                        parse_google_ical_url(tok, e, t);
-                        g_cfg.gcalendar_email = e;
-                        g_cfg.gcalendar_token = t;
-                        g_cfg.gcalendar_ical_url = tok;
-                    } else {
-                        g_cfg.gcalendar_token = tok;
-                        if (!g_cfg.gcalendar_email.empty()) {
-                            g_cfg.gcalendar_ical_url = build_google_ical_url(g_cfg.gcalendar_email, g_cfg.gcalendar_token);
-                        }
-                    }
-                    g_calendar.sync();
-                    break;
-                }
-                case 18:{
-                    std::string url = trim(v);
-                    g_cfg.gcalendar_ical_url = url;
-                    std::string e, t;
-                    parse_google_ical_url(url, e, t);
-                    if (!e.empty()) g_cfg.gcalendar_email = e;
-                    if (!t.empty()) g_cfg.gcalendar_token = t;
-                    g_calendar.sync();
-                    break;
-                }
-                case 19:g_cfg.gcalendar_api_key=v;break;
-                case 20:{ try { g_cfg.gcalendar_refresh_minutes=std::clamp(std::stoi(v), 5, 120); } catch(...) {} break; }
-                case 21:{ try { g_cfg.gcalendar_max_events=std::clamp(std::stoi(v), 1, 16); } catch(...) {} break; }
+                case 17:g_cfg.gcalendar_api_key=v;break;
+                case 18:{ try { g_cfg.gcalendar_refresh_minutes=std::clamp(std::stoi(v), 5, 120); } catch(...) {} break; }
+                case 19:{ try { g_cfg.gcalendar_max_events=std::clamp(std::stoi(v), 1, 16); } catch(...) {} break; }
             }
         } catch(...) {}
     };

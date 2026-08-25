@@ -255,9 +255,6 @@ void GoogleCalendar::sync() {
     {
         std::shared_lock lk(g_config_mtx);
         ical_url = g_cfg.gcalendar_ical_url;
-        if (ical_url.empty() && !g_cfg.gcalendar_email.empty() && !g_cfg.gcalendar_token.empty()) {
-            ical_url = build_google_ical_url(g_cfg.gcalendar_email, g_cfg.gcalendar_token);
-        }
         api_key = g_cfg.gcalendar_api_key;
     }
 
