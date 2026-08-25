@@ -181,6 +181,8 @@ bool Config::load(const std::string& path) {
         else if (key == "pattern_style")     this->pattern_style = val;
         else if (key == "pattern_blend_count") this->pattern_blend_count = std::clamp(safe_stoi(val, this->pattern_blend_count), 1, 3);
         else if (key == "pattern_fps")         this->pattern_fps = std::clamp(safe_stoi(val, this->pattern_fps), 1, 60);
+        else if (key == "display_offset_x")    this->display_offset_x = std::clamp(safe_stoi(val, this->display_offset_x), -1000, 1000);
+        else if (key == "display_offset_y")    this->display_offset_y = std::clamp(safe_stoi(val, this->display_offset_y), -1000, 1000);
         else if (key == "blur_radius") {
             int v = std::clamp(safe_stoi(val, this->blur_radius), 6, 24);
             this->blur_radius = v;
@@ -397,6 +399,8 @@ bool Config::save(const std::string& path) {
     f << "pattern_style = \"" << this->pattern_style << "\"\n";
     f << "pattern_blend_count = " << this->pattern_blend_count << "\n";
     f << "pattern_fps = " << this->pattern_fps << "\n";
+    f << "display_offset_x = " << this->display_offset_x << "\n";
+    f << "display_offset_y = " << this->display_offset_y << "\n";
     f << "blurred_background = " << (this->blurred_background ? "1" : "0") << "\n";
     f << "color_matched_matte = " << (this->color_matched_matte ? "1" : "0") << "\n";
     f << "matte_opacity = " << this->matte_opacity << "\n";

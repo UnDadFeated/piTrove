@@ -759,6 +759,12 @@ std::vector<ErrorSeed> get_all_error_seeds() {
             "Infopanels were scaled down dynamically to maintain slideshow aspect ratio."
         },
         {
+            "E540",
+            "DISPLAY_OFFSET_OUT_OF_BOUNDS",
+            "Configured screen display offset exceeds safe physical boundaries.",
+            "Offset was automatically clamped (-25% to +25% screen dimensions) to prevent UI truncation."
+        },
+        {
             "E601", 
             "DRM_CONNECTOR_MISSING", 
             "The modesetting subsystem failed to discover any connected HDMI display ports.", 

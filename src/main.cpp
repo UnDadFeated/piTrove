@@ -261,6 +261,8 @@ static InfopanelLayout calculate_infopanel_layout(int screen_w, int screen_h) {
     bool stocks_on = false;
     bool has_matting = false;
     int mat_size = 0;
+    int off_x = 0;
+    int off_y = 0;
     {
         std::shared_lock lk(g_config_mtx);
         infopanels = g_cfg.infopanels_enabled;
@@ -269,14 +271,17 @@ static InfopanelLayout calculate_infopanel_layout(int screen_w, int screen_h) {
         stocks_on = g_cfg.stockstreamer_enabled;
         has_matting = g_cfg.matting;
         mat_size = g_renderer.scale_px(g_cfg.matting_size);
+        // Human safeguards: clamp global offset to within +/-25% of display dimensions
+        off_x = std::clamp(g_cfg.display_offset_x, -screen_w / 4, screen_w / 4);
+        off_y = std::clamp(g_cfg.display_offset_y, -screen_h / 4, screen_h / 4);
     }
     
-    // Exact physical matte aperture coordinates from user calibration (scaled from 1080p)
-    // Left matte border: 62px, Top matte border: 133px, Right matte border: 1858px, Bottom matte border: 947px
-    int matte_left   = has_matting ? (int)round(62.0 * screen_w / 1920.0) : 0;
-    int matte_top    = has_matting ? (int)round(133.0 * screen_h / 1080.0) : 0;
-    int matte_right  = has_matting ? (screen_w - matte_left) : screen_w;
-    int matte_bottom = has_matting ? (screen_h - matte_top) : screen_h;
+    // Scale physical matte template coordinates from 1080p reference + global display offsets
+    // Left matte: 62px, Top matte: 133px, Right matte: 1858px, Bottom matte: 947px
+    int matte_left   = (has_matting ? (int)round(62.0 * screen_w / 1920.0) : 0) + off_x;
+    int matte_top    = (has_matting ? (int)round(133.0 * screen_h / 1080.0) : 0) + off_y;
+    int matte_right  = (has_matting ? (screen_w - (int)round(62.0 * screen_w / 1920.0)) : screen_w) + off_x;
+    int matte_bottom = (has_matting ? (screen_h - (int)round(133.0 * screen_h / 1080.0)) : screen_h) + off_y;
 
     layout.show_news = infopanels && news_on;
     layout.show_calendar = infopanels && cal_on;
@@ -287,45 +292,45 @@ static InfopanelLayout calculate_infopanel_layout(int screen_w, int screen_h) {
     // Skinny compact 2-line news bar (36px on 1080p, scaled for 4k etc.)
     int news_h = layout.show_news ? (int)round(36.0 * screen_w / 1920.0) : 0;
     // Bottom edge sits directly above the physical 1" matte opening
-    int news_bottom = has_matting ? (screen_h - (int)round((double)mat_size * 0.8) + (int)round(45.0 * screen_w / 1920.0)) : screen_h;
+    int news_bottom = (has_matting ? (screen_h - (int)round((double)mat_size * 0.8) + (int)round(45.0 * screen_w / 1920.0)) : screen_h) + off_y;
     int news_y = news_bottom - news_h;
 
     // Side panel width (scaled)
     int cal_w = show_side ? std::clamp((int)round(335.0 * screen_w / 1920.0), 285, screen_w / 3) : 0;
-    int cal_x = screen_w - cal_w;
-    int side_panel_h = layout.show_news ? news_y : screen_h;
+    int cal_x = (screen_w - cal_w) + off_x;
+    int side_panel_h = layout.show_news ? news_y : (screen_h + off_y);
 
     if (layout.show_calendar && layout.show_stocks) {
         // Stocks sits tightly at the bottom (BTC 6px above newsfeed), giving maximum room to Google Calendar
         int stocks_content_h = (int)round(288.0 * screen_w / 1920.0);
-        int stocks_y = std::max((int)round(180.0 * screen_w / 1920.0), side_panel_h - stocks_content_h);
-        layout.calendar_area = { cal_x, 0, screen_w - cal_x, stocks_y };
-        layout.stocks_area = { cal_x, stocks_y, screen_w - cal_x, side_panel_h - stocks_y };
+        int stocks_y = std::max(matte_top + (int)round(40.0 * screen_w / 1920.0), side_panel_h - stocks_content_h);
+        layout.calendar_area = { cal_x, off_y, screen_w - cal_x + off_x, stocks_y - off_y };
+        layout.stocks_area = { cal_x, stocks_y, screen_w - cal_x + off_x, side_panel_h - stocks_y };
     } else if (layout.show_calendar) {
-        layout.calendar_area = { cal_x, 0, screen_w - cal_x, side_panel_h };
+        layout.calendar_area = { cal_x, off_y, screen_w - cal_x + off_x, side_panel_h - off_y };
         layout.stocks_area = { 0, 0, 0, 0 };
     } else if (layout.show_stocks) {
         layout.calendar_area = { 0, 0, 0, 0 };
-        layout.stocks_area = { cal_x, 0, screen_w - cal_x, side_panel_h };
+        layout.stocks_area = { cal_x, off_y, screen_w - cal_x + off_x, side_panel_h - off_y };
     } else {
         layout.calendar_area = { 0, 0, 0, 0 };
         layout.stocks_area = { 0, 0, 0, 0 };
     }
 
     if (layout.show_news) {
-        layout.news_area = { 0, news_y, screen_w, news_h };
+        layout.news_area = { off_x, news_y, screen_w, news_h };
     } else {
         layout.news_area = { 0, 0, 0, 0 };
     }
 
-    // Centered Slideshow Area accounting for physical matte aperture and active UI panels:
+    // Centered Slideshow Area accounting for physical matte aperture, active UI panels and global display offset:
     int x1 = matte_left;
     int x2 = show_side ? cal_x : matte_right;
     int y1 = matte_top;
     int y2 = layout.show_news ? news_y : matte_bottom;
 
-    if (x2 <= x1) x2 = screen_w;
-    if (y2 <= y1) y2 = screen_h;
+    if (x2 <= x1) x2 = screen_w + off_x;
+    if (y2 <= y1) y2 = screen_h + off_y;
 
     layout.slideshow_area = { x1, y1, x2 - x1, y2 - y1 };
     

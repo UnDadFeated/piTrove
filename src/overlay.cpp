@@ -322,7 +322,12 @@ void OverlayManager::draw_all(int current_idx, int total_items, const MediaItem*
         FontHandle& font = font_renderer->load_font(overlay_font->path, file_size);
         int tw = 0, th = 0;
         font_renderer->measure(font, item->filename, tw, th);
-        int fx = (int)round(62.0 * sw / 1920.0);
+        int off_x = 0;
+        {
+            std::shared_lock lk_ov(g_config_mtx);
+            off_x = std::clamp(g_cfg.display_offset_x, -sw / 4, sw / 4);
+        }
+        int fx = (int)round(62.0 * sw / 1920.0) + off_x;
         int fy = vy + vh - th - (int)round(4.0 * sw / 1920.0);
 
         if (twin_item) {
