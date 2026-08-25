@@ -1,3 +1,10 @@
+### Release v18.1.6 — Slideshow Canvas Precision Vertical Alignment (August 24, 2026)
+
+#### Visual Framing & Canvas Alignment (`main.cpp`)
+- **Vertical Slideshow Positioning**:
+  - Shifted slideshow canvas (for single photos, twin portraits, transitions, and video playback) up by 5px (`(int)round(5.0 * screen_h / 1080.0)`).
+  - Enhances optical centering between the top matte border and bottom newsfeed separator.
+
 ### Release v18.1.5 — Smart Assist Setup for Google Calendar, Weather & Stocks (August 24, 2026)
 
 #### Smart Assistant Setup & Usability Enhancements (`tui.cpp`, `calendar.cpp`, `config.cpp`, `util.cpp`)

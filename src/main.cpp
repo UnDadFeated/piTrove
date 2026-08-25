@@ -324,10 +324,11 @@ static InfopanelLayout calculate_infopanel_layout(int screen_w, int screen_h) {
     }
 
     // Centered Slideshow Area accounting for physical matte aperture, active UI panels and global display offset:
+    // Shifted up by 5px for visual balance inside physical matte frame
     int x1 = matte_left;
     int x2 = show_side ? cal_x : matte_right;
-    int y1 = matte_top;
-    int y2 = layout.show_news ? news_y : matte_bottom;
+    int y1 = matte_top - (int)round(5.0 * screen_h / 1080.0);
+    int y2 = (layout.show_news ? news_y : matte_bottom) - (int)round(5.0 * screen_h / 1080.0);
 
     if (x2 <= x1) x2 = screen_w + off_x;
     if (y2 <= y1) y2 = screen_h + off_y;
