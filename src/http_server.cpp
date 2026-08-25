@@ -2837,7 +2837,14 @@ static void handle_client(int client_fd) {
             send_response(client_fd, "HTTP/1.1 200 OK", "application/json", "{\"status\":\"ok\"}");
         } 
         else if (request.rfind("GET /api/stocks", 0) == 0) {
-                        send_response(client_fd, "HTTP/1.1 200 OK", "application/json", g_stock_streamer.get_status_json());
+            send_response(client_fd, "HTTP/1.1 200 OK", "application/json", g_stock_streamer.get_status_json());
+        }
+        else if (request.rfind("GET /api/news/refresh", 0) == 0 || request.rfind("POST /api/news/refresh", 0) == 0) {
+            g_news_ticker.sync();
+            send_response(client_fd, "HTTP/1.1 200 OK", "application/json", g_news_ticker.get_status_json());
+        }
+        else if (request.rfind("GET /api/news", 0) == 0) {
+            send_response(client_fd, "HTTP/1.1 200 OK", "application/json", g_news_ticker.get_status_json());
         }
         else if (request.rfind("GET /api/restart", 0) == 0) {
             if (!is_authorized(request, client_fd)) return;

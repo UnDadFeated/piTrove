@@ -8,6 +8,7 @@
 #include <iomanip>
 #include <ctime>
 #include <cmath>
+#include <algorithm>
 
 static size_t news_curl_write_cb(void* contents, size_t size, size_t nmemb, void* userp) {
     size_t total_size = size * nmemb;
@@ -59,6 +60,7 @@ static time_t parse_rfc822_date(const std::string& date_str) {
         "%a, %d %b %Y %H:%M:%S %Z",
         "%a, %d %b %Y %H:%M:%S",
         "%d %b %Y %H:%M:%S %Z",
+        "%d %b %Y %H:%M:%S",
         "%Y-%m-%dT%H:%M:%SZ"
     };
     for (const char* fmt : formats) {
@@ -89,7 +91,7 @@ std::string NewsTicker::execute_http_get(const std::string& url) {
     curl_easy_setopt(curl, CURLOPT_TIMEOUT, 8L);
     curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 4L);
     curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
-    curl_easy_setopt(curl, CURLOPT_USERAGENT, "piTrove/18.0 (Raspberry Pi Smart Frame)");
+    curl_easy_setopt(curl, CURLOPT_USERAGENT, "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko)");
 
     CURLcode res = curl_easy_perform(curl);
     long http_code = 0;
@@ -120,17 +122,34 @@ std::vector<NewsItem> NewsTicker::parse_rss(const std::string& xml_data) {
     auto items_end = std::sregex_iterator();
 
     std::string tz = "UTC";
+    std::vector<std::string> blacklist;
     {
         std::shared_lock lk(g_config_mtx);
         tz = g_cfg.timezone;
+        blacklist = g_cfg.news_blacklist;
     }
+
+    auto is_blacklisted = [&](const std::string& text) {
+        if (text.empty() || blacklist.empty()) return false;
+        std::string lower_text = text;
+        std::transform(lower_text.begin(), lower_text.end(), lower_text.begin(), ::tolower);
+        for (const auto& b : blacklist) {
+            if (b.empty()) continue;
+            std::string lower_b = b;
+            std::transform(lower_b.begin(), lower_b.end(), lower_b.begin(), ::tolower);
+            if (lower_text.find(lower_b) != std::string::npos) {
+                return true;
+            }
+        }
+        return false;
+    };
 
     for (std::sregex_iterator i = items_begin; i != items_end; ++i) {
         std::string item_xml = (*i)[1].str();
         std::smatch m;
         std::string raw_title, raw_pubdate, raw_source;
-
         std::string raw_link, raw_guid;
+
         if (std::regex_search(item_xml, m, title_regex)) raw_title = m[1].str();
         if (std::regex_search(item_xml, m, pubdate_regex)) raw_pubdate = m[1].str();
         if (std::regex_search(item_xml, m, source_regex)) raw_source = m[1].str();
@@ -144,15 +163,20 @@ std::vector<NewsItem> NewsTicker::parse_rss(const std::string& xml_data) {
         std::string link = decode_html_entities(raw_link);
         std::string guid = decode_html_entities(raw_guid);
 
-
-        time_t pub_time = parse_rfc822_date(raw_pubdate);
-
         // Remove source suffix if already embedded in title (e.g. "Headline - CNN")
         size_t dash_pos = title.rfind(" - ");
         if (dash_pos != std::string::npos && dash_pos > title.length() / 2) {
             if (source.empty()) source = title.substr(dash_pos + 3);
             title = title.substr(0, dash_pos);
         }
+
+        // Apply Blacklist filter (checks source network, title, link, and guid)
+        if (is_blacklisted(source) || is_blacklisted(title) || is_blacklisted(link) || is_blacklisted(guid)) {
+            g_logger.info("NEWS: Filtered out blacklisted headline '{}' (source: '{}')", title, source);
+            continue;
+        }
+
+        time_t pub_time = parse_rfc822_date(raw_pubdate);
 
         NewsItem item;
         item.title = title;
@@ -161,7 +185,7 @@ std::vector<NewsItem> NewsTicker::parse_rss(const std::string& xml_data) {
         item.formatted_time = format_epoch_tz(pub_time, tz, "%I:%M %p");
 
         parsed_items.push_back(std::move(item));
-        if (parsed_items.size() >= 25) break;
+        if (parsed_items.size() >= 30) break;
     }
 
     return parsed_items;
@@ -183,7 +207,7 @@ void NewsTicker::fetch_sync() {
 
     time_t now = time(nullptr);
 
-    // 1. Fetch Local News (by zipcode for past 1 week)
+    // 1. Fetch Local News (by zipcode / local area for past 1 week)
     std::string local_query_with_time = local_q;
     if (local_query_with_time.find("when:") == std::string::npos) {
         local_query_with_time += " when:7d";
@@ -191,12 +215,19 @@ void NewsTicker::fetch_sync() {
     std::string local_url = "https://news.google.com/rss/search?q=" + url_encode(local_query_with_time) + "&hl=en-US&gl=US&ceid=US:en";
     g_logger.info("NEWS: Fetching local headlines (past 1 week) from {}", local_url);
     std::string local_xml = execute_http_get(local_url);
-    if (local_xml.empty()) {
-        local_url = "https://news.google.com/rss/headlines/section/topic/NATION?hl=en-US&gl=US&ceid=US:en";
-        g_logger.info("NEWS: Attempting national fallback: {}", local_url);
-        local_xml = execute_http_get(local_url);
-    }
+    
     std::vector<NewsItem> raw_local = parse_rss(local_xml);
+    
+    // If zipcode alone yielded fewer than 3 headlines, try combining with nearby city/community query
+    if (raw_local.size() < 3 && local_q == "95624") {
+        std::string broader_url = "https://news.google.com/rss/search?q=" + url_encode("95624 OR \"Elk Grove\" when:7d") + "&hl=en-US&gl=US&ceid=US:en";
+        g_logger.info("NEWS: Enriching local query with community search: {}", broader_url);
+        std::string broader_xml = execute_http_get(broader_url);
+        if (!broader_xml.empty()) {
+            raw_local = parse_rss(broader_xml);
+        }
+    }
+
     std::vector<NewsItem> local_items;
     time_t one_week_ago = now - (7 * 86400);
     for (auto& item : raw_local) {
@@ -208,14 +239,17 @@ void NewsTicker::fetch_sync() {
         local_items = std::move(raw_local);
     }
 
+    // Sort local headlines descending by timestamp (newest first)
+    std::sort(local_items.begin(), local_items.end(), [](const NewsItem& a, const NewsItem& b) {
+        return a.published_time > b.published_time;
+    });
+
     // 2. Fetch World News (Google Top Stories for past 6 hours)
     std::string global_url = "https://news.google.com/rss?hl=en-US&gl=US&ceid=US:en";
     g_logger.info("NEWS: Fetching Google top stories (past 6 hours) from {}", global_url);
     std::string global_xml = execute_http_get(global_url);
-    if (global_xml.empty()) {
-        g_logger.warn("NEWS: Google top stories fetch failed, will retry next cycle");
-    }
     std::vector<NewsItem> raw_global = parse_rss(global_xml);
+    
     std::vector<NewsItem> global_items;
     time_t six_hours_ago = now - (6 * 3600);
     for (auto& item : raw_global) {
@@ -223,7 +257,7 @@ void NewsTicker::fetch_sync() {
             global_items.push_back(std::move(item));
         }
     }
-    // If fewer than 5 top stories in the exact 6h window, include freshest items
+    // If fewer than 5 top stories in the exact 6h window, include freshest items from Google top stories
     if (global_items.size() < 5) {
         for (auto& item : raw_global) {
             bool exists = false;
@@ -234,6 +268,11 @@ void NewsTicker::fetch_sync() {
             if (global_items.size() >= 25) break;
         }
     }
+
+    // Sort world headlines descending by timestamp (newest first)
+    std::sort(global_items.begin(), global_items.end(), [](const NewsItem& a, const NewsItem& b) {
+        return a.published_time > b.published_time;
+    });
 
     now = time(nullptr);
     {
@@ -249,6 +288,10 @@ void NewsTicker::fetch_sync() {
         g_logger.info("NEWS: Successfully loaded {} local ({}) and {} global headlines in timezone {}",
                       m_local_items.size(), local_q, m_global_items.size(), tz);
     }
+}
+
+void NewsTicker::sync() {
+    fetch_sync();
 }
 
 bool NewsTicker::start() {
@@ -299,16 +342,16 @@ std::string NewsTicker::get_status_json() const {
     std::ostringstream ss;
     ss << "{\"local_count\":" << m_local_items.size()
        << ",\"global_count\":" << m_global_items.size()
-       << ",\"last_fetch\":" << m_last_fetch_time.load()
+       << ",\"last_sync\":" << m_last_fetch_time.load()
        << ",\"last_error\":" << m_last_error.load()
-       << ",\"local\":[";
+       << ",\"local_items\":[";
     for (size_t i = 0; i < m_local_items.size(); ++i) {
         if (i > 0) ss << ",";
         ss << "{\"title\":\"" << escape_shell_arg(m_local_items[i].title) << "\""
            << ",\"source\":\"" << escape_shell_arg(m_local_items[i].source) << "\""
            << ",\"time\":\"" << m_local_items[i].formatted_time << "\"}";
     }
-    ss << "],\"global\":[";
+    ss << "],\"global_items\":[";
     for (size_t i = 0; i < m_global_items.size(); ++i) {
         if (i > 0) ss << ",";
         ss << "{\"title\":\"" << escape_shell_arg(m_global_items[i].title) << "\""
@@ -322,39 +365,33 @@ std::string NewsTicker::get_status_json() const {
 void NewsTicker::render(SDL_Renderer* renderer, FontRenderer* font_renderer, const std::string& font_path, const SDL_Rect& bounds, int screen_w) {
     if (!renderer || !font_renderer || bounds.h <= 0 || bounds.w <= 0) return;
 
-    // 1. Draw glassmorphic background
-    SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
-    SDL_SetRenderDrawColor(renderer, 10, 14, 22, 235); // Sleek obsidian backdrop
-    SDL_FRect bg_rect = { (float)bounds.x, (float)bounds.y, (float)bounds.w, (float)bounds.h };
-    SDL_RenderFillRect(renderer, &bg_rect);
-
-
-
-    // Middle separator line between Line 1 (Local) and Line 2 (Global)
-    int row_h = bounds.h / 2;
-    SDL_SetRenderDrawColor(renderer, 255, 255, 255, 25);
-    SDL_FRect mid_line = { (float)bounds.x, (float)(bounds.y + row_h), (float)bounds.w, 1.0f };
-    SDL_RenderFillRect(renderer, &mid_line);
-
     int font_size = 11;
-    int scroll_speed = 35; // Readable, slow scroll speed
+    int scroll_speed = 32;
     std::string local_badge_name = "LOCAL";
     {
         std::shared_lock lk_cfg(g_config_mtx);
-        font_size = std::clamp(g_cfg.news_font_size, 9, 12);
+        font_size = std::clamp((int)round((double)g_cfg.news_font_size * screen_w / 1920.0), 9, 16);
         scroll_speed = std::clamp(g_cfg.news_scroll_speed, 10, 150);
         if (!g_cfg.news_local_query.empty()) {
             local_badge_name = "LOCAL " + g_cfg.news_local_query;
         }
     }
-    font_size = (int)round((double)font_size * screen_w / 1920.0);
-    if (font_size < 9) font_size = 9;
 
     FontHandle& font = font_renderer->load_font(font_path, font_size);
 
-    // 2. Build colorized local and global spans if empty or font size changed
+    // 1. Sleek Obsidian Glass backdrop
+    SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
+    SDL_SetRenderDrawColor(renderer, 10, 14, 22, 245);
+    SDL_FRect bg_rect = { (float)bounds.x, (float)bounds.y, (float)bounds.w, (float)bounds.h };
+    SDL_RenderFillRect(renderer, &bg_rect);
+
+    // Skinny 2-line layout
+    int row_h = bounds.h / 2;
+
+    // 2. Prepare tokens and measure total width for both rows
     {
         std::shared_lock lk(m_items_mtx);
+
         if (m_cached_local_spans.empty() || m_cached_font_size != font_size) {
             m_cached_local_spans.clear();
             m_cached_local_total_w = 0;
@@ -379,7 +416,7 @@ void NewsTicker::render(SDL_Renderer* renderer, FontRenderer* font_renderer, con
                         std::string t_str = "   [" + item.formatted_time + "] ";
                         int tw = 0, th = 0;
                         font_renderer->measure(font, t_str, tw, th);
-                        span.tokens.push_back({t_str, tw, {255, 185, 55, 255}});
+                        span.tokens.push_back({t_str, tw, {255, 195, 60, 255}});
                         item_w += tw;
                     } else {
                         std::string sp = "   ";
@@ -395,20 +432,20 @@ void NewsTicker::render(SDL_Renderer* renderer, FontRenderer* font_renderer, con
                     span.tokens.push_back({item.title, title_w, {245, 248, 255, 255}});
                     item_w += title_w;
 
-                    // Source in Soft Sky Cyan
+                    // Source in Sky Cyan
                     if (!item.source.empty()) {
                         std::string src_str = " (" + item.source + ")";
                         int sw = 0, sh = 0;
                         font_renderer->measure(font, src_str, sw, sh);
-                        span.tokens.push_back({src_str, sw, {90, 200, 250, 230}});
+                        span.tokens.push_back({src_str, sw, {0, 200, 255, 230}});
                         item_w += sw;
                     }
 
-                    // Separator bullet in Electric Amber
+                    // Separator bullet in Electric Cyan
                     std::string bul = "   •   ";
                     int bw = 0, bh = 0;
                     font_renderer->measure(font, bul, bw, bh);
-                    span.tokens.push_back({bul, bw, {255, 160, 30, 200}});
+                    span.tokens.push_back({bul, bw, {255, 180, 50, 200}});
                     item_w += bw;
 
                     span.total_w = item_w;
@@ -574,13 +611,13 @@ void NewsTicker::render(SDL_Renderer* renderer, FontRenderer* font_renderer, con
         font_renderer->draw_text(dot_x + dot_r + 6, text_y, font, label, 255, 255, 255, 255);
     };
 
-    // Badge 1: LOCAL (Cyan dot)
+    // Badge 1: LOCAL (Slate Grey dot)
     render_badge(0, local_badge_name, 140, 150, 165);
 
-    // Badge 2: WORLD (Amber dot)
+    // Badge 2: WORLD (Slate Grey dot)
     render_badge(row_h, "WORLD", 140, 150, 165);
 
-    // Accent top border line (vibrant cyan / electric blue) - drawn last across entire screen so it is completely unbroken
+    // Accent top border line (vibrant cyan / electric blue) - drawn last across entire screen
     SDL_SetRenderDrawColor(renderer, 0, 200, 255, 220);
     SDL_FRect top_line = { (float)bounds.x, (float)bounds.y, (float)bounds.w, 2.0f };
     SDL_RenderFillRect(renderer, &top_line);
