@@ -101,8 +101,7 @@ void config_wizard(const std::string& config_path) {
     //   5: column headers
     //   6+: data rows
     enum { ROW_CAT_BAR=3, ROW_COLHDR=5, ROW_ROW0=7 };
-    int dirty_from = 0, dirty_to = 0;
-    int last_sel = -1, last_sel_sub = -1, last_edit = -1;
+        int last_sel = -1, last_sel_sub = -1, last_edit = -1;
     bool dirty_full = true;
 
     // ── DEFINITIONS WITH DESCRIPTIONS ──
@@ -1021,7 +1020,6 @@ void config_wizard(const std::string& config_path) {
                                     ed_buf = opts[idx];
                                 }
                             }
-                            dirty_from = ROW_ROW0; dirty_to = ROW_ROW0 + CATS[sel].c;
                             last_sel = sel; last_sel_sub = sel_sub; last_edit = 1;
                         }
                     }
@@ -1133,8 +1131,6 @@ void config_wizard(const std::string& config_path) {
                     if (CATS[sel].i[sel_sub].t == TGL) {
                         std::string v = gv(sel, sel_sub);
                         sv(sel, sel_sub, (v=="1"||v=="[ON]"||v=="[  ON  ]") ? "0" : "1");
-                        dirty_from = ROW_ROW0 + std::min(sel_sub, 14);
-                        dirty_to = dirty_from + 1;
                     } else if (CATS[sel].i[sel_sub].t == ENM && c == ' ') {
                         auto opts = enums(sel, sel_sub);
                         if (!opts.empty()) {
@@ -1143,12 +1139,9 @@ void config_wizard(const std::string& config_path) {
                             int idx = (it != opts.end()) ? std::distance(opts.begin(), it) : 0;
                             sv(sel, sel_sub, opts[(idx + 1) % opts.size()]);
                         }
-                        dirty_from = ROW_ROW0 + std::min(sel_sub, 14);
-                        dirty_to = dirty_from + 1;
                     } else if (c != ' ') {
                         edit_mode = true;
                         ed_buf = gv(sel, sel_sub);
-                        dirty_from = ROW_ROW0; dirty_to = ROW_ROW0 + CATS[sel].c;
                     }
                     dirty_full = true;
                     last_sel = sel; last_sel_sub = sel_sub; last_edit = 1;
@@ -1162,7 +1155,6 @@ void config_wizard(const std::string& config_path) {
                 }
                 else if (c == 127 || c == 8) {
                     if (!ed_buf.empty()) ed_buf.pop_back();
-                    dirty_from = ROW_ROW0; dirty_to = ROW_ROW0 + CATS[sel].c;
                     last_sel = sel; last_sel_sub = sel_sub; last_edit = 1;
                 }
                 else if (c >= 32 && c <= 126) {
@@ -1176,7 +1168,6 @@ void config_wizard(const std::string& config_path) {
                         continue;
                     }
                     ed_buf += c;
-                    dirty_from = ROW_ROW0; dirty_to = ROW_ROW0 + CATS[sel].c;
                     last_sel = sel; last_sel_sub = sel_sub; last_edit = 1;
                 }
             }
