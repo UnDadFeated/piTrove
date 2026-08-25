@@ -192,7 +192,7 @@ ical_url = ""
 calendar_name = "Family"
 api_key = ""
 refresh_minutes = 15
-max_events = 8
+max_events = 10
 
 [google_photos]
 enabled = 0

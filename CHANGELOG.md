@@ -1,3 +1,13 @@
+### Release v18.1.9 — Google Calendar Text Auto-Wrapping & 10 Event Default (August 25, 2026)
+
+#### Calendar Typography & Layout (`calendar.cpp`, `config.h`, `config.toml`)
+- **Multi-Line Event Text Auto-Wrapping**:
+  - Implemented width-aware word wrapping (`wrap_text_to_width`) bounded by the physical frame matte right opening ($X = 1860	ext{px}$).
+  - Long event summaries (e.g., "Fitting appt at 11:30 for me kaiser") cleanly wrap to second and third lines instead of clipping under the physical 1" matte.
+  - Dynamically scales the height of the left accent indicator pill to encompass multi-line summaries and locations.
+- **Increased Default Upcoming Events**:
+  - Increased `gcalendar_max_events` default from 8 to 10 events.
+
 ### Release v18.1.8 — Streamlined Google Calendar Setup (August 25, 2026)
 
 #### Configuration & TUI Streamlining (`tui.cpp`, `config.h`, `config.cpp`)

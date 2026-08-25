@@ -368,6 +368,31 @@ std::string GoogleCalendar::get_status_json() const {
     return ss.str();
 }
 
+static std::vector<std::string> wrap_text_to_width(FontRenderer* font_renderer, FontHandle& font, const std::string& text, int max_w) {
+    std::vector<std::string> lines;
+    if (text.empty()) return lines;
+
+    std::istringstream stream(text);
+    std::string word;
+    std::string current_line;
+
+    while (stream >> word) {
+        std::string test_line = current_line.empty() ? word : (current_line + " " + word);
+        int tw = 0, th = 0;
+        font_renderer->measure(font, test_line, tw, th);
+        if (tw <= max_w || current_line.empty()) {
+            current_line = test_line;
+        } else {
+            lines.push_back(current_line);
+            current_line = word;
+        }
+    }
+    if (!current_line.empty()) {
+        lines.push_back(current_line);
+    }
+    return lines;
+}
+
 void GoogleCalendar::render(SDL_Renderer* renderer, FontRenderer* font_renderer, const std::string& font_path, const SDL_Rect& bounds, int screen_w) {
     if (!renderer || !font_renderer || bounds.h <= 0 || bounds.w <= 0) return;
 
@@ -438,8 +463,23 @@ void GoogleCalendar::render(SDL_Renderer* renderer, FontRenderer* font_renderer,
         return;
     }
 
+    int right_matte_limit = screen_w - (int)round(60.0 * screen_w / 1920.0);
+    int card_right_limit = bounds.x + bounds.w - (int)round(18.0 * screen_w / 1920.0);
+    int text_max_w = std::min(right_matte_limit, card_right_limit) - (pad_x + (int)round(3.0 * screen_w / 1920.0) + 10);
+    if (text_max_w < 120) text_max_w = 240;
+
     for (const auto& ev : events_copy) {
-        if (cur_y + body_font_size * 3 > bounds.y + bounds.h - 10) break; // Keep within card bounds
+        std::vector<std::string> summary_lines = wrap_text_to_width(font_renderer, body_font, ev.summary, text_max_w);
+        std::vector<std::string> loc_lines;
+        if (!ev.location.empty()) {
+            loc_lines = wrap_text_to_width(font_renderer, sub_font, "@ " + ev.location, text_max_w);
+        }
+
+        int total_event_h = (sub_font_size + 4) 
+                          + (int)summary_lines.size() * (body_font_size + 3)
+                          + (int)loc_lines.size() * (sub_font_size + 3);
+
+        if (cur_y + total_event_h > bounds.y + bounds.h - 10) break; // Keep within card bounds
 
         std::string tag_str = std::format("{}  •  {}", ev.relative_day, ev.formatted_time);
         uint8_t tr = 0, tg = 200, tb = 255;
@@ -447,9 +487,9 @@ void GoogleCalendar::render(SDL_Renderer* renderer, FontRenderer* font_renderer,
             tr = 255; tg = 180; tb = 50;
         }
 
-        // Left accent indicator pill
+        // Left accent indicator pill matching multi-line card height
         int pill_w = (int)round(3.0 * screen_w / 1920.0);
-        int pill_h = body_font_size + sub_font_size + 6;
+        int pill_h = total_event_h - 2;
         SDL_FRect pill_rect = { (float)pad_x, (float)cur_y, (float)pill_w, (float)pill_h };
         SDL_SetRenderDrawColor(renderer, tr, tg, tb, 255);
         SDL_RenderFillRect(renderer, &pill_rect);
@@ -458,17 +498,18 @@ void GoogleCalendar::render(SDL_Renderer* renderer, FontRenderer* font_renderer,
         font_renderer->draw_text(text_start_x, cur_y, sub_font, tag_str, tr, tg, tb, 255);
         cur_y += sub_font_size + 4;
 
-        // Event title
-        font_renderer->draw_text(text_start_x, cur_y, body_font, ev.summary, 245, 250, 255, 255);
-        cur_y += body_font_size + 4;
-
-        // Location if present
-        if (!ev.location.empty()) {
-            std::string loc_str = std::format("@ {}", ev.location);
-            font_renderer->draw_text(text_start_x, cur_y, sub_font, loc_str, 140, 160, 180, 200);
-            cur_y += sub_font_size + 4;
+        // Wrapped event summary lines
+        for (const auto& line : summary_lines) {
+            font_renderer->draw_text(text_start_x, cur_y, body_font, line, 245, 250, 255, 255);
+            cur_y += body_font_size + 3;
         }
 
-        cur_y += 12; // Spacing between events
+        // Wrapped location lines if present
+        for (const auto& line : loc_lines) {
+            font_renderer->draw_text(text_start_x, cur_y, sub_font, line, 140, 160, 180, 200);
+            cur_y += sub_font_size + 3;
+        }
+
+        cur_y += 10; // Spacing between events
     }
 }
