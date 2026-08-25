@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-PROJECT_DIR="/opt/pitrove"
+PROJECT_DIR="${PITROVE_DIR:-/home/pi/piTrove}"
+if [[ ! -d "$PROJECT_DIR" ]]; then
+  PROJECT_DIR="/opt/pitrove"
+fi
 CONTAINER="piTrove"
 SERVICE="pitrove"
 BACKUP_DIR="${PROJECT_DIR}/backups"
@@ -11,14 +14,19 @@ mkdir -p "$BACKUP_DIR"
 
 cd "$PROJECT_DIR"
 
-OLD_IMAGE="$(docker inspect --format='{{.Config.Image}}' "$CONTAINER")"
-OLD_IMAGE_ID="$(docker inspect --format='{{.Image}}' "$CONTAINER")"
+OLD_IMAGE="$(docker inspect --format='{{.Config.Image}}' "$CONTAINER" 2>/dev/null || echo "pitrove-pitrove:latest")"
+OLD_IMAGE_ID="$(docker inspect --format='{{.Image}}' "$CONTAINER" 2>/dev/null || echo "")"
 
-docker tag "$OLD_IMAGE_ID" "pitrove:rollback"
+if [[ -n "$OLD_IMAGE_ID" ]]; then
+  docker tag "$OLD_IMAGE_ID" "pitrove:rollback" 2>/dev/null || true
+fi
 
-cp -a config "${BACKUP_DIR}/config-${TS}"
+if [[ -d "config" ]]; then
+  cp -a config "${BACKUP_DIR}/config-${TS}"
+fi
 
-docker compose pull "$SERVICE"
+git pull origin develop 2>/dev/null || git pull origin main 2>/dev/null || true
+docker compose build "$SERVICE"
 docker compose up -d "$SERVICE"
 
 for _ in {1..20}; do

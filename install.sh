@@ -43,7 +43,7 @@ trap cleanup_terminal EXIT INT TERM
 
 banner() {
     clear 2>/dev/null || true
-    echo -e " ${BOLD}${WHITE}piTrove${NC}  ${CYAN}v17.7.10${NC} ${GRAY}──────────────────────────${NC} ${BOLD}${GREEN}Installer${NC}"
+    echo -e " ${BOLD}${WHITE}piTrove${NC}  ${CYAN}v18.1.10${NC} ${GRAY}──────────────────────────${NC} ${BOLD}${GREEN}Installer${NC}"
     echo -e " ${MAGENTA}The Ultra-Premium Picture Frame${NC}"
     echo
 }
