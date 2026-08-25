@@ -1,3 +1,16 @@
+### Release v18.1.2 — StockStreamer Table Columns & Separators (August 24, 2026)
+
+#### StockStreamer Enhancements
+- **Column Header Labels (`stock_streamer.cpp`)**:
+  - Added dedicated column headers: `STOCK`, `PRICE`, `CHANGE`, `%`, and `AH %`.
+  - Styled with subtle slate cyan typography and a crisp divider bar.
+- **Tightly Packed Rows & Horizontal Separators**:
+  - Compacted row height to 21px with clean horizontal divider lines between every stock row.
+  - Aligned dollar change (`CHANGE`), day percentage (`%`), and aftermarket percentage (`AH %`).
+- **Grey Crypto Box Indicator**:
+  - Matched the `CRYPTO` section badge box to the sleek slate grey color (`RGB 140, 150, 165`) of the stocks section.
+  - Aligned Bitcoin values into the same structured column format.
+
 ### Release v18.1.1 — Realtime Crypto/Stocks Single-Line & Query Time Filtering (August 24, 2026)
 
 #### UI Layout & Streamer Enhancements

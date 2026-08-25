@@ -248,6 +248,7 @@ bool StockStreamer::start() {
                 q.display_symbol = clean_display_sym(sym);
                 q.name = get_company_name(sym);
                 q.price = pr;
+                q.change = (sym == "NVDA" || sym == "TSLA" || sym == "AVGO") ? -6.24 : 1.20;
                 q.change_pct = (sym == "NVDA" || sym == "TSLA" || sym == "AVGO") ? -1.85 : 1.15;
                 q.formatted_price = format_currency(pr, false);
                 q.is_crypto = false;
@@ -311,8 +312,10 @@ std::string StockStreamer::get_status_json() const {
         if (i > 0) ss << ",";
         ss << "{\"symbol\":\"" << m_stocks[i].display_symbol << "\""
            << ",\"price\":" << m_stocks[i].price
+           << ",\"change\":" << m_stocks[i].change
            << ",\"change_pct\":" << m_stocks[i].change_pct
            << ",\"aftermarket_price\":" << m_stocks[i].aftermarket_price
+           << ",\"aftermarket_change_pct\":" << m_stocks[i].aftermarket_change_pct
            << ",\"has_aftermarket\":" << (m_stocks[i].has_aftermarket ? "true" : "false") << "}";
     }
     ss << "],\"crypto\":{\"symbol\":\"BTC\""
@@ -326,7 +329,7 @@ void StockStreamer::render(SDL_Renderer* renderer, FontRenderer* font_renderer, 
 
     // 1. Glassmorphic card backdrop
     SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
-    SDL_SetRenderDrawColor(renderer, 12, 16, 26, 240); // Dark obsidian glass
+    SDL_SetRenderDrawColor(renderer, 12, 16, 26, 240);
     SDL_FRect bg_rect = { (float)bounds.x, (float)bounds.y, (float)bounds.w, (float)bounds.h };
     SDL_RenderFillRect(renderer, &bg_rect);
 
@@ -335,32 +338,52 @@ void StockStreamer::render(SDL_Renderer* renderer, FontRenderer* font_renderer, 
     SDL_FRect left_border = { (float)bounds.x, (float)bounds.y, 2.0f, (float)bounds.h };
     SDL_RenderFillRect(renderer, &left_border);
 
-    // Top horizontal accent divider between Calendar and Stocks
+    // Top horizontal accent divider
     SDL_SetRenderDrawColor(renderer, 0, 200, 255, 160);
     SDL_FRect top_div = { (float)bounds.x, (float)bounds.y, (float)bounds.w, 1.0f };
     SDL_RenderFillRect(renderer, &top_div);
 
-    int title_font_size = (int)round(13.0 * screen_w / 1920.0);
-    int sym_font_size   = (int)round(12.0 * screen_w / 1920.0);
-    int price_font_size = (int)round(12.0 * screen_w / 1920.0);
-    int sub_font_size   = (int)round(11.0 * screen_w / 1920.0);
+    int title_font_size  = (int)round(12.0 * screen_w / 1920.0);
+    int col_hdr_size     = (int)round(9.0 * screen_w / 1920.0);
+    int row_font_size    = (int)round(10.0 * screen_w / 1920.0);
 
     FontHandle& title_font = font_renderer->load_font(font_path, title_font_size);
-    FontHandle& sym_font   = font_renderer->load_font(font_path, sym_font_size);
-    FontHandle& price_font = font_renderer->load_font(font_path, price_font_size);
-    FontHandle& sub_font   = font_renderer->load_font(font_path, sub_font_size);
+    FontHandle& col_font   = font_renderer->load_font(font_path, col_hdr_size);
+    FontHandle& row_font   = font_renderer->load_font(font_path, row_font_size);
 
-    int pad_x = bounds.x + (int)round(16.0 * screen_w / 1920.0);
-    int cur_y = bounds.y + (int)round(12.0 * screen_w / 1920.0);
+    int pad_x = bounds.x + (int)round(10.0 * screen_w / 1920.0);
+    int cur_y = bounds.y + (int)round(8.0 * screen_w / 1920.0);
+
+    // Tightly-packed column positions
+    int x_stock = pad_x;
+    int x_price = pad_x + (int)round(44.0 * screen_w / 1920.0);
+    int x_chg   = pad_x + (int)round(110.0 * screen_w / 1920.0);
+    int x_pct   = pad_x + (int)round(164.0 * screen_w / 1920.0);
+    int x_ah    = pad_x + (int)round(224.0 * screen_w / 1920.0);
+    int usable_w = bounds.w - (pad_x - bounds.x) * 2;
 
     // Section 1 Header: STOCKS / S&P 500 TOP 10
     int dot_r = (int)round(3.0 * screen_w / 1920.0);
-    SDL_FRect dot_rect = { (float)pad_x, (float)(cur_y + 3), (float)(dot_r * 2), (float)(dot_r * 2) };
+    SDL_FRect dot_rect = { (float)pad_x, (float)(cur_y + 2), (float)(dot_r * 2), (float)(dot_r * 2) };
     SDL_SetRenderDrawColor(renderer, 140, 150, 165, 255);
     SDL_RenderFillRect(renderer, &dot_rect);
 
-    font_renderer->draw_text(pad_x + dot_r * 2 + 6, cur_y, title_font, "STOCKS  •  S&P 500 TOP 10", 255, 255, 255, 255);
-    cur_y += title_font_size + 10;
+    font_renderer->draw_text(pad_x + dot_r * 2 + 5, cur_y, title_font, "STOCKS  •  S&P 500 TOP 10", 255, 255, 255, 255);
+    cur_y += title_font_size + 6;
+
+    // Column Labels
+    font_renderer->draw_text(x_stock, cur_y, col_font, "STOCK",  140, 165, 190, 240);
+    font_renderer->draw_text(x_price, cur_y, col_font, "PRICE",  140, 165, 190, 240);
+    font_renderer->draw_text(x_chg,   cur_y, col_font, "CHANGE", 140, 165, 190, 240);
+    font_renderer->draw_text(x_pct,   cur_y, col_font, "%",      140, 165, 190, 240);
+    font_renderer->draw_text(x_ah,    cur_y, col_font, "AH %",   140, 165, 190, 240);
+    cur_y += col_hdr_size + 3;
+
+    // Header divider line
+    SDL_SetRenderDrawColor(renderer, 255, 255, 255, 45);
+    SDL_FRect hdr_div = { (float)pad_x, (float)cur_y, (float)usable_w, 1.0f };
+    SDL_RenderFillRect(renderer, &hdr_div);
+    cur_y += 2;
 
     // Copy quotes thread-safely
     std::vector<StockQuote> stocks_copy;
@@ -371,77 +394,104 @@ void StockStreamer::render(SDL_Renderer* renderer, FontRenderer* font_renderer, 
         crypto_copy = m_crypto;
     }
 
-    // 2. Render Top 10 Stocks
-    int row_h = (int)round(24.0 * screen_w / 1920.0);
-    int max_y_stocks = bounds.y + bounds.h - (int)round(75.0 * screen_w / 1920.0);
+    // 2. Render Top 10 Stocks (tightly packed with separator lines)
+    int row_h = (int)round(18.0 * screen_w / 1920.0);
+    int max_y_stocks = bounds.y + bounds.h - (int)round(55.0 * screen_w / 1920.0);
 
-    for (const auto& st : stocks_copy) {
+    for (size_t idx = 0; idx < stocks_copy.size(); ++idx) {
+        const auto& st = stocks_copy[idx];
         if (cur_y + row_h > max_y_stocks) break;
 
-        // Symbol (Crisp White)
-        font_renderer->draw_text(pad_x, cur_y, sym_font, st.display_symbol, 240, 245, 255, 255);
+        // Symbol
+        font_renderer->draw_text(x_stock, cur_y + 1, row_font, st.display_symbol, 240, 245, 255, 255);
 
-        // Price (Bright White)
-        int pw = 0, ph = 0;
-        font_renderer->measure(price_font, st.formatted_price, pw, ph);
-        int px = pad_x + (int)round(80.0 * screen_w / 1920.0);
-        font_renderer->draw_text(px, cur_y, price_font, st.formatted_price, 255, 255, 255, 255);
+        // Price
+        font_renderer->draw_text(x_price, cur_y + 1, row_font, st.formatted_price, 255, 255, 255, 255);
 
-        // Change % (Green for +, Red for -)
-        std::string chg_str = std::format("{}{:+.2f}%", (st.change_pct >= 0 ? "▲ " : "▼ "), st.change_pct);
-        int cw = 0, ch = 0;
-        font_renderer->measure(sub_font, chg_str, cw, ch);
-        int cx = bounds.x + bounds.w - cw - (int)round(16.0 * screen_w / 1920.0);
-
-        if (st.change_pct >= 0) {
-            font_renderer->draw_text(cx, cur_y + 1, sub_font, chg_str, 0, 230, 118, 255); // Vivid Green
+        // Change ($)
+        std::string chg_str = std::format("{:+.2f}", st.change);
+        if (st.change >= 0) {
+            font_renderer->draw_text(x_chg, cur_y + 1, row_font, chg_str, 0, 230, 118, 255);
         } else {
-            font_renderer->draw_text(cx, cur_y + 1, sub_font, chg_str, 255, 82, 82, 255);  // Vivid Red
+            font_renderer->draw_text(x_chg, cur_y + 1, row_font, chg_str, 255, 82, 82, 255);
         }
 
-        // If aftermarket active, subtle indicator
+        // %
+        std::string pct_str = std::format("{:+.2f}%", st.change_pct);
+        if (st.change_pct >= 0) {
+            font_renderer->draw_text(x_pct, cur_y + 1, row_font, pct_str, 0, 230, 118, 255);
+        } else {
+            font_renderer->draw_text(x_pct, cur_y + 1, row_font, pct_str, 255, 82, 82, 255);
+        }
+
+        // AH %
         if (st.has_aftermarket) {
-            std::string ah_s = std::format("AH ${:.1f}", st.aftermarket_price);
-            font_renderer->draw_text(px + pw + 8, cur_y + 2, sub_font, ah_s, 255, 205, 100, 200);
+            std::string ah_str = std::format("{:+.2f}%", st.aftermarket_change_pct);
+            font_renderer->draw_text(x_ah, cur_y + 1, row_font, ah_str, 255, 205, 100, 255);
+        } else {
+            font_renderer->draw_text(x_ah, cur_y + 1, row_font, "--", 130, 140, 155, 200);
         }
 
         cur_y += row_h;
+
+        // Horizontal separator
+        SDL_SetRenderDrawColor(renderer, 255, 255, 255, 16);
+        SDL_FRect row_div = { (float)pad_x, (float)cur_y, (float)usable_w, 1.0f };
+        SDL_RenderFillRect(renderer, &row_div);
+        cur_y += 1;
     }
 
-    cur_y += 6;
+    cur_y += 3;
 
-    // 3. Section 2 Header: CRYPTO (Clean header, no "24/7 realtime" text)
+    // 3. CRYPTO Section divider
     SDL_SetRenderDrawColor(renderer, 255, 255, 255, 30);
-    SDL_FRect crypto_div = { (float)pad_x, (float)cur_y, (float)(bounds.w - (pad_x - bounds.x) * 2), 1.0f };
+    SDL_FRect crypto_div = { (float)pad_x, (float)cur_y, (float)usable_w, 1.0f };
     SDL_RenderFillRect(renderer, &crypto_div);
-    cur_y += 8;
+    cur_y += 5;
 
-    // Crypto Header dot (Slate Grey)
-    SDL_FRect c_dot = { (float)pad_x, (float)(cur_y + 3), (float)(dot_r * 2), (float)(dot_r * 2) };
+    // Crypto Header (Slate Grey box, matching stocks)
+    SDL_FRect c_dot = { (float)pad_x, (float)(cur_y + 2), (float)(dot_r * 2), (float)(dot_r * 2) };
     SDL_SetRenderDrawColor(renderer, 140, 150, 165, 255);
     SDL_RenderFillRect(renderer, &c_dot);
 
-    font_renderer->draw_text(pad_x + dot_r * 2 + 6, cur_y, title_font, "CRYPTO", 255, 255, 255, 255);
-    cur_y += title_font_size + 8;
+    font_renderer->draw_text(pad_x + dot_r * 2 + 5, cur_y, title_font, "CRYPTO", 255, 255, 255, 255);
+    cur_y += title_font_size + 5;
 
-    // 4. Bitcoin Live Card (Single Row Layout: Symbol, Price, and % all in one line)
-    // Symbol: BTC
-    font_renderer->draw_text(pad_x, cur_y, sym_font, "BTC", 255, 180, 50, 255); // Amber Gold
+    // 4. Bitcoin Row (single line, condensed to fit without overlap)
+    // Use a smaller font for BTC price to avoid overlap in the tight columns
+    int btc_font_size = (int)round(9.0 * screen_w / 1920.0);
+    FontHandle& btc_font = font_renderer->load_font(font_path, btc_font_size);
 
-    // Price: e.g. $79,743.07
+    // Symbol: BTC (Amber Gold)
+    font_renderer->draw_text(x_stock, cur_y + 1, row_font, "BTC", 255, 180, 50, 255);
+
+    // Price (use smaller font to avoid overlap with change column)
     std::string btc_price_str = !crypto_copy.formatted_price.empty() ? crypto_copy.formatted_price : "$79,820.00";
-    int bpx = pad_x + (int)round(80.0 * screen_w / 1920.0);
-    font_renderer->draw_text(bpx, cur_y, price_font, btc_price_str, 255, 255, 255, 255);
+    font_renderer->draw_text(x_price, cur_y + 1, btc_font, btc_price_str, 255, 255, 255, 255);
 
-    // 24h Change % (Right-aligned)
-    std::string btc_chg = std::format("{}{:+.2f}%", (crypto_copy.change_pct >= 0 ? "▲ " : "▼ "), crypto_copy.change_pct);
-    int bcw = 0, bch = 0;
-    font_renderer->measure(sub_font, btc_chg, bcw, bch);
-    int bcx = bounds.x + bounds.w - bcw - (int)round(16.0 * screen_w / 1920.0);
-
-    if (crypto_copy.change_pct >= 0) {
-        font_renderer->draw_text(bcx, cur_y + 1, sub_font, btc_chg, 0, 230, 118, 255);
+    // 24h Change ($)
+    double btc_chg_val = (crypto_copy.prev_close > 0) ? (crypto_copy.price - crypto_copy.prev_close) : (crypto_copy.price * crypto_copy.change_pct / 100.0);
+    std::string btc_chg_str = std::format("{:+.0f}", btc_chg_val);
+    if (btc_chg_val >= 0) {
+        font_renderer->draw_text(x_chg, cur_y + 1, btc_font, btc_chg_str, 0, 230, 118, 255);
     } else {
-        font_renderer->draw_text(bcx, cur_y + 1, sub_font, btc_chg, 255, 82, 82, 255);
+        font_renderer->draw_text(x_chg, cur_y + 1, btc_font, btc_chg_str, 255, 82, 82, 255);
     }
+
+    // 24h %
+    std::string btc_pct = std::format("{:+.2f}%", crypto_copy.change_pct);
+    if (crypto_copy.change_pct >= 0) {
+        font_renderer->draw_text(x_pct, cur_y + 1, btc_font, btc_pct, 0, 230, 118, 255);
+    } else {
+        font_renderer->draw_text(x_pct, cur_y + 1, btc_font, btc_pct, 255, 82, 82, 255);
+    }
+
+    // AH % (N/A for crypto)
+    font_renderer->draw_text(x_ah, cur_y + 1, btc_font, "--", 130, 140, 155, 200);
+
+    cur_y += row_h;
+    SDL_SetRenderDrawColor(renderer, 255, 255, 255, 16);
+    SDL_FRect btc_div = { (float)pad_x, (float)cur_y, (float)usable_w, 1.0f };
+    SDL_RenderFillRect(renderer, &btc_div);
 }
+
