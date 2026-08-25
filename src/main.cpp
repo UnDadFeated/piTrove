@@ -288,7 +288,7 @@ static InfopanelLayout calculate_infopanel_layout(int screen_w, int screen_h) {
     int news_y = news_bottom - news_h;
 
     // Calendar width (scaled)
-    int cal_w = layout.show_calendar ? std::clamp((int)round(300.0 * screen_w / 1920.0), 260, screen_w / 3) : 0;
+    int cal_w = layout.show_calendar ? std::clamp((int)round(310.0 * screen_w / 1920.0), 260, screen_w / 3) : 0;
     int cal_x = screen_w - cal_w;
 
     if (layout.show_news && layout.show_calendar) {
