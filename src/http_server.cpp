@@ -2022,7 +2022,7 @@ static void handle_screenshot(int fd) {
     g_screenshot_requested.store(true, std::memory_order_release);
 
     std::unique_lock lk(g_screenshot_mtx);
-    bool ready = g_screenshot_cv.wait_for(lk, std::chrono::milliseconds(800), []{
+    bool ready = g_screenshot_cv.wait_for(lk, std::chrono::milliseconds(5000), []{
         return g_screenshot_ready.load(std::memory_order_acquire);
     });
 
