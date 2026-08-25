@@ -1,3 +1,22 @@
+### Release v18.1.5 — Smart Assist Setup for Google Calendar, Weather & Stocks (August 24, 2026)
+
+#### Smart Assistant Setup & Usability Enhancements (`tui.cpp`, `calendar.cpp`, `config.cpp`, `util.cpp`)
+- **Google Calendar Two-Field Smart Builder**:
+  - Added dedicated **`Calendar Email`** and **`Calendar Secret Token`** input fields in TUI and config.
+  - Automatically constructs the valid URL (`https://calendar.google.com/calendar/ical/<email>/private-<token>/basic.ics`) with URL-encoded `@` (`%40`).
+  - Bi-directional parser: Pasting a full iCal URL into any field automatically parses and populates the email and token cleanly.
+  - Automatically triggers an immediate background calendar sync upon updating.
+- **Weather City / ZIP Code Auto-Geocoding**:
+  - Added **`ZIP or City Name`** input in Weather settings (e.g. `95624`, `Austin TX`, `London`).
+  - Automatically queries Open-Meteo's geocoding API to resolve and set GPS `Latitude` and `Longitude` without manual lookups.
+- **StockStreamer Preset Bundles**:
+  - Added **`Stock Preset`** selector in TUI with pre-configured ticker bundles:
+    - `sp500_top10`: `NVDA, AAPL, MSFT, AMZN, GOOGL, META, BRK-B, TSLA, AVGO, JPM`
+    - `big_tech`: `AAPL, MSFT, NVDA, GOOGL, AMZN, META, TSLA`
+    - `semiconductors`: `NVDA, AVGO, TSM, AMD, QCOM, INTC, ASML, MU, AMAT, TXN`
+    - `dividend_kings`: `JNJ, PG, KO, PEP, ABBV, MMM, CL, TGT, CVX, XOM`
+    - `custom`: User-specified symbol list.
+
 ### Release v18.1.4 — Global Screen Display Offset & Physical Matte Calibration (August 24, 2026)
 
 #### Global Screen Display Offsets (`config.toml`, `tui.cpp`, `main.cpp`, `overlay.cpp`)

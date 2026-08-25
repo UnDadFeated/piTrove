@@ -9,6 +9,9 @@
 #include <atomic>
 #include "font_render.h"
 
+std::string build_google_ical_url(const std::string& email, const std::string& token);
+void parse_google_ical_url(const std::string& url, std::string& out_email, std::string& out_token);
+
 struct CalendarEvent {
     std::string summary;
     std::string location;

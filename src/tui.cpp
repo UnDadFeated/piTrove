@@ -4,6 +4,7 @@
 #include "util.h"
 #include "news_ticker.h"
 #include "calendar.h"
+#include "stock_streamer.h"
 #include <iostream>
 #include <fstream>
 #include <string>
@@ -204,8 +205,9 @@ void config_wizard(const std::string& config_path) {
     };
     static const CI CH[] = {
         {"Weather Enabled", TGL, "Fetch local weather via Open-Meteo API"},
-        {"Latitude", FLT, "Location latitude for weather API"},
-        {"Longitude", FLT, "Location longitude for weather API"}
+        {"ZIP or City Name", STR, "Enter ZIP code or City (e.g. 95624, Austin TX, London) to auto-fill GPS coordinates"},
+        {"Latitude", FLT, "Location latitude for weather API (auto-computed from ZIP/City)"},
+        {"Longitude", FLT, "Location longitude for weather API (auto-computed from ZIP/City)"}
     };
     static const CI CSEC[] = {
         {"Touchscreen Mode", TGL, "Enable touchscreen tap-to-menu and virtual keyboard controls"},
@@ -249,9 +251,15 @@ void config_wizard(const std::string& config_path) {
         {"News Refresh Mins", INT, "Minutes between background news headline updates (5-120)"},
         {"News Scroll Speed", INT, "Horizontal scrolling speed in pixels per second (10-150)"},
         {"News Font Size", INT, "Font size in pixels for news ticker (9-16)"},
+        {"Stock Streamer", TGL, "Show live S&P 500 stocks & Bitcoin streamer panel"},
+        {"Stock Preset", ENM, "Quick preset ticker bundle (sp500_top10, big_tech, semiconductors, dividend_kings, custom)"},
+        {"Stock Symbols", STR, "Comma-separated stock symbols (e.g. NVDA,AAPL,MSFT)"},
+        {"Crypto Symbol", STR, "Cryptocurrency ticker (e.g. BTC-USD, ETH-USD)"},
         {"Google Calendar", TGL, "Show Google Calendar agenda sidebar panel"},
         {"Calendar Source", ENM, "Sync method (ical, api)"},
         {"Calendar Name", STR, "Name of the calendar to sync/display (e.g. Family)"},
+        {"Calendar Email", STR, "Google Account email (e.g. user@gmail.com) - auto-builds iCal URL"},
+        {"Calendar Secret Token", STR, "Secret token from Google Calendar Settings - auto-builds iCal URL"},
         {"Calendar iCal URL", STR, "Direct Google Calendar secret/public iCal address URL"},
         {"Calendar API Key", STR, "Google Calendar API Key (for API source sync)"},
         {"Calendar Refresh Mins", INT, "Minutes between background calendar syncs (5-120)"},
@@ -383,8 +391,9 @@ void config_wizard(const std::string& config_path) {
         }
         if (c == 5) switch(i) {
             case 0: return g_cfg.weather_enabled?"[ON]":"[OFF]";
-            case 1: return std::format("{}", g_cfg.weather_lat);
-            case 2: return std::format("{}", g_cfg.weather_lon);
+            case 1: return g_cfg.weather_location.empty() ? "(none)" : g_cfg.weather_location;
+            case 2: return std::format("{}", g_cfg.weather_lat);
+            case 3: return std::format("{}", g_cfg.weather_lon);
         }
         if (c == 6) switch(i) {
             case 0: return g_cfg.touch_enabled?"[ON]":"[OFF]";
@@ -444,13 +453,26 @@ void config_wizard(const std::string& config_path) {
             case 6: return std::format("{}", g_cfg.news_refresh_minutes);
             case 7: return std::format("{}", g_cfg.news_scroll_speed);
             case 8: return std::format("{}", g_cfg.news_font_size);
-            case 9: return g_cfg.gcalendar_enabled ? "[ON]" : "[OFF]";
-            case 10: return g_cfg.gcalendar_source_type;
-            case 11: return g_cfg.gcalendar_name;
-            case 12: return g_cfg.gcalendar_ical_url;
-            case 13: return g_cfg.gcalendar_api_key;
-            case 14: return std::format("{}", g_cfg.gcalendar_refresh_minutes);
-            case 15: return std::format("{}", g_cfg.gcalendar_max_events);
+            case 9: return g_cfg.stockstreamer_enabled ? "[ON]" : "[OFF]";
+            case 10: return g_cfg.stockstreamer_preset;
+            case 11: {
+                std::string res;
+                for (size_t k = 0; k < g_cfg.stockstreamer_symbols.size(); ++k) {
+                    if (k > 0) res += ",";
+                    res += g_cfg.stockstreamer_symbols[k];
+                }
+                return res;
+            }
+            case 12: return g_cfg.stockstreamer_crypto;
+            case 13: return g_cfg.gcalendar_enabled ? "[ON]" : "[OFF]";
+            case 14: return g_cfg.gcalendar_source_type;
+            case 15: return g_cfg.gcalendar_name;
+            case 16: return g_cfg.gcalendar_email;
+            case 17: return g_cfg.gcalendar_token;
+            case 18: return g_cfg.gcalendar_ical_url;
+            case 19: return g_cfg.gcalendar_api_key;
+            case 20: return std::format("{}", g_cfg.gcalendar_refresh_minutes);
+            case 21: return std::format("{}", g_cfg.gcalendar_max_events);
         }
         return "";
     };
@@ -577,8 +599,19 @@ void config_wizard(const std::string& config_path) {
             }
             else if(c==5) switch(i){
                 case 0:g_cfg.weather_enabled=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
-                case 1:{ try { float vl=std::stof(v); if(vl>=-90.0f&&vl<=90.0f) g_cfg.weather_lat=vl; } catch(...) {} break; }
-                case 2:{ try { float vn=std::stof(v); if(vn>=-180.0f&&vn<=180.0f) g_cfg.weather_lon=vn; } catch(...) {} break; }
+                case 1:{
+                    std::string loc = trim(v);
+                    g_cfg.weather_location = loc;
+                    float lat = 0.0f, lon = 0.0f;
+                    if (geocode_location_sync(loc, lat, lon)) {
+                        g_cfg.weather_lat = lat;
+                        g_cfg.weather_lon = lon;
+                        g_logger.info("TUI: Auto-geocoded '{}' to Lat: {}, Lon: {}", loc, lat, lon);
+                    }
+                    break;
+                }
+                case 2:{ try { float vl=std::stof(v); if(vl>=-90.0f&&vl<=90.0f) g_cfg.weather_lat=vl; } catch(...) {} break; }
+                case 3:{ try { float vn=std::stof(v); if(vn>=-180.0f&&vn<=180.0f) g_cfg.weather_lon=vn; } catch(...) {} break; }
             }
             else if(c==6) switch(i){
                 case 0:g_cfg.touch_enabled=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
@@ -654,13 +687,85 @@ void config_wizard(const std::string& config_path) {
                 case 6:{ try { g_cfg.news_refresh_minutes=std::clamp(std::stoi(v), 5, 120); } catch(...) {} break; }
                 case 7:{ try { g_cfg.news_scroll_speed=std::clamp(std::stoi(v), 10, 150); } catch(...) {} break; }
                 case 8:{ try { g_cfg.news_font_size=std::clamp(std::stoi(v), 9, 16); } catch(...) {} break; }
-                case 9:g_cfg.gcalendar_enabled=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
-                case 10:g_cfg.gcalendar_source_type=v;break;
-                case 11:g_cfg.gcalendar_name=v;break;
-                case 12:g_cfg.gcalendar_ical_url=v;break;
-                case 13:g_cfg.gcalendar_api_key=v;break;
-                case 14:{ try { g_cfg.gcalendar_refresh_minutes=std::clamp(std::stoi(v), 5, 120); } catch(...) {} break; }
-                case 15:{ try { g_cfg.gcalendar_max_events=std::clamp(std::stoi(v), 1, 16); } catch(...) {} break; }
+                case 9:g_cfg.stockstreamer_enabled=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
+                case 10:{
+                    g_cfg.stockstreamer_preset = v;
+                    if (v != "custom") {
+                        g_cfg.stockstreamer_symbols = get_stock_preset_symbols(v);
+                        g_stock_streamer.sync();
+                    }
+                    break;
+                }
+                case 11:{
+                    std::vector<std::string> syms;
+                    std::stringstream ss(v);
+                    std::string s;
+                    while (std::getline(ss, s, ',')) {
+                        s = trim(s);
+                        if (!s.empty()) syms.push_back(s);
+                    }
+                    if (!syms.empty()) {
+                        g_cfg.stockstreamer_symbols = syms;
+                        g_cfg.stockstreamer_preset = "custom";
+                        g_stock_streamer.sync();
+                    }
+                    break;
+                }
+                case 12:{
+                    g_cfg.stockstreamer_crypto = trim(v);
+                    g_stock_streamer.sync();
+                    break;
+                }
+                case 13:g_cfg.gcalendar_enabled=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
+                case 14:g_cfg.gcalendar_source_type=v;break;
+                case 15:g_cfg.gcalendar_name=v;break;
+                case 16:{
+                    std::string em = trim(v);
+                    if (em.find("/calendar/ical/") != std::string::npos) {
+                        std::string e, t;
+                        parse_google_ical_url(em, e, t);
+                        g_cfg.gcalendar_email = e;
+                        g_cfg.gcalendar_token = t;
+                        g_cfg.gcalendar_ical_url = em;
+                    } else {
+                        g_cfg.gcalendar_email = em;
+                        if (!g_cfg.gcalendar_token.empty()) {
+                            g_cfg.gcalendar_ical_url = build_google_ical_url(g_cfg.gcalendar_email, g_cfg.gcalendar_token);
+                        }
+                    }
+                    g_calendar.sync();
+                    break;
+                }
+                case 17:{
+                    std::string tok = trim(v);
+                    if (tok.find("/calendar/ical/") != std::string::npos) {
+                        std::string e, t;
+                        parse_google_ical_url(tok, e, t);
+                        g_cfg.gcalendar_email = e;
+                        g_cfg.gcalendar_token = t;
+                        g_cfg.gcalendar_ical_url = tok;
+                    } else {
+                        g_cfg.gcalendar_token = tok;
+                        if (!g_cfg.gcalendar_email.empty()) {
+                            g_cfg.gcalendar_ical_url = build_google_ical_url(g_cfg.gcalendar_email, g_cfg.gcalendar_token);
+                        }
+                    }
+                    g_calendar.sync();
+                    break;
+                }
+                case 18:{
+                    std::string url = trim(v);
+                    g_cfg.gcalendar_ical_url = url;
+                    std::string e, t;
+                    parse_google_ical_url(url, e, t);
+                    if (!e.empty()) g_cfg.gcalendar_email = e;
+                    if (!t.empty()) g_cfg.gcalendar_token = t;
+                    g_calendar.sync();
+                    break;
+                }
+                case 19:g_cfg.gcalendar_api_key=v;break;
+                case 20:{ try { g_cfg.gcalendar_refresh_minutes=std::clamp(std::stoi(v), 5, 120); } catch(...) {} break; }
+                case 21:{ try { g_cfg.gcalendar_max_events=std::clamp(std::stoi(v), 1, 16); } catch(...) {} break; }
             }
         } catch(...) {}
     };
@@ -680,6 +785,8 @@ void config_wizard(const std::string& config_path) {
         if(c==8&&i==0) return {"debug","info","warn","error"};
         if(c==11&&i==0) return get_supported_timezones();
         if(c==11&&i==3) return {"global", "local"};
+        if(c==11&&i==10) return {"sp500_top10", "big_tech", "semiconductors", "dividend_kings", "custom"};
+        if(c==11&&i==14) return {"ical", "api"};
         if(c==11&&i==10) return {"ical", "api"};
         return {};
     };

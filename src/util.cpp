@@ -1,3 +1,47 @@
+#include <curl/curl.h>
+#include <string>
+#include <format>
+
+bool geocode_location_sync(const std::string& query, float& out_lat, float& out_lon) {
+    if (query.empty()) return false;
+    CURL* curl = curl_easy_init();
+    if (!curl) return false;
+    
+    char* escaped = curl_easy_escape(curl, query.c_str(), (int)query.length());
+    if (!escaped) { curl_easy_cleanup(curl); return false; }
+    std::string url = std::format("https://geocoding-api.open-meteo.com/v1/search?name={}&count=1&format=json", escaped);
+    curl_free(escaped);
+
+    std::string resp;
+    curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
+    curl_easy_setopt(curl, CURLOPT_TIMEOUT, 5L);
+    curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 3L);
+    curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
+    curl_easy_setopt(curl, CURLOPT_USERAGENT, "piTrove/18.1");
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, +[](void* ptr, size_t size, size_t nmemb, void* stream) -> size_t {
+        ((std::string*)stream)->append((char*)ptr, size * nmemb);
+        return size * nmemb;
+    });
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &resp);
+    
+    CURLcode res = curl_easy_perform(curl);
+    curl_easy_cleanup(curl);
+    if (res != CURLE_OK || resp.empty()) return false;
+
+    size_t lat_pos = resp.find("\"latitude\":");
+    size_t lon_pos = resp.find("\"longitude\":");
+    if (lat_pos == std::string::npos || lon_pos == std::string::npos) return false;
+
+    try {
+        std::string lat_sub = resp.substr(lat_pos + 11);
+        std::string lon_sub = resp.substr(lon_pos + 12);
+        out_lat = std::stof(lat_sub);
+        out_lon = std::stof(lon_sub);
+        return true;
+    } catch (...) {
+        return false;
+    }
+}
 #include <sys/sysinfo.h>
 #include <fstream>
 

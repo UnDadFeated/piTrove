@@ -10,6 +10,50 @@
 #include <format>
 #include <cstring>
 
+std::string build_google_ical_url(const std::string& email, const std::string& token) {
+    if (email.empty() || token.empty()) return "";
+    std::string enc_email = email;
+    size_t at = enc_email.find('@');
+    if (at != std::string::npos) {
+        enc_email.replace(at, 1, "%40");
+    }
+    std::string tok = token;
+    if (tok.find("calendar.google.com") != std::string::npos) {
+        std::string e, t;
+        parse_google_ical_url(tok, e, t);
+        if (!t.empty()) tok = t;
+    }
+    if (tok.ends_with("/basic.ics")) {
+        tok = tok.substr(0, tok.length() - 10);
+    }
+    if (!tok.starts_with("private-") && !tok.starts_with("public")) {
+        tok = "private-" + tok;
+    }
+    return "https://calendar.google.com/calendar/ical/" + enc_email + "/" + tok + "/basic.ics";
+}
+
+void parse_google_ical_url(const std::string& url, std::string& out_email, std::string& out_token) {
+    if (url.empty()) return;
+    size_t p = url.find("/calendar/ical/");
+    if (p == std::string::npos) return;
+    std::string rest = url.substr(p + 15);
+    size_t slash = rest.find('/');
+    if (slash == std::string::npos) return;
+    std::string email = rest.substr(0, slash);
+    size_t at = email.find("%40");
+    if (at != std::string::npos) {
+        email.replace(at, 3, "@");
+    }
+    std::string token_part = rest.substr(slash + 1);
+    size_t slash2 = token_part.find('/');
+    std::string token = (slash2 != std::string::npos) ? token_part.substr(0, slash2) : token_part;
+    if (token.starts_with("private-")) {
+        token = token.substr(8);
+    }
+    out_email = email;
+    out_token = token;
+}
+
 GoogleCalendar::GoogleCalendar() {}
 
 GoogleCalendar::~GoogleCalendar() {
@@ -211,6 +255,9 @@ void GoogleCalendar::sync() {
     {
         std::shared_lock lk(g_config_mtx);
         ical_url = g_cfg.gcalendar_ical_url;
+        if (ical_url.empty() && !g_cfg.gcalendar_email.empty() && !g_cfg.gcalendar_token.empty()) {
+            ical_url = build_google_ical_url(g_cfg.gcalendar_email, g_cfg.gcalendar_token);
+        }
         api_key = g_cfg.gcalendar_api_key;
     }
 

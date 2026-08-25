@@ -93,8 +93,9 @@ struct Config {
 
     // [dashboard]
     bool    weather_enabled{false};
-    float   weather_lat{34.05f};
-    float   weather_lon{-118.24f};
+    std::string weather_location{"Elk Grove, CA"};
+    float   weather_lat{38.4088f};
+    float   weather_lon{-121.3716f};
 
     // [remote]
     bool    http_enabled{false};
@@ -205,6 +206,7 @@ struct Config {
 
     // [stockstreamer]
     bool                     stockstreamer_enabled{true};
+    std::string              stockstreamer_preset{"sp500_top10"};
     int                      stockstreamer_refresh_seconds{10};
     std::vector<std::string> stockstreamer_symbols{"NVDA", "AAPL", "MSFT", "AMZN", "GOOGL", "META", "BRK-B", "TSLA", "AVGO", "JPM"};
     std::string              stockstreamer_crypto{"BTC-USD"};
@@ -212,6 +214,8 @@ struct Config {
     // [gcalendar]
     bool        gcalendar_enabled{false};
     std::string gcalendar_source_type{"ical"};
+    std::string gcalendar_email{""};
+    std::string gcalendar_token{""};
     std::string gcalendar_ical_url{""};
     std::string gcalendar_name{"Family"};
     std::string gcalendar_api_key{""};

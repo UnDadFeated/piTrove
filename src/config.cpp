@@ -115,6 +115,7 @@ bool Config::load(const std::string& path) {
         else if (key == "wake_time")         this->wake_time = val;
         else if (key == "fan_speed")          this->fan_speed = std::clamp(safe_stoi(val, this->fan_speed), 0, 100);
         else if (key == "weather_enabled")   this->weather_enabled = (val == "1" || val == "true");
+        else if (key == "weather_location")  this->weather_location = val;
         else if (key == "weather_lat")       this->weather_lat = safe_stof(val, this->weather_lat);
         else if (key == "weather_lon")       this->weather_lon = safe_stof(val, this->weather_lon);
         else if (key == "dashboard_pin")      this->dashboard_pin = val;
@@ -272,10 +273,13 @@ bool Config::load(const std::string& path) {
         else if (key == "scroll_speed" && section == "news")                  this->news_scroll_speed = safe_stoi(val, this->news_scroll_speed);
         else if (key == "font_size" && section == "news")                     this->news_font_size = safe_stoi(val, this->news_font_size);
         else if (key == "enabled" && section == "stockstreamer")              this->stockstreamer_enabled = (val == "1" || val == "true");
+        else if (key == "preset" && section == "stockstreamer")               this->stockstreamer_preset = val;
         else if (key == "refresh_seconds" && section == "stockstreamer")      this->stockstreamer_refresh_seconds = safe_stoi(val, this->stockstreamer_refresh_seconds);
         else if (key == "crypto" && section == "stockstreamer")               this->stockstreamer_crypto = val;
         else if (key == "enabled" && section == "gcalendar")                  this->gcalendar_enabled = (val == "1" || val == "true");
         else if (key == "source_type" && section == "gcalendar")              this->gcalendar_source_type = val;
+        else if (key == "email" && section == "gcalendar")                    this->gcalendar_email = val;
+        else if (key == "token" && section == "gcalendar")                    this->gcalendar_token = val;
         else if (key == "ical_url" && section == "gcalendar")                 this->gcalendar_ical_url = val;
         else if (key == "calendar_name" && section == "gcalendar")            this->gcalendar_name = val;
         else if (key == "api_key" && section == "gcalendar")                 this->gcalendar_api_key = val;
@@ -491,6 +495,7 @@ bool Config::save(const std::string& path) {
 
     f << "[dashboard]\n";
     f << "weather_enabled = " << (this->weather_enabled ? "1" : "0") << "\n";
+    f << "weather_location = \"" << this->weather_location << "\"\n";
     f << "weather_lat = " << this->weather_lat << "\n";
     f << "weather_lon = " << this->weather_lon << "\n\n";
     f << "dashboard_pin = \"" << this->dashboard_pin << "\"\n";
@@ -569,12 +574,15 @@ bool Config::save(const std::string& path) {
 
     f << "[stockstreamer]\n";
     f << "enabled = " << (this->stockstreamer_enabled ? "1" : "0") << "\n";
+    f << "preset = \"" << this->stockstreamer_preset << "\"\n";
     f << "refresh_seconds = " << this->stockstreamer_refresh_seconds << "\n";
     f << "crypto = \"" << this->stockstreamer_crypto << "\"\n\n";
 
     f << "[gcalendar]\n";
     f << "enabled = " << (this->gcalendar_enabled ? "1" : "0") << "\n";
     f << "source_type = \"" << this->gcalendar_source_type << "\"\n";
+    f << "email = \"" << this->gcalendar_email << "\"\n";
+    f << "token = \"" << this->gcalendar_token << "\"\n";
     f << "ical_url = \"" << this->gcalendar_ical_url << "\"\n";
     f << "calendar_name = \"" << this->gcalendar_name << "\"\n";
     f << "api_key = \"" << this->gcalendar_api_key << "\"\n";
