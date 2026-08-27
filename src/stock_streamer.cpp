@@ -104,9 +104,6 @@ static bool parse_yahoo_chart_meta(const std::string& json_str, StockQuote& quot
     double prev_close = extract_double("chartPreviousClose", 0.0);
     if (prev_close <= 0.0) prev_close = extract_double("previousClose", 0.0);
 
-    double post_price = extract_double("postMarketPrice", 0.0);
-    double pre_price = extract_double("preMarketPrice", 0.0);
-
     if (reg_price <= 0.0) return false;
 
     quote.price = reg_price;
@@ -114,13 +111,80 @@ static bool parse_yahoo_chart_meta(const std::string& json_str, StockQuote& quot
     quote.change = (prev_close > 0.0) ? (reg_price - prev_close) : 0.0;
     quote.change_pct = (prev_close > 0.0) ? ((reg_price - prev_close) / prev_close * 100.0) : 0.0;
 
+    double post_price = extract_double("postMarketPrice", 0.0);
+    double pre_price = extract_double("preMarketPrice", 0.0);
     double ah_price = (post_price > 0.0) ? post_price : ((pre_price > 0.0) ? pre_price : 0.0);
-    if (ah_price > 0.0 && std::abs(ah_price - reg_price) > 0.001) {
+
+    // Traditional stocks: fallback to latest extended-hours candle from chart 1m series (Crypto is 24/7 continuous spot)
+    if (!quote.is_crypto && ah_price <= 0.0) {
+        int64_t reg_end = 0;
+        size_t p_period = json_str.find("\"regular\"");
+        if (p_period != std::string::npos) {
+            size_t p_end = json_str.find("\"end\"", p_period);
+            if (p_end != std::string::npos) {
+                size_t p_col = json_str.find(':', p_end);
+                if (p_col != std::string::npos) {
+                    try { reg_end = std::stoll(json_str.substr(p_col + 1)); } catch (...) {}
+                }
+            }
+        }
+
+        size_t p_close = json_str.find("\"close\":[");
+        if (p_close != std::string::npos) {
+            size_t p_close_start = p_close + 9;
+            size_t p_close_end = json_str.find(']', p_close_start);
+            if (p_close_end != std::string::npos) {
+                size_t i = p_close_end;
+                while (i > p_close_start) {
+                    --i;
+                    char ch = json_str[i];
+                    if ((ch >= '0' && ch <= '9') || ch == '.') {
+                        size_t num_end = i + 1;
+                        while (i > p_close_start && ((json_str[i-1] >= '0' && json_str[i-1] <= '9') || json_str[i-1] == '.' || json_str[i-1] == '-')) {
+                            --i;
+                        }
+                        size_t num_start = i;
+                        try {
+                            double last_close = std::stod(json_str.substr(num_start, num_end - num_start));
+                            if (last_close > 0.0) {
+                                int64_t last_ts = 0;
+                                size_t p_ts = json_str.find("\"timestamp\":[");
+                                if (p_ts != std::string::npos) {
+                                    size_t p_ts_start = p_ts + 13;
+                                    size_t p_ts_end = json_str.find(']', p_ts_start);
+                                    if (p_ts_end != std::string::npos) {
+                                        size_t j = p_ts_end;
+                                        while (j > p_ts_start) {
+                                            --j;
+                                            if (json_str[j] >= '0' && json_str[j] <= '9') {
+                                                size_t ts_end = j + 1;
+                                                while (j > p_ts_start && json_str[j-1] >= '0' && json_str[j-1] <= '9') --j;
+                                                last_ts = std::stoll(json_str.substr(j, ts_end - j));
+                                                break;
+                                            }
+                                        }
+                                    }
+                                }
+                                if (last_ts > reg_end && reg_end > 0) {
+                                    ah_price = last_close;
+                                }
+                            }
+                        } catch (...) {}
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    if (!quote.is_crypto && ah_price > 0.0 && std::abs(ah_price - reg_price) > 0.001) {
         quote.aftermarket_price = ah_price;
         quote.aftermarket_change_pct = ((ah_price - reg_price) / reg_price * 100.0);
         quote.has_aftermarket = true;
         quote.formatted_aftermarket = std::format("AH ${:.2f} ({:+.2f}%)", ah_price, quote.aftermarket_change_pct);
     } else {
+        quote.aftermarket_price = 0.0;
+        quote.aftermarket_change_pct = 0.0;
         quote.has_aftermarket = false;
         quote.formatted_aftermarket = "";
     }

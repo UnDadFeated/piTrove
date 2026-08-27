@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(piTrove VERSION 18.1.10 LANGUAGES CXX)
+project(piTrove VERSION 18.1.11 LANGUAGES CXX)
 
 option(ENABLE_ASAN "Enable AddressSanitizer for memory safety testing" OFF)
 if(ENABLE_ASAN)
