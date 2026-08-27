@@ -418,12 +418,12 @@ void StockStreamer::render(SDL_Renderer* renderer, FontRenderer* font_renderer, 
     int pad_x = bounds.x + (int)round(10.0 * screen_w / 1920.0);
     int cur_y = bounds.y + (int)round(8.0 * screen_w / 1920.0);
 
-    // Tightly-packed column positions
+    // Tightly-packed column positions (calibrated inside physical matte X <= 1860)
     int x_stock = pad_x;
-    int x_price = pad_x + (int)round(44.0 * screen_w / 1920.0);
-    int x_chg   = pad_x + (int)round(110.0 * screen_w / 1920.0);
-    int x_pct   = pad_x + (int)round(164.0 * screen_w / 1920.0);
-    int x_ah    = pad_x + (int)round(224.0 * screen_w / 1920.0);
+    int x_price = pad_x + (int)round(38.0 * screen_w / 1920.0);
+    int x_chg   = pad_x + (int)round(94.0 * screen_w / 1920.0);
+    int x_pct   = pad_x + (int)round(144.0 * screen_w / 1920.0);
+    int x_ah    = pad_x + (int)round(198.0 * screen_w / 1920.0);
     int usable_w = bounds.w - (pad_x - bounds.x) * 2;
 
     // Section 1 Header: STOCKS / S&P 500 TOP 10

@@ -1,3 +1,10 @@
+### Release v18.1.12 — Stock Streamer Matte Margin Calibration (August 26, 2026)
+
+#### Stock Streamer Subsystem (`stock_streamer.cpp`)
+- **Physical Matte Margin Calibration**:
+  - Shifted column spacing leftward (`x_price`, `x_chg`, `x_pct`, `x_ah`) to provide an 11px+ safety buffer before the physical 1" matte opening boundary ($X \le 1860\text{px}$).
+  - Accommodates wide multi-digit gains and losses (e.g. `+XX.XX%` / `+XXX.XX%`) without clipping the `%` sign behind the frame.
+
 ### Release v18.1.11 — Live After-Hours & Pre-Market Stock Streamer (August 26, 2026)
 
 #### Stock Streamer Subsystem (`stock_streamer.cpp`)
