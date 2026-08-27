@@ -1,3 +1,10 @@
+### Release v18.1.11 — Live After-Hours & Pre-Market Stock Streamer (August 26, 2026)
+
+#### Stock Streamer Subsystem (`stock_streamer.cpp`)
+- **Live Extended-Hours (AH & Pre-Market) Quote Extraction**:
+  - Implemented 1-minute candle chart back-scan to extract true real-time after-hours / post-market and pre-market trade prices from Yahoo Finance API.
+  - Automatically calculates and renders the after-hours percentage change (`AH %`) and prices for S&P 500 stocks during extended trading sessions.
+
 ### Release v18.1.10 — 60 FPS News Ticker Scrolling Pacing (August 25, 2026)
 
 #### Display Loop & Pacing Architecture (`main.cpp`)
