@@ -1114,3 +1114,107 @@ std::vector<std::string> get_supported_timezones() {
         "Pacific/Honolulu"
     };
 }
+
+std::string infer_timezone_from_zip_or_location(const std::string& input) {
+    std::string clean = trim(input);
+    if (clean.empty()) return "";
+
+    // Extract 5-digit zip code if present
+    std::regex zip_re(R"(\b([0-9]{5})\b)");
+    std::smatch m;
+    if (std::regex_search(clean, m, zip_re)) {
+        try {
+            int zip = std::stoi(m[1].str());
+            int p3 = zip / 100; // 3-digit prefix (005 - 999)
+
+            if ((p3 >= 5 && p3 <= 89) || (p3 >= 100 && p3 <= 299) || (p3 >= 320 && p3 <= 349) || (p3 >= 430 && p3 <= 459)) {
+                return "America/New_York";
+            }
+            if (p3 >= 300 && p3 <= 319) return "America/New_York"; // GA
+            if (p3 >= 400 && p3 <= 427) return "America/New_York"; // KY
+            if (p3 >= 480 && p3 <= 499) return "America/Detroit";
+            if (p3 >= 460 && p3 <= 479) return "America/Indiana/Indianapolis";
+            if ((p3 >= 350 && p3 <= 397) || (p3 >= 500 && p3 <= 567) || (p3 >= 600 && p3 <= 799) || (p3 >= 570 && p3 <= 588)) {
+                return "America/Chicago";
+            }
+            if ((p3 >= 590 && p3 <= 599) || (p3 >= 800 && p3 <= 831) || (p3 >= 840 && p3 <= 847) || (p3 >= 870 && p3 <= 884)) {
+                return "America/Denver";
+            }
+            if (p3 >= 832 && p3 <= 838) return "America/Boise";
+            if (p3 >= 850 && p3 <= 865) return "America/Phoenix";
+            if (p3 >= 967 && p3 <= 968) return "Pacific/Honolulu";
+            if (p3 >= 995 && p3 <= 999) return "America/Anchorage";
+            if ((p3 >= 889 && p3 <= 961) || (p3 >= 970 && p3 <= 994)) {
+                return "America/Los_Angeles";
+            }
+        } catch (...) {}
+    }
+
+    // Name-based inference
+    std::string lower = clean;
+    std::transform(lower.begin(), lower.end(), lower.begin(), [](unsigned char ch){ return (char)std::tolower(ch); });
+
+    if (lower.find("california") != std::string::npos || lower.find("sacramento") != std::string::npos ||
+        lower.find("los angeles") != std::string::npos || lower.find("san francisco") != std::string::npos ||
+        lower.find("san diego") != std::string::npos || lower.find("seattle") != std::string::npos ||
+        lower.find("portland") != std::string::npos || lower.find("las vegas") != std::string::npos ||
+        lower.find("elk grove") != std::string::npos || lower.find(", ca") != std::string::npos ||
+        lower.find(", wa") != std::string::npos || lower.find(", or") != std::string::npos ||
+        lower.find(", nv") != std::string::npos) {
+        return "America/Los_Angeles";
+    }
+    if (lower.find("new york") != std::string::npos || lower.find("boston") != std::string::npos ||
+        lower.find("miami") != std::string::npos || lower.find("orlando") != std::string::npos ||
+        lower.find("atlanta") != std::string::npos || lower.find("philadelphia") != std::string::npos ||
+        lower.find("washington dc") != std::string::npos || lower.find(", ny") != std::string::npos ||
+        lower.find(", fl") != std::string::npos || lower.find(", ma") != std::string::npos ||
+        lower.find(", pa") != std::string::npos || lower.find(", ga") != std::string::npos ||
+        lower.find(", nc") != std::string::npos || lower.find(", va") != std::string::npos) {
+        return "America/New_York";
+    }
+    if (lower.find("chicago") != std::string::npos || lower.find("dallas") != std::string::npos ||
+        lower.find("houston") != std::string::npos || lower.find("austin") != std::string::npos ||
+        lower.find("san antonio") != std::string::npos || lower.find("minneapolis") != std::string::npos ||
+        lower.find("nashville") != std::string::npos || lower.find("new orleans") != std::string::npos ||
+        lower.find(", tx") != std::string::npos || lower.find(", il") != std::string::npos ||
+        lower.find(", mn") != std::string::npos || lower.find(", tn") != std::string::npos) {
+        return "America/Chicago";
+    }
+    if (lower.find("denver") != std::string::npos || lower.find("salt lake") != std::string::npos ||
+        lower.find("colorado") != std::string::npos || lower.find("albuquerque") != std::string::npos ||
+        lower.find(", co") != std::string::npos || lower.find(", ut") != std::string::npos ||
+        lower.find(", nm") != std::string::npos || lower.find(", mt") != std::string::npos) {
+        return "America/Denver";
+    }
+    if (lower.find("phoenix") != std::string::npos || lower.find("tucson") != std::string::npos ||
+        lower.find("arizona") != std::string::npos || lower.find(", az") != std::string::npos) {
+        return "America/Phoenix";
+    }
+    if (lower.find("anchorage") != std::string::npos || lower.find("alaska") != std::string::npos ||
+        lower.find(", ak") != std::string::npos) {
+        return "America/Anchorage";
+    }
+    if (lower.find("honolulu") != std::string::npos || lower.find("hawaii") != std::string::npos ||
+        lower.find(", hi") != std::string::npos) {
+        return "Pacific/Honolulu";
+    }
+    if (lower.find("london") != std::string::npos || lower.find("england") != std::string::npos ||
+        lower.find("uk") != std::string::npos) {
+        return "Europe/London";
+    }
+    if (lower.find("paris") != std::string::npos || lower.find("france") != std::string::npos) {
+        return "Europe/Paris";
+    }
+    if (lower.find("berlin") != std::string::npos || lower.find("germany") != std::string::npos) {
+        return "Europe/Berlin";
+    }
+    if (lower.find("tokyo") != std::string::npos || lower.find("japan") != std::string::npos) {
+        return "Asia/Tokyo";
+    }
+    if (lower.find("sydney") != std::string::npos || lower.find("melbourne") != std::string::npos ||
+        lower.find("australia") != std::string::npos) {
+        return "Australia/Sydney";
+    }
+
+    return "";
+}

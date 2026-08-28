@@ -50,21 +50,50 @@ std::string GoogleCalendar::execute_http_get(const std::string& url) {
     return response;
 }
 
-static time_t parse_ical_datetime(const std::string& dt_str) {
+static time_t parse_ical_datetime_tz(const std::string& dt_str, const std::string& tz_name, bool& out_all_day) {
     if (dt_str.empty()) return 0;
-    struct tm tm_buf;
-    std::memset(&tm_buf, 0, sizeof(tm_buf));
+    std::string zone = tz_name.empty() ? "UTC" : tz_name;
 
-    // Formats: 20260824T170000Z, 20260824T170000, 20260824
-    if (dt_str.find('T') != std::string::npos) {
+    // All-day: YYYYMMDD (no 'T')
+    if (dt_str.find('T') == std::string::npos) {
+        out_all_day = true;
+        if (dt_str.size() < 8) return 0;
+        try {
+            int y = std::stoi(dt_str.substr(0, 4));
+            int m = std::stoi(dt_str.substr(4, 2));
+            int d = std::stoi(dt_str.substr(6, 2));
+            std::chrono::year_month_day ymd{std::chrono::year{y}, std::chrono::month{(unsigned)m}, std::chrono::day{(unsigned)d}};
+            auto local_tp = std::chrono::local_days{ymd} + std::chrono::hours{0};
+            auto zt = std::chrono::zoned_time{zone, local_tp};
+            return std::chrono::system_clock::to_time_t(zt.get_sys_time());
+        } catch (...) {
+            return 0;
+        }
+    }
+
+    // Timed appointment
+    out_all_day = false;
+    if (dt_str.back() == 'Z') {
+        struct tm tm_buf;
+        std::memset(&tm_buf, 0, sizeof(tm_buf));
         if (strptime(dt_str.c_str(), "%Y%m%dT%H%M%SZ", &tm_buf) != nullptr) {
-            return timegm(&tm_buf);
-        } else if (strptime(dt_str.c_str(), "%Y%m%dT%H%M%S", &tm_buf) != nullptr) {
             return timegm(&tm_buf);
         }
     } else {
-        if (strptime(dt_str.c_str(), "%Y%m%d", &tm_buf) != nullptr) {
-            return timegm(&tm_buf);
+        if (dt_str.size() < 13) return 0;
+        try {
+            int y = std::stoi(dt_str.substr(0, 4));
+            int m = std::stoi(dt_str.substr(4, 2));
+            int d = std::stoi(dt_str.substr(6, 2));
+            int hh = std::stoi(dt_str.substr(9, 2));
+            int mm = std::stoi(dt_str.substr(11, 2));
+            int ss = (dt_str.size() >= 15) ? std::stoi(dt_str.substr(13, 2)) : 0;
+            std::chrono::year_month_day ymd{std::chrono::year{y}, std::chrono::month{(unsigned)m}, std::chrono::day{(unsigned)d}};
+            auto local_tp = std::chrono::local_days{ymd} + std::chrono::hours{hh} + std::chrono::minutes{mm} + std::chrono::seconds{ss};
+            auto zt = std::chrono::zoned_time{zone, local_tp};
+            return std::chrono::system_clock::to_time_t(zt.get_sys_time());
+        } catch (...) {
+            return 0;
         }
     }
     return 0;
@@ -115,7 +144,6 @@ void GoogleCalendar::parse_ical(const std::string& ical_data) {
     }
 
     time_t now = time(nullptr);
-    time_t start_of_today = now - (now % 86400); // Rough boundary for past event filter
 
     std::regex event_regex("BEGIN:VEVENT([\\s\\S]*?)END:VEVENT");
     std::regex summary_regex("SUMMARY:(.*)");
@@ -137,21 +165,32 @@ void GoogleCalendar::parse_ical(const std::string& ical_data) {
         if (std::regex_search(ev_block, m, dtend_regex)) raw_dtend = m[1].str();
         if (std::regex_search(ev_block, m, loc_regex)) raw_location = m[1].str();
 
-        time_t start_t = parse_ical_datetime(raw_dtstart);
-        time_t end_t = parse_ical_datetime(raw_dtend);
+        bool all_day = false;
+        time_t start_t = parse_ical_datetime_tz(raw_dtstart, tz, all_day);
+        bool dummy = false;
+        time_t end_t = parse_ical_datetime_tz(raw_dtend, tz, dummy);
         if (start_t == 0) continue;
 
-        // Skip events that ended before today
-        if (end_t > 0 && end_t < start_of_today) continue;
-        if (end_t == 0 && start_t < start_of_today) continue;
+        // Expiration Cutoff Calculation:
+        // - All-day events expire at 1:00 AM on the day following the event (start_t + 24h + 1h)
+        // - Timed appointments expire 1 hour after the appointment ends
+        time_t cutoff_t = 0;
+        if (all_day) {
+            cutoff_t = start_t + 86400 + 3600;
+        } else {
+            time_t effective_end = (end_t > start_t) ? end_t : (start_t + 3600);
+            cutoff_t = effective_end + 3600;
+        }
 
-        bool all_day = (raw_dtstart.find('T') == std::string::npos);
+        // Skip events that have already passed their 1-hour expiration cutoff
+        if (now > cutoff_t) continue;
 
         CalendarEvent ev;
         ev.summary = unescape_ical_text(raw_summary.empty() ? "Calendar Event" : raw_summary);
         ev.location = unescape_ical_text(raw_location);
         ev.start_time = start_t;
         ev.end_time = end_t;
+        ev.cutoff_time = cutoff_t;
         ev.all_day = all_day;
         ev.calendar_name = cal_filter;
 
@@ -412,7 +451,26 @@ void GoogleCalendar::render(SDL_Renderer* renderer, FontRenderer* font_renderer,
         events_copy = m_events;
     }
 
-    if (events_copy.empty()) {
+    // Dynamic real-time pruning and relative day recalculation on render
+    std::string today_date = format_epoch_tz(now, tz, "%Y-%m-%d");
+    std::string tomorrow_date = format_epoch_tz(now + 86400, tz, "%Y-%m-%d");
+
+    std::vector<CalendarEvent> active_events;
+    for (auto ev : events_copy) {
+        if (ev.cutoff_time > 0 && now > ev.cutoff_time) continue;
+
+        std::string ev_date = format_epoch_tz(ev.start_time, tz, "%Y-%m-%d");
+        if (ev_date == today_date) {
+            ev.relative_day = "TODAY";
+        } else if (ev_date == tomorrow_date) {
+            ev.relative_day = "TOMORROW";
+        } else {
+            ev.relative_day = format_epoch_tz(ev.start_time, tz, "%a, %b %d");
+        }
+        active_events.push_back(std::move(ev));
+    }
+
+    if (active_events.empty()) {
         font_renderer->draw_text(pad_x, cur_y, body_font, "No upcoming events scheduled", 160, 175, 195, 255);
         cur_y += body_font_size + 8;
         font_renderer->draw_text(pad_x, cur_y, sub_font, "Add events to Google Calendar to sync", 110, 125, 145, 255);
@@ -424,7 +482,7 @@ void GoogleCalendar::render(SDL_Renderer* renderer, FontRenderer* font_renderer,
     int text_max_w = std::min(right_matte_limit, card_right_limit) - (pad_x + (int)round(3.0 * screen_w / 1920.0) + 10);
     if (text_max_w < 120) text_max_w = 240;
 
-    for (const auto& ev : events_copy) {
+    for (const auto& ev : active_events) {
         std::vector<std::string> summary_lines = wrap_text_to_width(font_renderer, body_font, ev.summary, text_max_w);
         std::vector<std::string> loc_lines;
         if (!ev.location.empty()) {

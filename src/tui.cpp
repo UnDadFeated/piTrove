@@ -596,6 +596,16 @@ void config_wizard(const std::string& config_path) {
                         g_cfg.weather_lon = lon;
                         g_logger.info("TUI: Auto-geocoded '{}' to Lat: {}, Lon: {}", loc, lat, lon);
                     }
+                    std::string auto_tz = infer_timezone_from_zip_or_location(loc);
+                    if (!auto_tz.empty()) {
+                        g_cfg.timezone = auto_tz;
+                        g_logger.info("TUI: Auto-configured timezone to '{}' from weather location '{}'", auto_tz, loc);
+                        g_calendar.sync();
+                    }
+                    if (g_cfg.news_local_query == "10001" || g_cfg.news_local_query.empty()) {
+                        g_cfg.news_local_query = loc;
+                        g_news_ticker.fetch_sync();
+                    }
                     break;
                 }
                 case 2:{ try { float vl=std::stof(v); if(vl>=-90.0f&&vl<=90.0f) g_cfg.weather_lat=vl; } catch(...) {} break; }
@@ -655,6 +665,12 @@ void config_wizard(const std::string& config_path) {
                     std::string clean_v = trim(v);
                     if (clean_v.empty()) clean_v = "10001";
                     g_cfg.news_local_query = clean_v;
+                    std::string auto_tz = infer_timezone_from_zip_or_location(clean_v);
+                    if (!auto_tz.empty()) {
+                        g_cfg.timezone = auto_tz;
+                        g_logger.info("TUI: Auto-configured timezone to '{}' from news zipcode/location '{}'", auto_tz, clean_v);
+                        g_calendar.sync();
+                    }
                     g_logger.info("TUI: Updated local news zipcode/query to '{}'", clean_v);
                     g_news_ticker.fetch_sync();
                     break;
