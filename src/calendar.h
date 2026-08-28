@@ -14,6 +14,7 @@ struct CalendarEvent {
     std::string location;
     time_t start_time{0};
     time_t end_time{0};
+    time_t cutoff_time{0};
     bool all_day{false};
     std::string calendar_name;
     std::string formatted_date;

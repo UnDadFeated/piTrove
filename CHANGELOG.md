@@ -1,3 +1,17 @@
+### Release v18.1.13 — Timezone-Accurate Calendar & Automatic Zipcode Timezone Engine (August 28, 2026)
+
+#### Calendar Subsystem (`calendar.cpp`, `calendar.h`)
+- **Timezone-Accurate All-Day Event Parsing**:
+  - All-day events (`DTSTART;VALUE=DATE:YYYYMMDD`) are now parsed into local timezone midnight (`00:00:00` in configured timezone, e.g. `America/Los_Angeles`), eliminating multi-hour UTC offset day shifts.
+- **Dynamic Event Expiration & 1-Hour Pruning Engine**:
+  - Timed appointments automatically drop off 1 hour after the appointment ends (`end_time + 3600`), advancing the upcoming agenda.
+  - All-day events automatically drop off at 1:00 AM on the day following the event (`start_time + 24h + 1h`), smoothly refreshing the upcoming event cards.
+  - Real-time dynamic pruning and `relative_day` recalculation on every render frame ensures midnight day rollovers and 1-hour expiration drop-offs happen instantly.
+
+#### TUI & Utilities (`tui.cpp`, `util.h`, `util.cpp`)
+- **Auto-Timezone from Zipcode Engine**:
+  - Implemented `infer_timezone_from_zip_or_location()` to automatically deduce and configure the system IANA timezone (e.g. `America/Los_Angeles`, `America/New_York`, `America/Chicago`, `America/Denver`, `America/Phoenix`, `America/Anchorage`, `Pacific/Honolulu`) whenever the user enters their 5-digit zipcode in the TUI Settings wizard.
+
 ### Release v18.1.12 — Stock Streamer Matte Margin Calibration (August 26, 2026)
 
 #### Stock Streamer Subsystem (`stock_streamer.cpp`)
