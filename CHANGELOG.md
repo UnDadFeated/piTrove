@@ -1,3 +1,9 @@
+### Release v18.1.14 — Google Calendar Typography & Header Polish (August 30, 2026)
+
+#### Calendar Subsystem (`calendar.cpp`)
+- **Typography & Dot Spacing Refinement**:
+  - Tightened the horizontal spacing around the bullet dot separator (`•`) in event tag headers (`relative_day • time`) and calendar category subtitle.
+
 ### Release v18.1.13 — Timezone-Accurate Calendar & Automatic Zipcode Timezone Engine (August 28, 2026)
 
 #### Calendar Subsystem (`calendar.cpp`, `calendar.h`)

@@ -434,7 +434,7 @@ void GoogleCalendar::render(SDL_Renderer* renderer, FontRenderer* font_renderer,
     font_renderer->draw_text(pad_x, cur_y, title_font, day_str, 255, 255, 255, 255);
     cur_y += title_font_size + 4;
 
-    std::string header_sub = std::format("{}  •  {}", date_str, cal_name.empty() ? "Calendar" : cal_name);
+    std::string header_sub = std::format("{} • {}", date_str, cal_name.empty() ? "Calendar" : cal_name);
     font_renderer->draw_text(pad_x, cur_y, sub_font, header_sub, 0, 200, 255, 220);
     cur_y += sub_font_size + 18;
 
@@ -495,7 +495,7 @@ void GoogleCalendar::render(SDL_Renderer* renderer, FontRenderer* font_renderer,
 
         if (cur_y + total_event_h > bounds.y + bounds.h - 10) break; // Keep within card bounds
 
-        std::string tag_str = std::format("{}  •  {}", ev.relative_day, ev.formatted_time);
+        std::string tag_str = std::format("{} • {}", ev.relative_day, ev.formatted_time);
         uint8_t tr = 0, tg = 200, tb = 255;
         if (ev.relative_day == "TODAY") {
             tr = 255; tg = 180; tb = 50;
