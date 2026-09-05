@@ -239,7 +239,7 @@ void config_wizard(const std::string& config_path) {
         {"News Ticker", TGL, "Show live scrolling news headlines ticker at bottom of screen"},
         {"News Source", ENM, "Live news feed type (global, local)"},
         {"News Zipcode/Loc", STR, "Zipcode (e.g. 10001, 95624) or city query for top-line local news"},
-        {"Blacklist News", STR, "Comma-separated domains/sources to exclude (e.g. realtor.com)"},
+        {"Blacklist News", STR, "Comma-separated domains/sources to exclude (e.g. realtor.com, legacy.com)"},
         {"News Refresh Mins", INT, "Minutes between background news headline updates (5-120)"},
         {"News Scroll Speed", INT, "Horizontal scrolling speed in pixels per second (10-150)"},
         {"News Font Size", INT, "Font size in pixels for news ticker (9-16)"},

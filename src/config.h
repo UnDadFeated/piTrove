@@ -199,7 +199,7 @@ struct Config {
     bool        news_enabled{false};
     std::string news_source{"global"};
     std::string news_local_query{"10001"};
-    std::vector<std::string> news_blacklist{"realtor.com"};
+    std::vector<std::string> news_blacklist{"realtor.com", "legacy.com"};
     int         news_refresh_minutes{15};
     int         news_scroll_speed{35};
     int         news_font_size{12};

@@ -269,6 +269,24 @@ bool Config::load(const std::string& path) {
         else if (key == "enabled" && section == "news")                       this->news_enabled = (val == "1" || val == "true");
         else if (key == "source" && section == "news")                        this->news_source = val;
         else if (key == "local_query" && section == "news")                   this->news_local_query = val;
+        else if (key == "blacklist" && section == "news") {
+            this->news_blacklist.clear();
+            std::string content = val;
+            auto start = content.find('[');
+            auto end = content.rfind(']');
+            if (start != std::string::npos && end != std::string::npos && end > start) {
+                content = content.substr(start + 1, end - start - 1);
+            }
+            std::stringstream ss(content);
+            std::string item;
+            while (std::getline(ss, item, ',')) {
+                item = trim(item);
+                if (item.size() >= 2 && ((item.front() == '"' && item.back() == '"') || (item.front() == '\'' && item.back() == '\''))) {
+                    item = item.substr(1, item.size() - 2);
+                }
+                if (!item.empty()) this->news_blacklist.push_back(item);
+            }
+        }
         else if (key == "refresh_minutes" && section == "news")               this->news_refresh_minutes = safe_stoi(val, this->news_refresh_minutes);
         else if (key == "scroll_speed" && section == "news")                  this->news_scroll_speed = safe_stoi(val, this->news_scroll_speed);
         else if (key == "font_size" && section == "news")                     this->news_font_size = safe_stoi(val, this->news_font_size);

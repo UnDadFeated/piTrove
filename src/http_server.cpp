@@ -1356,7 +1356,7 @@ static std::string get_dashboard_html() {
                             </div>
                             <div class="form-group">
                                 <label for="set-news-blacklist">Blacklist News Domains</label>
-                                <input type="text" id="set-news-blacklist" placeholder="e.g. realtor.com" style="width:100%; padding:0.4rem; border-radius:8px; border:1px solid var(--card-border); background:var(--card-bg); color:var(--text-main);">
+                                <input type="text" id="set-news-blacklist" placeholder="e.g. realtor.com, legacy.com" style="width:100%; padding:0.4rem; border-radius:8px; border:1px solid var(--card-border); background:var(--card-bg); color:var(--text-main);">
                             </div>
                         </div>
                         <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 0.8rem; margin-bottom: 0.6rem;">
@@ -1520,7 +1520,7 @@ static std::string get_dashboard_html() {
             const news = (document.getElementById('set-news-enabled') && document.getElementById('set-news-enabled').checked) ? "1" : "0";
             const newsSrc = document.getElementById('set-news-source') ? encodeURIComponent(document.getElementById('set-news-source').value) : "global";
             const newsQuery = document.getElementById('set-news-query') ? encodeURIComponent(document.getElementById('set-news-query').value) : "10001";
-            const newsBl = document.getElementById('set-news-blacklist') ? encodeURIComponent(document.getElementById('set-news-blacklist').value) : "realtor.com";
+            const newsBl = document.getElementById('set-news-blacklist') ? encodeURIComponent(document.getElementById('set-news-blacklist').value) : "realtor.com, legacy.com";
             const gcal = (document.getElementById('set-gcalendar-enabled') && document.getElementById('set-gcalendar-enabled').checked) ? "1" : "0";
             const gcalName = document.getElementById('set-gcalendar-name') ? encodeURIComponent(document.getElementById('set-gcalendar-name').value) : "Family";
             const gcalUrl = document.getElementById('set-gcalendar-url') ? encodeURIComponent(document.getElementById('set-gcalendar-url').value) : "";
