@@ -1,3 +1,13 @@
+### Release v18.1.15 — News Blacklist Expansion & Config Hardening (September 4, 2026)
+
+#### News & Configuration Subsystem (`news_ticker.cpp`, `config.cpp`, `config.h`, `config.toml`)
+- **Default Blacklist Expansion**:
+  - Added `legacy.com` alongside `realtor.com` to the default news feed blacklist to filter out obituary and aggregator listings from live Google News RSS feeds.
+- **Config Parser Hardening**:
+  - Added parsing for `blacklist` in the `[news]` section within `Config::load_from_file()` so user-defined blacklist arrays in `config.toml` are correctly loaded on startup.
+- **Remote Web & TUI Alignment**:
+  - Updated web dashboard and TUI hints/defaults to reference the expanded default domain list (`realtor.com, legacy.com`).
+
 ### Release v18.1.14 — Google Calendar Typography & Header Polish (August 30, 2026)
 
 #### Calendar Subsystem (`calendar.cpp`)
