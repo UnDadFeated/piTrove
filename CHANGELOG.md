@@ -10,7 +10,7 @@
 
 #### News Subsystem (`news_ticker.cpp`, `config.h`, `config.toml`, `http_server.cpp`, `tui.cpp`)
 - **Default Blacklist Expansion**:
-  - Added `legacy obituary` to default news blacklist (`news_blacklist`) to cleanly exclude obituary articles from Google News feeds where the source network is tagged as "Legacy obituary".
+  - Added `legacy obituary`, `obituary`, `echovita.com`, `tributes.com`, `dignitymemorial.com`, and `everloved.com` to the default news blacklist (`news_blacklist`) to comprehensively block obituary syndicators, scraper networks, and death notices across all news feeds.
 - **RSS Parser Blacklist Hardening**:
   - Extracted `<source url="...">` attribute (`raw_source_url`) and matched against both parsed `title` and unstripped `raw_title`, ensuring articles from blacklisted domains or obituary aggregators are caught regardless of headline formatting.
 
