@@ -1,4 +1,4 @@
-### Release v18.1.16 — Watchdog NAS Recovery Hardening & Stale Mount Auto-Healing (September 5, 2026)
+### Release v18.1.16 — Watchdog NAS Auto-Healing & News Blacklist Expansion (September 5, 2026)
 
 #### Watchdog Subsystem (`src/watchdog/pitrove-watchdog.sh`)
 - **NAS Mount Recovery Hardening**:
@@ -7,6 +7,12 @@
   - Added `container_bind_is_stale()` check: if the host `/mnt/nas` mount is populated but Docker's in-container `/app/media` is empty, the watchdog automatically restarts `piTrove.service` to re-bind the live mount.
 - **Continuous NAS Health Monitoring**:
   - Added periodic online health checks for `/mnt/nas`: if the NAS becomes unavailable or recovers asynchronously while network stays online, watchdog refreshes the CIFS mount and restarts the application seamlessly without manual intervention.
+
+#### News Subsystem (`news_ticker.cpp`, `config.h`, `config.toml`, `http_server.cpp`, `tui.cpp`)
+- **Default Blacklist Expansion**:
+  - Added `legacy obituary` to default news blacklist (`news_blacklist`) to cleanly exclude obituary articles from Google News feeds where the source network is tagged as "Legacy obituary".
+- **RSS Parser Blacklist Hardening**:
+  - Extracted `<source url="...">` attribute (`raw_source_url`) and matched against both parsed `title` and unstripped `raw_title`, ensuring articles from blacklisted domains or obituary aggregators are caught regardless of headline formatting.
 
 ### Release v18.1.15 — News Blacklist Expansion & Config Hardening (September 4, 2026)
 

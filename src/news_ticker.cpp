@@ -115,6 +115,7 @@ std::vector<NewsItem> NewsTicker::parse_rss(const std::string& xml_data) {
     std::regex title_regex("<title[^>]*>([\\s\\S]*?)</title>");
     std::regex pubdate_regex("<pubDate[^>]*>([\\s\\S]*?)</pubDate>");
     std::regex source_regex("<source[^>]*>([\\s\\S]*?)</source>");
+    std::regex source_url_regex("<source[^>]*url=[\"\']([^\"\']+)");
     std::regex link_regex("<link[^>]*>([\\s\\S]*?)</link>");
     std::regex guid_regex("<guid[^>]*>([\\s\\S]*?)</guid>");
 
@@ -153,6 +154,8 @@ std::vector<NewsItem> NewsTicker::parse_rss(const std::string& xml_data) {
         if (std::regex_search(item_xml, m, title_regex)) raw_title = m[1].str();
         if (std::regex_search(item_xml, m, pubdate_regex)) raw_pubdate = m[1].str();
         if (std::regex_search(item_xml, m, source_regex)) raw_source = m[1].str();
+        std::string raw_source_url;
+        if (std::regex_search(item_xml, m, source_url_regex)) raw_source_url = m[1].str();
         if (std::regex_search(item_xml, m, link_regex)) raw_link = m[1].str();
         if (std::regex_search(item_xml, m, guid_regex)) raw_guid = m[1].str();
 
@@ -170,8 +173,9 @@ std::vector<NewsItem> NewsTicker::parse_rss(const std::string& xml_data) {
             title = title.substr(0, dash_pos);
         }
 
-        // Apply Blacklist filter (checks source network, title, link, and guid)
-        if (is_blacklisted(source) || is_blacklisted(title) || is_blacklisted(link) || is_blacklisted(guid)) {
+        // Apply Blacklist filter (checks source network, title, link, guid, and source URL)
+        if (is_blacklisted(source) || is_blacklisted(title) || is_blacklisted(raw_title) ||
+            is_blacklisted(link) || is_blacklisted(guid) || is_blacklisted(raw_source_url)) {
             g_logger.info("NEWS: Filtered out blacklisted headline '{}' (source: '{}')", title, source);
             continue;
         }
