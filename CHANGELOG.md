@@ -1,3 +1,13 @@
+### Release v18.1.16 — Watchdog NAS Recovery Hardening & Stale Mount Auto-Healing (September 5, 2026)
+
+#### Watchdog Subsystem (`src/watchdog/pitrove-watchdog.sh`)
+- **NAS Mount Recovery Hardening**:
+  - Gated application service restart during network recovery on `nas_is_healthy`: if the router/WiFi reconnects before the NAS completes its boot sequence, service restart is deferred rather than binding Docker to an empty mount point.
+- **Stale Bind-Mount Detection & Auto-Healing**:
+  - Added `container_bind_is_stale()` check: if the host `/mnt/nas` mount is populated but Docker's in-container `/app/media` is empty, the watchdog automatically restarts `piTrove.service` to re-bind the live mount.
+- **Continuous NAS Health Monitoring**:
+  - Added periodic online health checks for `/mnt/nas`: if the NAS becomes unavailable or recovers asynchronously while network stays online, watchdog refreshes the CIFS mount and restarts the application seamlessly without manual intervention.
+
 ### Release v18.1.15 — News Blacklist Expansion & Config Hardening (September 4, 2026)
 
 #### News & Configuration Subsystem (`news_ticker.cpp`, `config.cpp`, `config.h`, `config.toml`)
