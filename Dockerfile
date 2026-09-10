@@ -11,7 +11,7 @@ COPY raspberrypi-archive-keyring.pgp /usr/share/keyrings/raspberrypi-archive-key
 COPY raspi.sources /etc/apt/sources.list.d/raspi.sources
 
 # Install C++ compilation tools and library headers
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-recommends \
     build-essential \
     cmake \
     git \
@@ -52,7 +52,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # hevc_v4l2m2m is missing and HEVC decoding silently falls back to software
 # (~10fps on 4K60). Same upstream source as the system libs (Debian pool
 # 7.1.5-0+deb13u1) => ABI-identical sonames (libavutil.so.59, libavcodec.so.61).
-RUN apt-get update && apt-get install -y --no-install-recommends wget xz-utils \
+RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-recommends wget xz-utils \
     && cd /tmp \
     && wget -q http://deb.debian.org/debian/pool/main/f/ffmpeg/ffmpeg_7.1.5.orig.tar.xz \
     && wget -q http://deb.debian.org/debian/pool/main/f/ffmpeg/ffmpeg_7.1.5-0+deb13u1.debian.tar.xz \
@@ -89,7 +89,7 @@ COPY raspberrypi-archive-keyring.pgp /usr/share/keyrings/raspberrypi-archive-key
 COPY raspi.sources /etc/apt/sources.list.d/raspi.sources
 
 # Install only the runtime libraries, fonts, and utilities
-RUN apt-get update && apt-get install -y --no-install-recommends \
+RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-recommends \
     libsdl3-0 \
     libsdl3-image0 \
     libsdl3-ttf0 \

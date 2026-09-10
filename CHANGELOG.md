@@ -1,3 +1,20 @@
+### Release v18.1.17 — Automated System & Dependency Auto-Update with Live Package Status (September 9, 2026)
+
+#### Installer Subsystem (`install.sh`)
+- **Automated Host Package & Library Upgrades**:
+  - Added noninteractive system upgrade step (`apt-get upgrade -y`) during initial setup, ensuring all host system libraries, GPU drivers, SSL runtimes, and kernel packages are brought up to date before installing piTrove.
+- **Dynamic Terminal Width & Multi-Stage Spinner Status**:
+  - Dynamically computes terminal column width (`tput cols`) in `show_spinner()` to calculate maximum status length, preventing terminal line wrapping and display stutter.
+  - Enhanced status extractor in the spinner's grey subline to strip BuildKit prefixes (`#<id> <time> `) and parse live APT progress (`Fetching <pkg>`, `Preparing <pkg>`, `Unpacking <pkg>`, `Setting up <pkg>`), giving the user real-time visual progress of each package being processed.
+- **Un-Muted Package Logging**:
+  - Removed `-qq` flags from `apt-get` calls in `install.sh`, allowing package progress to stream into the command log file so the spinner subline can display the active package.
+- **Docker Compose `--pull` Integration**:
+  - Added `--pull` and plain BuildKit progress to both image build and rebuild steps (`env BUILDKIT_PROGRESS=plain docker compose build --pull`) to ensure clean installations always pull the latest base image layers.
+
+#### Docker Subsystem (`Dockerfile`)
+- **Container Base Library Upgrades**:
+  - Added `apt-get upgrade -y` to both the Debian Trixie `builder` and `stage-1` runtime stages, ensuring base distribution libraries (Mesa DRM drivers, glibc, OpenSSL) are upgraded to latest security and stability releases inside the container.
+
 ### Release v18.1.16 — Watchdog NAS Auto-Healing & News Blacklist Expansion (September 5, 2026)
 
 #### Watchdog Subsystem (`src/watchdog/pitrove-watchdog.sh`)
