@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# install.sh — piTrove v18.1.16 Premium Graphical Installer
+# install.sh — piTrove v18.1.17 Premium Graphical Installer
 # Target: Debian Trixie (13) 64-bit on Raspberry Pi 4/5
 
 set -eo pipefail
@@ -43,7 +43,7 @@ trap cleanup_terminal EXIT INT TERM
 
 banner() {
     clear 2>/dev/null || true
-    echo -e " ${BOLD}${WHITE}piTrove${NC}  ${CYAN}v18.1.10${NC} ${GRAY}──────────────────────────${NC} ${BOLD}${GREEN}Installer${NC}"
+    echo -e " ${BOLD}${WHITE}piTrove${NC}  ${CYAN}v18.1.17${NC} ${GRAY}──────────────────────────${NC} ${BOLD}${GREEN}Installer${NC}"
     echo -e " ${MAGENTA}The Ultra-Premium Picture Frame${NC}"
     echo
 }
@@ -88,7 +88,10 @@ show_spinner() {
     local spin_chars=("⠋" "⠙" "⠹" "⠸" "⠼" "⠴" "⠦" "⠧" "⠇" "⠏")
     local i=0
     local last_status=""
-    local max_width=64
+    local cols
+    cols=$(tput cols 2>/dev/null || echo 80)
+    [[ -z "$cols" || "$cols" -lt 20 ]] && cols=80
+    local max_width=$(( cols > 25 ? cols - 25 : 55 ))
     local start_time
     start_time=$(date +%s)
 
@@ -100,7 +103,13 @@ show_spinner() {
         # Update status line from log file every tick
         if [[ -n "$log_file" && -f "$log_file" ]]; then
             local new_status
-            new_status=$(tr "\r" "\n" < "$log_file" 2>/dev/null | grep -v "^[[:space:]]*$" | sed "s/\x1b\[[0-9;]*m//g" | tail -n 1 | tr -d "\n\r" | head -c "$max_width" || true)
+            new_status=$(tail -n 30 "$log_file" 2>/dev/null | tr "\r" "\n" | grep -v "^[[:space:]]*$" | sed -E \
+                -e 's/\x1b\[[0-9;]*m//g' \
+                -e 's/^#[0-9]+ ([0-9.]+ )?//' \
+                -e 's/^Get:[0-9]+ +https?:\/\/[^ ]+ +[^ ]+( +[^ ]+)? +([^ ]+) +[^ ]+ +([^ ]+) +\[([^]]+)\].*/Fetching \2 (\3) [\4]/' \
+                -e 's/^Get:[0-9]+ +https?:\/\/[^ ]+ +(.+) +\[([^]]+)\].*/Fetching \1 [\2]/' \
+                -e 's/^Preparing to unpack \.\.\.\/([^_]+)_(.+?)\.deb \.\.\./Preparing \1 (\2)/' \
+                | tail -n 1 | tr -d "\n\r" | head -c "$max_width" || true)
             if [[ -n "$new_status" ]]; then
                 last_status="$new_status"
             fi
@@ -226,26 +235,23 @@ fi
 ok "Debian Trixie 64-bit validated successfully"
 
 # 2. Bootstrap packages (git, lsb_release, curl, sudo needed below)
-run_with_spinner "Updating system package repositories" apt-get update -qq
-run_with_spinner "Installing bootstrap tools" apt-get install -y -qq git curl lsb-release sudo
+run_with_spinner "Updating system package repositories" apt-get update
+run_with_spinner "Upgrading host packages & system libraries" env DEBIAN_FRONTEND=noninteractive apt-get upgrade -y -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold"
+run_with_spinner "Installing bootstrap tools" env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends git curl lsb-release sudo
 # Install QR code generator for terminal dashboard URL
-run_with_spinner "Installing QR encoder" apt-get install -y -qq qrencode 2>/dev/null || true
+run_with_spinner "Installing QR encoder" env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends qrencode
 
 # Bootstrap Docker
 if ! command -v docker &>/dev/null; then
-    
-info "Installing network filesystem utilities & base dependencies..."
-apt-get update -qq
-apt-get install -y -qq ca-certificates cifs-utils nfs-common 2>/dev/null || true
-
-run_with_spinner "Installing Docker Engine" sh -c "curl -fsSL https://get.docker.com | sh"
+    run_with_spinner "Installing network filesystem utilities & base dependencies" env DEBIAN_FRONTEND=noninteractive apt-get install -y ca-certificates cifs-utils nfs-common
+    run_with_spinner "Installing Docker Engine" sh -c "curl -fsSL https://get.docker.com | sh"
 fi
 if ! docker compose version &>/dev/null; then
-    run_with_spinner "Installing Docker Compose Plugin" apt-get install -y -qq docker-compose-plugin
+    run_with_spinner "Installing Docker Compose Plugin" env DEBIAN_FRONTEND=noninteractive apt-get install -y docker-compose-plugin
 fi
 # NetworkManager is required by the piTrove keepalive thread (nmcli device connect)
 # and by the Wi-Fi power-saving override section below
-run_with_spinner "Installing NetworkManager" apt-get install -y -qq network-manager
+run_with_spinner "Installing NetworkManager" env DEBIAN_FRONTEND=noninteractive apt-get install -y network-manager
 systemctl enable --now NetworkManager &>/dev/null || true
 ok "NetworkManager installed and enabled"
 
@@ -455,7 +461,7 @@ if [[ "$1" == "--update" ]]; then
     run_with_spinner "Pulling latest changes from remote branch" sudo -u "$PRIMARY_USER" git reset --hard "origin/$CONFIG_BRANCH"
     
     # Rebuild docker compose container image
-    run_with_spinner "Rebuilding container image" docker compose build
+    run_with_spinner "Rebuilding container image" env BUILDKIT_PROGRESS=plain docker compose build --pull
     
     # Restart systemd service if it exists and is active
     if systemctl list-unit-files | grep -q piTrove.service; then
@@ -525,7 +531,7 @@ else
 fi
 
 # ── Install host filesystem dependencies (NAS mounts) ──────────────────────────
-run_with_spinner "Installing host filesystem dependencies (cifs-utils, nfs-common)" apt-get install -y -qq cifs-utils nfs-common 2>/dev/null || true
+run_with_spinner "Installing host filesystem dependencies (cifs-utils, nfs-common)" env DEBIAN_FRONTEND=noninteractive apt-get install -y cifs-utils nfs-common
 
 # ── DRM and Docker group configuration ─────────────────────────────────────────
 run_with_spinner "Adding $PRIMARY_USER to video, render, and docker groups for hardware & docker permission" usermod -aG video,render,docker "$PRIMARY_USER"
@@ -1138,7 +1144,7 @@ echo "SDL_KMSDRM_DEVICE_INDEX=$PROBED_INDEX" >> .env
 echo "MEDIA_DIR=$SHARE_MOUNT" >> .env
 chown $PRIMARY_USER:$PRIMARY_USER .env
 
-run_with_spinner "Building piTrove container image" docker compose build
+run_with_spinner "Building piTrove container image" env BUILDKIT_PROGRESS=plain docker compose build --pull
 chown -R $PRIMARY_USER:$PRIMARY_USER "$PRIMARY_HOME/.docker" 2>/dev/null || true
 
 # ── Scan Window Setup ──────────────────────────────────────────────────────────
