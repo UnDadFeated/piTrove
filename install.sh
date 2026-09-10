@@ -90,8 +90,12 @@ show_spinner() {
     local last_status=""
     local cols
     cols=$(tput cols 2>/dev/null || echo 80)
-    [[ -z "$cols" || "$cols" -lt 20 ]] && cols=80
-    local max_width=$(( cols > 25 ? cols - 25 : 55 ))
+    [[ -z "$cols" || "$cols" -lt 40 ]] && cols=80
+    local max_label_len=$(( cols - 14 ))
+    local disp_label="$label"
+    if [[ ${#disp_label} -gt $max_label_len ]]; then
+        disp_label="${disp_label:0:$(( max_label_len - 3 ))}..."
+    fi
     local start_time
     start_time=$(date +%s)
 
@@ -99,21 +103,6 @@ show_spinner() {
 
     while kill -0 "$pid" 2>/dev/null; do
         local char="${spin_chars[i]}"
-
-        # Update status line from log file every tick
-        if [[ -n "$log_file" && -f "$log_file" ]]; then
-            local new_status
-            new_status=$(tail -n 30 "$log_file" 2>/dev/null | tr "\r" "\n" | grep -v "^[[:space:]]*$" | sed -E \
-                -e 's/\x1b\[[0-9;]*m//g' \
-                -e 's/^#[0-9]+ ([0-9.]+ )?//' \
-                -e 's/^Get:[0-9]+ +https?:\/\/[^ ]+ +[^ ]+( +[^ ]+)? +([^ ]+) +[^ ]+ +([^ ]+) +\[([^]]+)\].*/Fetching \2 (\3) [\4]/' \
-                -e 's/^Get:[0-9]+ +https?:\/\/[^ ]+ +(.+) +\[([^]]+)\].*/Fetching \1 [\2]/' \
-                -e 's/^Preparing to unpack \.\.\.\/([^_]+)_(.+?)\.deb \.\.\./Preparing \1 (\2)/' \
-                | tail -n 1 | tr -d "\n\r" | head -c "$max_width" || true)
-            if [[ -n "$new_status" ]]; then
-                last_status="$new_status"
-            fi
-        fi
 
         # Calculate elapsed time
         local elapsed=$(( $(date +%s) - start_time ))
@@ -124,16 +113,36 @@ show_spinner() {
             elapsed_str="${elapsed}s"
         fi
 
+        # Maximum available width for status text to guarantee line 2 never wraps
+        local prefix_len=$(( 8 + ${#elapsed_str} + 11 ))
+        local max_status_len=$(( cols - prefix_len - 2 ))
+        [[ $max_status_len -lt 10 ]] && max_status_len=10
+
+        # Update status line from log file every tick
+        if [[ -n "$log_file" && -f "$log_file" ]]; then
+            local new_status
+            new_status=$(tail -n 30 "$log_file" 2>/dev/null | tr "\r" "\n" | grep -v "^[[:space:]]*$" | sed -E \
+                -e 's/\x1b\[[0-9;]*m//g' \
+                -e 's/^#[0-9]+ ([0-9.]+ )?//' \
+                -e 's/^Get:[0-9]+ +https?:\/\/[^ ]+ +[^ ]+( +[^ ]+)? +([^ ]+) +[^ ]+ +([^ ]+) +\[([^]]+)\].*/Fetching \2 (\3) [\4]/' \
+                -e 's/^Get:[0-9]+ +https?:\/\/[^ ]+ +(.+) +\[([^]]+)\].*/Fetching \1 [\2]/' \
+                -e 's/^Preparing to unpack \.\.\.\/([^_]+)_(.+?)\.deb \.\.\./Preparing \1 (\2)/' \
+                | tail -n 1 | tr -d "\n\r" | head -c "$max_status_len" || true)
+            if [[ -n "$new_status" ]]; then
+                last_status="$new_status"
+            fi
+        fi
+
         # Grey subline: show elapsed time AND latest verbose log activity
         local subline
         if [[ -n "$last_status" ]]; then
-            subline="${elapsed_str} elapsed | ${last_status}"
+            subline="${elapsed_str} elapsed | ${last_status:0:$max_status_len}"
         else
             subline="${elapsed_str} elapsed..."
         fi
 
-        # Print spinner line, always two lines so cursor stays fixed
-        printf "\r\033[K   ${CYAN}[%s]${NC}  %s...                        \n" "$char" "$label"
+        # Print spinner line, always two lines bounded to terminal width so cursor stays fixed
+        printf "\r\033[K   ${CYAN}[%s]${NC}  %s...\n" "$char" "$disp_label"
         printf "\r\033[K      ${GRAY}▸ %s${NC}" "$subline"
         printf "\033[1A"
 
@@ -653,10 +662,10 @@ else
     CURRENT_BRANCH=$(sudo -u "$PRIMARY_USER" git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
     if [[ "$CURRENT_BRANCH" != "$INSTALL_BRANCH" ]]; then
         info "Switching from branch '$CURRENT_BRANCH' to '$INSTALL_BRANCH'..."
-        sudo -u "$PRIMARY_USER" git fetch origin || true
-        sudo -u "$PRIMARY_USER" git checkout "$INSTALL_BRANCH" || true
+        sudo -u "$PRIMARY_USER" git fetch origin &>/dev/null || true
+        sudo -u "$PRIMARY_USER" git checkout "$INSTALL_BRANCH" &>/dev/null || true
     fi
-    sudo -u "$PRIMARY_USER" git pull origin "$INSTALL_BRANCH" || warn "Repository update failed. Using active local copy."
+    run_with_spinner "Pulling latest repository changes (branch: $INSTALL_BRANCH)" sudo -u "$PRIMARY_USER" git pull origin "$INSTALL_BRANCH"
 fi
 chown -R $PRIMARY_USER:$PRIMARY_USER "$PRIMARY_HOME/piTrove"
 info "Repository ready at: ${CYAN}$PRIMARY_HOME/piTrove${NC} (branch: ${BOLD}${BRANCH_LABEL}${NC})"
@@ -1588,19 +1597,16 @@ while [[ $wait_count -lt $max_wait ]]; do
         break
     fi
     elapsed=$(( wait_count ))
-    printf "
-   ${GRAY}▸ %ds elapsed - container initializing...${NC}" "$elapsed"
+    printf "\r\033[K   ${GRAY}▸ %ds elapsed - container initializing...${NC}" "$elapsed"
     sleep 1
     wait_count=$(( wait_count + 1 ))
 done
 
 if [[ $container_ready -eq 1 ]]; then
-    printf "
-[K"
+    printf "\r\033[K"
     ok "Container started successfully (status: ${GREEN}running${NC})"
 else
-    printf "
-[K"
+    printf "\r\033[K"
     warn "Container initialization timed out, but systemd service is active in background"
 fi
 
