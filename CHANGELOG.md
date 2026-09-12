@@ -1,3 +1,18 @@
+### Release v18.1.18 — Google Calendar Edge Cache-Busting & On-Demand Sync (September 11, 2026)
+
+#### Calendar Subsystem (`calendar.cpp`)
+- **HTTP Edge Cache-Busting Pipeline**:
+  - Configured `execute_http_get()` with explicit client cache-invalidation headers (`Cache-Control: no-cache, no-store, must-revalidate`, `Pragma: no-cache`, `Expires: 0`) to prevent Google FrontEnd (GFE) reverse proxies and intermediate CDNs from serving stale cached `.ics` snapshots.
+  - Automatically appends a dynamic epoch timestamp query parameter (`?_t=<epoch_seconds>`) to each iCal request to bypass downstream HTTP cache layers and guarantee fresh calendar data on every sync cycle.
+
+#### Web Remote & HTTP Server (`http_server.cpp`)
+- **On-Demand Calendar Sync API (`/api/calendar/sync`)**:
+  - Implemented `/api/calendar/sync` (supporting both GET and POST) to immediately trigger a background calendar refresh without waiting for the 15-minute polling countdown.
+- **Web Remote UI "↻ Sync Now" Action**:
+  - Added an interactive "↻ Sync Now" action button directly in the Web Remote Configuration modal next to the Google Calendar iCal URL setting with live visual toast feedback.
+- **Settings Dynamic Refresh Parsing**:
+  - Added `gcalendar_refresh_minutes` parameter handling in `/api/settings/update` for real-time polling frequency updates.
+
 ### Release v18.1.17 — Automated System & Dependency Auto-Update with Live Package Status (September 9, 2026)
 
 #### Installer Subsystem (`install.sh`)
