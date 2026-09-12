@@ -29,7 +29,22 @@ std::string GoogleCalendar::execute_http_get(const std::string& url) {
         return "";
     }
     std::string response;
-    curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
+
+    // Cache-busting headers so Google FrontEnd (GFE) and intermediate proxies never serve stale feeds
+    struct curl_slist* headers = nullptr;
+    headers = curl_slist_append(headers, "Cache-Control: no-cache, no-store, must-revalidate");
+    headers = curl_slist_append(headers, "Pragma: no-cache");
+    headers = curl_slist_append(headers, "Expires: 0");
+    curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+
+    // Append dynamic epoch timestamp parameter to URL to bust edge CDN caching
+    std::string final_url = url;
+    int64_t now_ts = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+    char sep = (final_url.find('?') == std::string::npos) ? '?' : '&';
+    final_url += sep;
+    final_url += "_t=" + std::to_string(now_ts);
+
+    curl_easy_setopt(curl, CURLOPT_URL, final_url.c_str());
     curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 10L);
     curl_easy_setopt(curl, CURLOPT_TIMEOUT, 20L);
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, cal_curl_write_cb);
@@ -39,6 +54,9 @@ std::string GoogleCalendar::execute_http_get(const std::string& url) {
     curl_easy_setopt(curl, CURLOPT_USERAGENT, "piTrove-18.0");
 
     CURLcode res = curl_easy_perform(curl);
+    if (headers) {
+        curl_slist_free_all(headers);
+    }
     if (res != CURLE_OK) {
         g_logger.warn("CALENDAR: HTTP request failed: {}", curl_easy_strerror(res));
         m_last_error.store(536);

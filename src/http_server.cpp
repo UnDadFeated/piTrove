@@ -1366,7 +1366,10 @@ static std::string get_dashboard_html() {
                             <div style="display:flex; align-items:center; gap:0.4rem;"><label for="set-gcalendar-name" style="font-size:0.85rem; color:var(--text-muted);">Calendar Name:</label><input type="text" id="set-gcalendar-name" placeholder="Family" style="width:90px; background:rgba(0,0,0,0.3); border:1px solid var(--border-color); color:var(--text); border-radius:4px; padding:2px 5px; font-size:0.85rem;"></div>
                         </div>
                         <div class="form-group" style="margin-top:0.4rem;">
-                            <label for="set-gcalendar-url">Google Calendar iCal Secret URL</label>
+                            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.2rem;">
+                                <label for="set-gcalendar-url" style="margin-bottom:0;">Google Calendar iCal Secret URL</label>
+                                <button type="button" onclick="syncCalendarNow(this)" style="background:rgba(0,200,255,0.15); border:1px solid rgba(0,200,255,0.4); color:var(--accent); font-size:0.75rem; padding:2px 8px; border-radius:4px; cursor:pointer; font-weight:500;">↻ Sync Now</button>
+                            </div>
                             <input type="text" id="set-gcalendar-url" placeholder="https://calendar.google.com/calendar/ical/.../basic.ics" style="width:100%; background:rgba(0,0,0,0.3); border:1px solid var(--border-color); color:var(--text); border-radius:4px; padding:4px 8px; font-size:0.8rem;">
                         </div>
                     </div>
@@ -1432,6 +1435,27 @@ static std::string get_dashboard_html() {
             setTimeout(() => {
                 toast.classList.remove('show');
             }, 3000);
+        }
+
+        async function syncCalendarNow(btn) {
+            if (btn) { btn.disabled = true; btn.innerText = "Syncing..."; }
+            try {
+                const apiKey = localStorage.getItem('api_key') || '';
+                const headers = {};
+                if (apiKey) headers['Authorization'] = 'Bearer ' + apiKey;
+                const res = await fetch('/api/calendar/sync', { method: 'POST', headers });
+                if (res.ok) {
+                    showToast("Calendar Sync Triggered!");
+                } else {
+                    showToast("Failed to trigger calendar sync.");
+                }
+            } catch (err) {
+                showToast("Error triggering calendar sync.");
+            } finally {
+                if (btn) {
+                    setTimeout(() => { btn.disabled = false; btn.innerText = "↻ Sync Now"; }, 2000);
+                }
+            }
         }
 
         async function loadSettings() {
@@ -2637,6 +2661,16 @@ static void handle_client(int client_fd) {
                         std::string val = get_query_param(request, "gcalendar_ical_url");
                         if (g_cfg.gcalendar_ical_url != val) { g_cfg.gcalendar_ical_url = val; changed = true; }
                     }
+                    if (has_query_param(request, "gcalendar_refresh_minutes")) {
+                        std::string val = get_query_param(request, "gcalendar_refresh_minutes");
+                        try {
+                            int v = std::clamp(std::stoi(val), 5, 120);
+                            if (g_cfg.gcalendar_refresh_minutes != v) {
+                                g_cfg.gcalendar_refresh_minutes = v;
+                                changed = true;
+                            }
+                        } catch(...) {}
+                    }
                     if (has_query_param(request, "gcalendar_name")) {
                         std::string val = get_query_param(request, "gcalendar_name");
                         if (!val.empty() && g_cfg.gcalendar_name != val) { g_cfg.gcalendar_name = val; changed = true; }
@@ -2762,6 +2796,14 @@ static void handle_client(int client_fd) {
         }
         else if (request.rfind("GET /api/news", 0) == 0) {
             send_response(client_fd, "HTTP/1.1 200 OK", "application/json", g_news_ticker.get_status_json());
+        }
+        else if (request.rfind("GET /api/calendar/sync", 0) == 0 || request.rfind("POST /api/calendar/sync", 0) == 0) {
+            if (is_authorized(request, client_fd)) {
+                spawn_tracked_thread([]() {
+                    g_calendar.sync();
+                });
+                send_response(client_fd, "HTTP/1.1 200 OK", "application/json", "{\"status\":\"ok\",\"message\":\"Calendar sync triggered\"}");
+            }
         }
         else if (request.rfind("GET /api/calendar", 0) == 0) {
             send_response(client_fd, "HTTP/1.1 200 OK", "application/json", g_calendar.get_status_json());
