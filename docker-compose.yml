@@ -12,6 +12,7 @@ services:
       - SYS_ADMIN
       - SYS_RAWIO
       - SYS_NICE
+      - NET_ADMIN
     devices:
       - /dev/dri:/dev/dri
       - /dev/input:/dev/input

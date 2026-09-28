@@ -1,3 +1,10 @@
+### Release v18.1.19 — Broadcom Wi-Fi Driver Stability (Pi 4 & Pi 5), CAP_NET_ADMIN & Watchdog Reboot Loop Elimination (September 28, 2026)
+- **Broadcom Wi-Fi WPA3/SAE Driver Fix (Pi 4 & Pi 5)**: Resolved Cypress/Broadcom `brcmf_cfg80211_external_auth` failure (`status=1`) occurring when routers broadcast WPA2/WPA3 mixed mode or 5GHz DFS channels. Added `options brcmfmac feature_disable=0x82000` in `/etc/modprobe.d/brcmfmac.conf` and `cmdline.txt`, disabling faulty firmware offload across Raspberry Pi 4, Pi 5, and future models while retaining full WPA2-PSK high-speed connectivity.
+- **Watchdog Reboot Loop Elimination**: Fixed host watchdog (`pitrove-watchdog.sh`) to eliminate infinite 3-minute system reboot loops during network outages. Network failure now triggers automatic `nmcli` and NetworkManager service resets without rebooting the host operating system, preserving frame uptime and allowing the app to seamlessly stay in Offline Recovery Mode.
+- **Docker CAP_NET_ADMIN**: Added `NET_ADMIN` Linux capability to `docker-compose.yml` container `cap_add`, allowing in-container network recovery thread (`set_interface_status` ioctl) to successfully cycle network interfaces without `EPERM` (Operation not permitted) errors.
+- **Multi-Interface Watchdog Health**: Updated watchdog `network_is_ok()` to probe gateway reachability across both Ethernet (`eth0`) and Wi-Fi (`wlan0`) with external fallback, ensuring wired connections never trigger false-positive recovery actions.
+- **In-App Keepalive Enhancement**: Added fallback connection up trigger and post-cycle device re-association in `src/main.cpp`.
+
 ### Release v18.1.18 — Google Calendar Edge Cache-Busting & On-Demand Sync (September 11, 2026)
 
 #### Calendar Subsystem (`calendar.cpp`)
