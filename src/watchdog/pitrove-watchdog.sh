@@ -43,20 +43,14 @@ log() {
 }
 
 network_is_ok() {
-    # Check 1: Does interface exist and have carrier?
-    if ip link show "$INTERFACE" 2>/dev/null | grep -q "state UP"; then
-        # Check 2: Default route exists
-        if ip route | grep -q "^default"; then
-            # Check 3: Gateway reachable
-            if ping -c 1 -W 3 "$GATEWAY" >/dev/null 2>&1; then
-                return 0
-            fi
-        fi
+    # Primary check: Gateway reachable via any active network interface (wlan0, eth0)
+    if ping -c 1 -W 3 "$GATEWAY" >/dev/null 2>&1; then
+        return 0
     fi
 
-    # Fallback: if eth0 is up with default route, network is fine
-    if ip link show eth0 2>/dev/null | grep -q "state UP"; then
-        if ip route | grep -q "^default.*eth0"; then
+    # Fallback check: If default route exists and external DNS responds (gateway ICMP blocked)
+    if ip route | grep -q "^default"; then
+        if ping -c 1 -W 2 1.1.1.1 >/dev/null 2>&1 || ping -c 1 -W 2 8.8.8.8 >/dev/null 2>&1; then
             return 0
         fi
     fi
@@ -109,21 +103,16 @@ refresh_nas_mount() {
 }
 
 reset_wifi() {
-    log "Attempting soft WiFi reset (wpa_cli reconfigure + interface bounce)..."
-    wpa_cli reconfigure 2>/dev/null || true
+    log "Attempting soft WiFi reset (nmcli + interface bounce)..."
+    nmcli device connect "$INTERFACE" 2>/dev/null || nmcli connection up "$INTERFACE" 2>/dev/null || wpa_cli reconfigure 2>/dev/null || true
     ip link set "$INTERFACE" down 2>/dev/null || true
     sleep 2
     ip link set "$INTERFACE" up 2>/dev/null || true
+    nmcli device connect "$INTERFACE" 2>/dev/null || nmcli connection up "$INTERFACE" 2>/dev/null || true
     # Give it time to reassociate
     sleep 15
 }
 
-do_reboot() {
-    log "CRITICAL: Network offline for 30+ seconds (after WiFi reset if attempted). Rebooting..."
-    sync
-    # Use clean systemd reboot — ensures proper service shutdown and network initialization on boot
-    shutdown -r now
-}
 
 # ── Main Loop ───────────────────────────────────────────────────────────────
 log "Watchdog started. Monitoring gateway $GATEWAY on $INTERFACE every 15s."
@@ -198,15 +187,13 @@ while true; do
         fi
 
         if [ "$FAIL_COUNT" -ge "$MAX_FAIL" ]; then
-            if [ "$WIFI_RESET_DONE" = false ]; then
-                log "Network down for ~3 minutes. Attempting one WiFi reset before reboot..."
-                WIFI_RESET_DONE=true
-                FAIL_COUNT=0
-                reset_wifi
-                # Loop back to re-check after the reset wait
-                continue
-            fi
-            do_reboot
+            log "Network offline for ~3 minutes. Attempting WiFi & network service recovery..."
+            FAIL_COUNT=0
+            reset_wifi
+            systemctl restart NetworkManager 2>/dev/null || true
+            sleep 15
+            # Never execute hard system reboot solely for network outages;
+            # the app continues running in Offline Mode using local cache without reboot loops.
         fi
     fi
 

@@ -1173,6 +1173,9 @@ static void keepalive_loop() {
                 // which would sever CIFS mounts mid-flight and leave them in a permanently stale state.
                 [[maybe_unused]] int nm_res = ::system(("nmcli device connect " + escape_shell_arg(interface) + " >/dev/null 2>&1").c_str());
                 if (nm_res != 0) {
+                    nm_res = ::system(("nmcli connection up " + escape_shell_arg(interface) + " >/dev/null 2>&1").c_str());
+                }
+                if (nm_res != 0) {
                     // Step 2: Interface cycle via raw socket ioctl (still does NOT touch radio hardware)
                     g_logger.warn("Keepalive: nmcli reconnect failed, cycling interface {}.", interface.c_str());
                     if (set_interface_status(interface, false)) {
@@ -1180,6 +1183,7 @@ static void keepalive_loop() {
                         std::this_thread::sleep_for(std::chrono::seconds(2));
                         if (set_interface_status(interface, true)) {
                             g_logger.info("Keepalive: Interface {} set UP.", interface.c_str());
+                            [[maybe_unused]] int post_up = ::system(("nmcli device connect " + escape_shell_arg(interface) + " >/dev/null 2>&1").c_str());
                         } else {
                             g_logger.error("Keepalive: ERROR: Failed to set interface {} UP during network recovery cycle!", interface.c_str());
                             trigger_error(521); // E521: INTERFACE_UP_FAILED

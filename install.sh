@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# install.sh — piTrove v18.1.18 Premium Graphical Installer
+# install.sh — piTrove v18.1.19 Premium Graphical Installer
 # Target: Debian Trixie (13) 64-bit on Raspberry Pi 4/5
 
 set -eo pipefail
@@ -43,7 +43,7 @@ trap cleanup_terminal EXIT INT TERM
 
 banner() {
     clear 2>/dev/null || true
-    echo -e " ${BOLD}${WHITE}piTrove${NC}  ${CYAN}v18.1.18${NC} ${GRAY}──────────────────────────${NC} ${BOLD}${GREEN}Installer${NC}"
+    echo -e " ${BOLD}${WHITE}piTrove${NC}  ${CYAN}v18.1.19${NC} ${GRAY}──────────────────────────${NC} ${BOLD}${GREEN}Installer${NC}"
     echo -e " ${MAGENTA}The Ultra-Premium Picture Frame${NC}"
     echo
 }
@@ -545,19 +545,31 @@ run_with_spinner "Installing host filesystem dependencies (cifs-utils, nfs-commo
 # ── DRM and Docker group configuration ─────────────────────────────────────────
 run_with_spinner "Adding $PRIMARY_USER to video, render, and docker groups for hardware & docker permission" usermod -aG video,render,docker "$PRIMARY_USER"
 
-# ── DRM/KMS firmware configuration (Pi 4/5) ───────────────────────────────────
+# ── DRM/KMS firmware configuration (Pi 4, Pi 5, & future Pi models) ───────────
 BOOT_CFG="/boot/firmware/config.txt"
+if [[ ! -f "$BOOT_CFG" && -f "/boot/config.txt" ]]; then
+    BOOT_CFG="/boot/config.txt"
+fi
+
+# Dynamically select CMA allocation based on system RAM:
+# 256MB for <=2GB RAM (e.g. Pi 4 1GB/2GB), 512MB for >=3GB RAM (Pi 4 4GB/8GB, Pi 5, future Pi models)
+TOTAL_RAM_MB=$(awk "/MemTotal/ {print int(\$2/1024)}" /proc/meminfo 2>/dev/null || echo 4096)
+CMA_SIZE="512"
+if [[ "$TOTAL_RAM_MB" -lt 3000 ]]; then
+    CMA_SIZE="256"
+fi
+
 if [[ -f "$BOOT_CFG" ]]; then
     if ! grep -q "cma-" "$BOOT_CFG"; then
         if ! grep -q "dtoverlay=vc4-kms-v3d" "$BOOT_CFG"; then
             echo "" >> "$BOOT_CFG"
-            echo "# piTrove DRM/KMS Display Configuration" >> "$BOOT_CFG"
-            echo "dtoverlay=vc4-kms-v3d,cma-512" >> "$BOOT_CFG"
+            echo "# piTrove DRM/KMS Display Configuration (Pi 4/5/future)" >> "$BOOT_CFG"
+            echo "dtoverlay=vc4-kms-v3d,cma-${CMA_SIZE}" >> "$BOOT_CFG"
             echo "gpu_mem=128" >> "$BOOT_CFG"
-            ok "Configured vc4-kms-v3d overlay & cma-512 in $BOOT_CFG"
+            ok "Configured vc4-kms-v3d overlay & cma-${CMA_SIZE} in $BOOT_CFG"
         else
-            sed -i s/dtoverlay=vc4-kms-v3d.*/dtoverlay=vc4-kms-v3d,cma-512/ "$BOOT_CFG"
-            ok "Updated vc4-kms-v3d overlay with cma-512 in $BOOT_CFG"
+            sed -i "s/dtoverlay=vc4-kms-v3d.*/dtoverlay=vc4-kms-v3d,cma-${CMA_SIZE}/" "$BOOT_CFG"
+            ok "Updated vc4-kms-v3d overlay with cma-${CMA_SIZE} in $BOOT_CFG"
         fi
     else
         ok "CMA memory overlay already configured in $BOOT_CFG"
@@ -573,10 +585,26 @@ if [[ -d "/etc/NetworkManager/conf.d" ]]; then
 [connection]
 wifi.powersave = 2
 EOF
-    # systemctl restart NetworkManager &>/dev/null &
     ok "Disabled NetworkManager Wi-Fi Power Saving persistently"
 else
     ok "NetworkManager not active, skipping power-saving overrides"
+fi
+
+# ── Broadcom Wi-Fi WPA3/SAE Firmware Bug Workaround (Pi 4 & Pi 5) ─────────────
+info "Configuring Broadcom Wi-Fi driver stability (WPA3/SAE offload fix)..."
+cat > /etc/modprobe.d/brcmfmac.conf <<EOF
+# Disable broken SAE/SWSUP firmware offloading on Broadcom/Cypress Wi-Fi (Pi 4 & Pi 5)
+options brcmfmac feature_disable=0x82000
+EOF
+
+CMD_FILE="/boot/firmware/cmdline.txt"
+if [[ ! -f "$CMD_FILE" && -f "/boot/cmdline.txt" ]]; then
+    CMD_FILE="/boot/cmdline.txt"
+fi
+
+if [[ -f "$CMD_FILE" ]] && ! grep -q "brcmfmac.feature_disable" "$CMD_FILE"; then
+    sed -i 's/$/ brcmfmac.feature_disable=0x82000/' "$CMD_FILE"
+    ok "Added brcmfmac.feature_disable=0x82000 to $CMD_FILE"
 fi
 
 # Driver-level persistent Wi-Fi power-saving disable via udev rule
