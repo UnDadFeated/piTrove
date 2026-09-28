@@ -593,8 +593,8 @@ fi
 # ── Broadcom Wi-Fi WPA3/SAE Firmware Bug Workaround (Pi 4 & Pi 5) ─────────────
 info "Configuring Broadcom Wi-Fi driver stability (WPA3/SAE offload fix)..."
 cat > /etc/modprobe.d/brcmfmac.conf <<EOF
-# Disable broken SAE/SWSUP firmware offloading on Broadcom/Cypress Wi-Fi (Pi 4 & Pi 5)
-options brcmfmac feature_disable=0x82000
+# Disable broken SAE/SWSUP/SAE_EXT firmware offloading on Broadcom/Cypress Wi-Fi (Pi 4 & Pi 5)
+options brcmfmac roamoff=1 feature_disable=0x2282000
 EOF
 
 CMD_FILE="/boot/firmware/cmdline.txt"
@@ -602,9 +602,27 @@ if [[ ! -f "$CMD_FILE" && -f "/boot/cmdline.txt" ]]; then
     CMD_FILE="/boot/cmdline.txt"
 fi
 
-if [[ -f "$CMD_FILE" ]] && ! grep -q "brcmfmac.feature_disable" "$CMD_FILE"; then
-    sed -i 's/$/ brcmfmac.feature_disable=0x82000/' "$CMD_FILE"
-    ok "Added brcmfmac.feature_disable=0x82000 to $CMD_FILE"
+if [[ -f "$CMD_FILE" ]]; then
+    if ! grep -q "brcmfmac.feature_disable" "$CMD_FILE"; then
+        sed -i 's/$/ brcmfmac.feature_disable=0x2282000 brcmfmac.roamoff=1/' "$CMD_FILE"
+        ok "Added brcmfmac.feature_disable=0x2282000 to $CMD_FILE"
+    else
+        sed -i 's/brcmfmac.feature_disable=0x[0-9a-fA-F]*/brcmfmac.feature_disable=0x2282000/' "$CMD_FILE"
+        ok "Updated brcmfmac.feature_disable=0x2282000 in $CMD_FILE"
+    fi
+fi
+
+# Configure persistent systemd-networkd DHCP for wlan0
+if [[ ! -f "/etc/systemd/network/20-wlan0.network" ]]; then
+    cat > /etc/systemd/network/20-wlan0.network <<EOF
+[Match]
+Name=wlan0
+
+[Network]
+DHCP=yes
+EOF
+    systemctl enable systemd-networkd.service &>/dev/null || true
+    ok "Configured systemd-networkd DHCP for wlan0"
 fi
 
 # Driver-level persistent Wi-Fi power-saving disable via udev rule

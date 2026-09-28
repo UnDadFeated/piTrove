@@ -103,12 +103,13 @@ refresh_nas_mount() {
 }
 
 reset_wifi() {
-    log "Attempting soft WiFi reset (nmcli + interface bounce)..."
-    nmcli device connect "$INTERFACE" 2>/dev/null || nmcli connection up "$INTERFACE" 2>/dev/null || wpa_cli reconfigure 2>/dev/null || true
+    log "Attempting soft WiFi reset (wpa_supplicant/nmcli + interface bounce)..."
+    wpa_cli -i "$INTERFACE" reconfigure 2>/dev/null || nmcli device connect "$INTERFACE" 2>/dev/null || true
     ip link set "$INTERFACE" down 2>/dev/null || true
     sleep 2
     ip link set "$INTERFACE" up 2>/dev/null || true
-    nmcli device connect "$INTERFACE" 2>/dev/null || nmcli connection up "$INTERFACE" 2>/dev/null || true
+    systemctl restart wpa_supplicant@"$INTERFACE" 2>/dev/null || true
+    nmcli device connect "$INTERFACE" 2>/dev/null || true
     # Give it time to reassociate
     sleep 15
 }
@@ -190,7 +191,7 @@ while true; do
             log "Network offline for ~3 minutes. Attempting WiFi & network service recovery..."
             FAIL_COUNT=0
             reset_wifi
-            systemctl restart NetworkManager 2>/dev/null || true
+            systemctl restart systemd-networkd 2>/dev/null || systemctl restart NetworkManager 2>/dev/null || true
             sleep 15
             # Never execute hard system reboot solely for network outages;
             # the app continues running in Offline Mode using local cache without reboot loops.
