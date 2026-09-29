@@ -23,13 +23,22 @@ jobs:
             echo "count=0" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          CLONES=$(curl -s -H "Authorization: Bearer $TOKEN"             "https://api.github.com/repos/${{ github.repository }}/traffic/clones"             | jq '.count // 0')
+          CLONES=$(curl -sf --retry 2 -H "Authorization: Bearer $TOKEN" "https://api.github.com/repos/${{ github.repository }}/traffic/clones" | jq '.count // 0')
+          if [ -z "$CLONES" ] || [ "$CLONES" = "null" ]; then
+            echo "Failed to read clone count; leaving badge unchanged"
+            echo "count=skip" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           echo "count=$CLONES" >> "$GITHUB_OUTPUT"
 
       - name: Update badge JSON
         run: |
           mkdir -p .github
-          echo "{"clones":${{ steps.clones.outputs.count }}}" > .github/clones.json
+          # Nested double quotes inside echo "..." were stripped, writing {clones:42}
+          # (invalid JSON). printf emits valid JSON.
+          if [ "${{ steps.clones.outputs.count }}" != "skip" ]; then
+            printf '{"clones":%s}\n' "${{ steps.clones.outputs.count }}" > .github/clones.json
+          fi
 
       - name: Commit if changed
         run: |

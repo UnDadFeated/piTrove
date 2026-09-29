@@ -194,6 +194,17 @@ api_key = ""
 refresh_minutes = 15
 max_events = 10
 
+[stockstreamer]
+# S&P 500 / crypto infopanel. Left absent or enabled = 0 simply does not activate.
+enabled = 0
+preset = "sp500_top10"
+refresh_seconds = 10
+crypto = "BTC-USD"
+# TLS certificate + hostname verification for the quote HTTP client.
+# 1 (default) = verified. Set to 0 ONLY if this host is behind a TLS-intercepting
+# proxy; doing so lets anyone on the path rewrite the prices shown on the frame.
+tls_verify = 1
+
 [google_photos]
 enabled = 0
 client_id = ""

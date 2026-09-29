@@ -14,7 +14,10 @@ set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
 # ARM64 optimization
 if(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|arm64")
-    set(CMAKE_CXX_FLAGS_RELEASE "-O2 -march=armv8-a+crc+simd -mtune=cortex-a72 -fomit-frame-pointer -pipe")
+    # -mtune (cortex-a72) removed: it is a Pi 4 core and was applied to every aarch64
+    # build, so Pi 5 (cortex-a76) binaries were tuned for the wrong CPU. -march is
+    # unchanged, so the instruction set is identical.
+    set(CMAKE_CXX_FLAGS_RELEASE "-O2 -march=armv8-a+crc+simd -fomit-frame-pointer -pipe")
     # LTO removed in v15.6.9 to prevent FFmpeg SIMD miscompilation
 endif()
 

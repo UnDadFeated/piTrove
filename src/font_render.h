@@ -7,6 +7,7 @@
 #include <map>
 #include <unordered_map>
 #include <memory>
+#include <vector>
 
 struct FontHandle {
     TTF_Font* font{nullptr};
@@ -21,6 +22,10 @@ class FontRenderer {
 private:
     Renderer* renderer;
     std::map<std::string, std::shared_ptr<FontHandle>> fonts;
+    // Evicted FontHandles are kept alive here (capped). Callers cache raw
+    // FontHandle* (crt_font, overlay_font) and read ->path from them after a
+    // load_font() call, so the object must outlive its eviction from `fonts`.
+    std::vector<std::shared_ptr<FontHandle>> retired_fonts;
 
     struct TextCacheEntry {
         SDL_Texture* texture = nullptr;

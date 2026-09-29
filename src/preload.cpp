@@ -59,7 +59,13 @@ void PreloadQueue::start() {
 
     threads.reserve(num_threads);
     for (int i = 0; i < num_threads; i++) {
-        threads.emplace_back(&PreloadQueue::worker_thread, state, i);
+        std::jthread th;
+        if (spawn_thread_safe(th, "preload_worker", &PreloadQueue::worker_thread, state, i)) {
+            threads.emplace_back(std::move(th));
+        } else {
+            // Degrade rather than let std::system_error escape start() and abort the process.
+            g_logger.error("PreloadQueue: failed to spawn worker {} (running degraded)", i);
+        }
     }
     g_logger.info("PreloadQueue started with {} worker threads (capacity={})", num_threads, state->max_size);
     g_logger.info("Health check caching enabled (TTL=5s, NAS monitor=10s)");

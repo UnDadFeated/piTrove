@@ -1,3 +1,132 @@
+### Release v18.1.20 — Audit Remediation: Memory Safety, Secret Handling & Opt-In Hardening (September 29, 2026)
+
+Fixes from a full static audit of the codebase. **Design rule applied throughout: nothing is
+enforced. Every hardening item is opt-in and config-driven — a key that is absent simply means
+that feature does not activate, which is logged rather than treated as a failure.**
+
+#### Memory Safety & Crash
+- **Font cache use-after-free (CRITICAL)**: `FontRenderer::load_font()` returned a `FontHandle&`
+  into a cache that evicted — and destroyed — its oldest entry once it exceeded 32 keys
+  (`font_render.cpp`), while `Renderer::crt_font` and `OverlayManager::overlay_font` cached raw
+  pointers to those objects and dereferenced `->path` on subsequent frames. Because each
+  slideshow item renders at a different font size and any config hot-reload mints new cache
+  keys, crossing 32 keys was routine. Evicted handles are now retired into a bounded keep-alive
+  list so the object outlives its eviction; the closed TTF handle is nulled so a retired entry is
+  skipped for drawing rather than using a freed face.
+- **Unguarded thread construction**: `PreloadQueue::start()` built its worker pool with a bare
+  `threads.emplace_back(...)`, so a `pthread_create` failure threw `std::system_error` out of
+  `main()` into `std::terminate` — the exact 2026-08-14 container-reset crash class that
+  `spawn_thread_safe` was introduced to prevent. Now routed through `spawn_thread_safe` with a
+  logged degraded mode.
+- **Config-mutex self-deadlock (CRITICAL)**: `GET /api/settings/update?news_local_query=…` (or
+  `news_blacklist`) took `std::lock_guard(g_config_mtx)` and then called
+  `NewsTicker::fetch_sync()`, which takes `std::shared_lock(g_config_mtx)` on the same thread.
+  `std::shared_mutex` is not recursive, so the request deadlocked while holding the exclusive
+  lock and stalled every subsystem needing a shared lock (render loop, thermal, MQTT, news,
+  calendar) — one request could take the frame offline. The refetch is now deferred until after
+  the lock is released.
+- **Watchman shutdown race**: the watchman thread was `detach()`ed after a 500 ms grace (it
+  sleeps in 1 s ticks, so this tripped routinely) and `main()` then deleted `g_cache` while the
+  detached thread could still be calling into it. Grace raised to 5 s, and if it still will not
+  stop the cache is deliberately leaked at process exit rather than freed under a live thread.
+- **`g_watchdog_last_time` data race**: a non-atomic 8-byte `steady_clock::time_point` written by
+  both the main loop and the watchdog thread. A torn read yields a huge `elapsed`, whose
+  consequence is a forced `_exit(99)` container restart. Now an `std::atomic<int64_t>` epoch
+  count.
+- **`prefetch_video()` lock discipline**: the code hand-unlocked a mutex owned by a `lock_guard`
+  around `join()`; a throwing `join()` would have unlocked an already-unlocked mutex, and a
+  second caller could join the same thread concurrently. The handle is now moved out under the
+  lock and joined outside it.
+- **Infopanel workers never joined**: `NewsTicker`/`GoogleCalendar`/`StockStreamer::stop()` only
+  flipped a flag, so the `jthread` joined during static destruction — after `main()` had already
+  torn down SDL and the cache. All three now join in `stop()` (matching `GooglePhotosManager`).
+- **`std::string(tellg(), …)` with an unchecked `tellg()`**: a `-1` return converted to a huge
+  `size_t`. Both screenshot endpoints now reject a negative size with HTTP 500.
+- **Unvalidated slideshow config**: `ken_burns_zoom` was the only numeric key without a clamp and
+  fed an unchecked float→int conversion (`transition.cpp`), where a large value is UB and a
+  negative one yields a negative-size dstrect. Clamped to `[0,1]`; `resolution` is now clamped
+  like its neighbours.
+
+#### Secrets & Credential Handling
+- **Private Google Calendar iCal URL was written to plaintext logs**: a Google private iCal URL
+  *is* the credential — the `private-<hex>` path segment grants full read access on its own — and
+  `redact_secrets()` did not match it (it keys on `api_key|password|client_secret|refresh_token|
+  pin|token` followed by `=` or `:`). Confirmed present **110 times across 6 log files** on a live
+  unit. The sync log now records the calendar name and URL length only. **Operators should rotate
+  the iCal URL and purge existing logs — once written, a log is not a secret store.**
+- **TOML write escaping**: `Config::save()` interpolated values into quoted strings unescaped, so
+  a value containing `"` corrupted `config.toml` (reachable from the web settings endpoint).
+  Added a `toml_escape()` helper applied to `api_key`, `dashboard_pin`, the MQTT credentials, the
+  calendar fields and the Google Photos secrets.
+
+#### Security (opt-in — absent key means the feature simply does not activate)
+- **API key comparison hardened, still opt-in**: `is_authorized()` still returns true when
+  `[remote] api_key` is empty (unchanged behaviour — no key means an open control API, which is
+  now stated at startup in the log rather than enforced). With a key set, the comparison is now
+  constant-time (the old `std::string::operator!=` short-circuited and leaked the matching prefix
+  length), and five failed attempts trigger a 60 s lockout.
+- **Google OAuth setup route gated**: `/google_photos_setup` writes the OAuth client id/secret
+  into the live config and now honours the same opt-in key. `/google_photos_callback` is
+  deliberately left open — it is a Google-initiated redirect that cannot carry an
+  `Authorization` header, and it only persists config after a successful token exchange.
+- **Reflected XSS on the OAuth pages**: the `?error=` value and the `Host`-derived
+  `redirect_uri` were spliced into markup unescaped. Added an `html_escape()` helper; the
+  dashboard itself was already safe (it uses `innerText`).
+- **Screenshot endpoint throttled**: `/api/screenshot` was the only state-changing route with
+  neither authorization nor a cooldown, blocking a worker for up to 5 s and forcing a full
+  framebuffer readback plus PNG encode per call. Now honours the opt-in key and has a 2 s
+  cooldown.
+- **TLS verification is now config-driven and on by default**: `stock_streamer.cpp` hardcoded
+  `CURLOPT_SSL_VERIFYPEER=0` / `CURLOPT_SSL_VERIFYHOST=0` for all finance traffic, so any
+  certificate for any host was accepted. New `[stockstreamer] tls_verify` (default `1`). Set it to
+  `0` **only** behind a TLS-intercepting proxy, accepting the MITM exposure. Paired with the next
+  item so a failure can never be silent.
+- **Stock panel no longer fails silently**: `m_last_error` was forced to `0` even when all eleven
+  fetches failed, so stale/seeded prices were displayed while reporting healthy. It now reports a
+  failure and keeps the last known quotes.
+- **Google Photos cursor stall fixed**: two `continue` guards in the media-item loop skipped the
+  cursor advance, so any rejected `baseUrl` spun forever, burning a core and appending one ERROR
+  line per iteration to a bind-mounted log. Both guards now advance the cursor.
+
+#### Performance & Robustness
+- **Heartbeat write throttled**: `heartbeat_tick()` performed a `create_directories` sweep, a
+  truncating write and a `rename` at 60 Hz (~180 filesystem-modifying operations per minute on the
+  `./cache` bind mount) for a consumer that reads once per 30 s. Now throttled to 5 s; the
+  in-memory watchdog heartbeat stays per-iteration.
+- **`/api/status` no longer forks per poll**: each call spawned a three-stage shell pipeline
+  (`df | tail | tr`); the dashboard polls ~1/s, i.e. ~86k process spawns/day. Now cached for 30 s.
+
+#### Build & Tooling
+- **Dropped `-mtune=cortex-a72`**: a Pi 4 core applied to every aarch64 build, so Pi 5
+  (cortex-a76) binaries were tuned for the wrong CPU. `-march` is unchanged, so the instruction
+  set is identical.
+- **Fixed the clones badge**: `echo "{"clones":…}"` had its quotes stripped, writing
+  `{clones:42}` — invalid JSON (confirmed: `json.load()` raised `JSONDecodeError`). Now uses
+  `printf`, `curl --fail`, and leaves the badge untouched on API failure instead of writing `0`.
+- **Installer can now report failures**: under `set -e`, both failure paths in
+  `run_with_spinner` aborted the installer *before* the log tail and `fail()` — so every failed
+  step exited silently with no message and a leaked temp log. Now captured with `|| status=$?`.
+- **Config-merge rollback restored**: the `( … )` subshell is a simple command, so a non-zero exit
+  killed the installer at the subshell and the restore never ran, leaving `config.toml`
+  half-rewritten; the rollback also called `error`, a function that does not exist in the script.
+  Status is now captured and the existing `fail` is used.
+
+#### Known issues carried forward (deliberately not changed here)
+- **CI still cannot fail**: `ci.yml` keeps `continue-on-error: true` on both the configure and
+  build steps. This is the highest-leverage remaining item, but the job runs an **x86** container
+  and never exercises the ARM configuration the image actually builds — removing the flag before
+  confirming CI builds green would turn the badge permanently red. Verify first, then remove.
+- **CSRF/Origin checks not added**: every state change is a bare `GET`, so a page a LAN device
+  loads can trigger one. Deliberately deferred: a wrong `Origin` comparison would break legitimate
+  dashboard access from a phone or a different hostname, and it is an enforcement change.
+- **`/api/settings/update` config write, MQTT password on `execvp` argv, Google Photos OAuth POST,
+  E530 crawl-watchdog latency, watchdog restart-loop cooldown, and the scanner thread-leak
+  counter** are documented in `PLAN.md` §3–§5 and left for a follow-up release.
+
+**Verification**: full image build on the target Pi 5 (Debian trixie, GCC 14). No runtime
+behaviour was changed for existing configurations: with no `api_key` set the control API behaves
+exactly as before, and the new `[stockstreamer]` section defaults to `enabled = 0`.
+
 ### Release v18.1.19 — Broadcom Wi-Fi Driver Stability (Pi 4 & Pi 5), CAP_NET_ADMIN & Watchdog Reboot Loop Elimination (September 28, 2026)
 - **Broadcom Wi-Fi WPA3/SAE Driver Fix (Pi 4 & Pi 5)**: Resolved Cypress/Broadcom `brcmf_cfg80211_external_auth` failure (`status=1`) occurring when routers broadcast WPA2/WPA3 mixed mode or 5GHz DFS channels. Added `options brcmfmac feature_disable=0x82000` in `/etc/modprobe.d/brcmfmac.conf` and `cmdline.txt`, disabling faulty firmware offload across Raspberry Pi 4, Pi 5, and future models while retaining full WPA2-PSK high-speed connectivity.
 - **Watchdog Reboot Loop Elimination**: Fixed host watchdog (`pitrove-watchdog.sh`) to eliminate infinite 3-minute system reboot loops during network outages. Network failure now triggers automatic `nmcli` and NetworkManager service resets without rebooting the host operating system, preserving frame uptime and allowing the app to seamlessly stay in Offline Recovery Mode.

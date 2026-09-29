@@ -317,7 +317,12 @@ void GoogleCalendar::sync() {
     }
 
     if (!ical_url.empty()) {
-        g_logger.info("CALENDAR: Syncing Google Calendar feed from {}", ical_url);
+        // Never log the full URL: a Google private iCal URL *is* the credential
+        // (the private-<hex> path segment grants full read access on its own),
+        // and this line previously wrote it to disk in plaintext on every sync.
+        g_logger.info("CALENDAR: Syncing Google Calendar feed '{}' ({} chars)",
+                      g_cfg.gcalendar_name.empty() ? "ical" : g_cfg.gcalendar_name.c_str(),
+                      ical_url.size());
         std::string ical_data = execute_http_get(ical_url);
         if (!ical_data.empty()) {
             parse_ical(ical_data);
@@ -355,6 +360,7 @@ bool GoogleCalendar::start() {
 
 void GoogleCalendar::stop() {
     m_running.store(false);
+    if (m_worker_thread.joinable()) m_worker_thread.join();
 }
 
 std::vector<CalendarEvent> GoogleCalendar::get_events() const {

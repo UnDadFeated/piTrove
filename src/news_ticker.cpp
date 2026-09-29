@@ -332,6 +332,10 @@ bool NewsTicker::start() {
 
 void NewsTicker::stop() {
     m_running.store(false);
+    // Join here rather than in the destructor: this is an inline global, so the
+    // dtor join would happen during static destruction, after main() has already
+    // torn down SDL and the cache. Worker sleeps in 1s ticks, so this is bounded.
+    if (m_worker_thread.joinable()) m_worker_thread.join();
 }
 
 std::vector<NewsItem> NewsTicker::get_items() const {

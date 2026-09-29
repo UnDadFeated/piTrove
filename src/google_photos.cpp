@@ -298,6 +298,7 @@ void GooglePhotosManager::download_media(const std::string &access_token) {
         // Validate URL to prevent SSRF/unauthorized requests
         if (download_url.rfind("https://", 0) != 0) {
           g_logger.error("GooglePhotos: Invalid URL protocol for download: {}", download_url.c_str());
+          pos = id_pos + 4; // advance: 'continue' would otherwise skip the cursor update
           continue;
         }
         size_t host_start = 8; // length of "https://"
@@ -316,6 +317,7 @@ void GooglePhotosManager::download_media(const std::string &access_token) {
         }
         if (!domain_valid) {
           g_logger.error("GooglePhotos: Security warning: download URL host '{}' is not a Google Photos domain. Skipping download.", host.c_str());
+          pos = id_pos + 4; // advance: 'continue' would otherwise skip the cursor update
           continue;
         }
 

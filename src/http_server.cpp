@@ -17,6 +17,9 @@
 #include <mutex>
 #include <shared_mutex>
 #include <atomic>
+#include <chrono>
+#include <cctype>
+#include <format>
 #include <thread>
 #include <functional>
 #include <fstream>
@@ -252,6 +255,25 @@ static std::string get_host_header(const std::string& request) {
     return request.substr(pos, end - pos);
 }
 
+// Escape a value for interpolation into an HTML text/attribute context. The OAuth
+// pages splice request-derived strings (?error=, the Host header) into markup, which
+// was a reflected-XSS sink.
+static std::string html_escape(const std::string& s) {
+    std::string out;
+    out.reserve(s.size() + 16);
+    for (char c : s) {
+        switch (c) {
+            case '&':  out += "&amp;";  break;
+            case '<':  out += "&lt;";   break;
+            case '>':  out += "&gt;";   break;
+            case '"':  out += "&quot;"; break;
+            case '\'': out += "&#39;";  break;
+            default:   out += c;         break;
+        }
+    }
+    return out;
+}
+
 static std::string get_setup_html(const std::string& redirect_uri) {
     std::string html = R"HTML(
 <!DOCTYPE html>
@@ -405,7 +427,7 @@ static std::string get_setup_html(const std::string& redirect_uri) {
     // Replace redirect_uri
     size_t r_pos = html.find("redirect_uri");
     if (r_pos != std::string::npos) {
-        html.replace(r_pos, 12, redirect_uri);
+        html.replace(r_pos, 12, html_escape(redirect_uri));
     }
     return html;
 }
@@ -614,7 +636,7 @@ static std::string get_error_html(const std::string& message) {
     // Replace error message
     size_t m_pos = html.find("errorMessage");
     if (m_pos != std::string::npos) {
-        html.replace(m_pos, 12, message);
+        html.replace(m_pos, 12, html_escape(message));
     }
     return html;
 }
@@ -1831,22 +1853,31 @@ static std::string get_api_status() {
         }
     }
 
-    // Query disk usage
+    // Query disk usage, cached. The dashboard polls /api/status about once a second and
+    // each call previously forked a three-stage shell pipeline (df | tail | tr).
     std::string disk_str = "N/A";
     {
-        std::string disk_out;
-        auto read_cmd = popen("df / --output=pcent 2>/dev/null | tail -1 | tr -d ' %'", "r");
-        if (read_cmd) {
-            char buf[256];
-            while (fgets(buf, sizeof(buf), read_cmd)) {
-                disk_out += buf;
+        static std::mutex disk_mtx;
+        static std::string cached_disk = "N/A";
+        static int64_t cached_at = 0;
+        std::lock_guard lk(disk_mtx);
+        int64_t now = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now().time_since_epoch()).count();
+        if (cached_at == 0 || now - cached_at > 30000) {
+            std::string disk_out;
+            auto read_cmd = popen("df / --output=pcent 2>/dev/null | tail -1 | tr -d ' %'", "r");
+            if (read_cmd) {
+                char buf[256];
+                while (fgets(buf, sizeof(buf), read_cmd)) {
+                    disk_out += buf;
+                }
+                pclose(read_cmd);
+                if (!disk_out.empty() && disk_out.back() == '\n') disk_out.pop_back();
+                cached_disk = disk_out.empty() ? "N/A" : disk_out + "%";
             }
-            pclose(read_cmd);
-            if (!disk_out.empty() && disk_out.back() == '\n') disk_out.pop_back();
-            if (!disk_out.empty()) {
-                disk_str = disk_out + "%";
-            }
+            cached_at = now;
         }
+        disk_str = cached_disk;
     }
 
     // Determine MQTT status string
@@ -2081,9 +2112,13 @@ static void handle_screenshot(int fd) {
     }
 
     std::streamsize size = file.tellg();
+    if (size < 0) { // tellg() returns -1 on failure; std::string(-1) would request a huge allocation
+        send_response(fd, "HTTP/1.1 500 Internal Server Error", "text/plain", "Failed to determine screenshot size");
+        return;
+    }
     file.seekg(0, std::ios::beg);
 
-    std::string buffer(size, ' ');
+    std::string buffer(static_cast<size_t>(size), '\0');
     if (file.read(&buffer[0], size)) {
         send_response(fd, "HTTP/1.1 200 OK", "image/png", buffer);
     } else {
@@ -2131,8 +2166,12 @@ static void handle_screenshot_file(int fd, const std::string& filename) {
         return;
     }
     std::streamsize size = file.tellg();
+    if (size < 0) {
+        send_response(fd, "HTTP/1.1 500 Internal Server Error", "text/plain", "Failed to determine screenshot size");
+        return;
+    }
     file.seekg(0, std::ios::beg);
-    std::string buffer(size, ' ');
+    std::string buffer(static_cast<size_t>(size), '\0');
     if (file.read(&buffer[0], size)) {
         send_response(fd, "HTTP/1.1 200 OK", "image/png", buffer);
     } else {
@@ -2300,23 +2339,61 @@ static void handle_client(int client_fd) {
     }
 
     if (!request.empty()) {
-        auto is_authorized = [](const std::string& req, int fd) -> bool {
+        // Failed-attempt throttling. The accept loop discards the peer address, so this is
+        // a global lockout rather than per-IP; enough to make online brute force impractical.
+        static std::atomic<int64_t> g_auth_failures{0};
+        static std::atomic<int64_t> g_auth_lockout_until{0};
+        static constexpr int64_t AUTH_MAX_FAILURES = 5;
+        static constexpr int64_t AUTH_LOCKOUT_MS  = 60000;
+        auto auth_now_ms = []() -> int64_t {
+            return std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::steady_clock::now().time_since_epoch()).count();
+        };
+        // Constant-time equality: std::string::operator!= short-circuits on the first
+        // differing byte, which leaks the length of the matching prefix.
+        auto secure_equals = [](const std::string& a, const std::string& b) -> bool {
+            if (a.size() != b.size()) return false;
+            unsigned char diff = 0;
+            for (size_t i = 0; i < a.size(); ++i) {
+                diff |= static_cast<unsigned char>(a[i] ^ b[i]);
+            }
+            return diff == 0;
+        };
+
+        auto is_authorized = [&](const std::string& req, int fd) -> bool {
             std::string api_key;
             {
                 std::shared_lock<std::shared_mutex> lk(g_config_mtx);
                 api_key = g_cfg.http_api_key;
             }
+            // Opt-in: with no key configured the control API stays open. Reported at
+            // startup rather than enforced, so an absent key is a deliberate choice.
             if (api_key.empty()) return true;
+
+            if (auth_now_ms() < g_auth_lockout_until.load()) {
+                std::string body = "HTTP/1.1 429 Too Many Requests\r\nContent-Type: text/plain\r\nConnection: close\r\n\r\nToo many failed attempts";
+                (void)write(fd, body.c_str(), body.size());
+                return false;
+            }
+            auto deny = [&](const char* msg) {
+                std::string body = std::string("HTTP/1.1 401 Unauthorized\r\nContent-Type: text/plain\r\nConnection: close\r\n\r\n") + msg;
+                (void)write(fd, body.c_str(), body.size());
+                if (g_auth_failures.fetch_add(1) + 1 >= AUTH_MAX_FAILURES) {
+                    g_auth_lockout_until.store(auth_now_ms() + AUTH_LOCKOUT_MS);
+                    g_auth_failures.store(0);
+                    g_logger.warn("HTTP: auth lockout engaged for {}s after {} failed attempts",
+                                  AUTH_LOCKOUT_MS / 1000, AUTH_MAX_FAILURES);
+                }
+                return false;
+            };
 
             size_t auth_pos = req.find("Authorization: ");
             if (auth_pos == std::string::npos) {
                 auth_pos = req.find("authorization: ");
             }
             if (auth_pos == std::string::npos) {
-                std::string body = "HTTP/1.1 401 Unauthorized\r\nContent-Type: text/plain\r\nConnection: close\r\n\r\nAPI key required";
-                (void)write(fd, body.c_str(), body.size());
                 g_logger.warn("HTTP: Unauthorized request - no auth header");
-                return false;
+                return deny("API key required");
             }
             auth_pos += 15;
             size_t auth_end = req.find("\r\n", auth_pos);
@@ -2325,12 +2402,11 @@ static void handle_client(int client_fd) {
             if (auth_value.rfind("Bearer ", 0) == 0) {
                 auth_value = auth_value.substr(7);
             }
-            if (auth_value != api_key) {
-                std::string body = "HTTP/1.1 401 Unauthorized\r\nContent-Type: text/plain\r\nConnection: close\r\n\r\nInvalid API key";
-                (void)write(fd, body.c_str(), body.size());
+            if (!secure_equals(auth_value, api_key)) {
                 g_logger.warn("HTTP: Unauthorized request - invalid key");
-                return false;
+                return deny("Invalid API key");
             }
+            g_auth_failures.store(0);
             return true;
         };
 
@@ -2346,6 +2422,11 @@ static void handle_client(int client_fd) {
             send_response(client_fd, "HTTP/1.1 200 OK", "text/html", get_dashboard_html());
         } 
         else if (request.rfind("GET /google_photos_setup", 0) == 0 || request.rfind("POST /google_photos_setup", 0) == 0) {
+            // Writes the OAuth client id/secret into the live config and starts the flow.
+            // /google_photos_callback is left open on purpose: it is a Google-initiated
+            // redirect that cannot carry an Authorization header, and it only persists
+            // config after a successful token exchange. Opt-in via [remote] api_key.
+            if (!is_authorized(request, client_fd)) return;
             std::string action = get_query_param(request, "action");
             if (action == "submit") {
                 std::string client_id = get_query_param(request, "client_id");
@@ -2447,6 +2528,11 @@ static void handle_client(int client_fd) {
             bool changed = false;
             bool validation_failed = false;
             std::string err_msg = "";
+            // NewsTicker::fetch_sync() takes a shared_lock on g_config_mtx. Calling it
+            // from inside the exclusive lock below self-deadlocks the whole process
+            // (std::shared_mutex is not recursive), stalling every subsystem that
+            // needs a shared lock. Defer it until the lock has been released.
+            bool refetch_news = false;
             
             {
                 std::lock_guard lock(g_config_mtx);
@@ -2630,7 +2716,7 @@ static void handle_client(int client_fd) {
                             g_cfg.news_local_query = val;
                             changed = true;
                             g_logger.info("HTTP: Updated news local query/zipcode to '{}'", val);
-                            g_news_ticker.fetch_sync();
+                            refetch_news = true; // deferred: fetch_sync() re-locks g_config_mtx
                         }
                     }
                     if (has_query_param(request, "news_blacklist")) {
@@ -2645,7 +2731,7 @@ static void handle_client(int client_fd) {
                         g_cfg.news_blacklist = bl;
                         changed = true;
                         g_logger.info("HTTP: Updated news blacklist ({} entries)", bl.size());
-                        g_news_ticker.fetch_sync();
+                        refetch_news = true; // deferred: fetch_sync() re-locks g_config_mtx
                     }
                     if (has_query_param(request, "gcalendar_enabled")) {
                         std::string val = get_query_param(request, "gcalendar_enabled");
@@ -2727,6 +2813,10 @@ static void handle_client(int client_fd) {
                         if (g_cfg.touch_enabled != desired) { g_cfg.touch_enabled = desired; changed = true; }
                     }
                 }
+            }
+            // g_config_mtx is released above; fetch_sync() may now take its shared_lock.
+            if (!validation_failed && refetch_news) {
+                g_news_ticker.fetch_sync();
             }
             
             if (validation_failed) {
@@ -2833,6 +2923,17 @@ static void handle_client(int client_fd) {
             handle_screenshots_list(client_fd);
         }
         else if (request.rfind("GET /api/screenshot", 0) == 0) {
+            // Was the only state-changing route with neither is_authorized nor a cooldown:
+            // each call blocks its worker up to 5s and forces a full framebuffer readback
+            // plus PNG encode on the render thread.
+            if (!is_authorized(request, client_fd)) return;
+            static std::atomic<int64_t> last_shot_ms{0};
+            int64_t now_ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
+            if (now_ms - last_shot_ms.load() < 2000) {
+                send_response(client_fd, "HTTP/1.1 429 Too Many Requests", "text/plain", "Rate limited");
+                return;
+            }
+            last_shot_ms.store(now_ms);
             handle_screenshot(client_fd);
         }
         else if (request.rfind("GET /api/preview", 0) == 0) {
@@ -3025,6 +3126,21 @@ static void server_loop(int port) {
     }
 
     g_logger.info("HTTP: Background Web Remote server active on port {}", current_port);
+    // Report the effective auth state at startup. Deliberately advisory: setting
+    // [remote] api_key is opt-in and no key means the control API stays open, so this
+    // makes the trade-off visible in the log instead of enforcing it.
+    {
+        std::string key;
+        {
+            std::shared_lock<std::shared_mutex> lk(g_config_mtx);
+            key = g_cfg.http_api_key;
+        }
+        if (key.empty()) {
+            g_logger.warn("HTTP: control API is UNAUTHENTICATED (no [remote] api_key set). Set one in config.toml if this host is on a shared network.");
+        } else {
+            g_logger.info("HTTP: control API requires a bearer API key ([remote] api_key is set).");
+        }
+    }
 
     while (g_server_running.load()) {
         int fd = g_listen_fd.load();

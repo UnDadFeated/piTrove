@@ -21,7 +21,7 @@ struct TextKeyHash {
     size_t operator()(const TextKey& key) const {
         size_t h1 = std::hash<std::string>{}(key.text);
         size_t h2 = std::hash<int>{}(key.size);
-        size_t h3 = std::hash<int>{}(key.r << 24 | key.g << 16 | key.b << 8 | key.a);
+        size_t h3 = std::hash<int>{}(static_cast<uint32_t>(key.r) << 24 | static_cast<uint32_t>(key.g) << 16 | static_cast<uint32_t>(key.b) << 8 | key.a);
         return h1 ^ (h2 << 1) ^ (h3 << 2);
     }
 };
@@ -124,6 +124,14 @@ FontHandle& FontRenderer::load_font(const std::string& path, int size) {
             if (evict != fonts.end()) {
                 if (evict->second && evict->second->font) {
                     TTF_CloseFont(evict->second->font);
+                    evict->second->font = nullptr; // TTF handle closed; only ->path stays valid
+                }
+                // Retain the FontHandle object itself. Long-lived raw holders
+                // (Renderer::crt_font, OverlayManager::overlay_font) dereference ->path
+                // on later frames; destroying the object here was a use-after-free.
+                retired_fonts.push_back(evict->second);
+                if (retired_fonts.size() > 64) {
+                    retired_fonts.erase(retired_fonts.begin());
                 }
                 fonts.erase(evict);
             }
@@ -144,7 +152,7 @@ void FontRenderer::draw_text(int x, int y, const FontHandle& font, const std::st
                              uint8_t r, uint8_t g, uint8_t b, uint8_t a) {
     if (!renderer || !renderer->sdl_renderer || text.empty() || !font.font) return;
 
-    std::string key = std::format("{}|{}|{}|{}", text, font.path, font.size, (r << 24) | (g << 16) | (b << 8) | a);
+    std::string key = std::format("{}|{}|{}|{}", text, font.path, font.size, (static_cast<uint32_t>(r) << 24) | (static_cast<uint32_t>(g) << 16) | (static_cast<uint32_t>(b) << 8) | a);
     auto it = text_cache.find(key);
     if (it != text_cache.end()) {
         SDL_FRect dst = {(float)x, (float)y, (float)it->second.w, (float)it->second.h};

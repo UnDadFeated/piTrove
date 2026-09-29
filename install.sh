@@ -162,8 +162,10 @@ run_with_spinner() {
     
     if [[ "${IS_CRON:-0}" -eq 1 ]] || [[ ! -t 1 ]]; then
         # Running under cron or non-interactive context, run directly without spinner
-        "$@" > "$log_file" 2>&1
-        local status=$?
+        # `cmd || status=$?` so `set -e` cannot abort the installer before the
+        # log tail and fail() below run. Previously every failure exited silently.
+        local status=0
+        "$@" > "$log_file" 2>&1 || status=$?
         if [[ "$status" -ne 0 ]]; then
             echo -e "   ${RED}[ ✘ ]  ${label} failed!${NC}"
             echo -e "   ${YELLOW}─────── LAST 15 LINES OF LOG: ───────${NC}"
@@ -181,8 +183,8 @@ run_with_spinner() {
         
         show_spinner "$pid" "$label" "$log_file"
         
-        wait "$pid"
-        local status=$?
+        local status=0
+        wait "$pid" || status=$?
         if [[ "$status" -ne 0 ]]; then
             echo -e "   ${RED}[ ✘ ]  ${label} failed!${NC}"
             echo -e "   ${YELLOW}─────── LAST 15 LINES OF LOG: ───────${NC}"
@@ -1299,7 +1301,12 @@ if [[ -f "$CONFIG_FILE" ]]; then
     cp "$CONFIG_FILE" "$BACKUP_FILE"
     info "Merging updates into existing config.toml..."
     
-    # Run configuration updates. If any fail, restore backup and exit.
+    # Run configuration updates. If any fail, restore the backup and exit.
+    # The subshell status is captured via `|| VAR=$?`: a bare `( ... )` is a simple
+    # command, so under `set -e` a non-zero exit killed the installer here and the
+    # restore below never ran (leaving config.toml half-rewritten). `error` was also
+    # never defined as a function -- `fail` is the one that exists.
+    CONFIG_MERGE_STATUS=0
     (
         set -e
         python3 "$PRIMARY_HOME/piTrove/scripts/merge_config.py" "$PRIMARY_HOME/piTrove/src/config.toml" "$CONFIG_FILE" 
@@ -1315,9 +1322,9 @@ if [[ -f "$CONFIG_FILE" ]]; then
             # Ensure HTTP remote control is enabled to receive callback redirects
             sed -i "/\[remote\]/,/^\[/ s/^http_enabled = .*/http_enabled = 1/" "$CONFIG_FILE"
         fi
-    )
-    if [[ $? -ne 0 ]]; then
-        error "Config updates failed! Restoring backup config from $BACKUP_FILE"
+    ) || CONFIG_MERGE_STATUS=$?
+    if [[ "$CONFIG_MERGE_STATUS" -ne 0 ]]; then
+        fail "Config updates failed! Restoring backup config from $BACKUP_FILE"
         cp "$BACKUP_FILE" "$CONFIG_FILE"
         exit 1
     fi
