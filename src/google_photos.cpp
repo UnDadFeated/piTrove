@@ -10,6 +10,9 @@
 #include <algorithm>
 #include <chrono>
 #include <cstdio>
+#include <cctype>
+#include <utility>
+#include <vector>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -123,6 +126,99 @@ void GooglePhotosManager::sync_now() {
   download_media(access_token);
 }
 
+static size_t curl_write_cb(void* contents, size_t size, size_t nmemb, void* userp);
+
+static std::string url_encode(const std::string& s) {
+  static const char* hex = "0123456789ABCDEF";
+  std::string out;
+  out.reserve(s.size() * 3);
+  for (unsigned char c : s) {
+    if (std::isalnum(c) || c == '-' || c == '_' || c == '.' || c == '~') {
+      out += static_cast<char>(c);
+    } else {
+      out += '%';
+      out += hex[c >> 4];
+      out += hex[c & 0x0F];
+    }
+  }
+  return out;
+}
+
+// Escape a value for a JSON string body. The remote nextPageToken was interpolated
+// into the search request body unescaped.
+static std::string json_escape(const std::string& s) {
+  std::string out;
+  out.reserve(s.size() + 8);
+  for (char c : s) {
+    switch (c) {
+      case '"':  out += "\\\""; break;
+      case '\\': out += "\\\\"; break;
+      case '\n': out += "\\n";  break;
+      case '\r': out += "\\r";  break;
+      case '\t': out += "\\t";  break;
+      default:
+        if (static_cast<unsigned char>(c) < 0x20) {
+          static const char* hex = "0123456789abcdef";
+          out += "\\u00";
+          out += hex[(c >> 4) & 0x0F];
+          out += hex[c & 0x0F];
+        } else {
+          out += c;
+        }
+        break;
+    }
+  }
+  return out;
+}
+
+// Real HTTP POST helper.
+//
+// execute_curl() takes a *shell-shaped* string but only recovers a URL and an
+// `Authorization: Bearer` header from it, then issues a plain GET. Every `-X POST` and
+// `-d` pair was therefore silently discarded: the refresh-token grant went out as a
+// bodyless GET (which the token endpoint rejects, so Google Photos could never
+// authenticate), and the mediaItems:search body was dropped. These helpers set
+// CURLOPT_POST/POSTFIELDS explicitly, so a flag added later cannot be silently ignored.
+static std::string http_post(const std::string& url, const std::string& body,
+                             const std::string& content_type, const std::string& bearer) {
+  CURL* curl = curl_easy_init();
+  if (!curl) return "";
+  std::string response;
+  curl_slist* headers = curl_slist_append(nullptr, ("Content-Type: " + content_type).c_str());
+  if (!bearer.empty()) {
+    headers = curl_slist_append(headers, ("Authorization: Bearer " + bearer).c_str());
+  }
+  curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
+  curl_easy_setopt(curl, CURLOPT_POST, 1L);
+  curl_easy_setopt(curl, CURLOPT_POSTFIELDS, body.c_str());
+  curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE, (long)body.size());
+  curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+  curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, curl_write_cb);
+  curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response);
+  curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 10L);
+  curl_easy_setopt(curl, CURLOPT_TIMEOUT, 30L);
+  curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 1L);
+  curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
+  CURLcode res = curl_easy_perform(curl);
+  curl_easy_cleanup(curl);
+  curl_slist_free_all(headers);
+  if (res != CURLE_OK) {
+    g_logger.error("GooglePhotos: POST {} failed: {}", url, curl_easy_strerror(res));
+    return "";
+  }
+  return response;
+}
+
+static std::string post_form(const std::string& url,
+                             const std::vector<std::pair<std::string, std::string>>& fields) {
+  std::string body;
+  for (size_t i = 0; i < fields.size(); ++i) {
+    if (i) body += "&";
+    body += url_encode(fields[i].first) + "=" + url_encode(fields[i].second);
+  }
+  return http_post(url, body, "application/x-www-form-urlencoded", "");
+}
+
 std::string GooglePhotosManager::get_access_token() {
   std::string client_id, client_secret, refresh_token;
   {
@@ -132,20 +228,13 @@ std::string GooglePhotosManager::get_access_token() {
     refresh_token = g_cfg.google_photos_refresh_token;
   }
 
-  // Build the curl command securely to fetch access token
-  std::string cmd = "curl -s -X POST https://oauth2.googleapis.com/token "
-                    "-d client_id='" +
-                    escape_shell_arg(client_id) +
-                    "' "
-                    "-d client_secret='" +
-                    escape_shell_arg(client_secret) +
-                    "' "
-                    "-d refresh_token='" +
-                    escape_shell_arg(refresh_token) +
-                    "' "
-                    "-d grant_type=refresh_token";
-
-  std::string json = execute_curl(cmd);
+  // Real form POST. The previous shell-shaped string lost its -X POST and -d fields when
+  // execute_curl() reduced it to a URL, so this grant was sent as a bodyless GET.
+  std::string json = post_form("https://oauth2.googleapis.com/token",
+                               {{"client_id", client_id},
+                                {"client_secret", client_secret},
+                                {"refresh_token", refresh_token},
+                                {"grant_type", "refresh_token"}});
   std::string access_token = parse_json_value(json, "access_token");
   if (access_token.empty()) {
     struct addrinfo hints{}, *res = nullptr;
@@ -195,30 +284,30 @@ void GooglePhotosManager::download_media(const std::string &access_token) {
     }
 
     std::string cmd;
+    std::string json;
     if (!album_id.empty()) {
       // Query specific album
       std::string post_data = "{\"albumId\": \"" + sanitize_alphanumeric(album_id) + "\", \"pageSize\": 100";
       if (!page_token.empty()) {
-        post_data += ", \"pageToken\": \"" + page_token + "\"";
+        post_data += ", \"pageToken\": \"" + json_escape(page_token) + "\"";
       }
       post_data += "}";
-      cmd = "curl -s -X POST "
-            "https://photoslibrary.googleapis.com/v1/mediaItems:search "
-            "-H 'Authorization: Bearer " + escape_shell_arg(access_token) + "' "
-            "-H 'Content-type: application/json' "
-            "-d '" + escape_shell_arg(post_data) + "'";
+      // Real JSON POST; the previous shell string lost its body via execute_curl().
+      json = http_post("https://photoslibrary.googleapis.com/v1/mediaItems:search",
+                       post_data, "application/json", access_token);
     } else {
       // Query all media items
       std::string url = "https://photoslibrary.googleapis.com/v1/mediaItems?pageSize=100";
       if (!page_token.empty()) {
-        url += "&pageToken=" + page_token;
+        url += "&pageToken=" + url_encode(page_token);
       }
+      // Paging is a GET, so it still goes through execute_curl (which handles URLs
+      // and the Authorization header correctly).
       cmd = "curl -s -X GET "
             "'" + escape_shell_arg(url) + "' "
             "-H 'Authorization: Bearer " + escape_shell_arg(access_token) + "'";
+      json = execute_curl(cmd);
     }
-
-    std::string json = execute_curl(cmd);
 
     // Check for API errors in the json response
     if (json.find("\"error\"") != std::string::npos) {

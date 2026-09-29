@@ -87,6 +87,17 @@ that feature does not activate, which is logged rather than treated as a failure
 - **Google Photos cursor stall fixed**: two `continue` guards in the media-item loop skipped the
   cursor advance, so any rejected `baseUrl` spun forever, burning a core and appending one ERROR
   line per iteration to a bind-mounted log. Both guards now advance the cursor.
+- **Google Photos OAuth transport fixed**: `get_access_token()` built a shell-shaped string
+  carrying the grant as `-X POST -d …`, but `execute_curl()` only recovers a URL and an
+  `Authorization` header from that string and then issues a plain `GET` — so every `-X POST`
+  and `-d` pair was silently discarded. The refresh-token grant went out bodyless (which the
+  token endpoint rejects, so the feature could never authenticate), and the `mediaItems:search`
+  body was dropped the same way. Added an explicit `http_post()` helper that sets
+  `CURLOPT_POST`/`POSTFIELDS`, and routed the token exchange and the album search through it.
+  This also removes a fail-open shape: a flag added to the old command string would have
+  appeared to work while being ignored. The now-misleading `escape_shell_arg` calls on values
+  that never reach a shell were removed, and the remote `nextPageToken` is JSON- and
+  URL-escaped where it is interpolated.
 
 #### Performance & Robustness
 - **Heartbeat write throttled**: `heartbeat_tick()` performed a `create_directories` sweep, a
@@ -119,9 +130,14 @@ that feature does not activate, which is logged rather than treated as a failure
 - **CSRF/Origin checks not added**: every state change is a bare `GET`, so a page a LAN device
   loads can trigger one. Deliberately deferred: a wrong `Origin` comparison would break legitimate
   dashboard access from a phone or a different hostname, and it is an enforcement change.
-- **`/api/settings/update` config write, MQTT password on `execvp` argv, Google Photos OAuth POST,
-  E530 crawl-watchdog latency, watchdog restart-loop cooldown, and the scanner thread-leak
-  counter** are documented in `PLAN.md` §3–§5 and left for a follow-up release.
+- **`/api/settings/update` config write, E530 crawl-watchdog latency, watchdog restart-loop
+  cooldown, and the scanner thread-leak counter** are documented in `PLAN.md` §3–§5 and left for
+  a follow-up release.
+- **MQTT password still passed on `execvp` argv** (world-readable via `/proc/<pid>/cmdline` for
+  the process lifetime). Deliberately deferred: the correct fix is `mosquitto_pub/sub --pw-file`
+  with a private temp file, and that needs an unlink on *every* exit path — child failure, early
+  return, signal. Doing it hastily would trade one secret-exposure path for another (password
+  files left on the SD card). MQTT is disabled by default; worth doing as its own change.
 
 **Verification**: full image build on the target Pi 5 (Debian trixie, GCC 14). No runtime
 behaviour was changed for existing configurations: with no `api_key` set the control API behaves
