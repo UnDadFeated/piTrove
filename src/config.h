@@ -210,6 +210,9 @@ struct Config {
     int                      stockstreamer_refresh_seconds{10};
     std::vector<std::string> stockstreamer_symbols{"NVDA", "AAPL", "MSFT", "AMZN", "GOOGL", "META", "BRK-B", "TSLA", "AVGO", "JPM"};
     std::string              stockstreamer_crypto{"BTC-USD"};
+    // TLS certificate + hostname verification for the stock/crypto HTTP client.
+    // On by default. Set to 0 only behind a TLS-intercepting proxy (accepts MITM).
+    bool                     stockstreamer_tls_verify{true};
 
     // [gcalendar]
     bool        gcalendar_enabled{false};

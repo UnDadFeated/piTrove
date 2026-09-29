@@ -33,8 +33,12 @@ static std::string http_get_json(const std::string& url, int timeout_secs = 4) {
     curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 3L);
     curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
     curl_easy_setopt(curl, CURLOPT_USERAGENT, "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36");
-    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
-    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0L);
+    // TLS verification is on by default. Set [stockstreamer] tls_verify = 0 only if this
+    // host sits behind a TLS-intercepting proxy and you accept the MITM exposure; any
+    // value other than 0 keeps chain and hostname validation enabled.
+    long tls_verify = g_cfg.stockstreamer_tls_verify ? 1L : 0L;
+    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, tls_verify);
+    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, tls_verify);
 
     CURLcode res = curl_easy_perform(curl);
     curl_easy_cleanup(curl);
@@ -285,8 +289,15 @@ void StockStreamer::fetch_sync() {
             m_crypto = std::move(fetched_crypto);
         }
         m_last_sync_time.store(time(nullptr));
-        m_last_error.store(0);
-        g_logger.info("STOCKS: Realtime sync completed for {} S&P 500 stocks + BTC", m_stocks.size());
+        // Only report healthy if something actually succeeded. Reporting success after a
+        // total fetch failure left the panel showing stale/seeded prices with no signal.
+        if (!fetched_stocks.empty() || btc_ok) {
+            m_last_error.store(0);
+            g_logger.info("STOCKS: Realtime sync completed for {} S&P 500 stocks + BTC", m_stocks.size());
+        } else {
+            m_last_error.store(1);
+            g_logger.warn("STOCKS: all fetches failed; retaining last known quotes (check [stockstreamer] tls_verify if unexpected)");
+        }
     }
 }
 
@@ -354,6 +365,7 @@ bool StockStreamer::start() {
 
 void StockStreamer::stop() {
     m_running.store(false);
+    if (m_worker_thread.joinable()) m_worker_thread.join();
 }
 
 std::vector<StockQuote> StockStreamer::get_stocks() const {

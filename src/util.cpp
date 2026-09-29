@@ -1021,14 +1021,22 @@ static std::mutex g_prefetch_mtx;
 
 void prefetch_video(const std::string& path) {
     if (path.empty()) return;
+    // Join any previous prefetch *outside* the lock. The previous code hand-unlocked the
+    // mutex behind a lock_guard's back around join(): if join() threw, the guard would
+    // unlock an already-unlocked mutex (UB), and a second caller could join the same
+    // thread concurrently. Moving the handle out under the lock avoids both.
+    {
+        std::jthread prev;
+        {
+            std::lock_guard lk(g_prefetch_mtx);
+            if (g_prefetch_thread.joinable()) {
+                prev = std::move(g_prefetch_thread);
+            }
+        }
+        if (prev.joinable()) prev.join();
+    }
     {
         std::lock_guard lk(g_prefetch_mtx);
-        if (g_prefetch_thread.joinable()) {
-            // Wait for previous prefetch to complete (max 50ms) instead of detach
-            g_prefetch_mtx.unlock();
-            g_prefetch_thread.join();
-            g_prefetch_mtx.lock();
-        }
         if (!spawn_thread_safe(g_prefetch_thread, "prefetch", [path]() {
             int fd = open(path.c_str(), O_RDONLY | O_NONBLOCK);
             [[unlikely]]

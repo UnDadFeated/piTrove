@@ -202,7 +202,7 @@ bool Config::load(const std::string& path) {
             this->vignette_strength = std::clamp(v, 0.10f, 0.80f);
         }
         else if (key == "shuffle")           this->shuffle = !(val == "0" || val == "false");
-        else if (key == "ken_burns_zoom")    this->ken_burns_zoom = safe_stof(val, this->ken_burns_zoom);
+        else if (key == "ken_burns_zoom")    this->ken_burns_zoom = std::clamp(safe_stof(val, this->ken_burns_zoom), 0.0f, 1.0f);
         else if (key == "bias_strength")     this->bias_strength = std::clamp(safe_stoi(val, this->bias_strength), 0, 255);
         else if (key == "clock_enabled")     this->clock_enabled = (val == "1" || val == "true");
         else if (key == "clock_x")           this->clock_x = safe_stof(val, this->clock_x);
@@ -294,6 +294,7 @@ bool Config::load(const std::string& path) {
         else if (key == "preset" && section == "stockstreamer")               this->stockstreamer_preset = val;
         else if (key == "refresh_seconds" && section == "stockstreamer")      this->stockstreamer_refresh_seconds = safe_stoi(val, this->stockstreamer_refresh_seconds);
         else if (key == "crypto" && section == "stockstreamer")               this->stockstreamer_crypto = val;
+        else if (key == "tls_verify" && section == "stockstreamer")           this->stockstreamer_tls_verify = !(val == "0" || val == "false");
         else if (key == "enabled" && section == "gcalendar")                  this->gcalendar_enabled = (val == "1" || val == "true");
         else if (key == "source_type" && section == "gcalendar")              this->gcalendar_source_type = val;
         else if (key == "ical_url" && section == "gcalendar")                 this->gcalendar_ical_url = val;
@@ -317,8 +318,8 @@ bool Config::load(const std::string& path) {
         else if (key == "resolution") {
             auto comma = val.find(',');
             if (comma != std::string::npos) {
-                this->screen_w = safe_stoi(val.substr(0, comma), this->screen_w);
-                this->screen_h = safe_stoi(val.substr(comma + 1), this->screen_h);
+                this->screen_w = std::clamp(safe_stoi(val.substr(0, comma), this->screen_w), 320, 16384);
+                this->screen_h = std::clamp(safe_stoi(val.substr(comma + 1), this->screen_h), 240, 16384);
             }
         }
         else {
@@ -387,6 +388,25 @@ void Config::parse_args(int argc, char** argv) {
             i++;
         }
     }
+}
+
+// Escape a value for a basic TOML string. Without this, a value containing a
+// quote or backslash corrupts config.toml on write (reachable from the web
+// settings endpoint, e.g. api_key and dashboard_pin).
+static std::string toml_escape(const std::string& s) {
+    std::string out;
+    out.reserve(s.size() + 8);
+    for (char c : s) {
+        switch (c) {
+            case '"':  out += "\\\""; break;
+            case '\\': out += "\\\\"; break;
+            case '\n': out += "\\n";  break;
+            case '\r': out += "\\r";  break;
+            case '\t': out += "\\t";  break;
+            default:   out += c;      break;
+        }
+    }
+    return out;
 }
 
 bool Config::save(const std::string& path) {
@@ -514,13 +534,13 @@ bool Config::save(const std::string& path) {
     f << "weather_location = \"" << this->weather_location << "\"\n";
     f << "weather_lat = " << this->weather_lat << "\n";
     f << "weather_lon = " << this->weather_lon << "\n\n";
-    f << "dashboard_pin = \"" << this->dashboard_pin << "\"\n";
+    f << "dashboard_pin = \"" << toml_escape(this->dashboard_pin) << "\"\n";
 
     f << "[remote]\n";
     f << "http_enabled = " << (this->http_enabled ? "1" : "0") << "\n";
     f << "http_port = " << this->http_port << "\n";
     f << "web_dashboard_enabled = " << (this->web_dashboard_enabled ? "1" : "0") << "\n";
-    f << "api_key = \"" << this->http_api_key << "\"\n\n";
+    f << "api_key = \"" << toml_escape(this->http_api_key) << "\"\n\n";
 
     f << "[features]\n";
     f << "on_this_day_enabled = " << (this->on_this_day_enabled ? "1" : "0") << "\n";
@@ -565,8 +585,8 @@ bool Config::save(const std::string& path) {
     f << "enabled = " << (this->mqtt_enabled ? "1" : "0") << "\n";
     f << "broker = \"" << this->mqtt_broker << "\"\n";
     f << "port = " << this->mqtt_port << "\n";
-    f << "user = \"" << this->mqtt_user << "\"\n";
-    f << "pass = \"" << this->mqtt_pass << "\"\n";
+    f << "user = \"" << toml_escape(this->mqtt_user) << "\"\n";
+    f << "pass = \"" << toml_escape(this->mqtt_pass) << "\"\n";
     f << "topic_prefix = \"" << this->mqtt_topic_prefix << "\"\n";
     f << "motionsensor_topic = \"" << this->mqtt_motionsensor_topic << "\"\n";
     f << "motionsensor_cooldown = " << this->mqtt_motionsensor_cooldown << "\n\n";
@@ -592,22 +612,23 @@ bool Config::save(const std::string& path) {
     f << "enabled = " << (this->stockstreamer_enabled ? "1" : "0") << "\n";
     f << "preset = \"" << this->stockstreamer_preset << "\"\n";
     f << "refresh_seconds = " << this->stockstreamer_refresh_seconds << "\n";
-    f << "crypto = \"" << this->stockstreamer_crypto << "\"\n\n";
+    f << "crypto = \"" << toml_escape(this->stockstreamer_crypto) << "\"\n";
+    f << "tls_verify = " << (this->stockstreamer_tls_verify ? "1" : "0") << "\n\n";
 
     f << "[gcalendar]\n";
     f << "enabled = " << (this->gcalendar_enabled ? "1" : "0") << "\n";
     f << "source_type = \"" << this->gcalendar_source_type << "\"\n";
-    f << "ical_url = \"" << this->gcalendar_ical_url << "\"\n";
-    f << "calendar_name = \"" << this->gcalendar_name << "\"\n";
-    f << "api_key = \"" << this->gcalendar_api_key << "\"\n";
+    f << "ical_url = \"" << toml_escape(this->gcalendar_ical_url) << "\"\n";
+    f << "calendar_name = \"" << toml_escape(this->gcalendar_name) << "\"\n";
+    f << "api_key = \"" << toml_escape(this->gcalendar_api_key) << "\"\n";
     f << "refresh_minutes = " << this->gcalendar_refresh_minutes << "\n";
     f << "max_events = " << this->gcalendar_max_events << "\n\n";
 
     f << "[google_photos]\n";
     f << "enabled = " << (this->google_photos_enabled ? "1" : "0") << "\n";
     f << "client_id = \"" << this->google_photos_client_id << "\"\n";
-    f << "client_secret = \"" << this->google_photos_client_secret << "\"\n";
-    f << "refresh_token = \"" << this->google_photos_refresh_token << "\"\n";
+    f << "client_secret = \"" << toml_escape(this->google_photos_client_secret) << "\"\n";
+    f << "refresh_token = \"" << toml_escape(this->google_photos_refresh_token) << "\"\n";
     f << "album_id = \"" << this->google_photos_album_id << "\"\n";
     f << "sync_interval_mins = " << this->google_photos_sync_interval << "\n";
     f << "cache_dir = \"" << this->google_photos_cache_dir << "\"\n\n";

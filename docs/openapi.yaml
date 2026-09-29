@@ -1,7 +1,21 @@
 openapi: 3.1.0
 info:
   title: piTrove Control API
-  version: 17.4.3
+  version: 18.1.20
+  description: |
+    HTTP control surface exposed by the piTrove slideshow process.
+
+    **Authentication is opt-in.** The server binds `INADDR_ANY` under
+    `network_mode: host`. Routes marked "opt-in auth" are guarded by
+    `is_authorized()`, which returns true unconditionally when `[remote] api_key`
+    is empty in `config.toml`. With no key set the control API is fully open to
+    the local network; with a key set, a `Authorization: Bearer <key>` header is
+    required. The effective state is logged once at startup. Set an API key on
+    any network you do not fully control.
+
+    **All state-changing routes are `GET`.** This is a known limitation, not an
+    oversight, and is documented in `CHANGELOG.md`; prefer the dashboard, which
+    issues the same requests.
 
 servers:
   - url: http://localhost:9000
@@ -11,42 +25,246 @@ components:
     bearerAuth:
       type: http
       scheme: bearer
+      description: |
+        The value of `[remote] api_key`. Ignored (and not required) when that key
+        is empty, in which case the protected routes are open.
+
+  parameters:
+    emptyAuth:
+      name: emptyAuth
+      in: query
+      required: false
+      schema:
+        type: string
+        enum: [""]
+      description: >-
+        Placeholder indicating the route is reachable without a credential when
+        no API key is configured.
 
 paths:
-  /api/next:
-    post:
-      security:
-        - bearerAuth: []
-      responses:
-        "200":
-          description: Skip to next item
-
-  /api/previous:
-    post:
-      security:
-        - bearerAuth: []
-      responses:
-        "200":
-          description: Skip to previous item
-
-  /api/screen/blank:
-    post:
-      security:
-        - bearerAuth: []
-      responses:
-        "200":
-          description: Blank screen
-
-  /api/screen/unblank:
-    post:
-      security:
-        - bearerAuth: []
-      responses:
-        "200":
-          description: Unblank screen
-
-  /metrics:
+  /:
     get:
+      summary: Web dashboard
       responses:
         "200":
-          description: Prometheus metrics
+          description: Dashboard HTML
+
+  /api/status:
+    get:
+      summary: Current playback status
+      description: Open. Disk usage is cached for 30 s; the dashboard polls about once a second.
+      responses:
+        "200":
+          description: Status JSON
+
+  /api/settings:
+    get:
+      summary: Read current settings
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Settings JSON
+        "401":
+          description: Missing or invalid API key
+        "429":
+          description: Locked out after 5 failed attempts
+
+  /api/settings/update:
+    get:
+      summary: Update settings (writes config.toml)
+      description: >-
+        Opt-in auth. Any query parameter name matching a config key is applied and the file is
+        rewritten. String values are TOML-escaped on write.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: news_local_query
+          in: query
+          schema: { type: string }
+          description: Local news ZIP/city query. Triggers a deferred news refetch.
+        - name: news_blacklist
+          in: query
+          schema: { type: string }
+          description: Comma-separated blacklist. Triggers a deferred news refetch.
+      responses:
+        "200": { description: OK }
+        "400": { description: Clamp validation violation }
+        "401": { description: Unauthorized }
+        "429": { description: Locked out }
+
+  /api/logs:
+    get:
+      summary: Recent log tail
+      security:
+        - bearerAuth: []
+      responses:
+        "200": { description: Log text }
+
+  /api/next:
+    get:
+      summary: Skip to the next item
+      security:
+        - bearerAuth: []
+      responses:
+        "200": { description: OK }
+        "401": { description: Unauthorized }
+        "429": { description: Cooldown (500 ms) }
+
+  /api/prev:
+    get:
+      summary: Skip to the previous item
+      security:
+        - bearerAuth: []
+      responses:
+        "200": { description: OK }
+        "401": { description: Unauthorized }
+        "429": { description: Cooldown (500 ms) }
+
+  /api/pause:
+    get:
+      summary: Toggle pause
+      security:
+        - bearerAuth: []
+      responses:
+        "200": { description: OK }
+        "401": { description: Unauthorized }
+
+  /api/toggle_shuffle:
+    get:
+      summary: Toggle shuffle mode
+      security:
+        - bearerAuth: []
+      responses:
+        "200": { description: OK }
+        "401": { description: Unauthorized }
+
+  /api/restart:
+    get:
+      summary: Shut the process down (compose restarts it)
+      security:
+        - bearerAuth: []
+      responses:
+        "200": { description: OK }
+        "401": { description: Unauthorized }
+
+  /api/toggle_screen:
+    get:
+      summary: Blank or unblank the display
+      security:
+        - bearerAuth: []
+      responses:
+        "200": { description: OK }
+        "401": { description: Unauthorized }
+
+  /api/trigger_motion:
+    get:
+      summary: Wake the screen and publish a motion event
+      security:
+        - bearerAuth: []
+      responses:
+        "200": { description: OK }
+        "401": { description: Unauthorized }
+
+  /api/play_video:
+    get:
+      summary: Force the next playlist item to be a video
+      security:
+        - bearerAuth: []
+      responses:
+        "200": { description: OK }
+        "401": { description: Unauthorized }
+
+  /api/screenshot:
+    get:
+      summary: Capture the current framebuffer
+      description: >-
+        Opt-in auth. Blocks up to 5 s and forces a full framebuffer readback plus PNG encode on
+        the render thread. Rate limited to one capture per 2 s.
+      security:
+        - bearerAuth: []
+      responses:
+        "200": { description: PNG image }
+        "401": { description: Unauthorized }
+        "429": { description: Rate limited }
+
+  /api/preview:
+    get:
+      summary: Stream the currently displayed media file
+      responses:
+        "200": { description: Media bytes }
+
+  /api/screenshots:
+    get:
+      summary: List stored screenshots
+      responses:
+        "200": { description: Filename list }
+
+  /api/screenshots/{name}:
+    get:
+      summary: Fetch a stored screenshot
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema: { type: string }
+          description: >-
+            Rejects "..", "/" and is not percent-decoded, so traversal is not possible. The base
+            directory is fixed.
+      responses:
+        "200": { description: PNG image }
+        "400": { description: Invalid filename }
+        "404": { description: Not found }
+
+  /api/news:
+    get:
+      summary: News ticker status
+      responses:
+        "200": { description: News JSON }
+
+  /api/calendar:
+    get:
+      summary: Upcoming calendar events
+      responses:
+        "200": { description: Calendar JSON }
+
+  /api/calendar/sync:
+    get:
+      post:
+      summary: Trigger a calendar refresh now
+      security:
+        - bearerAuth: []
+      responses:
+        "200": { description: OK }
+        "401": { description: Unauthorized }
+
+  /api/stocks:
+    get:
+      summary: S&P 500 / crypto quotes
+      description: >-
+        Open. Quotes are fetched with TLS verification unless
+        `[stockstreamer] tls_verify = 0`.
+      responses:
+        "200": { description: Quotes JSON }
+
+  /google_photos_setup:
+    get:
+      post:
+      summary: Google Photos OAuth setup
+      description: >-
+        Opt-in auth. Accepts `client_id` and `client_secret` and writes them to the live config.
+      security:
+        - bearerAuth: []
+      responses:
+        "200": { description: Setup page or redirect }
+        "401": { description: Unauthorized }
+
+  /google_photos_callback:
+    get:
+      summary: Google OAuth redirect target
+      description: >-
+        Intentionally NOT authenticated. This is a Google-initiated redirect that cannot carry
+        an `Authorization` header; gating it would break the OAuth flow. It only persists config
+        after a successful token exchange.
+      responses:
+        "200": { description: Success or error page }

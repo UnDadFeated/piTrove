@@ -108,7 +108,14 @@ SDL_PixelFormat g_video_tex_fmt = SDL_PIXELFORMAT_UNKNOWN;
 static std::jthread g_watchman_thread;
 static std::atomic<bool> g_watchman_running{false};
 static std::atomic<bool> g_watchman_finished{false};
-static std::chrono::steady_clock::time_point g_watchdog_last_time;
+// Held as a raw epoch count: the watchdog thread and the main loop both write it, and the
+// 8-byte time_point could tear. A garbage value here makes `elapsed` huge, and a large
+// elapsed triggers a forced _exit(99) container restart.
+static std::atomic<int64_t> g_watchdog_last_time{0};
+static inline int64_t steady_now_ms() {
+    return std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now().time_since_epoch()).count();
+}
 
 static VideoDecoder g_video_decoder;
 
@@ -985,7 +992,7 @@ static uint32_t g_disp_t0 = 0;
 static int g_disp_n = 0;
 static void watchdog_loop() {
     g_logger.info("Watchdog: Software watchdog thread active.");
-    g_watchdog_last_time = std::chrono::steady_clock::now();
+    g_watchdog_last_time.store(steady_now_ms());
     while (g_watchdog_running.load()) {
         std::this_thread::sleep_for(std::chrono::seconds(5));
         if (!g_watchdog_running.load()) break;
@@ -1006,7 +1013,7 @@ static void watchdog_loop() {
         // If playing video, SDL3 video decoder controls playback timing, so we skip heartbeat checks
         if (paused || blanked || empty || is_video) {
             // Keep resetting heartbeat while paused/blanked/playing video
-            g_watchdog_last_time = std::chrono::steady_clock::now();
+            g_watchdog_last_time.store(steady_now_ms());
             continue;
         }
 
@@ -1017,8 +1024,7 @@ static void watchdog_loop() {
         }
 
         // Allow up to 3x transition delay or a minimum of 45 seconds before forcing restart
-        auto now = std::chrono::steady_clock::now();
-        auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(now - g_watchdog_last_time).count();
+        int64_t elapsed = (steady_now_ms() - g_watchdog_last_time.load()) / 1000;
         int64_t max_silent_time = std::max((int64_t)45, (int64_t)(delay * 3));
         if (elapsed > max_silent_time) {
             g_logger.error("[WATCHDOG] CRITICAL: Slideshow loop frozen! Last heartbeat was {} seconds ago. Forcing restart...", (int)elapsed);
@@ -2217,8 +2223,17 @@ int main(int argc, char** argv) {
         double dt = std::chrono::duration<double>(now - last_frame_time).count();
         last_frame_time = now;
 
-        g_watchdog_last_time = std::chrono::steady_clock::now();
-        pitrove::health::heartbeat_tick();
+        g_watchdog_last_time.store(steady_now_ms());
+        // heartbeat_tick() rewrites the health file every call; the consumer only reads it
+        // once per 30s and needs 15s granularity, so throttle the filesystem write.
+        {
+            static int64_t last_hb_write = 0;
+            int64_t t = steady_now_ms();
+            if (t - last_hb_write >= 5000) {
+                last_hb_write = t;
+                pitrove::health::heartbeat_tick();
+            }
+        }
 
         
         // Periodic HDMI sleep/wake schedule check (every 5 seconds)
@@ -3556,10 +3571,16 @@ int main(int argc, char** argv) {
         g_logger.info("Keepalive: Background connection monitoring thread stopped successfully.");
     }
     
-    // Stop background watchman thread safely
+    // Stop background watchman thread safely.
+    // The watchman sleeps in 1s increments, so a 500ms budget tripped routinely and left
+    // a detached thread that could still call into g_cache / g_playlist_mtx while main()
+    // went on to delete them. Give it a budget that covers the sleep granularity several
+    // times over, and if it still will not stop, deliberately leak the objects it can
+    // reach rather than freeing memory under a live thread.
     g_watchman_running.store(false);
+    bool watchman_still_running = false;
     if (g_watchman_thread.joinable()) {
-        int timeout_ms = 500;
+        int timeout_ms = 5000;
         while (timeout_ms > 0 && !g_watchman_finished.load()) {
             std::this_thread::sleep_for(std::chrono::milliseconds(50));
             timeout_ms -= 50;
@@ -3568,8 +3589,9 @@ int main(int argc, char** argv) {
             g_watchman_thread.join();
             g_logger.info("Watchman: Background watchman thread stopped successfully.");
         } else {
+            watchman_still_running = true;
             g_watchman_thread.detach();
-            g_logger.warn("Watchman: Watchman thread did not exit cleanly within 500ms. Detached.");
+            g_logger.warn("Watchman: did not exit within 5000ms; detached. Skipping teardown of objects it may still touch.");
         }
     }
 
@@ -3590,7 +3612,10 @@ int main(int argc, char** argv) {
     if (next_twin_data) { next_twin_data = nullptr; }
     if (transition_prev_target) { SDL_DestroyTexture(transition_prev_target); }
     if (transition_next_target) { SDL_DestroyTexture(transition_next_target); }
-    if (g_cache) { g_cache->close(); delete g_cache; }
+    // A still-running detached watchman can be inside g_cache->begin_transaction()/
+    // load_cached()/upsert(). Leaking the object at process exit is strictly safer than
+    // freeing it underneath a live thread.
+    if (g_cache && !watchman_still_running) { g_cache->close(); delete g_cache; g_cache = nullptr; }
     g_renderer.cleanup();
 
     flock(lock_fd, LOCK_UN); close(lock_fd);
