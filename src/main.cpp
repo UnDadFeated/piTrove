@@ -30,6 +30,8 @@
 #include <SDL3_ttf/SDL_ttf.h>
 #include <sys/file.h>
 #include <unistd.h>
+#include <cstdlib>
+#include <ctime>
 #include <csignal>
 #include <algorithm>
 #include <random>
@@ -635,48 +637,57 @@ static std::vector<MediaItem> filter_playlist(const std::vector<MediaItem>& item
         }
     }
     
+    // Precompute everything that does not depend on the cooldown, exactly once.
+    //
+    // Previously all of this sat *inside* the per-pass loop below: classify_media_item()
+    // re-lowercased each item's full path and rescanned ~50 keyword lists for every item
+    // on every cooldown-degradation pass, and the "snapshot" took g_config_mtx 73,000+
+    // times per pass. On a library of 73,736 items that turned a routine daily rescan into
+    // an effective hang — and the caller holds g_playlist_mtx across this function, so the
+    // 60Hz render loop stalls with it.
+    bool snap_show_people = true, snap_keep_animals = true;
+    {
+        std::lock_guard lk(g_config_mtx);
+        snap_show_people = g_cfg.show_people_faces;
+        snap_keep_animals = g_cfg.keep_animals;
+    }
+
+    // drop_flags[i] != 0 => excluded regardless of the current cooldown.
+    std::vector<uint8_t> drop_flags;
+    drop_flags.reserve(items.size());
+    for (const auto& item : items) {
+        bool drop = false;
+        if (!is_item_in_seasonal_window(item, window_days)) {
+            drop = true; // seasonal window
+        } else if (item.type != "video") { // only filter images, keep videos
+            bool has_people = false;
+            bool has_animals = false;
+            bool is_doc = false;
+            classify_media_item(item, has_people, has_animals, is_doc);
+            if (is_doc) {
+                drop = true;
+            } else if (!snap_show_people && has_people) {
+                drop = true;
+            } else if (!snap_keep_animals && has_animals) {
+                drop = true;
+            }
+        }
+        drop_flags.push_back(drop ? 1 : 0);
+    }
+
     int target_min = std::min(15, seasonal_count);
     int current_cooldown = cooldown_days;
-    
+
     while (true) {
         filtered.clear();
         int64_t cutoff = now - (static_cast<int64_t>(current_cooldown) * 86400);
-        for (const auto& item : items) {
-            // 1. Cooldown filter
-            if (current_cooldown > 0 && item.last_shown >= cutoff) {
+        for (size_t i = 0; i < items.size(); ++i) {
+            if (drop_flags[i]) continue;
+            // Cooldown is the only filter that varies between passes.
+            if (current_cooldown > 0 && items[i].last_shown >= cutoff) {
                 continue;
             }
-            // 2. Seasonal window filter
-            if (!is_item_in_seasonal_window(item, window_days)) {
-                continue;
-            }
-            
-            // 3. People and Animal toggle filters
-            if (item.type != "video") { // only filter images, keep videos
-                bool has_people = false;
-                bool has_animals = false;
-                bool is_doc = false;
-                classify_media_item(item, has_people, has_animals, is_doc);
-                
-                // Snapshot config values under lock to avoid data race
-                bool snap_show_people, snap_keep_animals;
-                {
-                    std::lock_guard lk(g_config_mtx);
-                    snap_show_people = g_cfg.show_people_faces;
-                    snap_keep_animals = g_cfg.keep_animals;
-                }
-
-
-
-                if (is_doc) {
-                    continue;
-                } else {
-                    if (!snap_show_people && has_people) continue;
-                    if (!snap_keep_animals && has_animals) continue;
-                }
-            }
-
-            filtered.push_back(item);
+            filtered.push_back(items[i]);
         }
         
         if (std::ssize(filtered) >= target_min || current_cooldown <= 0) {
@@ -911,71 +922,107 @@ static void watchman_loop() {
                 screen_w = g_cfg.screen_w;
                 screen_h = g_cfg.screen_h;
             }
-            scan_directory(media_dir, depth, scanned, nullptr);
+            // scan_directory() walks a NAS mount that can hang or return errors on
+            // individual entries. Same rule as below: a background task must never abort
+            // the whole process.
+            try {
+                scan_directory(media_dir, depth, scanned, nullptr);
+            } catch (const std::exception& e) {
+                g_logger.error("Watchman: media scan failed ({}: {}); keeping the existing playlist.",
+                               typeid(e).name(), e.what());
+                continue;
+            } catch (...) {
+                g_logger.error("Watchman: media scan failed with an unknown exception; keeping the existing playlist.");
+                continue;
+            }
             g_logger.info("Watchman: Background scan complete. Scanned {} items. Caching metadata...", scanned.size());
 
-            if (g_cache) {
-                g_cache->begin_transaction();
-                for (auto& mi : scanned) {
-                    if (g_cache->load_cached(mi)) {
-                        mi.cached = true;
-                    } else {
-                        if (mi.type == "image") {
-                            mi.exif_rotation = 1;
-                            mi.width = 1920; mi.height = 1080;
-                            mi.creation_time = 0;
+            // Everything from here on is background bookkeeping. An exception escaping a
+            // std::jthread body is undefined and reaches std::terminate -> abort(), which
+            // takes the whole slideshow down. That is exactly what happened on
+            // 2026-09-29 00:00:59 UTC: an unhandled exception thrown inside
+            // filter_playlist() aborted the process, and the watchdog restarted it ~2
+            // minutes later. A background task must never be able to kill the app.
+            try {
+                if (g_cache) {
+                    g_cache->begin_transaction();
+                    for (auto& mi : scanned) {
+                        if (g_cache->load_cached(mi)) {
+                            mi.cached = true;
                         } else {
-                            mi.width = screen_w;
-                            mi.height = screen_h;
-                            mi.duration = 0.0;
+                            if (mi.type == "image") {
+                                mi.exif_rotation = 1;
+                                mi.width = 1920; mi.height = 1080;
+                                mi.creation_time = 0;
+                            } else {
+                                mi.width = screen_w;
+                                mi.height = screen_h;
+                                mi.duration = 0.0;
+                            }
+                            g_cache->upsert(mi, 0, 0);
                         }
-                        g_cache->upsert(mi, 0, 0);
                     }
+                    g_cache->commit_transaction();
                 }
-                g_cache->commit_transaction();
-            }
-            
-            // Re-filter playlist under lock to prevent data race on g_scanned_items and g_eligible
-            {
-                std::scoped_lock lock(g_playlist_mtx, g_config_mtx);
-                g_scanned_items = std::move(scanned);
-                
-                int cooldown_days = g_cfg.cooldown_days;
-                int window_days = g_cfg.scan_window_days;
-                bool shuffle_enabled = g_cfg.shuffle;
-                
-                std::vector<MediaItem> new_eligible = filter_playlist(g_scanned_items, cooldown_days, window_days);
-                g_logger.info("Watchman: New seasonal window calculation: {} / {} items eligible", new_eligible.size(), g_scanned_items.size());
-                
+
+                // Snapshot the settings we need, then do the expensive filtering OUTSIDE
+                // g_playlist_mtx. Holding the playlist lock across filter_playlist() blocks
+                // the 60Hz render loop — and therefore the health heartbeat — for the
+                // whole filtering pass.
+                int cooldown_days, window_days, videos_per_photos;
+                bool shuffle_enabled, play_just_photos, play_just_videos;
+                {
+                    std::lock_guard lk(g_config_mtx);
+                    cooldown_days = g_cfg.cooldown_days;
+                    window_days = g_cfg.scan_window_days;
+                    videos_per_photos = g_cfg.videos_per_photos;
+                    shuffle_enabled = g_cfg.shuffle;
+                    play_just_photos = g_cfg.play_just_photos;
+                    play_just_videos = g_cfg.play_just_videos;
+                }
+
+                std::vector<MediaItem> new_eligible = filter_playlist(scanned, cooldown_days, window_days);
+                g_logger.info("Watchman: New seasonal window calculation: {} / {} items eligible", new_eligible.size(), scanned.size());
+
                 if (!new_eligible.empty()) {
-                    bool play_just_photos = g_cfg.play_just_photos;
-                    bool play_just_videos = g_cfg.play_just_videos;
-                    int videos_per_photos = g_cfg.videos_per_photos;
                     organize_playlist(new_eligible, videos_per_photos, play_just_photos, play_just_videos, shuffle_enabled);
-                    
-                    // Try to preserve current playing item
-                    std::string current_path = "";
-                    if (current_idx >= 0 && current_idx < std::ssize(g_eligible)) {
-                        current_path = g_eligible[current_idx].path;
-                    }
-                    
-                    g_eligible = std::move(new_eligible);
-                    
-                    // Find if current path is in new playlist
-                    int new_idx = 0;
-                    if (!current_path.empty()) {
-                        for (int idx = 0; idx < std::ssize(g_eligible); idx++) {
-                            if (g_eligible[idx].path == current_path) {
-                                new_idx = idx;
-                                break;
+                }
+
+                // Short critical section: publish the results.
+                {
+                    std::scoped_lock lock(g_playlist_mtx);
+                    g_scanned_items = std::move(scanned);
+
+                    if (!new_eligible.empty()) {
+                        // Try to preserve current playing item
+                        std::string current_path = "";
+                        if (current_idx >= 0 && current_idx < std::ssize(g_eligible)) {
+                            current_path = g_eligible[current_idx].path;
+                        }
+
+                        g_eligible = std::move(new_eligible);
+
+                        // Find if current path is in new playlist
+                        int new_idx = 0;
+                        if (!current_path.empty()) {
+                            for (int idx = 0; idx < std::ssize(g_eligible); idx++) {
+                                if (g_eligible[idx].path == current_path) {
+                                    new_idx = idx;
+                                    break;
+                                }
                             }
                         }
+                        current_idx = new_idx;
+                        g_logger.info("Watchman: Playlist swapped seamlessly. New size={}, current_idx={}", g_eligible.size(), current_idx);
+                    } else {
+                        g_logger.warn("Watchman: New playlist is empty. Keeping old playlist to prevent interruption.");
                     }
-                    current_idx = new_idx;
-                    g_logger.info("Watchman: Playlist swapped seamlessly. New size={}, current_idx={}", g_eligible.size(), current_idx);
-                } else {
-                    g_logger.warn("Watchman: New playlist is empty. Keeping old playlist to prevent interruption.");
                 }
+            } catch (const std::exception& e) {
+                g_logger.error("Watchman: post-scan processing failed ({}: {}); keeping the existing playlist.",
+                               typeid(e).name(), e.what());
+            } catch (...) {
+                g_logger.error("Watchman: post-scan processing failed with an unknown exception; keeping the existing playlist.");
             }
         }
     }
@@ -1379,6 +1426,16 @@ int main(int argc, char** argv) {
         if (!g_cfg.load(config_path)) g_logger.warn("Failed to load config from {}, using defaults", config_path.c_str());
     } else {
         g_logger.warn("No config file found, using defaults");
+    }
+
+    // Apply the configured timezone to libc. The container ships tzdata but sets no TZ
+    // environment variable, so every localtime_r() call was resolving to UTC. That made
+    // the watchman's day-rollover fire at 00:00 UTC (17:00 in America/Los_Angeles) and ran
+    // the full daily rescan in the middle of the evening. Absent/empty timezone = unchanged.
+    if (!g_cfg.timezone.empty()) {
+        setenv("TZ", g_cfg.timezone.c_str(), 1);
+        tzset();
+        g_logger.info("Timezone set to '{}'", g_cfg.timezone.c_str());
     }
 
     

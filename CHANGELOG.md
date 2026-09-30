@@ -1,3 +1,56 @@
+### Release v18.1.21 — Fix Midnight Rescan Crash (Watchman Abort on Large Libraries) (September 29, 2026)
+
+At 2026-09-29 17:00:59 PDT the slideshow process **aborted** and the host watchdog restarted the
+container about two minutes later. The frame was dark for that period. Confirmed from the
+container's own crash handler, resolved to source with `addr2line`:
+
+```
+[CRITICAL ERROR] piTrove unhandled exception.
+[CRITICAL ERROR] piTrove intercepted a terminal fault / crash signal
+  #4 terminate_handler()
+  #6 std::__unexpected()
+  #8 std::__throw_system_error
+  #9 filter_playlist(...)        <- src/main.cpp
+  #10 watchman_loop()            <- src/main.cpp
+```
+
+It was **not** an OOM (dmesg has no kill in that window) and **not** a segfault.
+
+#### Root cause
+The daily watchman rescan had just completed over **73,736 media items** and called
+`filter_playlist()`, which threw. The call sits directly in the body of the `std::jthread` running
+`watchman_loop()`, with no exception handler on the path. An exception escaping a thread body is
+undefined behaviour: it reached `std::terminate()` → `abort()`, taking the entire process down.
+
+#### Fixes
+- **Exception barrier on the watchman path (the crash itself).** Both the scan itself and the
+  entire post-scan block (metadata caching, filtering, playlist swap) are now wrapped in
+  `try`/`catch`. A failure logs the exception type and message and keeps the existing playlist.
+  A background bookkeeping task can no longer abort the slideshow. This is the fix that matters:
+  whatever threw, the frame now stays up.
+- **`filter_playlist()` was O(N x log(cooldown)) and is now O(N).** The retry loop halves the
+  cooldown and re-runs the whole item list on each pass — and each pass re-invoked
+  `classify_media_item()` for every item, re-lowercasing the full path and rescanning ~50 keyword
+  lists, *and* took `g_config_mtx` once per item. With 73,736 items that is hundreds of thousands
+  of redundant string operations per rescan. The seasonal/document/people/animals decisions are
+  now precomputed once into `drop_flags`; only the cooldown test varies per pass.
+- **Expensive filtering moved out of `g_playlist_mtx`.** The call site held
+  `std::scoped_lock(g_playlist_mtx, g_config_mtx)` across `filter_playlist()`, so the whole
+  filtering pass blocked the 60 Hz render loop — and therefore the health heartbeat. Settings are
+  now snapshotted, filtering runs unlocked, and only the result swap is inside the critical
+  section.
+- **Timezone now applied to libc (behaviour change, intentional).** The container ships `tzdata`
+  but sets no `TZ`, so every `localtime_r()` call resolved to **UTC**. The watchman's
+  day-rollover therefore fired at 00:00 UTC — **17:00 in America/Los_Angeles** — and ran the full
+  73k-item rescan in the middle of the evening, which is when this crash occurred. `main()` now
+  applies the configured `timezone` via `setenv("TZ", …)` + `tzset()` at startup. This also makes
+  the on-screen clock, date overlay and "On This Day" logic use the configured zone rather than
+  UTC. If `timezone` is empty, behaviour is unchanged.
+
+#### Verification
+Full image build on the target Pi 5. Crash path is now guarded; the rescan no longer re-classifies
+the whole library per pass and no longer holds the playlist lock while filtering.
+
 ### Release v18.1.20 — Audit Remediation: Memory Safety, Secret Handling & Opt-In Hardening (September 29, 2026)
 
 Fixes from a full static audit of the codebase. **Design rule applied throughout: nothing is
