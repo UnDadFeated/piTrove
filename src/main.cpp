@@ -963,6 +963,7 @@ static void watchman_loop() {
                         }
                     }
                     g_cache->commit_transaction();
+                    g_cache->prune_missing(scanned);
                 }
 
                 // Snapshot the settings we need, then do the expensive filtering OUTSIDE
@@ -1493,7 +1494,7 @@ int main(int argc, char** argv) {
     std::string media_dir;
     std::string cache_dir;
     std::string log_dir;
-    int keep_count = 5;
+    int keep_count = 3;
     {
         std::shared_lock<std::shared_mutex> lock(g_config_mtx);
         media_dir = g_cfg.media_dir;
@@ -1854,6 +1855,7 @@ int main(int argc, char** argv) {
             }
         }
         g_cache->commit_transaction();
+        g_cache->prune_missing(g_scanned_items);
         g_logger.info("Cache complete: {} items", cached);
         int current_err = g_active_error_code.load();
         if (current_err == 401 || current_err == 413) {

@@ -471,7 +471,8 @@ void Logger::init(const std::string& path, LogLevel lvl, int keep_count) {
     log_file_path = path + "/" + fname;
 
     // Rotate: keep specified number of old log files
-    rotate_logs(path, keep_count);
+    // The new log file is created below, so retain keep_count-1 previous logs.
+    rotate_logs(path, std::max(0, keep_count - 1));
 
     // Write version header to new log file
     {
