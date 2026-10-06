@@ -1127,7 +1127,7 @@ void config_wizard(const std::string& config_path) {
                         } else if (sel == 8) { // Advanced
                             g_cfg.verbose = false; g_cfg.log_level = "info"; g_cfg.http_socket_timeout = 10;
                             g_cfg.http_bind_attempts = 10;
-                            g_cfg.cache_mmap_size = 67108864; g_cfg.log_keep_count = 5;
+                            g_cfg.cache_mmap_size = 67108864; g_cfg.log_keep_count = 3;
                         } else if (sel == 9) { // MQTT
                             g_cfg.mqtt_enabled = false; g_cfg.mqtt_broker = "";
                             g_cfg.mqtt_port = 1883; g_cfg.mqtt_user = "";

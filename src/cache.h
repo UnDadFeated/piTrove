@@ -4,6 +4,7 @@
 #include <string>
 #include <mutex>
 #include <atomic>
+#include <vector>
 #include <sqlite3.h>
 #include "media_item.h"
 
@@ -28,6 +29,9 @@ struct CacheManager {
     bool get_error_details(const std::string& code, std::string& title, std::string& desc, std::string& recovery);
     void mark_corrupt(const std::string& path, const std::string& code, const std::string& message);
     void clear_quarantine();
+    // Delete cache rows whose path is not in `live` (out-of-window or no longer on disk).
+    // Returns rows removed. No-ops if `live` is empty or implausibly small (failed scan).
+    size_t prune_missing(const std::vector<MediaItem>& live);
     ~CacheManager();
 };
 

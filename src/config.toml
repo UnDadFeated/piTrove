@@ -77,7 +77,7 @@ mmap_size = 67108864
 
 [log]
 level = "info"
-log_keep_count = 5
+log_keep_count = 3
 
 [overlay]
 timer_enabled = 1

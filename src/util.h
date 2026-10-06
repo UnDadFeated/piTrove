@@ -1,7 +1,7 @@
 #ifndef PITROVE_UTIL_H
 #define PITROVE_UTIL_H
 
-#define VERSION "18.1.21"
+#define VERSION "18.1.22"
 #define APP_NAME "piTrove"
 
 #include <atomic>
@@ -73,7 +73,7 @@ struct Logger {
     bool initialized{false};
 
     void flush_loop();
-    void init(const std::string& path, LogLevel lvl, int keep_count = 5);
+    void init(const std::string& path, LogLevel lvl, int keep_count = 3);
     void rotate_logs(const std::string& dir, int keep);
 
     void log_error_code(int code_num);

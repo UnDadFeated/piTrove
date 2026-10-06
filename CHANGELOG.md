@@ -1,3 +1,7 @@
+### Release v18.1.22 — Storage Hygiene: Log Retention & Cache DB Pruning (October 6, 2026)
+- **Log Retention Off-By-One**: `rotate_logs()` ran before the new log file was created, so `log_keep_count = N` actually kept N+1 files. It now keeps N total including the active log. Default lowered from 5 to 3 (`config.h`, `config.toml`, TUI reset-to-defaults, `Logger::init`).
+- **Cache DB Pruning**: `cache.db` never deleted rows, so entries for photos/videos outside the seasonal window (or removed from the NAS) accumulated forever. New `CacheManager::prune_missing()` runs after the startup scan and after every watchman rescan, deleting rows not present in the scanned (windowed) set, then truncating the WAL. Safety net: it is skipped when the scan is empty or returns <5% of the cached rows (degraded NAS mount) so a flaky scan can never wipe cooldown history.
+
 ### Release v18.1.21 — Watchman Rescan Stability (September 29, 2026)
 - **Watchman Exception Safety**: Wrapped the daily media rescan and all post-scan processing (metadata caching, playlist filtering, playlist swap) in `try`/`catch` in `src/main.cpp`. A failure now logs the exception and keeps the existing playlist instead of terminating the process.
 - **Playlist Filtering Performance**: `filter_playlist()` was O(N × log cooldown) and re-ran `classify_media_item()` and re-acquired `g_config_mtx` once per item on every cooldown-degradation pass. The seasonal, document, people and animals decisions are now precomputed once; only the cooldown test varies per pass.
