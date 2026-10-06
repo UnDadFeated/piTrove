@@ -86,6 +86,7 @@ public:
 
 private:
  std::atomic<size_t> m_max_queued_frames{512};
+ std::atomic<bool> m_decode_fast{false}; // decoder runs well ahead of realtime -> bounded lookahead
  std::string m_path;
  mutable std::mutex m_path_mtx;
  int m_target_width;
