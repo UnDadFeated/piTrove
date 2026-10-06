@@ -1,3 +1,9 @@
+### Release v18.1.23 — Video Buffer Efficiency (October 6, 2026)
+- **Adaptive Lookahead**: the decoder measures its speed over the first 120 frames. Clips that decode slower than 1.5× realtime (e.g. software 4K HEVC) keep the full deep-RAM lookahead that prevents stutter; clips that decode comfortably faster are capped at ~12 s / 768 MB of decoded frames instead of up to 90% of free RAM.
+- **Memory Returned After Playback**: `malloc_trim(0)` runs in `VideoDecoder::stop()`, so freed multi-MB frame buffers go back to the OS instead of leaving the process at several GB over a still photo.
+- **Single-Copy Frame Path**: downscaled frames are scaled directly into the queued buffers, removing a per-frame scratch-buffer `memcpy`.
+- **Log Noise**: the per-frame `Pushed frame` trace is now DEBUG.
+
 ### Release v18.1.22 — Storage Hygiene: Log Retention & Cache DB Pruning (October 6, 2026)
 - **Log Retention Off-By-One**: `rotate_logs()` ran before the new log file was created, so `log_keep_count = N` actually kept N+1 files. It now keeps N total including the active log. Default lowered from 5 to 3 (`config.h`, `config.toml`, TUI reset-to-defaults, `Logger::init`).
 - **Cache DB Pruning**: `cache.db` never deleted rows, so entries for photos/videos outside the seasonal window (or removed from the NAS) accumulated forever. New `CacheManager::prune_missing()` runs after the startup scan and after every watchman rescan, deleting rows not present in the scanned (windowed) set, then truncating the WAL. Safety net: it is skipped when the scan is empty or returns <5% of the cached rows (degraded NAS mount) so a flaky scan can never wipe cooldown history.

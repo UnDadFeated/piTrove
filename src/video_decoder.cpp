@@ -1,4 +1,5 @@
 #include <thread>
+#include <malloc.h>
 #include "cache.h"
 #include "video_decoder.h"
 #include <span>
@@ -307,11 +308,16 @@ void VideoDecoder::stop() {
     m_running.store(false);
     m_queue_cv.notify_all();
     shutdown_audio();
-    std::lock_guard lk(m_queue_mtx);
-    while (!m_frame_queue.empty()) {
-        m_frame_queue.pop();
+    {
+        std::lock_guard lk(m_queue_mtx);
+        while (!m_frame_queue.empty()) {
+            m_frame_queue.pop();
+        }
+        m_eof.store(false);
     }
-    m_eof.store(false);
+    // Decoded frames are multi-MB allocations; glibc otherwise keeps them in the heap
+    // after free(), leaving RSS at several GB while only a still photo is on screen.
+    malloc_trim(0);
 }
 
 bool VideoDecoder::is_running() const { return m_running.load(); }
@@ -730,7 +736,6 @@ void VideoDecoder::decode_loop() {
             uint8_t* ddata[3] = {nullptr, nullptr, nullptr};
             int dlines[4] = {0, 0, 0, 0};
             av_image_fill_arrays(ddata, dlines, nv12_scale_buf, AV_PIX_FMT_NV12, dst_w, dst_h, 1);
-            sws_scale(nv12_sws, (const uint8_t* const*)sw->data, sw->linesize, 0, sw->height, ddata, dlines);
             vf.width = dst_w;
             vf.height = dst_h;
             vf.linesize_y = dlines[0];
@@ -739,8 +744,9 @@ void VideoDecoder::decode_loop() {
             int size_uv = dlines[1] * (dst_h / 2);
             vf.data = new uint8_t[size_y];
             vf.data_uv = new uint8_t[size_uv];
-            memcpy(vf.data, ddata[0], size_y);
-            memcpy(vf.data_uv, ddata[1], size_uv);
+            // Scale directly into the queued buffers (single pass, no intermediate memcpy).
+            uint8_t* odata[3] = {vf.data, vf.data_uv, nullptr};
+            sws_scale(nv12_sws, (const uint8_t* const*)sw->data, sw->linesize, 0, sw->height, odata, dlines);
         } else if (sw->format == AV_PIX_FMT_NV12) {
             vf.width = sw->width;
             vf.height = sw->height;
@@ -794,7 +800,6 @@ void VideoDecoder::decode_loop() {
             uint8_t* ddata[3] = {nullptr, nullptr, nullptr};
             int dlines[4] = {0, 0, 0, 0};
             av_image_fill_arrays(ddata, dlines, nv12_scale_buf, AV_PIX_FMT_NV12, dst_w, dst_h, 1);
-            sws_scale(nv12_sws, (const uint8_t* const*)sw->data, sw->linesize, 0, sw->height, ddata, dlines);
             vf.width = dst_w;
             vf.height = dst_h;
             vf.linesize_y = dlines[0];
@@ -803,8 +808,9 @@ void VideoDecoder::decode_loop() {
             int size_uv = dlines[1] * (dst_h / 2);
             vf.data = new uint8_t[size_y];
             vf.data_uv = new uint8_t[size_uv];
-            memcpy(vf.data, ddata[0], size_y);
-            memcpy(vf.data_uv, ddata[1], size_uv);
+            // Scale directly into the queued buffers (single pass, no intermediate memcpy).
+            uint8_t* odata[3] = {vf.data, vf.data_uv, nullptr};
+            sws_scale(nv12_sws, (const uint8_t* const*)sw->data, sw->linesize, 0, sw->height, odata, dlines);
         }
     };
     g_logger.info("VIDEO_DEC: Decoding {} ({}x{} -> {}x{})", m_path.c_str(), vcc->width, vcc->height, dst_w, dst_h);
@@ -825,6 +831,12 @@ void VideoDecoder::decode_loop() {
     int crawl_count = 0;
     int crawl_strikes = 0;
     int consecutive_demux_fails = 0;
+    // Decode-speed probe: measured over the first 120 frames (queue is far from its cap
+    // then, so the push rate is the true decode rate). Slower-than-realtime clips keep
+    // the deep RAM lookahead; clips that decode comfortably faster get a bounded one.
+    const long long loop_start_us = av_gettime_relative();
+    bool rate_probed = false;
+    m_decode_fast.store(false, std::memory_order_relaxed);
     while (is_running() && !eof) {
 
         // Stall detection: abort if queue is empty and no frame produced for too long
@@ -960,7 +972,7 @@ void VideoDecoder::decode_loop() {
                             m_frame_queue.push(std::move(vf));
                         }
                         last_frame_ms = av_gettime_relative();
-                        g_logger.info("[TRACE] VIDEO_DEC: Pushed frame #{}, queue_size={}", vf_count, m_frame_queue.size());
+                        g_logger.debug("[TRACE] VIDEO_DEC: Pushed frame #{}, queue_size={}", vf_count, m_frame_queue.size());
                         log_push_rate("flush");
                         av_frame_unref(frame);
                         if (vf_count % 100 == 0) g_logger.debug("VIDEO_DEC: queue_depth={}", m_frame_queue.size());
@@ -979,7 +991,26 @@ void VideoDecoder::decode_loop() {
         if (pkt->stream_index == video_stream_idx) {
             // Periodically refresh available RAM budget as played frames are freed from memory
             if (vf_count % 60 == 0) {
-                m_max_queued_frames.store(calculate_max_queued_frames(m_target_width, m_target_height), std::memory_order_relaxed);
+                if (!rate_probed && vf_count >= 120) {
+                    rate_probed = true;
+                    double secs = (av_gettime_relative() - loop_start_us) / 1000000.0;
+                    double play_fps = m_frame_duration > 0 ? 1.0 / m_frame_duration : 30.0;
+                    if (secs > 0.0) {
+                        double dec_fps = vf_count / secs;
+                        bool fast = dec_fps >= play_fps * 1.5;
+                        m_decode_fast.store(fast, std::memory_order_relaxed);
+                        g_logger.info("VIDEO_DEC: decode speed {:.1f}fps vs {:.1f}fps playback -> {} lookahead",
+                                      dec_fps, play_fps, fast ? "bounded" : "deep");
+                    }
+                }
+                size_t cap = calculate_max_queued_frames(m_target_width, m_target_height);
+                if (m_decode_fast.load(std::memory_order_relaxed)) {
+                    size_t fb = static_cast<size_t>(std::max(m_target_width, 1920)) * static_cast<size_t>(std::max(m_target_height, 1080)) * 3 / 2 + 64;
+                    size_t byte_cap = (768ull * 1024 * 1024) / fb;
+                    size_t time_cap = m_frame_duration > 0 ? static_cast<size_t>(12.0 / m_frame_duration) : 360;
+                    cap = std::clamp(std::min(byte_cap, time_cap), (size_t)128, cap);
+                }
+                m_max_queued_frames.store(cap, std::memory_order_relaxed);
             }
             vcc->skip_frame = AVDISCARD_DEFAULT;
             vcc->skip_loop_filter = AVDISCARD_DEFAULT;
