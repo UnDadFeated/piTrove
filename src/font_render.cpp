@@ -6,28 +6,9 @@
 #include <unordered_map>
 #include <format>
 
-struct TextKey {
-    std::string text;
-    int size;
-    Uint8 r, g, b, a;
-
-    bool operator==(const TextKey& other) const {
-        return text == other.text && size == other.size &&
-               r == other.r && g == other.g && b == other.b && a == other.a;
-    }
-};
-
-struct TextKeyHash {
-    size_t operator()(const TextKey& key) const {
-        size_t h1 = std::hash<std::string>{}(key.text);
-        size_t h2 = std::hash<int>{}(key.size);
-        size_t h3 = std::hash<int>{}(static_cast<uint32_t>(key.r) << 24 | static_cast<uint32_t>(key.g) << 16 | static_cast<uint32_t>(key.b) << 8 | key.a);
-        return h1 ^ (h2 << 1) ^ (h3 << 2);
-    }
-};
-
-static std::unordered_map<std::string, SDL_Texture*> g_text_texture_cache;
-
+FontHandle::~FontHandle() {
+    if (font) TTF_CloseFont(font);
+}
 
 static std::atomic<int> g_font_renderer_instances{0};
 static std::mutex g_font_init_mutex;
@@ -55,11 +36,6 @@ FontRenderer::~FontRenderer() {
     }
     text_cache.clear();
 
-    for (auto& [key, handle] : fonts) {
-        if (handle && handle->font) {
-            TTF_CloseFont(handle->font);
-        }
-    }
     fonts.clear();
 
     std::lock_guard<std::mutex> lk(g_font_init_mutex);
@@ -70,12 +46,12 @@ FontRenderer::~FontRenderer() {
     }
 }
 
-FontHandle& FontRenderer::load_font(const std::string& path, int size) {
+std::shared_ptr<FontHandle> FontRenderer::load_font(const std::string& path, int size) {
     std::string key = std::format("{}:{}", path, size);
     auto it = fonts.find(key);
     if (it != fonts.end()) {
         it->second->last_used = SDL_GetTicks();
-        return *it->second;
+        return it->second;
     }
 
     TTF_Font* font = TTF_OpenFont(path.c_str(), size);
@@ -109,33 +85,18 @@ FontHandle& FontRenderer::load_font(const std::string& path, int size) {
     handle->last_used = SDL_GetTicks();
     fonts[key] = handle;
 
-    // Evict oldest font if cache exceeds 32 entries
-    if (fonts.size() > 32) {
-        std::string oldest_key;
-        uint64_t oldest_time = UINT64_MAX;
-        for (const auto& [k, h] : fonts) {
-            if (h->last_used < oldest_time) {
-                oldest_time = h->last_used;
-                oldest_key = k;
+    // Eviction drops only the cache's ownership. Active overlays and local drawing
+    // code retain their own owners, so neither the handle nor TTF face can dangle.
+    while (fonts.size() > 32) {
+        auto oldest = fonts.end();
+        for (auto it = fonts.begin(); it != fonts.end(); ++it) {
+            if (it->first != key &&
+                (oldest == fonts.end() || it->second->last_used < oldest->second->last_used)) {
+                oldest = it;
             }
         }
-        if (!oldest_key.empty() && oldest_key != key) {
-            auto evict = fonts.find(oldest_key);
-            if (evict != fonts.end()) {
-                if (evict->second && evict->second->font) {
-                    TTF_CloseFont(evict->second->font);
-                    evict->second->font = nullptr; // TTF handle closed; only ->path stays valid
-                }
-                // Retain the FontHandle object itself. Long-lived raw holders
-                // (Renderer::crt_font, OverlayManager::overlay_font) dereference ->path
-                // on later frames; destroying the object here was a use-after-free.
-                retired_fonts.push_back(evict->second);
-                if (retired_fonts.size() > 64) {
-                    retired_fonts.erase(retired_fonts.begin());
-                }
-                fonts.erase(evict);
-            }
-        }
+        if (oldest == fonts.end()) break;
+        fonts.erase(oldest);
     }
 
     if (is_error_active(204)) {
@@ -143,7 +104,7 @@ FontHandle& FontRenderer::load_font(const std::string& path, int size) {
     }
 
     g_logger.debug("Successfully loaded font: {}", key.c_str());
-    return *handle;
+    return handle;
 }
 
 

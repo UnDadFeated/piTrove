@@ -37,7 +37,7 @@ public:
 
     // Splash font rendering
     FontRenderer* font_renderer{nullptr};
-    FontHandle* crt_font{nullptr};
+    std::shared_ptr<FontHandle> crt_font{nullptr};
     bool font_loaded{false};
 
     // Telemetry and logs for retro terminal overlay

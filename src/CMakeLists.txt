@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(piTrove VERSION 18.1.23 LANGUAGES CXX)
+project(piTrove VERSION 18.1.24 LANGUAGES CXX)
 
 option(ENABLE_ASAN "Enable AddressSanitizer for memory safety testing" OFF)
 if(ENABLE_ASAN)
@@ -91,7 +91,7 @@ set(PISTROVE_SOURCES
 )
 
 # Video decoder (FFmpeg)
-list(APPEND PISTROVE_SOURCES video_decoder.cpp)
+list(APPEND PISTROVE_SOURCES video_decoder.cpp nv12_converter.cpp)
 
 # ============================================================
 # Executable
@@ -153,3 +153,20 @@ set_target_properties(piTrove PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINAR
 # ============================================================
 
 install(TARGETS piTrove DESTINATION ..)
+
+option(BUILD_TESTING "Build isolated regression tests" OFF)
+if(BUILD_TESTING)
+    enable_testing()
+    add_executable(audit_regression tests/regression.cpp tests/support.cpp font_render.cpp scanner.cpp cache.cpp)
+    target_include_directories(audit_regression PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} ${SDL3_INCLUDE_DIRS} ${SDL3_TTF_INCLUDE_DIRS} ${SQLITE3_INCLUDE_DIRS})
+    target_compile_options(audit_regression PRIVATE -Wall -Wextra -ffunction-sections -fdata-sections)
+    target_link_options(audit_regression PRIVATE -Wl,--gc-sections -Wl,--wrap=stat)
+    target_link_libraries(audit_regression PRIVATE ${SDL3_LIBRARIES} ${SDL3_TTF_LIBRARIES} ${SQLITE3_LIBRARIES} pthread atomic)
+    add_executable(nv12_regression tests/nv12.cpp nv12_converter.cpp)
+    target_include_directories(nv12_regression PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} ${SDL3_INCLUDE_DIRS} ${AVUTIL_INCLUDE_DIRS} ${AVCODEC_INCLUDE_DIRS} ${SWSCALE_INCLUDE_DIRS})
+    target_link_libraries(nv12_regression PRIVATE ${AVUTIL_LIBRARIES} ${SWSCALE_LIBRARIES})
+    add_test(NAME nv12_regression COMMAND nv12_regression)
+    add_test(NAME audit_regression COMMAND audit_regression ${CMAKE_CURRENT_SOURCE_DIR}/fonts/DejaVuSansMono-Bold.ttf)
+    add_test(NAME watchdog_regression COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/tests/watchdog.sh ${CMAKE_CURRENT_SOURCE_DIR}/watchdog/pitrove-watchdog.sh)
+    set_tests_properties(audit_regression watchdog_regression nv12_regression PROPERTIES TIMEOUT 30)
+endif()

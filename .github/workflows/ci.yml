@@ -28,12 +28,19 @@ jobs:
       - name: Install dependencies
         run: |
           apt-get update
-          apt-get install -y             build-essential             cmake             ninja-build             pkg-config             libsdl3-dev             libsdl3-image-dev             libsdl3-ttf-dev             libavcodec-dev             libavformat-dev             libswscale-dev             libswresample-dev             libavutil-dev             libsqlite3-dev             libexif-dev             libdrm-dev             libgbm-dev             libegl1-mesa-dev             libgles2-mesa-dev             libsodium-dev             libstb-dev             libpng-dev             libjpeg-dev             libwebp-dev             libtiff-dev             libheif-dev || true
+          apt-get install -y \
+            build-essential cmake ninja-build pkg-config libsdl3-dev \
+            libsdl3-image-dev libsdl3-ttf-dev libavcodec-dev libavformat-dev libswscale-dev \
+            libswresample-dev libavutil-dev libsqlite3-dev libexif-dev libdrm-dev \
+            libgbm-dev libegl1-mesa-dev libgles2-mesa-dev libsodium-dev libstb-dev \
+            libpng-dev libjpeg-dev libwebp-dev libtiff-dev libheif-dev \
+            libcurl4-openssl-dev
 
       - name: Configure CMake
-        continue-on-error: true
-        run: cmake -S src -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+        run: cmake -S src -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
 
       - name: Build piTrove
-        continue-on-error: true
         run: cmake --build build
+
+      - name: Run regression tests
+        run: ctest --test-dir build --output-on-failure

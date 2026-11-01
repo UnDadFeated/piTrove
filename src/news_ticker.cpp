@@ -385,7 +385,8 @@ void NewsTicker::render(SDL_Renderer* renderer, FontRenderer* font_renderer, con
         }
     }
 
-    FontHandle& font = font_renderer->load_font(font_path, font_size);
+    const auto font_owner = font_renderer->load_font(font_path, font_size);
+    FontHandle& font = *font_owner;
 
     // 1. Sleek Obsidian Glass backdrop
     SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);

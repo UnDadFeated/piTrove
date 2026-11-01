@@ -423,9 +423,12 @@ void StockStreamer::render(SDL_Renderer* renderer, FontRenderer* font_renderer, 
     int col_hdr_size     = (int)round(9.0 * screen_w / 1920.0);
     int row_font_size    = (int)round(10.0 * screen_w / 1920.0);
 
-    FontHandle& title_font = font_renderer->load_font(font_path, title_font_size);
-    FontHandle& col_font   = font_renderer->load_font(font_path, col_hdr_size);
-    FontHandle& row_font   = font_renderer->load_font(font_path, row_font_size);
+    const auto title_font_owner = font_renderer->load_font(font_path, title_font_size);
+    FontHandle& title_font = *title_font_owner;
+    const auto col_font_owner = font_renderer->load_font(font_path, col_hdr_size);
+    FontHandle& col_font = *col_font_owner;
+    const auto row_font_owner = font_renderer->load_font(font_path, row_font_size);
+    FontHandle& row_font = *row_font_owner;
 
     int pad_x = bounds.x + (int)round(10.0 * screen_w / 1920.0);
     int cur_y = bounds.y + (int)round(8.0 * screen_w / 1920.0);
@@ -536,7 +539,8 @@ void StockStreamer::render(SDL_Renderer* renderer, FontRenderer* font_renderer, 
     // 4. Bitcoin Row (single line, condensed to fit without overlap)
     // Use a smaller font for BTC price to avoid overlap in the tight columns
     int btc_font_size = (int)round(9.0 * screen_w / 1920.0);
-    FontHandle& btc_font = font_renderer->load_font(font_path, btc_font_size);
+    const auto btc_font_owner = font_renderer->load_font(font_path, btc_font_size);
+    FontHandle& btc_font = *btc_font_owner;
 
     // Symbol: BTC (Amber Gold)
     font_renderer->draw_text(x_stock, cur_y + 1, row_font, "BTC", 255, 180, 50, 255);

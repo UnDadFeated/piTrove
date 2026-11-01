@@ -11,6 +11,10 @@
 
 struct FontHandle {
     TTF_Font* font{nullptr};
+    ~FontHandle();
+    FontHandle() = default;
+    FontHandle(const FontHandle&) = delete;
+    FontHandle& operator=(const FontHandle&) = delete;
     std::string path;
     int size{0};
     uint64_t last_used{0};
@@ -22,10 +26,6 @@ class FontRenderer {
 private:
     Renderer* renderer;
     std::map<std::string, std::shared_ptr<FontHandle>> fonts;
-    // Evicted FontHandles are kept alive here (capped). Callers cache raw
-    // FontHandle* (crt_font, overlay_font) and read ->path from them after a
-    // load_font() call, so the object must outlive its eviction from `fonts`.
-    std::vector<std::shared_ptr<FontHandle>> retired_fonts;
 
     struct TextCacheEntry {
         SDL_Texture* texture = nullptr;
@@ -40,7 +40,8 @@ public:
 
 
 
-    FontHandle& load_font(const std::string& path, int size);
+    // Keep the returned owner alive while using the font. Release it before this renderer.
+    std::shared_ptr<FontHandle> load_font(const std::string& path, int size);
 
     // Text rendering
     void draw_text(int x, int y, const FontHandle& font, const std::string& text,

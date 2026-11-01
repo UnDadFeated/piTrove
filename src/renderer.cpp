@@ -1222,7 +1222,8 @@ void Renderer::draw_border(const SDL_Rect& fit_rect, const std::string& border_m
 
         if (font_renderer && crt_font && font_loaded && !filename.empty()) {
             int font_size = std::clamp(bw * 2, 10, 24);
-            FontHandle& font = font_renderer->load_font(crt_font->path, font_size);
+            const auto font_owner = font_renderer->load_font(crt_font->path, font_size);
+            FontHandle& font = *font_owner;
             
             int text_w = 0, text_h = 0;
             font_renderer->measure(font, filename, text_w, text_h);
@@ -1459,7 +1460,7 @@ void Renderer::load_splash(const std::string& path) {
     }
 
     if (file_exists(font_path)) {
-        crt_font = &font_renderer->load_font(font_path, 15);
+        crt_font = font_renderer->load_font(font_path, 15);
         font_loaded = true;
         g_logger.info("Loaded splash terminal font: {}", font_path.c_str());
     } else {
@@ -1474,6 +1475,7 @@ void Renderer::cleanup_splash() {
         splash_logo = nullptr;
     }
 
+    crt_font.reset();
     if (font_renderer) {
         delete font_renderer;
         font_renderer = nullptr;
@@ -1523,7 +1525,7 @@ void Renderer::draw_splash_box(int x, int y, int w, int h) {
     int title_w = 100; // estimated fallback w
     if (font_loaded && crt_font) {
         int title_h;
-        font_renderer->measure(font_renderer->load_font(crt_font->path, title_size), APP_NAME, title_w, title_h);
+        font_renderer->measure(*font_renderer->load_font(crt_font->path, title_size), APP_NAME, title_w, title_h);
     }
     
     SDL_SetRenderDrawColor(sdl_renderer, 0, 0, 0, 255);
@@ -1538,14 +1540,15 @@ void Renderer::draw_splash_box(int x, int y, int w, int h) {
     int ver_w = 40;
     if (font_loaded && crt_font) {
         int ver_h;
-        font_renderer->measure(font_renderer->load_font(crt_font->path, ver_size), ver_str, ver_w, ver_h);
+        font_renderer->measure(*font_renderer->load_font(crt_font->path, ver_size), ver_str, ver_w, ver_h);
     }
     draw_splash_text(ver_str, x + w - ver_w - 28, y + 10, ver_size, {0, 130, 0, 220});
 }
 
 void Renderer::draw_splash_text(const std::string& text, int x, int y, int size, GpuColor color) {
     if (!font_renderer || !crt_font || !font_loaded) return;
-    FontHandle& font = font_renderer->load_font(crt_font->path, size);
+    const auto font_owner = font_renderer->load_font(crt_font->path, size);
+    FontHandle& font = *font_owner;
     font_renderer->draw_text_glow(
         x, y, font, text,
         color.r, color.g, color.b, color.a,

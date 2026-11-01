@@ -10,9 +10,14 @@ SERVICE="pitrove"
 BACKUP_DIR="${PROJECT_DIR}/backups"
 TS="$(date +%Y%m%d-%H%M%S)"
 
-mkdir -p "$BACKUP_DIR"
-
 cd "$PROJECT_DIR"
+
+if [[ "$(git branch --show-current)" != "develop" ]]; then
+  echo "Update requires the develop branch" >&2
+  exit 1
+fi
+
+mkdir -p "$BACKUP_DIR"
 
 OLD_IMAGE="$(docker inspect --format='{{.Config.Image}}' "$CONTAINER" 2>/dev/null || echo "pitrove-pitrove:latest")"
 OLD_IMAGE_ID="$(docker inspect --format='{{.Image}}' "$CONTAINER" 2>/dev/null || echo "")"
@@ -25,8 +30,8 @@ if [[ -d "config" ]]; then
   cp -a config "${BACKUP_DIR}/config-${TS}"
 fi
 
-git pull origin develop 2>/dev/null || git pull origin main 2>/dev/null || true
-docker compose build "$SERVICE"
+git pull --ff-only origin develop
+env BUILDKIT_PROGRESS=plain docker compose build "$SERVICE"
 docker compose up -d "$SERVICE"
 
 for _ in {1..20}; do
