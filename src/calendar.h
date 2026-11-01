@@ -5,6 +5,7 @@
 #include <string>
 #include <vector>
 #include <shared_mutex>
+#include <mutex>
 #include <thread>
 #include <atomic>
 #include "font_render.h"
@@ -28,6 +29,7 @@ private:
     std::vector<CalendarEvent> m_events;
     mutable std::shared_mutex m_events_mtx;
     std::jthread m_worker_thread;
+    std::mutex m_lifecycle_mtx;
     std::atomic<bool> m_running{false};
     std::atomic<bool> m_fetching{false};
     std::atomic<int> m_last_error{0};
@@ -40,6 +42,7 @@ public:
     GoogleCalendar();
     ~GoogleCalendar();
 
+    bool is_running() const { return m_running.load(); }
     bool start();
     void stop();
 

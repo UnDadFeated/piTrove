@@ -1,4 +1,6 @@
 #include "config.h"
+#include "config_text.h"
+#include "file_ops.h"
 #include "util.h"
 #include "auth.h"
 
@@ -18,17 +20,7 @@ Config::Config() {
 #include <cstdio>
 
 
-static std::string strip_comments(const std::string& line) {
-    bool in_quotes = false;
-    for (size_t i = 0; i < line.size(); ++i) {
-        if (line[i] == '"') {
-            in_quotes = !in_quotes;
-        } else if ((line[i] == '#' || line[i] == ';') && !in_quotes) {
-            return std::string(line.substr(0, i));
-        }
-    }
-    return line;
-}
+using config_text::strip_comments;
 
 bool Config::load(const std::string& path) {
     this->loaded_path = path;
@@ -55,8 +47,10 @@ bool Config::load(const std::string& path) {
         std::string key = trim(line.substr(0, eq));
         std::string val = trim(line.substr(eq + 1));
 
-        if (val.size() >= 2 && val.front() == '"' && val.back() == '"') {
-            val = val.substr(1, val.size() - 2);
+        if (!val.empty() && (val.front() == '"' || val.front() == '\'')) {
+            auto decoded = config_text::decode(val);
+            if (!decoded) { trigger_error(801); continue; }
+            val = std::move(*decoded);
         }
 
         if (key == "media_dir")              this->media_dir = val;
@@ -126,7 +120,7 @@ bool Config::load(const std::string& path) {
             int p = safe_stoi(val, this->http_port);
             this->http_port = (p >= 1 && p <= 65535) ? p : 9000;
         }
-        else if (key == "api_key")         this->http_api_key = val;
+        else if (key == "api_key" && (section == "remote" || section.empty())) this->http_api_key = val;
         else if (key == "volume")            this->video_volume = std::clamp(safe_stoi(val, this->video_volume), 0, 150);
         else if (key == "av_sync")          this->av_sync = !(val == "0" || val == "false");
         else if (key == "probe_timeout")     this->video_probe_timeout = std::clamp(safe_stoi(val, this->video_probe_timeout), 1, 30);
@@ -236,23 +230,8 @@ bool Config::load(const std::string& path) {
         else if (key == "preload_capacity")  this->preload_capacity = std::clamp(safe_stoi(val, this->preload_capacity), 1, 32);
         else if (key == "preload_workers")   this->preload_workers = std::clamp(safe_stoi(val, this->preload_workers), 1, 16);
         else if (key == "ignore_folders") {
-            // Parse TOML array: ["@eaDir", "@Recycle"]
-            this->ignore_folders.clear();
-            auto start = val.find('[');
-            auto end = val.rfind(']');
-            if (start != std::string::npos && end != std::string::npos) {
-                std::string inner = val.substr(start + 1, end - start - 1);
-                size_t pos = 0;
-                while (pos < inner.size()) {
-                    size_t q1 = inner.find('"', pos);
-                    if (q1 == std::string::npos) break;
-                    size_t q2 = inner.find('"', q1 + 1);
-                    if (q2 == std::string::npos) break;
-                    std::string item = inner.substr(q1 + 1, q2 - q1 - 1);
-                    if (!item.empty()) this->ignore_folders.push_back(item);
-                    pos = q2 + 1;
-                }
-            }
+            if (auto parsed = config_text::array(val)) this->ignore_folders = std::move(*parsed);
+            else trigger_error(801);
         }
         else if (key == "enabled" && section == "mqtt")             this->mqtt_enabled = (val == "1" || val == "true");
         else if (key == "broker" && section == "mqtt")              this->mqtt_broker = val;
@@ -270,22 +249,8 @@ bool Config::load(const std::string& path) {
         else if (key == "source" && section == "news")                        this->news_source = val;
         else if (key == "local_query" && section == "news")                   this->news_local_query = val;
         else if (key == "blacklist" && section == "news") {
-            this->news_blacklist.clear();
-            std::string content = val;
-            auto start = content.find('[');
-            auto end = content.rfind(']');
-            if (start != std::string::npos && end != std::string::npos && end > start) {
-                content = content.substr(start + 1, end - start - 1);
-            }
-            std::stringstream ss(content);
-            std::string item;
-            while (std::getline(ss, item, ',')) {
-                item = trim(item);
-                if (item.size() >= 2 && ((item.front() == '"' && item.back() == '"') || (item.front() == '\'' && item.back() == '\''))) {
-                    item = item.substr(1, item.size() - 2);
-                }
-                if (!item.empty()) this->news_blacklist.push_back(item);
-            }
+            if (auto parsed = config_text::array(val)) this->news_blacklist = std::move(*parsed);
+            else trigger_error(801);
         }
         else if (key == "refresh_minutes" && section == "news")               this->news_refresh_minutes = safe_stoi(val, this->news_refresh_minutes);
         else if (key == "scroll_speed" && section == "news")                  this->news_scroll_speed = safe_stoi(val, this->news_scroll_speed);
@@ -293,6 +258,10 @@ bool Config::load(const std::string& path) {
         else if (key == "enabled" && section == "stockstreamer")              this->stockstreamer_enabled = (val == "1" || val == "true");
         else if (key == "preset" && section == "stockstreamer")               this->stockstreamer_preset = val;
         else if (key == "refresh_seconds" && section == "stockstreamer")      this->stockstreamer_refresh_seconds = safe_stoi(val, this->stockstreamer_refresh_seconds);
+        else if (key == "symbols" && section == "stockstreamer") {
+            if (auto parsed = config_text::array(val)) this->stockstreamer_symbols = std::move(*parsed);
+            else trigger_error(801);
+        }
         else if (key == "crypto" && section == "stockstreamer")               this->stockstreamer_crypto = val;
         else if (key == "tls_verify" && section == "stockstreamer")           this->stockstreamer_tls_verify = !(val == "0" || val == "false");
         else if (key == "enabled" && section == "gcalendar")                  this->gcalendar_enabled = (val == "1" || val == "true");
@@ -349,8 +318,11 @@ bool Config::load(const std::string& path) {
                 if (seq == std::string::npos) continue;
                 std::string skey = trim(sline.substr(0, seq));
                 std::string sval = trim(sline.substr(seq + 1));
-                if (sval.size() >= 2 && sval.front() == '"' && sval.back() == '"')
-                    sval = sval.substr(1, sval.size() - 2);
+                if (!sval.empty() && (sval.front() == '"' || sval.front() == '\'')) {
+                    auto decoded = config_text::decode(sval);
+                    if (!decoded) { trigger_error(801); continue; }
+                    sval = std::move(*decoded);
+                }
 
                 if (ssection == "remote") {
                     if (skey == "api_key") this->http_api_key = sval;
@@ -368,6 +340,8 @@ bool Config::load(const std::string& path) {
             g_logger.info("Loaded secrets from secrets.toml");
         }
     }
+
+    if (!this->pin_hash.empty()) this->dashboard_pin.clear();
 
     // Disable dashboard if default PIN 0000 is still active
     if (this->web_dashboard_enabled && this->dashboard_pin == "0000" && !this->pin_changed) {
@@ -393,36 +367,25 @@ void Config::parse_args(int argc, char** argv) {
 // Escape a value for a basic TOML string. Without this, a value containing a
 // quote or backslash corrupts config.toml on write (reachable from the web
 // settings endpoint, e.g. api_key and dashboard_pin).
-static std::string toml_escape(const std::string& s) {
-    std::string out;
-    out.reserve(s.size() + 8);
-    for (char c : s) {
-        switch (c) {
-            case '"':  out += "\\\""; break;
-            case '\\': out += "\\\\"; break;
-            case '\n': out += "\\n";  break;
-            case '\r': out += "\\r";  break;
-            case '\t': out += "\\t";  break;
-            default:   out += c;      break;
-        }
-    }
-    return out;
-}
+using config_text::escape;
 
 bool Config::save(const std::string& path) {
-    std::string tmp_path = path + ".tmp";
-    std::ofstream f(tmp_path);
-    if (!f.is_open()) return false;
+    // The caller protects this Config with its mutex. Build one coherent snapshot
+    // before writing a unique, private temporary file and atomically replacing it.
+    std::string saved_hash = this->pin_hash;
+    const bool migrate_pin = !this->dashboard_pin.empty();
+    if (migrate_pin && !pitrove::auth::hash_pin(this->dashboard_pin, saved_hash)) return false;
+    std::ostringstream f;
 
     f << "# ==========================================\n";
     f << "# piTrove Configuration File (v" << VERSION << ")\n";
     f << "# ==========================================\n\n";
 
     f << "[paths]\n";
-    f << "media_dir = \"" << this->media_dir << "\"\n";
-    f << "cache_dir = \"" << this->cache_dir << "\"\n";
-    f << "log_dir = \"" << this->log_dir << "\"\n";
-    f << "splash_file = \"" << this->splash_file << "\"\n\n";
+    f << "media_dir = \"" << escape(this->media_dir) << "\"\n";
+    f << "cache_dir = \"" << escape(this->cache_dir) << "\"\n";
+    f << "log_dir = \"" << escape(this->log_dir) << "\"\n";
+    f << "splash_file = \"" << escape(this->splash_file) << "\"\n\n";
 
     f << "[display]\n";
     f << "resolution = " << this->screen_w << "," << this->screen_h << "\n";
@@ -431,12 +394,12 @@ bool Config::save(const std::string& path) {
     f << "slideshow_fps = " << this->slideshow_fps << "\n";
     f << "splash_overlay_y = " << this->splash_overlay_y << "\n";
     f << "auto_display_rotation = " << (this->auto_display_rotation ? "1" : "0") << "\n";
-    f << "border_mode = \"" << this->border_mode << "\"\n";
+    f << "border_mode = \"" << escape(this->border_mode) << "\"\n";
     f << "border_width = " << this->border_width << "\n";
     f << "vignette_enabled = " << (this->vignette_enabled ? "1" : "0") << "\n";
-    f << "bg_style = \"" << this->bg_style << "\"\n";
+    f << "bg_style = \"" << escape(this->bg_style) << "\"\n";
     f << "pattern_brightness = " << this->pattern_offset << "\n";
-    f << "pattern_style = \"" << this->pattern_style << "\"\n";
+    f << "pattern_style = \"" << escape(this->pattern_style) << "\"\n";
     f << "pattern_blend_count = " << this->pattern_blend_count << "\n";
     f << "pattern_fps = " << this->pattern_fps << "\n";
     f << "display_offset_x = " << this->display_offset_x << "\n";
@@ -451,15 +414,15 @@ bool Config::save(const std::string& path) {
     f << "[slideshow]\n";
     f << "transition_delay = " << this->transition_delay << "\n";
     f << "transition_duration = " << this->transition_duration << "\n";
-    f << "transition_effect = \"" << this->transition_effect << "\"\n";
+    f << "transition_effect = \"" << escape(this->transition_effect) << "\"\n";
     f << "ken_burns = " << (this->ken_burns ? "1" : "0") << "\n";
     f << "ken_burns_speed = " << this->ken_burns_speed << "\n";
     f << "ken_burns_zoom = " << this->ken_burns_zoom << "\n";
     f << "shuffle = " << (this->shuffle ? "1" : "0") << "\n";
     f << "bias_lighting = " << (this->bias_lighting ? "1" : "0") << "\n";
     f << "bias_anim_speed = " << this->bias_anim_speed << "\n";
-    f << "bias_anim_style = \"" << this->bias_anim_style << "\"\n";
-    f << "bias_color_mode = \"" << this->bias_color_mode << "\"\n";
+    f << "bias_anim_style = \"" << escape(this->bias_anim_style) << "\"\n";
+    f << "bias_color_mode = \"" << escape(this->bias_color_mode) << "\"\n";
     f << "bias_strength = " << this->bias_strength << "\n";
     f << "edge_glow_shadow = " << (this->edge_glow_shadow ? "1" : "0") << "\n";
     f << "matting = " << (this->matting ? "1" : "0") << "\n";
@@ -472,7 +435,7 @@ bool Config::save(const std::string& path) {
     f << "clock_x = " << this->clock_x << "\n";
     f << "clock_y = " << this->clock_y << "\n";
     f << "clock_font_size = " << this->clock_font_size << "\n";
-    f << "clock_color = \"" << this->clock_color << "\"\n";
+    f << "clock_color = \"" << escape(this->clock_color) << "\"\n";
     f << "clock_24h = " << (this->clock_24h ? "1" : "0") << "\n\n";
 
     f << "[scan]\n";
@@ -482,7 +445,7 @@ bool Config::save(const std::string& path) {
     f << "window_days = " << this->scan_window_days << "\n";
     f << "ignore_folders = [";
     for (size_t j = 0; j < this->ignore_folders.size(); j++)
-        f << "\"" << this->ignore_folders[j] << "\"" << (j < this->ignore_folders.size() - 1 ? ", " : "");
+        f << "\"" << escape(this->ignore_folders[j]) << "\"" << (j < this->ignore_folders.size() - 1 ? ", " : "");
     f << "]\n\n";
 
     f << "[sqlite]\n";
@@ -493,7 +456,7 @@ bool Config::save(const std::string& path) {
     f << "timer_x = " << this->timer_x << "\n";
     f << "timer_y = " << this->timer_y << "\n";
     f << "timer_font_size = " << this->timer_font_size << "\n";
-    f << "timer_color = \"" << this->timer_color << "\"\n";
+    f << "timer_color = \"" << escape(this->timer_color) << "\"\n";
     f << "filename_enabled = " << (this->filename_enabled ? "1" : "0") << "\n";
     f << "filename_x = " << this->filename_x << "\n";
     f << "filename_y = " << this->filename_y << "\n";
@@ -505,13 +468,13 @@ bool Config::save(const std::string& path) {
     f << "play_just_videos = " << (this->play_just_videos ? "1" : "0") << "\n";
     f << "show_people_faces = " << (this->show_people_faces ? "1" : "0") << "\n";
     f << "keep_animals = " << (this->keep_animals ? "1" : "0") << "\n";
-    f << "sleep_time = " << (this->sleep_time.empty() ? "\"\"" : "\"" + this->sleep_time + "\"") << "\n";
-    f << "wake_time = " << (this->wake_time.empty() ? "\"\"" : "\"" + this->wake_time + "\"") << "\n";
+    f << "sleep_time = " << (this->sleep_time.empty() ? "\"\"" : "\"" + escape(this->sleep_time) + "\"") << "\n";
+    f << "wake_time = " << (this->wake_time.empty() ? "\"\"" : "\"" + escape(this->wake_time) + "\"") << "\n";
     f << "fan_speed = " << this->fan_speed << "\n";
     f << "filename_font_size = " << this->filename_font_size << "\n";
     f << "count_font_size = " << this->count_font_size << "\n";
     f << "progress_bar_enabled = " << (this->progress_bar_enabled ? "1" : "0") << "\n";
-    f << "font_path = \"" << (this->font_path.empty() ? "auto" : this->font_path) << "\"\n\n";
+    f << "font_path = \"" << escape(this->font_path.empty() ? "auto" : this->font_path) << "\"\n\n";
 
     f << "[video]\n";
     f << "decode_budget_enabled = " << (this->video_decode_budget_enabled ? "1" : "0") << "\n";
@@ -519,10 +482,10 @@ bool Config::save(const std::string& path) {
     f << "av_sync = " << (this->av_sync ? "1" : "0") << "\n";
     f << "probe_timeout = " << this->video_probe_timeout << "\n";
     f << "closed_captions_enabled = " << (this->closed_captions_enabled ? "1" : "0") << "\n";
-    f << "drm_connector = \"" << (this->drm_connector.empty() ? "auto" : this->drm_connector) << "\"\n";
-    f << "drm_card = \"" << (this->drm_card.empty() ? "auto" : this->drm_card) << "\"\n";
-    f << "video_audio_device = \"" << (this->video_audio_device.empty() ? "auto" : this->video_audio_device) << "\"\n";
-    f << "subtitles_dir = \"" << this->video_subtitles_dir << "\"\n";
+    f << "drm_connector = \"" << escape(this->drm_connector.empty() ? "auto" : this->drm_connector) << "\"\n";
+    f << "drm_card = \"" << escape(this->drm_card.empty() ? "auto" : this->drm_card) << "\"\n";
+    f << "video_audio_device = \"" << escape(this->video_audio_device.empty() ? "auto" : this->video_audio_device) << "\"\n";
+    f << "subtitles_dir = \"" << escape(this->video_subtitles_dir) << "\"\n";
     f << "osd_offset_x = " << this->osd_offset_x << "\n";
     f << "osd_offset_y = " << this->osd_offset_y << "\n";
     f << "max_texture_dim = " << this->max_texture_dim << "\n";
@@ -531,16 +494,18 @@ bool Config::save(const std::string& path) {
 
     f << "[dashboard]\n";
     f << "weather_enabled = " << (this->weather_enabled ? "1" : "0") << "\n";
-    f << "weather_location = \"" << this->weather_location << "\"\n";
+    f << "weather_location = \"" << escape(this->weather_location) << "\"\n";
     f << "weather_lat = " << this->weather_lat << "\n";
     f << "weather_lon = " << this->weather_lon << "\n\n";
-    f << "dashboard_pin = \"" << toml_escape(this->dashboard_pin) << "\"\n";
+    f << "dashboard_pin = \"\"\n";
+    f << "pin_hash = \"" << escape(saved_hash) << "\"\n";
+    f << "pin_changed = " << (this->pin_changed || migrate_pin ? 1 : 0) << "\n";
 
     f << "[remote]\n";
     f << "http_enabled = " << (this->http_enabled ? "1" : "0") << "\n";
     f << "http_port = " << this->http_port << "\n";
     f << "web_dashboard_enabled = " << (this->web_dashboard_enabled ? "1" : "0") << "\n";
-    f << "api_key = \"" << toml_escape(this->http_api_key) << "\"\n\n";
+    f << "api_key = \"" << escape(this->http_api_key) << "\"\n\n";
 
     f << "[features]\n";
     f << "on_this_day_enabled = " << (this->on_this_day_enabled ? "1" : "0") << "\n";
@@ -551,11 +516,11 @@ bool Config::save(const std::string& path) {
 
     f << "[date_overlay]\n";
     f << "enabled = " << (this->date_overlay_enabled ? "1" : "0") << "\n";
-    f << "text = \"" << this->date_text << "\"\n";
+    f << "text = \"" << escape(this->date_text) << "\"\n";
     f << "x = " << this->date_x << "\n";
     f << "y = " << this->date_y << "\n";
     f << "font_size = " << this->date_font_size << "\n";
-    f << "color = \"" << this->date_color << "\"\n\n";
+    f << "color = \"" << escape(this->date_color) << "\"\n\n";
 
     f << "[brightness]\n";
     f << "auto = " << (this->brightness_auto ? "1" : "0") << "\n";
@@ -575,34 +540,36 @@ bool Config::save(const std::string& path) {
     f << "offset_x = " << this->geotag_offset_x << "\n";
     f << "offset_y = " << this->geotag_offset_y << "\n";
     f << "font_size = " << this->geotag_font_size << "\n";
-    f << "color = \"" << this->geotag_color << "\"\n\n";
+    f << "color = \"" << escape(this->geotag_color) << "\"\n\n";
 
     f << "[log]\n";
-    f << "level = \"" << this->log_level << "\"\n";
+    f << "level = \"" << escape(this->log_level) << "\"\n";
     f << "log_keep_count = " << this->log_keep_count << "\n\n";
 
     f << "[mqtt]\n";
     f << "enabled = " << (this->mqtt_enabled ? "1" : "0") << "\n";
-    f << "broker = \"" << this->mqtt_broker << "\"\n";
+    f << "broker = \"" << escape(this->mqtt_broker) << "\"\n";
     f << "port = " << this->mqtt_port << "\n";
-    f << "user = \"" << toml_escape(this->mqtt_user) << "\"\n";
-    f << "pass = \"" << toml_escape(this->mqtt_pass) << "\"\n";
-    f << "topic_prefix = \"" << this->mqtt_topic_prefix << "\"\n";
-    f << "motionsensor_topic = \"" << this->mqtt_motionsensor_topic << "\"\n";
+    f << "tls = " << (this->mqtt_tls_enabled ? 1 : 0) << "\n";
+    f << "ca_cert = \"" << escape(this->mqtt_ca_cert) << "\"\n";
+    f << "user = \"" << escape(this->mqtt_user) << "\"\n";
+    f << "pass = \"" << escape(this->mqtt_pass) << "\"\n";
+    f << "topic_prefix = \"" << escape(this->mqtt_topic_prefix) << "\"\n";
+    f << "motionsensor_topic = \"" << escape(this->mqtt_motionsensor_topic) << "\"\n";
     f << "motionsensor_cooldown = " << this->mqtt_motionsensor_cooldown << "\n\n";
 
-    f << "timezone = \"" << this->timezone << "\"\n\n";
+    f << "timezone = \"" << escape(this->timezone) << "\"\n\n";
 
     f << "[infopanels]\n";
     f << "enabled = " << (this->infopanels_enabled ? "1" : "0") << "\n\n";
 
     f << "[news]\n";
     f << "enabled = " << (this->news_enabled ? "1" : "0") << "\n";
-    f << "source = \"" << this->news_source << "\"\n";
-    f << "local_query = \"" << this->news_local_query << "\"\n";
+    f << "source = \"" << escape(this->news_source) << "\"\n";
+    f << "local_query = \"" << escape(this->news_local_query) << "\"\n";
     f << "blacklist = [";
     for (size_t j = 0; j < this->news_blacklist.size(); j++)
-        f << "\"" << this->news_blacklist[j] << "\"" << (j < this->news_blacklist.size() - 1 ? ", " : "");
+        f << "\"" << escape(this->news_blacklist[j]) << "\"" << (j < this->news_blacklist.size() - 1 ? ", " : "");
     f << "]\n";
     f << "refresh_minutes = " << this->news_refresh_minutes << "\n";
     f << "scroll_speed = " << this->news_scroll_speed << "\n";
@@ -610,59 +577,49 @@ bool Config::save(const std::string& path) {
 
     f << "[stockstreamer]\n";
     f << "enabled = " << (this->stockstreamer_enabled ? "1" : "0") << "\n";
-    f << "preset = \"" << this->stockstreamer_preset << "\"\n";
+    f << "preset = \"" << escape(this->stockstreamer_preset) << "\"\n";
     f << "refresh_seconds = " << this->stockstreamer_refresh_seconds << "\n";
-    f << "crypto = \"" << toml_escape(this->stockstreamer_crypto) << "\"\n";
+    f << "symbols = [";
+    for (size_t j = 0; j < this->stockstreamer_symbols.size(); ++j)
+        f << "\"" << escape(this->stockstreamer_symbols[j]) << "\"" << (j + 1 < this->stockstreamer_symbols.size() ? ", " : "");
+    f << "]\n";
+    f << "crypto = \"" << escape(this->stockstreamer_crypto) << "\"\n";
     f << "tls_verify = " << (this->stockstreamer_tls_verify ? "1" : "0") << "\n\n";
 
     f << "[gcalendar]\n";
     f << "enabled = " << (this->gcalendar_enabled ? "1" : "0") << "\n";
-    f << "source_type = \"" << this->gcalendar_source_type << "\"\n";
-    f << "ical_url = \"" << toml_escape(this->gcalendar_ical_url) << "\"\n";
-    f << "calendar_name = \"" << toml_escape(this->gcalendar_name) << "\"\n";
-    f << "api_key = \"" << toml_escape(this->gcalendar_api_key) << "\"\n";
+    f << "source_type = \"" << escape(this->gcalendar_source_type) << "\"\n";
+    f << "ical_url = \"" << escape(this->gcalendar_ical_url) << "\"\n";
+    f << "calendar_name = \"" << escape(this->gcalendar_name) << "\"\n";
+    f << "api_key = \"" << escape(this->gcalendar_api_key) << "\"\n";
     f << "refresh_minutes = " << this->gcalendar_refresh_minutes << "\n";
     f << "max_events = " << this->gcalendar_max_events << "\n\n";
 
     f << "[google_photos]\n";
     f << "enabled = " << (this->google_photos_enabled ? "1" : "0") << "\n";
-    f << "client_id = \"" << this->google_photos_client_id << "\"\n";
-    f << "client_secret = \"" << toml_escape(this->google_photos_client_secret) << "\"\n";
-    f << "refresh_token = \"" << toml_escape(this->google_photos_refresh_token) << "\"\n";
-    f << "album_id = \"" << this->google_photos_album_id << "\"\n";
+    f << "client_id = \"" << escape(this->google_photos_client_id) << "\"\n";
+    f << "client_secret = \"" << escape(this->google_photos_client_secret) << "\"\n";
+    f << "refresh_token = \"" << escape(this->google_photos_refresh_token) << "\"\n";
+    f << "album_id = \"" << escape(this->google_photos_album_id) << "\"\n";
     f << "sync_interval_mins = " << this->google_photos_sync_interval << "\n";
-    f << "cache_dir = \"" << this->google_photos_cache_dir << "\"\n\n";
+    f << "cache_dir = \"" << escape(this->google_photos_cache_dir) << "\"\n\n";
 
     f << "[updates]\n";
     f << "auto_update = " << (this->auto_update ? "1" : "0") << "\n";
-    f << "auto_update_branch = \"" << this->auto_update_branch << "\"\n\n";
+    f << "auto_update_branch = \"" << escape(this->auto_update_branch) << "\"\n\n";
 
     f << "[keepalive]\n";
     f << "enabled = " << (this->keepalive_enabled ? "1" : "0") << "\n";
     f << "interval_secs = " << this->keepalive_interval << "\n";
-    f << "gateway_ip = \"" << this->keepalive_gateway << "\"\n";
-    f << "wifi_interface = \"" << this->keepalive_interface << "\"\n";
+    f << "gateway_ip = \"" << escape(this->keepalive_gateway) << "\"\n";
+    f << "wifi_interface = \"" << escape(this->keepalive_interface) << "\"\n";
 
 
-    // Migrate plaintext PIN to hashed PIN
-    if (!this->dashboard_pin.empty() && this->pin_hash.empty()) {
-        std::string hash;
-        if (pitrove::auth::hash_pin(this->dashboard_pin, hash)) {
-            this->pin_hash = hash;
-            this->dashboard_pin.clear();
-            this->pin_changed = true;
-        }
-    }
-
-    f.close();
-    if (f.fail()) {
-        std::remove(tmp_path.c_str());
-        return false;
-    }
-    if (std::rename(tmp_path.c_str(), path.c_str()) != 0) {
-        g_logger.error("Config::save: rename failed: {}", std::strerror(errno));
-        std::remove(tmp_path.c_str());
-        return false;
+    if (!f || !write_file_atomic(path, f.str())) return false;
+    if (migrate_pin) {
+        this->pin_hash = std::move(saved_hash);
+        this->dashboard_pin.clear();
+        this->pin_changed = true;
     }
     g_config_changed.store(true);
     return true;

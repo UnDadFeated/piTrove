@@ -17,7 +17,6 @@ private:
 
     std::string get_access_token();
     void download_media(const std::string& access_token);
-    std::string execute_curl(const std::string& cmd);
     std::string parse_json_value(const std::string& json, const std::string& key);
 
 public:

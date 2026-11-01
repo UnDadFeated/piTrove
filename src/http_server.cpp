@@ -1,4 +1,8 @@
 #include "http_server.h"
+#include "http_protocol.h"
+#include "http_transfer.h"
+#include "oauth_state.h"
+#include <sodium.h>
 #include "auth.h"
 #include "media_item.h"
 #include "util.h"
@@ -40,6 +44,7 @@ extern std::vector<MediaItem> g_eligible;
 extern int current_idx;
 extern std::mutex g_playlist_mtx;
 
+static OAuthState g_oauth_state;
 static std::jthread g_server_thread;
 static std::atomic<bool> g_server_running{false};
 static std::atomic<int> g_listen_fd{-1};
@@ -54,6 +59,8 @@ static std::mutex g_http_threads_mtx;
 
 static std::vector<int> g_active_client_fds;
 static std::mutex g_active_fds_mtx;
+static std::mutex g_capture_request_mtx;
+static std::mutex g_infopanels_lifecycle_mtx;
 
 static std::atomic<int64_t> g_last_next_cmd{0};
 static std::atomic<int64_t> g_last_prev_cmd{0};
@@ -73,50 +80,28 @@ static void unregister_client_fd(int fd) {
 }
 
 static bool spawn_tracked_thread(std::function<void()> func) {
-    auto finished = std::make_shared<std::atomic<bool>>(false);
-    std::jthread t;
-    if (!spawn_thread_safe(t, "http_client", [func, finished]() {
-        try { func(); } catch (...) {}
-        finished->store(true);
-    })) {
-        finished->store(true);
-        return false;
-    }
-    
-    std::lock_guard<std::mutex> lk(g_http_threads_mtx);
-    for (auto it = g_http_client_threads.begin(); it != g_http_client_threads.end(); ) {
+    std::lock_guard lock(g_http_threads_mtx);
+    if (!g_server_running.load()) return false;
+    for (auto it = g_http_client_threads.begin(); it != g_http_client_threads.end();) {
         if (it->finished->load()) {
-            if (it->thread.joinable()) {
-                it->thread.join();
-            }
+            if (it->thread.joinable()) it->thread.join();
             it = g_http_client_threads.erase(it);
-        } else {
-            ++it;
-        }
+        } else ++it;
     }
-    g_http_client_threads.push_back({std::move(t), finished});
-    return true;
-}
-
-static std::string execute_curl(const std::string& cmd) {
-    std::string timed_cmd = cmd;
-    if (timed_cmd.rfind("curl ", 0) == 0) {
-        timed_cmd.insert(5, "--connect-timeout 10 --max-time 30 ");
-    }
-    FILE* raw_pipe = popen((timed_cmd + " 2>/dev/null").c_str(), "r");
-    if (!raw_pipe) {
-        g_logger.warn("HTTP: popen() returned null for cmd='{}'", timed_cmd);
-        return "";
-    }
-    std::shared_ptr<FILE> pipe(raw_pipe, pclose);
-    char buffer[4096];
-    std::string result = "";
-    while (!feof(pipe.get())) {
-        if (fgets(buffer, sizeof(buffer), pipe.get()) != nullptr) {
-            result += buffer;
-        }
-    }
-    return result;
+    // Include background requests in the budget; HTTP connections already have a
+    // separate cap. Reserve storage before starting a thread that may spawn work.
+    if (g_http_client_threads.size() >= 64) return false;
+    try {
+        g_http_client_threads.reserve(g_http_client_threads.size() + 1);
+        auto finished = std::make_shared<std::atomic<bool>>(false);
+        std::jthread thread;
+        if (!spawn_thread_safe(thread, "http_client", [func = std::move(func), finished] {
+            try { func(); } catch (...) {}
+            finished->store(true);
+        })) return false;
+        g_http_client_threads.push_back({std::move(thread), finished});
+        return true;
+    } catch (...) { return false; }
 }
 
 static std::string parse_json_value(const std::string& json, const std::string& key) {
@@ -145,114 +130,19 @@ static std::string parse_json_value(const std::string& json, const std::string& 
 }
 
 static bool has_query_param(const std::string& request, const std::string& key) {
-    std::string search_str;
-    size_t first_line_end = request.find("\r\n");
-    std::string first_line = (first_line_end == std::string::npos) ? request : request.substr(0, first_line_end);
-    size_t first_space = first_line.find(' ');
-    size_t second_space = (first_space == std::string::npos) ? std::string::npos : first_line.find(' ', first_space + 1);
-    
-    if (first_space != std::string::npos && second_space != std::string::npos) {
-        std::string path_query = first_line.substr(first_space + 1, second_space - first_space - 1);
-        size_t q_mark = path_query.find('?');
-        if (q_mark != std::string::npos) {
-            search_str = path_query.substr(q_mark + 1);
-        }
-    }
-    
-    size_t body_pos = request.find("\r\n\r\n");
-    if (body_pos != std::string::npos) {
-        if (!search_str.empty()) search_str += "&";
-        search_str += request.substr(body_pos + 4);
-    }
-    
-    if (search_str.empty()) {
-        search_str = request;
-    }
-    
-    size_t pos = 0;
-    while (true) {
-        pos = search_str.find(key + "=", pos);
-        if (pos == std::string::npos) return false;
-        if (pos == 0 || search_str[pos - 1] == '&') {
-            return true;
-        }
-        pos += 1;
-    }
+    return http_protocol::query_param(request, key).has_value();
 }
-
 static std::string get_query_param(const std::string& request, const std::string& key) {
-    std::string search_str;
-    size_t first_line_end = request.find("\r\n");
-    std::string first_line = (first_line_end == std::string::npos) ? request : request.substr(0, first_line_end);
-    size_t first_space = first_line.find(' ');
-    size_t second_space = (first_space == std::string::npos) ? std::string::npos : first_line.find(' ', first_space + 1);
-    
-    if (first_space != std::string::npos && second_space != std::string::npos) {
-        std::string path_query = first_line.substr(first_space + 1, second_space - first_space - 1);
-        size_t q_mark = path_query.find('?');
-        if (q_mark != std::string::npos) {
-            search_str = path_query.substr(q_mark + 1);
-        }
-    }
-    
-    size_t body_pos = request.find("\r\n\r\n");
-    if (body_pos != std::string::npos) {
-        if (!search_str.empty()) search_str += "&";
-        search_str += request.substr(body_pos + 4);
-    }
-    
-    if (search_str.empty()) {
-        search_str = request;
-    }
-    
-    size_t pos = 0;
-    while (true) {
-        pos = search_str.find(key + "=", pos);
-        if (pos == std::string::npos) return "";
-        if (pos == 0 || search_str[pos - 1] == '&') {
-            break;
-        }
-        pos += 1;
-    }
-    
-    pos += key.length() + 1;
-    size_t end = search_str.find_first_of(" &\r\n", pos);
-    std::string val = (end == std::string::npos) ? search_str.substr(pos) : search_str.substr(pos, end - pos);
-    
-    std::string dec = "";
-    for (size_t i = 0; i < val.length(); i++) {
-        if (val[i] == '%' && i + 2 < val.length()) {
-            char c1 = val[i+1];
-            char c2 = val[i+2];
-            if (std::isxdigit(c1) && std::isxdigit(c2)) {
-                char hex[3] = { c1, c2, '\0' };
-                dec += (char)std::strtol(hex, nullptr, 16);
-                i += 2;
-            } else {
-                dec += '%';
-            }
-        } else if (val[i] == '+') {
-            dec += ' ';
-        } else {
-            dec += val[i];
-        }
-    }
-    return dec;
+    return http_protocol::query_param(request, key).value_or("");
 }
-
 static std::string get_host_header(const std::string& request) {
-    size_t pos = request.find("Host: ");
-    int port = 9000;
-    {
-        std::shared_lock<std::shared_mutex> lk(g_config_mtx);
-        port = g_cfg.http_port;
+    http_protocol::Request parsed;
+    size_t required;
+    if (http_protocol::parse(request, parsed, required) == http_protocol::Result::complete) {
+        if (auto it = parsed.headers.find("host"); it != parsed.headers.end()) return it->second;
     }
-    std::string default_host = std::format("192.168.4.110:{}", port);
-    if (pos == std::string::npos) return default_host;
-    pos += 6;
-    size_t end = request.find_first_of("\r\n", pos);
-    if (end == std::string::npos) return default_host;
-    return request.substr(pos, end - pos);
+    std::shared_lock lock(g_config_mtx);
+    return std::format("192.168.4.110:{}", g_cfg.http_port);
 }
 
 // Escape a value for interpolation into an HTML text/attribute context. The OAuth
@@ -2038,25 +1928,19 @@ static const std::string VIDEO_FALLBACK_SVG = R"SVG(
 )SVG";
 
 static void send_response(int fd, const std::string& status_line, const std::string& mime, const std::string& body) {
-    std::string response = std::format(
-        "{}\r\n" 
-        "Content-Type: {}\r\n" 
-        "Content-Length: {}\r\n" 
-        "Cache-Control: no-cache, no-store, must-validate\r\n" 
-        "Connection: close\r\n\r\n" 
-        "{}",
-        status_line, mime, body.size(), body);
-    ssize_t remain = response.size();
-    const char* ptr = response.data();
-    while (remain > 0) {
-        ssize_t w = write(fd, ptr, remain);
-        if (w <= 0) break;
-        ptr += w;
-        remain -= w;
-    }
+    std::string headers = std::format(
+        "{}\r\nContent-Type: {}\r\nContent-Length: {}\r\n"
+        "Cache-Control: no-cache, no-store, must-validate\r\nConnection: close\r\n\r\n",
+        status_line, mime, body.size());
+    if (http_protocol::send_all(fd, headers)) http_protocol::send_all(fd, body);
 }
 
 static void handle_screenshot(int fd) {
+    std::unique_lock capture(g_capture_request_mtx, std::try_to_lock);
+    if (!capture.owns_lock()) {
+        send_response(fd, "HTTP/1.1 409 Conflict", "text/plain", "Screenshot capture already in progress");
+        return;
+    }
     std::string dir = "/app/screenshots";
     std::error_code ec;
     std::filesystem::create_directories(dir, ec);
@@ -2067,7 +1951,7 @@ static void handle_screenshot(int fd) {
     char time_str[64];
     strftime(time_str, sizeof(time_str), "%Y%m%d_%H%M%S", &tm_buf);
 
-    std::string shot_filename = std::string("screenshot_") + time_str + ".png";
+    std::string shot_filename = std::string("screenshot_") + time_str + "_" + std::to_string(SDL_GetTicks()) + ".png";
     std::string shot_path = dir + "/" + shot_filename;
 
     {
@@ -2086,6 +1970,8 @@ static void handle_screenshot(int fd) {
         send_response(fd, "HTTP/1.1 504 Gateway Timeout", "text/plain", "Screenshot capture timed out");
         return;
     }
+
+    lk.unlock(); // File I/O and socket writes must not hold the renderer's state mutex.
 
     // Auto-prune older screenshots keeping the latest 50
     try {
@@ -2226,7 +2112,7 @@ static void handle_preview(int fd) {
         "Cache-Control: no-cache, no-store, must-validate\r\n" 
         "Connection: close\r\n\r\n",
         mime, file_size);
-    (void)write(fd, headers.data(), headers.size());
+    if (!http_protocol::send_all(fd, headers)) return;
 
     // Stream body in chunks
     char buffer[8192];
@@ -2234,20 +2120,7 @@ static void handle_preview(int fd) {
         file.read(buffer, sizeof(buffer));
         std::streamsize bytes = file.gcount();
         if (bytes > 0) {
-            std::streamsize written = 0;
-            bool ok = true;
-            while (written < bytes) {
-                ssize_t w = write(fd, buffer + written, bytes - written);
-                if (w <= 0) {
-                    if (w < 0 && (errno == EINTR || errno == EAGAIN)) {
-                        continue;
-                    }
-                    ok = false;
-                    break;
-                }
-                written += w;
-            }
-            if (!ok) break; // client disconnected or error
+            if (!http_protocol::send_all(fd, std::string_view(buffer, size_t(bytes)))) break;
         }
     }
 }
@@ -2255,7 +2128,7 @@ static void handle_preview(int fd) {
 static void handle_client(int client_fd) {
     struct ClientFdGuard {
         int fd;
-        ClientFdGuard(int f) : fd(f) { register_client_fd(fd); }
+        ClientFdGuard(int f) : fd(f) { try { register_client_fd(fd); } catch (...) { close(fd); throw; } }
         ~ClientFdGuard() { unregister_client_fd(fd); close(fd); }
     };
     ClientFdGuard guard(client_fd);
@@ -2272,71 +2145,19 @@ static void handle_client(int client_fd) {
     }
 
     std::string request;
-    request.reserve(4096);
-    char buf[1024];
-    while (true) {
-        struct pollfd pfd;
-        pfd.fd = client_fd;
-        pfd.events = POLLIN;
-        pfd.revents = 0;
-        int poll_res = poll(&pfd, 1, 2000);
-        if (poll_res <= 0) {
-            break;
-        }
-        ssize_t bytes_read = read(client_fd, buf, sizeof(buf));
-        if (bytes_read <= 0) {
-            break;
-        }
-        request.append(buf, bytes_read);
-        if (request.find("\r\n\r\n") != std::string::npos) {
-            break;
-        }
-        if (request.size() >= 8192) {
-            break;
-        }
+    http_protocol::Request parsed_request;
+    auto received = http_protocol::receive(client_fd, request, parsed_request,
+                                          std::max(1L, client_tv.tv_sec) * 1000);
+    if (received != http_protocol::Result::complete) {
+        const char* status = received == http_protocol::Result::too_large ? "HTTP/1.1 413 Payload Too Large" :
+                             received == http_protocol::Result::timeout ? "HTTP/1.1 408 Request Timeout" :
+                             "HTTP/1.1 400 Bad Request";
+        send_response(client_fd, status, "text/plain", "Incomplete or invalid HTTP request");
+        return;
     }
-
-    size_t header_end = request.find("\r\n\r\n");
-    if (header_end != std::string::npos) {
-        std::string headers = request.substr(0, header_end);
-        size_t cl_pos = headers.find("Content-Length:");
-        if (cl_pos == std::string::npos) {
-            cl_pos = headers.find("content-length:");
-        }
-        if (cl_pos != std::string::npos) {
-            size_t val_pos = headers.find_first_not_of(" \t", cl_pos + 15);
-            size_t val_end = headers.find("\r\n", val_pos);
-            if (val_pos != std::string::npos && val_end != std::string::npos) {
-                std::string cl_str = headers.substr(val_pos, val_end - val_pos);
-                int content_length = safe_stoi(cl_str, 0);
-                if (content_length > 65536) {
-                    send_response(client_fd, "HTTP/1.1 413 Payload Too Large", "text/plain", "Payload Too Large");
-                    return;
-                }
-                if (content_length > 0) {
-                    size_t body_start = header_end + 4;
-                    size_t current_body_len = request.size() - body_start;
-                    while (current_body_len < (size_t)content_length) {
-                        struct pollfd pfd;
-                        pfd.fd = client_fd;
-                        pfd.events = POLLIN;
-                        pfd.revents = 0;
-                        int poll_res = poll(&pfd, 1, 2000);
-                        if (poll_res <= 0) {
-                            break;
-                        }
-                        size_t to_read = std::min(sizeof(buf), (size_t)(content_length - current_body_len));
-                        ssize_t bytes_read = read(client_fd, buf, to_read);
-                        if (bytes_read <= 0) {
-                            break;
-                        }
-                        request.append(buf, bytes_read);
-                        current_body_len += bytes_read;
-                    }
-                }
-            }
-        }
-    }
+    auto matches_route = [&](std::string_view method, std::string_view path) {
+        return parsed_request.method == method && parsed_request.path == path;
+    };
 
     if (!request.empty()) {
         // Failed-attempt throttling. The accept loop discards the peer address, so this is
@@ -2353,11 +2174,7 @@ static void handle_client(int client_fd) {
         // differing byte, which leaks the length of the matching prefix.
         auto secure_equals = [](const std::string& a, const std::string& b) -> bool {
             if (a.size() != b.size()) return false;
-            unsigned char diff = 0;
-            for (size_t i = 0; i < a.size(); ++i) {
-                diff |= static_cast<unsigned char>(a[i] ^ b[i]);
-            }
-            return diff == 0;
+            return sodium_memcmp(a.data(), b.data(), a.size()) == 0;
         };
 
         auto is_authorized = [&](const std::string& req, int fd) -> bool {
@@ -2372,12 +2189,12 @@ static void handle_client(int client_fd) {
 
             if (auth_now_ms() < g_auth_lockout_until.load()) {
                 std::string body = "HTTP/1.1 429 Too Many Requests\r\nContent-Type: text/plain\r\nConnection: close\r\n\r\nToo many failed attempts";
-                (void)write(fd, body.c_str(), body.size());
+                http_protocol::send_all(fd, body);
                 return false;
             }
             auto deny = [&](const char* msg) {
                 std::string body = std::string("HTTP/1.1 401 Unauthorized\r\nContent-Type: text/plain\r\nConnection: close\r\n\r\n") + msg;
-                (void)write(fd, body.c_str(), body.size());
+                http_protocol::send_all(fd, body);
                 if (g_auth_failures.fetch_add(1) + 1 >= AUTH_MAX_FAILURES) {
                     g_auth_lockout_until.store(auth_now_ms() + AUTH_LOCKOUT_MS);
                     g_auth_failures.store(0);
@@ -2387,20 +2204,13 @@ static void handle_client(int client_fd) {
                 return false;
             };
 
-            size_t auth_pos = req.find("Authorization: ");
-            if (auth_pos == std::string::npos) {
-                auth_pos = req.find("authorization: ");
-            }
-            if (auth_pos == std::string::npos) {
-                g_logger.warn("HTTP: Unauthorized request - no auth header");
-                return deny("API key required");
-            }
-            auth_pos += 15;
-            size_t auth_end = req.find("\r\n", auth_pos);
-            if (auth_end == std::string::npos) auth_end = req.size();
-            std::string auth_value = req.substr(auth_pos, auth_end - auth_pos);
-            if (auth_value.rfind("Bearer ", 0) == 0) {
-                auth_value = auth_value.substr(7);
+            auto header = parsed_request.headers.find("authorization");
+            if (header == parsed_request.headers.end()) return deny("API key required");
+            std::string auth_value = header->second;
+            if (auth_value.size() >= 7) {
+                std::string scheme = auth_value.substr(0, 7);
+                std::transform(scheme.begin(), scheme.end(), scheme.begin(), [](unsigned char c) { return std::tolower(c); });
+                if (scheme == "bearer ") auth_value.erase(0, 7);
             }
             if (!secure_equals(auth_value, api_key)) {
                 g_logger.warn("HTTP: Unauthorized request - invalid key");
@@ -2410,18 +2220,14 @@ static void handle_client(int client_fd) {
             return true;
         };
 
-        size_t first_line_end = request.find("\r\n");
-        if (first_line_end != std::string::npos) {
-            g_logger.info("HTTP: Request: {}", request.substr(0, first_line_end));
-        } else {
-            g_logger.info("HTTP: Request: {}", request);
-        }
+        // Query parameters can contain OAuth codes or credentials. Log only the route.
+        g_logger.info("HTTP: Request: {} {}", parsed_request.method, parsed_request.path);
 
         // Very simple router
-        if (request.rfind("GET / ", 0) == 0 || request.rfind("GET /dashboard", 0) == 0) {
+        if (matches_route("GET", "/") || matches_route("GET", "/dashboard")) {
             send_response(client_fd, "HTTP/1.1 200 OK", "text/html", get_dashboard_html());
         } 
-        else if (request.rfind("GET /google_photos_setup", 0) == 0 || request.rfind("POST /google_photos_setup", 0) == 0) {
+        else if (matches_route("GET", "/google_photos_setup") || matches_route("POST", "/google_photos_setup")) {
             // Writes the OAuth client id/secret into the live config and starts the flow.
             // /google_photos_callback is left open on purpose: it is a Google-initiated
             // redirect that cannot carry an Authorization header, and it only persists
@@ -2432,36 +2238,35 @@ static void handle_client(int client_fd) {
                 std::string client_id = get_query_param(request, "client_id");
                 std::string client_secret = get_query_param(request, "client_secret");
                 
-                {
-                    std::lock_guard lk(g_config_mtx);
-                    g_cfg.google_photos_client_id = client_id;
-                    g_cfg.google_photos_client_secret = client_secret;
-                }
-                
                 std::string host = get_host_header(request);
                 std::string redirect_uri = "http://" + host + "/google_photos_callback";
                 
-                // Build Google OAuth authorization URL
-                std::string auth_url = "https://accounts.google.com/o/oauth2/v2/auth?"
-                                       "client_id=" + client_id + "&"
-                                       "redirect_uri=" + redirect_uri + "&"
-                                       "response_type=code&"
-                                       "scope=https://www.googleapis.com/auth/photoslibrary.readonly&"
-                                       "access_type=offline&"
-                                       "prompt=consent";
-                                       
+                std::string state = g_oauth_state.begin(client_id, client_secret, redirect_uri);
+                if (state.empty()) {
+                    send_response(client_fd, "HTTP/1.1 500 Internal Server Error", "text/plain", "Failed to initialize authorization");
+                    return;
+                }
+                std::string auth_url = "https://accounts.google.com/o/oauth2/v2/auth?client_id=" + http_protocol::url_encode(client_id) +
+                    "&redirect_uri=" + http_protocol::url_encode(redirect_uri) +
+                    "&response_type=code&scope=https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fphotoslibrary.readonly&access_type=offline&prompt=consent&state=" + state;
+
                 std::string redirect_headers = std::format(
                     "HTTP/1.1 302 Found\r\n" 
                     "Location: {}\r\n" 
                     "Connection: close\r\n\r\n", auth_url);
-                (void)write(client_fd, redirect_headers.data(), redirect_headers.size());
+                http_protocol::send_all(client_fd, redirect_headers);
             } else {
                 std::string host = get_host_header(request);
                 std::string redirect_uri = "http://" + host + "/google_photos_callback";
                 send_response(client_fd, "HTTP/1.1 200 OK", "text/html", get_setup_html(redirect_uri));
             }
         }
-        else if (request.rfind("GET /google_photos_callback", 0) == 0) {
+        else if (matches_route("GET", "/google_photos_callback")) {
+            auto flow = g_oauth_state.consume(get_query_param(request, "state"));
+            if (!flow) {
+                send_response(client_fd, "HTTP/1.1 400 Bad Request", "text/plain", "Invalid or expired authorization state; restart setup");
+                return;
+            }
             std::string code = get_query_param(request, "code");
             std::string error = get_query_param(request, "error");
             
@@ -2470,25 +2275,14 @@ static void handle_client(int client_fd) {
             } else if (code.empty()) {
                 send_response(client_fd, "HTTP/1.1 200 OK", "text/html", get_error_html("OAuth code parameter is missing."));
             } else {
-                // Exchange code for token
-                std::string client_id, client_secret;
-                {
-                    std::lock_guard lk(g_config_mtx);
-                    client_id = g_cfg.google_photos_client_id;
-                    client_secret = g_cfg.google_photos_client_secret;
-                }
-                
-                std::string host = get_host_header(request);
-                std::string redirect_uri = "http://" + host + "/google_photos_callback";
-                
-                std::string cmd = "curl -s -X POST https://oauth2.googleapis.com/token "
-                                  "-d client_id='" + escape_shell_arg(client_id) + "' "
-                                  "-d client_secret='" + escape_shell_arg(client_secret) + "' "
-                                  "-d code='" + escape_shell_arg(code) + "' "
-                                  "-d redirect_uri='" + escape_shell_arg(redirect_uri) + "' "
-                                  "-d grant_type=authorization_code";
-                                  
-                std::string json = execute_curl(cmd);
+                // Keep credentials out of shell arguments; encode every form value.
+                std::string body = "client_id=" + http_protocol::url_encode(flow->client_id) +
+                    "&client_secret=" + http_protocol::url_encode(flow->client_secret) +
+                    "&code=" + http_protocol::url_encode(code) +
+                    "&redirect_uri=" + http_protocol::url_encode(flow->redirect_uri) +
+                    "&grant_type=authorization_code";
+                std::string json;
+                http_transfer::post_form("https://oauth2.googleapis.com/token", body, json);
                 std::string refresh_token = parse_json_value(json, "refresh_token");
                 
                 if (refresh_token.empty()) {
@@ -2499,20 +2293,22 @@ static void handle_client(int client_fd) {
                     
                     send_response(client_fd, "HTTP/1.1 200 OK", "text/html", get_error_html(err_desc));
                 } else {
-                    // Save and reload sync thread
+                    // Preserve the previous live settings if persistence fails.
                     {
-                        std::lock_guard lk(g_config_mtx);
+                        std::lock_guard lock(g_config_mtx);
+                        Config previous = g_cfg;
+                        g_cfg.google_photos_client_id = flow->client_id;
+                        g_cfg.google_photos_client_secret = flow->client_secret;
                         g_cfg.google_photos_refresh_token = refresh_token;
                         g_cfg.google_photos_enabled = true;
+                        std::string save_path = g_cfg.loaded_path.empty() ? "/app/config/config.toml" : g_cfg.loaded_path;
+                        if (!g_cfg.save(save_path)) {
+                            g_cfg = std::move(previous);
+                            send_response(client_fd, "HTTP/1.1 500 Internal Server Error", "text/plain", "Failed to save configuration");
+                            return;
+                        }
                     }
-                    std::string save_path;
-                    {
-                        std::shared_lock lk(g_config_mtx);
-                        save_path = g_cfg.loaded_path;
-                    }
-                    if (save_path.empty()) save_path = "/app/config/config.toml";
-                    g_cfg.save(save_path); // active config location in container
-                    
+
                     // Clear error and restart background sync thread safely
                     trigger_error(0);
                     
@@ -2523,7 +2319,7 @@ static void handle_client(int client_fd) {
                 }
             }
         } 
-        else if (request.rfind("GET /api/settings/update", 0) == 0) {
+        else if (matches_route("GET", "/api/settings/update")) {
             if (!is_authorized(request, client_fd)) return;
             bool changed = false;
             bool validation_failed = false;
@@ -2533,10 +2329,12 @@ static void handle_client(int client_fd) {
             // (std::shared_mutex is not recursive), stalling every subsystem that
             // needs a shared lock. Defer it until the lock has been released.
             bool refetch_news = false;
+            bool reconfigure_panels = false;
             
             {
                 std::lock_guard lock(g_config_mtx);
-                
+                Config previous = g_cfg;
+
                 // 1. Validation Checks
                 if (has_query_param(request, "transition_delay")) {
                     double val = safe_stod(get_query_param(request, "transition_delay"), -999.0);
@@ -2687,13 +2485,7 @@ static void handle_client(int client_fd) {
                         if (g_cfg.infopanels_enabled != desired) {
                             g_cfg.infopanels_enabled = desired;
                             changed = true;
-                            if (desired) {
-                                if (g_cfg.news_enabled) g_news_ticker.start();
-                                if (g_cfg.gcalendar_enabled) g_calendar.start();
-                            } else {
-                                g_news_ticker.stop();
-                                g_calendar.stop();
-                            }
+                            reconfigure_panels = true;
                         }
                     }
                     if (has_query_param(request, "news_enabled")) {
@@ -2702,8 +2494,7 @@ static void handle_client(int client_fd) {
                         if (g_cfg.news_enabled != desired) {
                             g_cfg.news_enabled = desired;
                             changed = true;
-                            if (desired && g_cfg.infopanels_enabled) g_news_ticker.start();
-                            else if (!desired) g_news_ticker.stop();
+                            reconfigure_panels = true;
                         }
                     }
                     if (has_query_param(request, "news_source")) {
@@ -2739,8 +2530,7 @@ static void handle_client(int client_fd) {
                         if (g_cfg.gcalendar_enabled != desired) {
                             g_cfg.gcalendar_enabled = desired;
                             changed = true;
-                            if (desired && g_cfg.infopanels_enabled) g_calendar.start();
-                            else if (!desired) g_calendar.stop();
+                            reconfigure_panels = true;
                         }
                     }
                     if (has_query_param(request, "gcalendar_ical_url")) {
@@ -2813,6 +2603,29 @@ static void handle_client(int client_fd) {
                         if (g_cfg.touch_enabled != desired) { g_cfg.touch_enabled = desired; changed = true; }
                     }
                 }
+                if (!validation_failed && changed) {
+                    std::string save_path = g_cfg.loaded_path.empty() ? "/app/config/config.toml" : g_cfg.loaded_path;
+                    if (!g_cfg.save(save_path)) {
+                        g_cfg = std::move(previous);
+                        send_response(client_fd, "HTTP/1.1 500 Internal Server Error", "text/plain", "Failed to save configuration");
+                        return;
+                    }
+                }
+            }
+            // Lifecycle calls can join workers that read config. Serialize callers and
+            // snapshot the latest desired state after releasing the config mutex.
+            if (!validation_failed && reconfigure_panels) {
+                std::lock_guard lifecycle(g_infopanels_lifecycle_mtx);
+                bool news, calendar, stocks;
+                {
+                    std::shared_lock lock(g_config_mtx);
+                    news = g_cfg.infopanels_enabled && g_cfg.news_enabled;
+                    calendar = g_cfg.infopanels_enabled && g_cfg.gcalendar_enabled;
+                    stocks = g_cfg.infopanels_enabled && g_cfg.stockstreamer_enabled;
+                }
+                if (news != g_news_ticker.is_running()) { if (news) g_news_ticker.start(); else g_news_ticker.stop(); }
+                if (calendar != g_calendar.is_running()) { if (calendar) g_calendar.start(); else g_calendar.stop(); }
+                if (stocks != g_stock_streamer.is_running()) { if (stocks) g_stock_streamer.start(); else g_stock_streamer.stop(); }
             }
             // g_config_mtx is released above; fetch_sync() may now take its shared_lock.
             if (!validation_failed && refetch_news) {
@@ -2828,25 +2641,15 @@ static void handle_client(int client_fd) {
                 if (is_error_active(807)) {
                     clear_error(807);
                 }
-                if (changed) {
-                    std::string save_path;
-                    {
-                        std::shared_lock lk(g_config_mtx);
-                        save_path = g_cfg.loaded_path;
-                    }
-                    if (save_path.empty()) save_path = "/app/config/config.toml";
-                    g_cfg.save(save_path);
-                    g_config_changed.store(true);
-                }
                 send_response(client_fd, "HTTP/1.1 200 OK", "application/json", "{\"status\":\"ok\"}");
             }
         }
-        else if (request.rfind("GET /api/settings", 0) == 0) {
+        else if (matches_route("GET", "/api/settings")) {
             if (is_authorized(request, client_fd)) {
                 send_response(client_fd, "HTTP/1.1 200 OK", "application/json", get_api_settings());
             }
         }
-        else if (request.rfind("GET /api/logs", 0) == 0) {
+        else if (matches_route("GET", "/api/logs")) {
             if (is_authorized(request, client_fd)) {
             std::string log_content = "";
             std::string path = g_logger.log_file_path;
@@ -2884,10 +2687,10 @@ static void handle_client(int client_fd) {
             send_response(client_fd, "HTTP/1.1 200 OK", "application/json", json_oss);
                     }
         }
-        else if (request.rfind("GET /api/news", 0) == 0) {
+        else if (matches_route("GET", "/api/news")) {
             send_response(client_fd, "HTTP/1.1 200 OK", "application/json", g_news_ticker.get_status_json());
         }
-        else if (request.rfind("GET /api/calendar/sync", 0) == 0 || request.rfind("POST /api/calendar/sync", 0) == 0) {
+        else if (matches_route("GET", "/api/calendar/sync") || matches_route("POST", "/api/calendar/sync")) {
             if (is_authorized(request, client_fd)) {
                 spawn_tracked_thread([]() {
                     g_calendar.sync();
@@ -2895,13 +2698,13 @@ static void handle_client(int client_fd) {
                 send_response(client_fd, "HTTP/1.1 200 OK", "application/json", "{\"status\":\"ok\",\"message\":\"Calendar sync triggered\"}");
             }
         }
-        else if (request.rfind("GET /api/calendar", 0) == 0) {
+        else if (matches_route("GET", "/api/calendar")) {
             send_response(client_fd, "HTTP/1.1 200 OK", "application/json", g_calendar.get_status_json());
         }
-        else if (request.rfind("GET /api/status", 0) == 0) {
+        else if (matches_route("GET", "/api/status")) {
             send_response(client_fd, "HTTP/1.1 200 OK", "application/json", get_api_status());
         } 
-        else if (request.rfind("GET /api/next", 0) == 0) {
+        else if (matches_route("GET", "/api/next")) {
             if (!is_authorized(request, client_fd)) return;
             static std::atomic<int64_t> last_next_ms{0};
             int64_t now_ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
@@ -2913,16 +2716,14 @@ static void handle_client(int client_fd) {
             g_remote_command.store(1);
             send_response(client_fd, "HTTP/1.1 200 OK", "application/json", "{\"status\":\"ok\"}");
         } 
-        else if (request.rfind("GET /api/screenshots/", 0) == 0) {
-            std::string sub = request.substr(21); // length of "GET /api/screenshots/"
-            size_t space_pos = sub.find(' ');
-            if (space_pos != std::string::npos) sub = sub.substr(0, space_pos);
+        else if (parsed_request.method == "GET" && parsed_request.path.starts_with("/api/screenshots/")) {
+            std::string sub = parsed_request.path.substr(std::string_view("/api/screenshots/").size());
             handle_screenshot_file(client_fd, sub);
         }
-        else if (request.rfind("GET /api/screenshots", 0) == 0) {
+        else if (matches_route("GET", "/api/screenshots")) {
             handle_screenshots_list(client_fd);
         }
-        else if (request.rfind("GET /api/screenshot", 0) == 0) {
+        else if (matches_route("GET", "/api/screenshot")) {
             // Was the only state-changing route with neither is_authorized nor a cooldown:
             // each call blocks its worker up to 5s and forces a full framebuffer readback
             // plus PNG encode on the render thread.
@@ -2936,10 +2737,10 @@ static void handle_client(int client_fd) {
             last_shot_ms.store(now_ms);
             handle_screenshot(client_fd);
         }
-        else if (request.rfind("GET /api/preview", 0) == 0) {
+        else if (matches_route("GET", "/api/preview")) {
             handle_preview(client_fd);
         } 
-        else if (request.rfind("GET /api/prev", 0) == 0) {
+        else if (matches_route("GET", "/api/prev")) {
             if (!is_authorized(request, client_fd)) return;
             static std::atomic<int64_t> last_prev_ms{0};
             int64_t now_ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
@@ -2951,7 +2752,7 @@ static void handle_client(int client_fd) {
             g_remote_command.store(2);
             send_response(client_fd, "HTTP/1.1 200 OK", "application/json", "{\"status\":\"ok\"}");
         } 
-        else if (request.rfind("GET /api/pause", 0) == 0) {
+        else if (matches_route("GET", "/api/pause")) {
             if (!is_authorized(request, client_fd)) return;
             static std::atomic<int64_t> last_pause_ms{0};
             int64_t now_ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
@@ -2963,7 +2764,7 @@ static void handle_client(int client_fd) {
             g_remote_command.store(3);
             send_response(client_fd, "HTTP/1.1 200 OK", "application/json", "{\"status\":\"ok\"}");
         } 
-        else if (request.rfind("GET /api/toggle_shuffle", 0) == 0) {
+        else if (matches_route("GET", "/api/toggle_shuffle")) {
             if (!is_authorized(request, client_fd)) return;
             static std::atomic<int64_t> last_shuffle_ms{0};
             int64_t now_ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
@@ -2979,17 +2780,18 @@ static void handle_client(int client_fd) {
             g_config_changed.store(true);
             send_response(client_fd, "HTTP/1.1 200 OK", "application/json", "{\"status\":\"ok\"}");
         } 
-        else if (request.rfind("GET /api/stocks", 0) == 0) {
+        else if (matches_route("GET", "/api/stocks")) {
             send_response(client_fd, "HTTP/1.1 200 OK", "application/json", g_stock_streamer.get_status_json());
         }
-        else if (request.rfind("GET /api/news/refresh", 0) == 0 || request.rfind("POST /api/news/refresh", 0) == 0) {
+        else if (matches_route("GET", "/api/news/refresh") || matches_route("POST", "/api/news/refresh")) {
+            if (!is_authorized(request, client_fd)) return;
             g_news_ticker.sync();
             send_response(client_fd, "HTTP/1.1 200 OK", "application/json", g_news_ticker.get_status_json());
         }
-        else if (request.rfind("GET /api/news", 0) == 0) {
+        else if (matches_route("GET", "/api/news")) {
             send_response(client_fd, "HTTP/1.1 200 OK", "application/json", g_news_ticker.get_status_json());
         }
-        else if (request.rfind("GET /api/restart", 0) == 0) {
+        else if (matches_route("GET", "/api/restart")) {
             if (!is_authorized(request, client_fd)) return;
             static std::atomic<int64_t> last_restart_ms{0};
             int64_t now_ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
@@ -3001,7 +2803,7 @@ static void handle_client(int client_fd) {
             g_running.store(false);
             send_response(client_fd, "HTTP/1.1 200 OK", "application/json", "{\"status\":\"ok\"}");
         } 
-        else if (request.rfind("GET /api/toggle_screen", 0) == 0) {
+        else if (matches_route("GET", "/api/toggle_screen")) {
             if (!is_authorized(request, client_fd)) return;
             static std::atomic<int64_t> last_toggle_screen_ms{0};
             int64_t now_ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
@@ -3021,7 +2823,7 @@ static void handle_client(int client_fd) {
             mqtt_publish(prefix + "/status/screen", g_screen_blanked.load() ? "OFF" : "ON", true);
             send_response(client_fd, "HTTP/1.1 200 OK", "application/json", "{\"status\":\"ok\"}");
         }
-        else if (request.rfind("GET /api/trigger_motion", 0) == 0) {
+        else if (matches_route("GET", "/api/trigger_motion")) {
             if (!is_authorized(request, client_fd)) return;
             static std::atomic<int64_t> last_motion_ms{0};
             int64_t now_ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
@@ -3049,7 +2851,7 @@ static void handle_client(int client_fd) {
             });
             send_response(client_fd, "HTTP/1.1 200 OK", "application/json", "{\"status\":\"ok\"}");
         }
-        else if (request.rfind("GET /api/play_video", 0) == 0) {
+        else if (matches_route("GET", "/api/play_video")) {
             if (!is_authorized(request, client_fd)) return;
             static std::atomic<int64_t> last_video_ms{0};
             int64_t now_ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
@@ -3146,15 +2948,8 @@ static void server_loop(int port) {
         int fd = g_listen_fd.load();
         if (fd < 0) break;
 
-        // Set a timeout on accept so it can periodically check if g_server_running is false
-        struct timeval tv;
-        tv.tv_sec = 1;
-        tv.tv_usec = 0;
-        fd_set rfds;
-        FD_ZERO(&rfds);
-        FD_SET(fd, &rfds);
-
-        int select_rc = select(fd + 1, &rfds, nullptr, nullptr, &tv);
+        pollfd listener{fd, POLLIN, 0};
+        int select_rc = poll(&listener, 1, 1000);
         if (select_rc < 0) {
             if (errno == EINTR) continue;
             break;
@@ -3199,8 +2994,8 @@ static void server_loop(int port) {
             continue;
         }
         if (!spawn_tracked_thread([client_fd]() {
+            struct ConnectionCountGuard { ~ConnectionCountGuard() { g_active_connections.fetch_sub(1); } } count_guard;
             handle_client(client_fd);
-            g_active_connections.fetch_sub(1);
         })) {
             g_active_connections.fetch_sub(1);
             close(client_fd);
@@ -3245,14 +3040,12 @@ void stop_http_server() {
         g_server_thread.join();
     }
 
-    // Join all tracked client and delay threads cleanly
+    // A client can spawn a background request while it is finishing. Never hold
+    // the registry mutex while joining it; shutdown rejects further admission.
+    std::vector<TrackedThreadInfo> pending;
     {
-        std::lock_guard<std::mutex> lk(g_http_threads_mtx);
-        for (auto& info : g_http_client_threads) {
-            if (info.thread.joinable()) {
-                info.thread.join();
-            }
-        }
-        g_http_client_threads.clear();
+        std::lock_guard lock(g_http_threads_mtx);
+        pending.swap(g_http_client_threads);
     }
+    for (auto& info : pending) if (info.thread.joinable()) info.thread.join();
 }

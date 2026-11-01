@@ -5,6 +5,7 @@
 #include <string>
 #include <vector>
 #include <shared_mutex>
+#include <mutex>
 #include <thread>
 #include <atomic>
 #include "font_render.h"
@@ -33,11 +34,13 @@ private:
     std::vector<NewsItem> m_global_items;
     mutable std::shared_mutex m_items_mtx;
     std::jthread m_worker_thread;
+    std::mutex m_lifecycle_mtx;
     std::atomic<bool> m_running{false};
     std::atomic<bool> m_fetching{false};
     std::atomic<int> m_last_error{0};
     std::atomic<time_t> m_last_fetch_time{0};
 
+    std::atomic<bool> m_reset_scroll{false};
     float m_local_scroll_offset{0.0f};
     float m_global_scroll_offset{0.0f};
     uint64_t m_last_render_ticks{0};
@@ -54,6 +57,7 @@ public:
     NewsTicker();
     ~NewsTicker();
 
+    bool is_running() const { return m_running.load(); }
     bool start();
     void stop();
 

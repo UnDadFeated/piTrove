@@ -1,4 +1,5 @@
 #include "organizer.h"
+#include "file_ops.h"
 #include <sqlite3.h>
 #include <filesystem>
 #include "util.h"
@@ -69,6 +70,7 @@ bool organize_media_archive(const std::string& root_dir, bool in_place) {
     static const std::unordered_set<std::string> video_exts = {".mp4", ".m4v", ".mov", ".avi", ".mkv", ".hevc"};
 
     std::vector<MoveOperation> moves_to_perform;
+    std::unordered_set<std::string> reserved_destinations;
     std::regex org_pattern("/(Photos|Videos)/[0-9]{4}-[0-9]{2}/[0-9]{4}-[0-9]{2}-[0-9]{2}_");
     std::regex prefix_pattern("^[0-9]{4}-[0-9]{2}-[0-9]{2}_");
 
@@ -146,7 +148,7 @@ bool organize_media_archive(const std::string& root_dir, bool in_place) {
 
             int counter = 1;
             std::error_code exists_ec;
-            while (fs::exists(dest_path, exists_ec) && !exists_ec) {
+            while (!exists_ec && (reserved_destinations.contains(dest_path.lexically_normal().string()) || fs::exists(dest_path, exists_ec))) {
                 new_filename = std::format("{}_{}_{}{}", date_str, clean_base, counter, ext);
                 dest_path = dest_dir / new_filename;
                 counter++;
@@ -157,6 +159,7 @@ bool organize_media_archive(const std::string& root_dir, bool in_place) {
                 continue;
             }
 
+            reserved_destinations.insert(dest_path.lexically_normal().string());
             moves_to_perform.push_back({src_path, dest_dir, dest_path});
         }
     } catch (const std::exception& e) {
@@ -190,7 +193,7 @@ bool organize_media_archive(const std::string& root_dir, bool in_place) {
 
             // Move the file
             std::error_code rename_ec;
-            fs::rename(op.src, op.dest, rename_ec);
+            move_without_replace(op.src, op.dest, rename_ec);
             if (rename_ec) {
                 std::cerr << "ERROR: Failed to rename " << op.src << " to " << op.dest << ": " << rename_ec.message() << "\n";
                 error_count++;
@@ -218,21 +221,30 @@ bool organize_media_archive(const std::string& root_dir, bool in_place) {
 
 void undo_organize(const std::string& journal_path) {
     sqlite3* db = nullptr;
-    if (sqlite3_open(journal_path.c_str(), &db) != SQLITE_OK) return;
-
-    const char* sql = "SELECT old_path, new_path FROM moves ORDER BY id DESC;";
+    if (sqlite3_open(journal_path.c_str(), &db) != SQLITE_OK) { if (db) sqlite3_close(db); return; }
+    struct UndoRow { sqlite3_int64 id; std::string old_path, new_path; };
+    std::vector<UndoRow> rows;
     sqlite3_stmt* stmt = nullptr;
-    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) == SQLITE_OK) {
+    if (sqlite3_prepare_v2(db, "SELECT id, old_path, new_path FROM moves ORDER BY id DESC", -1, &stmt, nullptr) == SQLITE_OK) {
         while (sqlite3_step(stmt) == SQLITE_ROW) {
-            const char* op = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0));
-            const char* np = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1));
-            if (op && np) {
-                std::error_code ec;
-                std::filesystem::rename(np, op, ec);
-            }
+            const char* old_path = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1));
+            const char* new_path = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 2));
+            if (old_path && new_path) rows.push_back({sqlite3_column_int64(stmt, 0), old_path, new_path});
         }
-        sqlite3_finalize(stmt);
     }
-    sqlite3_exec(db, "DELETE FROM moves;", nullptr, nullptr, nullptr);
+    sqlite3_finalize(stmt);
+    for (const auto& row : rows) {
+        std::error_code error;
+        if (!move_without_replace(row.new_path, row.old_path, error)) {
+            g_logger.warn("Organizer: undo retained journal entry for {}: {}", row.new_path, error.message());
+            continue;
+        }
+        sqlite3_stmt* remove = nullptr;
+        if (sqlite3_prepare_v2(db, "DELETE FROM moves WHERE id = ?", -1, &remove, nullptr) == SQLITE_OK) {
+            sqlite3_bind_int64(remove, 1, row.id);
+            sqlite3_step(remove);
+        }
+        sqlite3_finalize(remove);
+    }
     sqlite3_close(db);
 }

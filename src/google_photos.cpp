@@ -1,6 +1,7 @@
 #include <curl/curl.h>
 #include <thread>
 #include "google_photos.h"
+#include "http_transfer.h"
 #include <fcntl.h>
 #include <unistd.h>
 #include "config.h"
@@ -126,7 +127,6 @@ void GooglePhotosManager::sync_now() {
   download_media(access_token);
 }
 
-static size_t curl_write_cb(void* contents, size_t size, size_t nmemb, void* userp);
 
 static std::string url_encode(const std::string& s) {
   static const char* hex = "0123456789ABCDEF";
@@ -184,6 +184,7 @@ static std::string http_post(const std::string& url, const std::string& body,
   CURL* curl = curl_easy_init();
   if (!curl) return "";
   std::string response;
+  http_transfer::TextBuffer buffer{&response, 4 * 1024 * 1024};
   curl_slist* headers = curl_slist_append(nullptr, ("Content-Type: " + content_type).c_str());
   if (!bearer.empty()) {
     headers = curl_slist_append(headers, ("Authorization: Bearer " + bearer).c_str());
@@ -193,18 +194,20 @@ static std::string http_post(const std::string& url, const std::string& body,
   curl_easy_setopt(curl, CURLOPT_POSTFIELDS, body.c_str());
   curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE, (long)body.size());
   curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
-  curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, curl_write_cb);
-  curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response);
+  curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, http_transfer::append_text);
+  curl_easy_setopt(curl, CURLOPT_WRITEDATA, &buffer);
   curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 10L);
   curl_easy_setopt(curl, CURLOPT_TIMEOUT, 30L);
   curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 1L);
   curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
   CURLcode res = curl_easy_perform(curl);
+  long status = 0;
+  curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &status);
   curl_easy_cleanup(curl);
   curl_slist_free_all(headers);
-  if (res != CURLE_OK) {
+  if (res != CURLE_OK || status < 200 || status >= 300) {
     g_logger.error("GooglePhotos: POST {} failed: {}", url, curl_easy_strerror(res));
-    return "";
+    return res == CURLE_OK ? response : ""; // Preserve structured API errors for diagnostics.
   }
   return response;
 }
@@ -283,7 +286,6 @@ void GooglePhotosManager::download_media(const std::string &access_token) {
       break;
     }
 
-    std::string cmd;
     std::string json;
     if (!album_id.empty()) {
       // Query specific album
@@ -301,12 +303,11 @@ void GooglePhotosManager::download_media(const std::string &access_token) {
       if (!page_token.empty()) {
         url += "&pageToken=" + url_encode(page_token);
       }
-      // Paging is a GET, so it still goes through execute_curl (which handles URLs
-      // and the Authorization header correctly).
-      cmd = "curl -s -X GET "
-            "'" + escape_shell_arg(url) + "' "
-            "-H 'Authorization: Bearer " + escape_shell_arg(access_token) + "'";
-      json = execute_curl(cmd);
+      // Pass the URL and bearer directly; do not parse a shell command back into HTTP.
+      if (!http_transfer::get(url, json, access_token) && json.find("\"error\"") == std::string::npos) {
+        trigger_error(301);
+        return;
+      }
     }
 
     // Check for API errors in the json response
@@ -384,28 +385,9 @@ void GooglePhotosManager::download_media(const std::string &access_token) {
       if (!std::filesystem::exists(local_path)) {
         std::string download_url = baseUrl + (is_video ? "=dv" : "=d");
 
-        // Validate URL to prevent SSRF/unauthorized requests
-        if (download_url.rfind("https://", 0) != 0) {
-          g_logger.error("GooglePhotos: Invalid URL protocol for download: {}", download_url.c_str());
-          pos = id_pos + 4; // advance: 'continue' would otherwise skip the cursor update
-          continue;
-        }
-        size_t host_start = 8; // length of "https://"
-        size_t host_end = download_url.find('/', host_start);
-        std::string host = (host_end == std::string::npos) ? download_url.substr(host_start) : download_url.substr(host_start, host_end - host_start);
-        size_t colon = host.find(':');
-        if (colon != std::string::npos) {
-          host = host.substr(0, colon);
-        }
-        bool domain_valid = false;
-        if (host == "googleusercontent.com" || 
-            (host.length() > 22 && host.compare(host.length() - 22, 22, ".googleusercontent.com") == 0) ||
-            host == "ggpht.com" ||
-            (host.length() > 10 && host.compare(host.length() - 10, 10, ".ggpht.com") == 0)) {
-          domain_valid = true;
-        }
+        bool domain_valid = http_transfer::is_google_media_url(download_url);
         if (!domain_valid) {
-          g_logger.error("GooglePhotos: Security warning: download URL host '{}' is not a Google Photos domain. Skipping download.", host.c_str());
+          g_logger.error("GooglePhotos: Security warning: download URL is not a Google Photos domain. Skipping download.");
           pos = id_pos + 4; // advance: 'continue' would otherwise skip the cursor update
           continue;
         }
@@ -413,27 +395,16 @@ void GooglePhotosManager::download_media(const std::string &access_token) {
         g_logger.info("GooglePhotos: Downloading new {}: {}",
                       (is_video ? "video" : "photo"), original_filename.c_str());
 
-        // Build the curl download command with -- to prevent option injection
-        std::string dl_cmd =
-            "curl -s -o '" + escape_shell_arg(local_path) + "' -- '" + escape_shell_arg(download_url) + "'";
-        std::string dl_res = execute_curl(dl_cmd);
-        if (!dl_res.empty()) {
-            std::ofstream out(local_path, std::ios::binary);
-            if (out.is_open()) {
-                out.write(dl_res.data(), dl_res.size());
-                out.close();
-            }
+        std::error_code space_error;
+        auto space = std::filesystem::space(cache_dir, space_error);
+        constexpr size_t reserve = 50 * 1024 * 1024;
+        size_t limit = !space_error && space.available > reserve ? size_t(space.available - reserve) : 0;
+        if (limit && http_transfer::download(download_url, local_path, limit, &running)) {
+          ++items_downloaded;
+        } else {
+          g_logger.error("GooglePhotos: Failed to download item: {}", original_filename);
         }
 
-        // Double check that file is non-empty and valid
-        if (std::filesystem::exists(local_path) &&
-            std::filesystem::file_size(local_path) >= 1024) {
-          items_downloaded++;
-        } else {
-          g_logger.error("GooglePhotos: Failed to download item: {}",
-                         original_filename.c_str());
-          std::filesystem::remove(local_path);
-        }
       } else {
         items_skipped++;
       }
@@ -454,68 +425,6 @@ void GooglePhotosManager::download_media(const std::string &access_token) {
     trigger_error(0);
   }
 }
-
-static size_t curl_write_cb(void* contents, size_t size, size_t nmemb, void* userp) {
-    size_t total_size = size * nmemb;
-    auto* str = static_cast<std::string*>(userp);
-    str->append(static_cast<char*>(contents), total_size);
-    return total_size;
-}
-
-std::string GooglePhotosManager::execute_curl(const std::string &cmd) {
-    CURL* curl = curl_easy_init();
-    if (!curl) {
-        g_logger.error("GooglePhotos: Failed to initialize libcurl handle.");
-        return "";
-    }
-
-    std::string response_buffer;
-    std::string url;
-    std::string auth_header;
-
-    size_t url_pos = cmd.find("http");
-    if (url_pos != std::string::npos) {
-        size_t end_url = cmd.find_first_of(" \"'", url_pos);
-        url = cmd.substr(url_pos, (end_url == std::string::npos) ? std::string::npos : end_url - url_pos);
-    }
-
-    std::string needle1 = "-H \"Authorization: Bearer ";
-    std::string needle2 = "-H 'Authorization: Bearer ";
-    size_t auth_pos = cmd.find(needle1);
-    if (auth_pos == std::string::npos) auth_pos = cmd.find(needle2);
-    if (auth_pos != std::string::npos) {
-        size_t start_token = auth_pos + 26;
-        size_t end_token = cmd.find_first_of("\"'", start_token);
-        if (end_token != std::string::npos && end_token > start_token) {
-            auth_header = "Authorization: Bearer " + cmd.substr(start_token, end_token - start_token);
-        }
-    }
-
-    curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
-    curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 10L);
-    curl_easy_setopt(curl, CURLOPT_TIMEOUT, 30L);
-    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, curl_write_cb);
-    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response_buffer);
-    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 1L);
-    curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
-
-    struct curl_slist* headers = nullptr;
-    if (!auth_header.empty()) {
-        headers = curl_slist_append(headers, auth_header.c_str());
-        curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
-    }
-
-    CURLcode res = curl_easy_perform(curl);
-    if (res != CURLE_OK) {
-        g_logger.error("GooglePhotos: libcurl perform failed: {}", curl_easy_strerror(res));
-    }
-
-    if (headers) curl_slist_free_all(headers);
-    curl_easy_cleanup(curl);
-
-    return response_buffer;
-}
-
 
 std::string GooglePhotosManager::parse_json_value(const std::string& json, const std::string& key) {
     std::string key_pattern = std::string("\"") + key + "\"";

@@ -401,10 +401,11 @@ std::string get_timestamp() {
 
 // Logger Implementation
 void Logger::flush_loop() {
-    while (flush_running.load() || !front_queue.empty()) {
+    while (true) {
         {
             std::unique_lock<std::mutex> lock(queue_mtx);
             cv.wait(lock, [this] { return !front_queue.empty() || !flush_running.load(); });
+            if (front_queue.empty() && !flush_running.load()) break;
             std::swap(front_queue, back_queue);
         }
         if (!back_queue.empty()) {

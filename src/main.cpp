@@ -2267,7 +2267,7 @@ int main(int argc, char** argv) {
     Uint64 fade_start_time = 0;
 
     while (g_running.load()) {
-        if (g_config_changed.load()) {
+        if (g_config_changed.exchange(false)) {
             g_logger.info("MAIN_LOOP: Dynamic configuration reload triggered!");
             {
                 std::lock_guard lk(g_config_mtx);
@@ -2276,7 +2276,6 @@ int main(int argc, char** argv) {
                 g_cfg.http_port = active_port;
                 transition_effect = g_cfg.transition_effect;
             }
-            g_config_changed.store(false);
         }
         auto now = std::chrono::steady_clock::now();
         double dt = std::chrono::duration<double>(now - last_frame_time).count();
@@ -2500,7 +2499,7 @@ int main(int argc, char** argv) {
                             } else {
                                 // Check if PIN is configured and not yet unlocked
                                 std::string stored_pin;
-                                { std::shared_lock<std::shared_mutex> lk(g_config_mtx); stored_pin = g_cfg.dashboard_pin; }
+                                { std::shared_lock<std::shared_mutex> lk(g_config_mtx); stored_pin = g_cfg.pin_hash.empty() ? g_cfg.dashboard_pin : g_cfg.pin_hash; }
                                 if (!stored_pin.empty() && !g_overlay->pin_unlocked) {
                                     g_overlay->pin_active = true;
                                     g_logger.info("TOUCH_INPUT: PIN required before showing navigation overlay.");
@@ -2540,7 +2539,7 @@ int main(int argc, char** argv) {
                         } else if (touch_mode) {
                             // Check if PIN is configured and not yet unlocked
                             std::string stored_pin;
-                            { std::shared_lock<std::shared_mutex> lk(g_config_mtx); stored_pin = g_cfg.dashboard_pin; }
+                            { std::shared_lock<std::shared_mutex> lk(g_config_mtx); stored_pin = g_cfg.pin_hash.empty() ? g_cfg.dashboard_pin : g_cfg.pin_hash; }
                             if (!stored_pin.empty() && !g_overlay->pin_unlocked) {
                                 g_overlay->pin_active = true;
                                 g_logger.info("TOUCH_INPUT: PIN required before showing navigation overlay (finger).");

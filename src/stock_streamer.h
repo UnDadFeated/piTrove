@@ -5,6 +5,7 @@
 #include <atomic>
 #include <thread>
 #include <shared_mutex>
+#include <mutex>
 #include <SDL3/SDL.h>
 #include "font_render.h"
 
@@ -42,6 +43,7 @@ public:
     StockStreamer() = default;
     ~StockStreamer() { stop(); }
 
+    bool is_running() const { return m_running.load(); }
     bool start();
     void stop();
     void sync();
@@ -54,6 +56,7 @@ public:
     void render(SDL_Renderer* renderer, FontRenderer* font_renderer, const std::string& font_path, const SDL_Rect& bounds, int screen_w);
 
 private:
+    std::mutex m_lifecycle_mtx;
     std::atomic<bool> m_running{false};
     std::atomic<bool> m_fetching{false};
     std::jthread m_worker_thread;

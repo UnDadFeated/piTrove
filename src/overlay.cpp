@@ -1,4 +1,5 @@
 #include "overlay.h"
+#include "auth.h"
 #include "util.h"
 #include "config.h"
 #include "media_item.h"
@@ -1165,13 +1166,13 @@ void OverlayManager::draw_pin_keypad() {
 }
 
 bool OverlayManager::check_pin(const std::string& input) {
-    std::string stored;
+    std::string stored, hash;
     {
         std::shared_lock<std::shared_mutex> lk(g_config_mtx);
         stored = g_cfg.dashboard_pin;
+        hash = g_cfg.pin_hash;
     }
-    if (stored.empty()) return true; // No PIN configured = always passes
-    return input == stored;
+    return pitrove::auth::verify_configured_pin(input, stored, hash);
 }
 
 bool OverlayManager::handle_touch_click(float x, float y) {

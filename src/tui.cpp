@@ -72,6 +72,7 @@ static void restore_termios() {
 
 void config_wizard(const std::string& config_path) {
     auto save_cfg = [&]() -> bool {
+        std::lock_guard lock(g_config_mtx);
         return g_cfg.save(config_path);
     };
 
@@ -387,7 +388,7 @@ void config_wizard(const std::string& config_path) {
         }
         if (c == 6) switch(i) {
             case 0: return g_cfg.touch_enabled?"[ON]":"[OFF]";
-            case 1: return g_cfg.dashboard_pin.empty()?"(not set)":g_cfg.dashboard_pin;
+            case 1: return (g_cfg.dashboard_pin.empty() && g_cfg.pin_hash.empty())?"(not set)":"(set)";
             case 2: return g_cfg.auto_update?"[ON]":"[OFF]";
             case 3: return g_cfg.auto_update_branch;
         }
@@ -467,7 +468,8 @@ void config_wizard(const std::string& config_path) {
 
     auto sv = [&](int c, int i, const std::string& v) {
         if(v.empty()) return;
-        std::lock_guard lk(g_config_mtx);
+        bool sync_news = false, sync_calendar = false, sync_stocks = false;
+        std::unique_lock lk(g_config_mtx);
         try {
             if(c==0) switch(i){
                 case 0: {
@@ -600,11 +602,11 @@ void config_wizard(const std::string& config_path) {
                     if (!auto_tz.empty()) {
                         g_cfg.timezone = auto_tz;
                         g_logger.info("TUI: Auto-configured timezone to '{}' from weather location '{}'", auto_tz, loc);
-                        g_calendar.sync();
+                        sync_calendar = true;
                     }
                     if (g_cfg.news_local_query == "10001" || g_cfg.news_local_query.empty()) {
                         g_cfg.news_local_query = loc;
-                        g_news_ticker.fetch_sync();
+                        sync_news = true;
                     }
                     break;
                 }
@@ -613,7 +615,7 @@ void config_wizard(const std::string& config_path) {
             }
             else if(c==6) switch(i){
                 case 0:g_cfg.touch_enabled=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
-                case 1:g_cfg.dashboard_pin=v;break;
+                case 1:g_cfg.dashboard_pin=v;g_cfg.pin_hash.clear();g_cfg.pin_changed=!v.empty();break;
                 case 2:g_cfg.auto_update=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
                 case 3:g_cfg.auto_update_branch=v;break;
             }
@@ -669,10 +671,10 @@ void config_wizard(const std::string& config_path) {
                     if (!auto_tz.empty()) {
                         g_cfg.timezone = auto_tz;
                         g_logger.info("TUI: Auto-configured timezone to '{}' from news zipcode/location '{}'", auto_tz, clean_v);
-                        g_calendar.sync();
+                        sync_calendar = true;
                     }
                     g_logger.info("TUI: Updated local news zipcode/query to '{}'", clean_v);
-                    g_news_ticker.fetch_sync();
+                    sync_news = true;
                     break;
                 }
                 case 5:{
@@ -685,7 +687,7 @@ void config_wizard(const std::string& config_path) {
                     }
                     g_cfg.news_blacklist = bl;
                     g_logger.info("TUI: Updated news domain blacklist ({} entries)", bl.size());
-                    g_news_ticker.fetch_sync();
+                    sync_news = true;
                     break;
                 }
                 case 6:{ try { g_cfg.news_refresh_minutes=std::clamp(std::stoi(v), 5, 120); } catch(...) {} break; }
@@ -696,7 +698,7 @@ void config_wizard(const std::string& config_path) {
                     g_cfg.stockstreamer_preset = v;
                     if (v != "custom") {
                         g_cfg.stockstreamer_symbols = get_stock_preset_symbols(v);
-                        g_stock_streamer.sync();
+                        sync_stocks = true;
                     }
                     break;
                 }
@@ -711,13 +713,13 @@ void config_wizard(const std::string& config_path) {
                     if (!syms.empty()) {
                         g_cfg.stockstreamer_symbols = syms;
                         g_cfg.stockstreamer_preset = "custom";
-                        g_stock_streamer.sync();
+                        sync_stocks = true;
                     }
                     break;
                 }
                 case 12:{
                     g_cfg.stockstreamer_crypto = trim(v);
-                    g_stock_streamer.sync();
+                    sync_stocks = true;
                     break;
                 }
                 case 13:g_cfg.gcalendar_enabled=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
@@ -725,7 +727,7 @@ void config_wizard(const std::string& config_path) {
                 case 15:g_cfg.gcalendar_name=v;break;
                 case 16:{
                     g_cfg.gcalendar_ical_url = trim(v);
-                    g_calendar.sync();
+                    sync_calendar = true;
                     break;
                 }
                 case 17:g_cfg.gcalendar_api_key=v;break;
@@ -733,6 +735,14 @@ void config_wizard(const std::string& config_path) {
                 case 19:{ try { g_cfg.gcalendar_max_events=std::clamp(std::stoi(v), 1, 16); } catch(...) {} break; }
             }
         } catch(...) {}
+        lk.unlock();
+        // Each integration takes its own shared config lock. Never call it while
+        // this editor owns the exclusive lock on the same non-recursive mutex.
+        try {
+            if (sync_news) g_news_ticker.fetch_sync();
+            if (sync_calendar) g_calendar.sync();
+            if (sync_stocks) g_stock_streamer.sync();
+        } catch (...) { g_logger.warn("TUI: integration refresh failed after settings update"); }
     };
 
     auto enums = [&](int c, int i) -> std::vector<std::string> {
@@ -1118,7 +1128,7 @@ void config_wizard(const std::string& config_path) {
                             g_cfg.weather_enabled = false;
                             g_cfg.weather_lat = 37.7749f; g_cfg.weather_lon = -122.4194f;
                         } else if (sel == 6) { // Security
-                            g_cfg.touch_enabled = true; g_cfg.dashboard_pin = "";
+                            g_cfg.touch_enabled = true; g_cfg.dashboard_pin = ""; g_cfg.pin_hash.clear(); g_cfg.pin_changed = false;
                             g_cfg.auto_update = false; g_cfg.auto_update_branch = "main";
                         } else if (sel == 7) { // Hardware
                             g_cfg.sleep_time = ""; g_cfg.wake_time = "";

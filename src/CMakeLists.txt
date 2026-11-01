@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(piTrove VERSION 18.1.24 LANGUAGES CXX)
+project(piTrove VERSION 18.2.0 LANGUAGES CXX)
 
 option(ENABLE_ASAN "Enable AddressSanitizer for memory safety testing" OFF)
 if(ENABLE_ASAN)
@@ -64,6 +64,9 @@ pkg_check_modules(SWRESAMPLE REQUIRED libswresample)
 set(PISTROVE_SOURCES
     main.cpp
     auth.cpp
+    file_ops.cpp
+    http_protocol.cpp
+    http_transfer.cpp
     health.cpp
     safe_mode.cpp
     thermal.cpp
@@ -165,8 +168,14 @@ if(BUILD_TESTING)
     add_executable(nv12_regression tests/nv12.cpp nv12_converter.cpp)
     target_include_directories(nv12_regression PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} ${SDL3_INCLUDE_DIRS} ${AVUTIL_INCLUDE_DIRS} ${AVCODEC_INCLUDE_DIRS} ${SWSCALE_INCLUDE_DIRS})
     target_link_libraries(nv12_regression PRIVATE ${AVUTIL_LIBRARIES} ${SWSCALE_LIBRARIES})
+    add_executable(deep_regression tests/deep.cpp tests/deep_support.cpp config.cpp auth.cpp organizer.cpp file_ops.cpp http_protocol.cpp http_transfer.cpp util.cpp news_ticker.cpp calendar.cpp stock_streamer.cpp)
+    target_include_directories(deep_regression PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} ${SDL3_INCLUDE_DIRS} ${SQLITE3_INCLUDE_DIRS} ${CURL_INCLUDE_DIRS})
+    target_compile_options(deep_regression PRIVATE -Wall -Wextra -ffunction-sections -fdata-sections)
+    target_link_options(deep_regression PRIVATE -Wl,--gc-sections -Wl,--wrap=curl_easy_perform)
+    target_link_libraries(deep_regression PRIVATE ${SQLITE3_LIBRARIES} ${CURL_LIBRARIES} sodium pthread atomic)
+    add_test(NAME deep_regression COMMAND deep_regression)
     add_test(NAME nv12_regression COMMAND nv12_regression)
     add_test(NAME audit_regression COMMAND audit_regression ${CMAKE_CURRENT_SOURCE_DIR}/fonts/DejaVuSansMono-Bold.ttf)
     add_test(NAME watchdog_regression COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/tests/watchdog.sh ${CMAKE_CURRENT_SOURCE_DIR}/watchdog/pitrove-watchdog.sh)
-    set_tests_properties(audit_regression watchdog_regression nv12_regression PROPERTIES TIMEOUT 30)
+    set_tests_properties(audit_regression watchdog_regression nv12_regression deep_regression PROPERTIES TIMEOUT 30)
 endif()

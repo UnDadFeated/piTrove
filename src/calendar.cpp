@@ -1,4 +1,5 @@
 #include "calendar.h"
+#include "http_transfer.h"
 #include "config.h"
 #include "util.h"
 #include "health.h"
@@ -16,11 +17,7 @@ GoogleCalendar::~GoogleCalendar() {
     stop();
 }
 
-static size_t cal_curl_write_cb(void* contents, size_t size, size_t nmemb, void* userp) {
-    auto* str = static_cast<std::string*>(userp);
-    str->append(static_cast<char*>(contents), size * nmemb);
-    return size * nmemb;
-}
+
 
 std::string GoogleCalendar::execute_http_get(const std::string& url) {
     CURL* curl = curl_easy_init();
@@ -29,6 +26,7 @@ std::string GoogleCalendar::execute_http_get(const std::string& url) {
         return "";
     }
     std::string response;
+    http_transfer::TextBuffer response_buffer{&response, 4 * 1024 * 1024};
 
     // Cache-busting headers so Google FrontEnd (GFE) and intermediate proxies never serve stale feeds
     struct curl_slist* headers = nullptr;
@@ -47,8 +45,8 @@ std::string GoogleCalendar::execute_http_get(const std::string& url) {
     curl_easy_setopt(curl, CURLOPT_URL, final_url.c_str());
     curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 10L);
     curl_easy_setopt(curl, CURLOPT_TIMEOUT, 20L);
-    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, cal_curl_write_cb);
-    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response);
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, http_transfer::append_text);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response_buffer);
     curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
     curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 1L);
     curl_easy_setopt(curl, CURLOPT_USERAGENT, "piTrove-18.0");
@@ -264,11 +262,12 @@ void GoogleCalendar::sync() {
     struct Guard { std::atomic<bool>& f; ~Guard() { f.store(false); } } g{m_fetching};
 
     std::string ical_url;
-    std::string api_key;
+    std::string api_key, calendar_name;
     {
         std::shared_lock lk(g_config_mtx);
         ical_url = g_cfg.gcalendar_ical_url;
         api_key = g_cfg.gcalendar_api_key;
+        calendar_name = g_cfg.gcalendar_name;
     }
 
     if (ical_url.empty() && api_key.empty()) {
@@ -321,7 +320,7 @@ void GoogleCalendar::sync() {
         // (the private-<hex> path segment grants full read access on its own),
         // and this line previously wrote it to disk in plaintext on every sync.
         g_logger.info("CALENDAR: Syncing Google Calendar feed '{}' ({} chars)",
-                      g_cfg.gcalendar_name.empty() ? "ical" : g_cfg.gcalendar_name.c_str(),
+                      calendar_name.empty() ? "ical" : calendar_name.c_str(),
                       ical_url.size());
         std::string ical_data = execute_http_get(ical_url);
         if (!ical_data.empty()) {
@@ -331,7 +330,9 @@ void GoogleCalendar::sync() {
 }
 
 bool GoogleCalendar::start() {
-    stop();
+    std::lock_guard lifecycle(m_lifecycle_mtx);
+    m_running.store(false);
+    if (m_worker_thread.joinable()) m_worker_thread.join();
     m_running.store(true);
 
     if (!spawn_thread_safe(m_worker_thread, "gcalendar", [this]() {
@@ -359,6 +360,7 @@ bool GoogleCalendar::start() {
 }
 
 void GoogleCalendar::stop() {
+    std::lock_guard lifecycle(m_lifecycle_mtx);
     m_running.store(false);
     if (m_worker_thread.joinable()) m_worker_thread.join();
 }

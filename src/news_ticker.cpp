@@ -1,4 +1,5 @@
 #include "news_ticker.h"
+#include "http_transfer.h"
 #include "config.h"
 #include "util.h"
 #include "error_db.h"
@@ -10,12 +11,7 @@
 #include <cmath>
 #include <algorithm>
 
-static size_t news_curl_write_cb(void* contents, size_t size, size_t nmemb, void* userp) {
-    size_t total_size = size * nmemb;
-    std::string* mem = static_cast<std::string*>(userp);
-    mem->append(static_cast<char*>(contents), total_size);
-    return total_size;
-}
+
 
 static std::string decode_html_entities(const std::string& input) {
     std::string out = input;
@@ -85,9 +81,10 @@ std::string NewsTicker::execute_http_get(const std::string& url) {
     }
 
     std::string response_string;
+    http_transfer::TextBuffer response_buffer{&response_string, 4 * 1024 * 1024};
     curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
-    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, news_curl_write_cb);
-    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response_string);
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, http_transfer::append_text);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response_buffer);
     curl_easy_setopt(curl, CURLOPT_TIMEOUT, 8L);
     curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 4L);
     curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
@@ -299,11 +296,11 @@ void NewsTicker::sync() {
 }
 
 bool NewsTicker::start() {
-    stop();
+    std::lock_guard lifecycle(m_lifecycle_mtx);
+    m_running.store(false);
+    if (m_worker_thread.joinable()) m_worker_thread.join();
     m_running.store(true);
-    m_local_scroll_offset = 0.0f;
-    m_global_scroll_offset = 0.0f;
-    m_last_render_ticks = SDL_GetTicks();
+    m_reset_scroll.store(true); // Only render() writes the scroll state.
 
     if (!spawn_thread_safe(m_worker_thread, "news_ticker", [this]() {
         // Initial fetch
@@ -331,6 +328,7 @@ bool NewsTicker::start() {
 }
 
 void NewsTicker::stop() {
+    std::lock_guard lifecycle(m_lifecycle_mtx);
     m_running.store(false);
     // Join here rather than in the destructor: this is an inline global, so the
     // dtor join would happen during static destruction, after main() has already
@@ -372,6 +370,11 @@ std::string NewsTicker::get_status_json() const {
 
 void NewsTicker::render(SDL_Renderer* renderer, FontRenderer* font_renderer, const std::string& font_path, const SDL_Rect& bounds, int screen_w) {
     if (!renderer || !font_renderer || bounds.h <= 0 || bounds.w <= 0) return;
+    if (m_reset_scroll.exchange(false)) {
+        m_local_scroll_offset = 0.0f;
+        m_global_scroll_offset = 0.0f;
+        m_last_render_ticks = SDL_GetTicks();
+    }
 
     int font_size = 11;
     int scroll_speed = 32;
