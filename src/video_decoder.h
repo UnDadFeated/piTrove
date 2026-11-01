@@ -81,7 +81,7 @@ public:
     void note_presentation_start(double pts_s);
     void set_displayed_pts(double pts_s);
  double get_video_duration() const { return m_video_total_duration.load(std::memory_order_relaxed); }
- double get_fps() const { return m_frame_duration > 0 ? 1.0 / m_frame_duration : 0; }
+ double get_fps() const { const double duration = m_frame_duration.load(); return duration > 0 ? 1.0 / duration : 0; }
  size_t get_max_queued_frames() const { return m_max_queued_frames.load(std::memory_order_relaxed); }
  static size_t calculate_max_queued_frames(int target_w, int target_h);
 
@@ -90,18 +90,19 @@ private:
  std::atomic<bool> m_decode_fast{false}; // decoder runs well ahead of realtime -> bounded lookahead
  std::string m_path;
  mutable std::mutex m_path_mtx;
- int m_target_width;
- int m_target_height;
+ int m_target_width{0};
+ int m_target_height{0};
  std::jthread m_thread;
- std::atomic<bool> m_running;
+ std::atomic<bool> m_running{false};
  std::atomic<bool> m_eof{false};
+ bool m_produced_frame{false}; // worker-owned; reset only after join
  std::atomic<bool> m_start_failed{false}; // latched when start-phase (open/probe) fails
 
  std::queue<VideoFrame> m_frame_queue;
  mutable std::mutex m_queue_mtx;
  std::condition_variable m_queue_cv;
 
- double m_frame_duration{0.04}; // seconds per frame from stream metadata
+ std::atomic<double> m_frame_duration{0.04}; // seconds per frame from stream metadata
  std::atomic<double> m_video_start_pts{0.0};
  std::atomic<double> m_video_total_duration{0.0};
  std::atomic<double> m_last_frame_pts{0.0}; // PTS of last decoded frame for accurate countdown
@@ -120,7 +121,7 @@ private:
 
  // Audio
  SDL_AudioStream* m_audio_stream{nullptr};
- int m_audio_device{-1};
+ SDL_AudioDeviceID m_audio_device{0};
  bool m_audio_initialized{false};
  std::mutex m_audio_mtx;
 

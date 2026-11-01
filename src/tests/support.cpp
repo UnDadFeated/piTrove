@@ -5,6 +5,7 @@
 #include <filesystem>
 
 Logger::~Logger() = default;
+void Logger::enqueue(LogMessage) {} // Logging is outside the font/scanner/cache fixture.
 std::string redact_secrets(const std::string& text) { return text; }
 void trigger_error(int code) { g_active_error_code.store(code); }
 void clear_error(int code) { if (g_active_error_code == code) g_active_error_code = 0; }

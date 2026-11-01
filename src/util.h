@@ -1,7 +1,7 @@
 #ifndef PITROVE_UTIL_H
 #define PITROVE_UTIL_H
 
-#define VERSION "18.2.0"
+#define VERSION "18.2.1"
 #define APP_NAME "piTrove"
 
 #include <format>
@@ -72,7 +72,14 @@ struct Logger {
     std::vector<LogMessage> back_queue;
     std::jthread flush_thread;
     std::atomic<bool> flush_running{true};
-    bool initialized{false};
+    std::atomic<bool> initialized{false};
+    static constexpr size_t MAX_QUEUED_MESSAGES = 4096;
+    static constexpr size_t MAX_QUEUED_BYTES = 4 * 1024 * 1024;
+    static constexpr size_t MAX_MESSAGE_BYTES = 64 * 1024;
+    size_t queued_bytes{0};
+    size_t dropped_messages{0};
+
+    void enqueue(LogMessage msg);
 
     void flush_loop();
     void init(const std::string& path, LogLevel lvl, int keep_count = 3);
@@ -90,11 +97,7 @@ void info(const std::format_string<Args...> fmt, Args&&... args) {
     msg.time = std::chrono::system_clock::now();
     msg.level = LogLevel::INFO;
     msg.body = redact_secrets(std::vformat(fmt.get(), std::make_format_args(args...)));
-    {
-        std::lock_guard<std::mutex> lock(queue_mtx);
-        front_queue.push_back(std::move(msg));
-    }
-    cv.notify_one();
+    enqueue(std::move(msg));
 }
 template<typename... Args>
 void warn(const std::format_string<Args...> fmt, Args&&... args) {
@@ -103,11 +106,7 @@ void warn(const std::format_string<Args...> fmt, Args&&... args) {
     msg.time = std::chrono::system_clock::now();
     msg.level = LogLevel::WARN;
     msg.body = redact_secrets(std::vformat(fmt.get(), std::make_format_args(args...)));
-    {
-        std::lock_guard<std::mutex> lock(queue_mtx);
-        front_queue.push_back(std::move(msg));
-    }
-    cv.notify_one();
+    enqueue(std::move(msg));
 }
 template<typename... Args>
 void error(const std::format_string<Args...> fmt, Args&&... args) {
@@ -116,11 +115,7 @@ void error(const std::format_string<Args...> fmt, Args&&... args) {
     msg.time = std::chrono::system_clock::now();
     msg.level = LogLevel::ERROR;
     msg.body = redact_secrets(std::vformat(fmt.get(), std::make_format_args(args...)));
-    {
-        std::lock_guard<std::mutex> lock(queue_mtx);
-        front_queue.push_back(std::move(msg));
-    }
-    cv.notify_one();
+    enqueue(std::move(msg));
 }
 template<typename... Args>
 void debug(const std::format_string<Args...> fmt, Args&&... args) {
@@ -129,11 +124,7 @@ void debug(const std::format_string<Args...> fmt, Args&&... args) {
     msg.time = std::chrono::system_clock::now();
     msg.level = LogLevel::DEBUG;
     msg.body = redact_secrets(std::vformat(fmt.get(), std::make_format_args(args...)));
-    {
-        std::lock_guard<std::mutex> lock(queue_mtx);
-        front_queue.push_back(std::move(msg));
-    }
-    cv.notify_one();
+    enqueue(std::move(msg));
 }
 
 };

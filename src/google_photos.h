@@ -9,6 +9,7 @@
 
 class GooglePhotosManager {
 private:
+    std::mutex lifecycle_mtx;
     std::jthread sync_thread;
   std::condition_variable stop_cv;
   std::mutex stop_mtx;
@@ -26,6 +27,7 @@ public:
     void start();
     void stop();
     void sync_now();
+    bool is_running() const { return running.load(); }
 };
 
 inline GooglePhotosManager g_google_photos;

@@ -91,7 +91,9 @@ Result receive(int fd, std::string& raw, Request& request, int timeout_ms) {
     }
 }
 bool send_all(int fd, std::string_view bytes, int timeout_ms) {
-    const auto deadline = Clock::now() + std::chrono::milliseconds(timeout_ms);
+    return send_until(fd, bytes, Clock::now() + std::chrono::milliseconds(timeout_ms));
+}
+bool send_until(int fd, std::string_view bytes, Deadline deadline) {
     while (!bytes.empty()) {
         if (Clock::now() >= deadline) return false;
         ssize_t count = send(fd, bytes.data(), bytes.size(), MSG_DONTWAIT | MSG_NOSIGNAL);

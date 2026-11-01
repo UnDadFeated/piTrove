@@ -10,6 +10,7 @@
 #include "news_ticker.h"
 #include "calendar.h"
 #include "stock_streamer.h"
+#include "google_photos.h"
 #include <curl/curl.h>
 #include <filesystem>
 #include <fstream>
@@ -39,6 +40,25 @@ struct Temp {
 static std::string read_file(const std::string& path) {
     std::ifstream stream(path, std::ios::binary);
     return {std::istreambuf_iterator<char>(stream), std::istreambuf_iterator<char>()};
+}
+static void test_logger() {
+    Logger logger;
+    logger.level = LogLevel::ERROR;
+    for (size_t i = 0; i < Logger::MAX_QUEUED_MESSAGES + 20; ++i) logger.error("small message");
+    check(logger.front_queue.size() == Logger::MAX_QUEUED_MESSAGES && logger.dropped_messages == 20, "logger message budget failed");
+    logger.front_queue.clear(); logger.queued_bytes = 0; logger.dropped_messages = 0;
+    std::vector<std::jthread> writers;
+    for (int i = 0; i < 4; ++i) writers.emplace_back([&] { for (int n = 0; n < 40; ++n) logger.error("{}", std::string(Logger::MAX_MESSAGE_BYTES * 2, 'x')); });
+    writers.clear();
+    check(logger.queued_bytes <= Logger::MAX_QUEUED_BYTES && logger.dropped_messages > 0, "logger byte budget failed under concurrent producers");
+    for (const auto& message : logger.front_queue) check(message.body.size() <= Logger::MAX_MESSAGE_BYTES, "logger message truncation failed");
+    logger.front_queue.clear(); logger.queued_bytes = 0; logger.flush_running = false;
+    int pipes[2]; check(pipe(pipes) == 0, "fallback capture failed");
+    int previous = dup(STDERR_FILENO); check(previous >= 0 && dup2(pipes[1], STDERR_FILENO) >= 0, "fallback redirect failed");
+    logger.error("fallback diagnostic"); fflush(stderr);
+    dup2(previous, STDERR_FILENO); close(previous); close(pipes[1]);
+    char captured[256]{}; ssize_t bytes = read(pipes[0], captured, sizeof(captured)); close(pipes[0]);
+    check(bytes > 0 && std::string_view(captured, size_t(bytes)).find("fallback diagnostic") != std::string_view::npos && logger.front_queue.empty(), "failed logger worker queued or lost diagnostics");
 }
 static void test_config() {
     check(safe_stod("nan", -1) == -1 && safe_stof("inf", -1) == -1, "non-finite number accepted");
@@ -159,6 +179,12 @@ static void test_http() {
     int send_buffer = 1024; setsockopt(sockets[0], SOL_SOCKET, SO_SNDBUF, &send_buffer, sizeof(send_buffer));
     check(!send_all(sockets[0], std::string(1024 * 1024, 'x'), 30), "slow reader had no write deadline");
     close(sockets[0]); close(sockets[1]);
+    check(socketpair(AF_UNIX, SOCK_STREAM, 0, sockets) == 0, "socketpair failed");
+    auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(30);
+    check(send_until(sockets[0], "header", deadline), "initial response chunk failed");
+    std::this_thread::sleep_for(std::chrono::milliseconds(40));
+    check(!send_until(sockets[0], "body", deadline), "response chunk reset its absolute deadline");
+    close(sockets[0]); close(sockets[1]);
 }
 static void test_oauth() {
     OAuthState state;
@@ -203,30 +229,40 @@ static void test_transfers() {
     check(http_transfer::download(url, path, 8192) && read_file(path) == data, "complete cloud download failed"); server.join();
     url = serve_once("HTTP/1.1 200 OK\r\nContent-Length: 2048\r\n\r\n" + data, server);
     check(!http_transfer::get(url, text, "", 1024) && text.empty(), "oversized text response retained"); server.join();
+    url = serve_once("HTTP/1.1 400 Error\r\nContent-Length: 23\r\n\r\n{\"error\":\"bad_request\"}", server);
+    check(!http_transfer::post_form(url, "code=test", text) && text == "{\"error\":\"bad_request\"}", "OAuth error status or diagnostic body lost"); server.join();
+    std::jthread redirect_server;
+    auto redirected = serve_once("HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok", redirect_server);
+    url = serve_once("HTTP/1.1 307 Redirect\r\nLocation: " + redirected + "\r\nContent-Length: 0\r\n\r\n", server);
+    check(!http_transfer::post_form(url, "client_secret=fixture", text), "credential form followed a redirect"); server.join(); redirect_server.join();
     for (const auto& entry : fs::directory_iterator(temp.path)) check(entry.path().extension() == ".jpg", "failed download left a temporary file");
 }
 static void test_lifecycles() {
     mock_network = true;
-    NewsTicker news; GoogleCalendar calendar; StockStreamer stocks;
+    NewsTicker news; GoogleCalendar calendar; StockStreamer stocks; GooglePhotosManager photos;
+    { std::unique_lock lock(g_config_mtx); g_cfg.google_photos_enabled = true; }
     auto exercise = [&] {
         for (int i = 0; i < 2; ++i) {
             check(news.start(), "news start failed");
             check(calendar.start(), "calendar start failed");
             check(stocks.start(), "stocks start failed");
-            news.stop(); calendar.stop(); stocks.stop();
+            photos.start();
+            news.stop(); calendar.stop(); stocks.stop(); photos.stop();
         }
     };
     std::jthread first(exercise), second(exercise);
     first.join(); second.join();
-    news.stop(); calendar.stop(); stocks.stop();
+    news.stop(); calendar.stop(); stocks.stop(); photos.stop();
     check(!news.is_running() && !calendar.is_running() && !stocks.is_running(), "worker survived stop");
+    check(!photos.is_running(), "Google Photos worker survived stop");
+    { std::unique_lock lock(g_config_mtx); g_cfg.google_photos_enabled = false; }
     mock_network = false;
 }
 
 int main() {
     try {
         g_logger.level = LogLevel::ERROR;
-        test_config(); test_organizer(); test_http(); test_oauth(); test_transfers(); test_lifecycles();
+        test_logger(); test_config(); test_organizer(); test_http(); test_oauth(); test_transfers(); test_lifecycles();
         std::cout << "Deep config/PIN, organizer, HTTP, OAuth and download regressions passed\n";
     } catch (const std::exception& error) { std::cerr << error.what() << '\n'; return 1; }
 }

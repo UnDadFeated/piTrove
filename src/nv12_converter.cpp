@@ -29,8 +29,12 @@ bool NV12Converter::convert(const AVFrame* source, VideoFrame& output, int targe
     frame.linesize_uv = strides[1];
     frame.data_size = total;
     // Padding accommodates SIMD readers/writers used by FFmpeg.
-    frame.data = new uint8_t[size_t(strides[0]) * height + AV_INPUT_BUFFER_PADDING_SIZE]();
-    frame.data_uv = new uint8_t[size_t(strides[1]) * chroma_height + AV_INPUT_BUFFER_PADDING_SIZE]();
+    const size_t y_bytes = size_t(strides[0]) * height;
+    const size_t uv_bytes = size_t(strides[1]) * chroma_height;
+    frame.data = new uint8_t[y_bytes + AV_INPUT_BUFFER_PADDING_SIZE];
+    frame.data_uv = new uint8_t[uv_bytes + AV_INPUT_BUFFER_PADDING_SIZE];
+    std::memset(frame.data + y_bytes, 0, AV_INPUT_BUFFER_PADDING_SIZE);
+    std::memset(frame.data_uv + uv_bytes, 0, AV_INPUT_BUFFER_PADDING_SIZE);
     auto copy_plane = [](uint8_t* dst, int stride, const uint8_t* src, int source_stride, int rows) {
         if (!src || std::abs(source_stride) < stride) return false;
         for (int y = 0; y < rows; ++y)

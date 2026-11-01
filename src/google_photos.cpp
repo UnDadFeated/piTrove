@@ -24,6 +24,7 @@
 GooglePhotosManager::~GooglePhotosManager() { stop(); }
 
 void GooglePhotosManager::start() {
+  std::lock_guard lifecycle(lifecycle_mtx);
   bool enabled = false;
   {
     std::lock_guard lock(g_config_mtx);
@@ -74,9 +75,11 @@ void GooglePhotosManager::start() {
 }
 
 void GooglePhotosManager::stop() {
-  if (!running.load())
-    return;
-  running.store(false);
+  std::lock_guard lifecycle(lifecycle_mtx);
+  {
+    std::lock_guard lock(stop_mtx);
+    running.store(false);
+  }
   stop_cv.notify_all();
   if (sync_thread.joinable()) {
     sync_thread.join();
@@ -199,7 +202,10 @@ static std::string http_post(const std::string& url, const std::string& body,
   curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 10L);
   curl_easy_setopt(curl, CURLOPT_TIMEOUT, 30L);
   curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 1L);
-  curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
+  curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1L);
+  curl_easy_setopt(curl, CURLOPT_PROTOCOLS_STR, "https");
+  // POST bodies may contain credentials; never replay them on a redirect.
+  curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 0L);
   CURLcode res = curl_easy_perform(curl);
   long status = 0;
   curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &status);
@@ -212,14 +218,14 @@ static std::string http_post(const std::string& url, const std::string& body,
   return response;
 }
 
-static std::string post_form(const std::string& url,
-                             const std::vector<std::pair<std::string, std::string>>& fields) {
+static bool post_form(const std::string& url,
+                      const std::vector<std::pair<std::string, std::string>>& fields, std::string& response) {
   std::string body;
   for (size_t i = 0; i < fields.size(); ++i) {
     if (i) body += "&";
     body += url_encode(fields[i].first) + "=" + url_encode(fields[i].second);
   }
-  return http_post(url, body, "application/x-www-form-urlencoded", "");
+  return http_transfer::post_form(url, body, response);
 }
 
 std::string GooglePhotosManager::get_access_token() {
@@ -233,12 +239,13 @@ std::string GooglePhotosManager::get_access_token() {
 
   // Real form POST. The previous shell-shaped string lost its -X POST and -d fields when
   // execute_curl() reduced it to a URL, so this grant was sent as a bodyless GET.
-  std::string json = post_form("https://oauth2.googleapis.com/token",
+  std::string json;
+  const bool exchanged = post_form("https://oauth2.googleapis.com/token",
                                {{"client_id", client_id},
                                 {"client_secret", client_secret},
                                 {"refresh_token", refresh_token},
-                                {"grant_type", "refresh_token"}});
-  std::string access_token = parse_json_value(json, "access_token");
+                                {"grant_type", "refresh_token"}}, json);
+  std::string access_token = exchanged ? parse_json_value(json, "access_token") : "";
   if (access_token.empty()) {
     struct addrinfo hints{}, *res = nullptr;
     hints.ai_family = AF_UNSPEC;

@@ -1,4 +1,5 @@
 #include <curl/curl.h>
+#include "http_transfer.h"
 #include <string>
 #include <format>
 
@@ -17,12 +18,14 @@ bool geocode_location_sync(const std::string& query, float& out_lat, float& out_
     curl_easy_setopt(curl, CURLOPT_TIMEOUT, 5L);
     curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 3L);
     curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
-    curl_easy_setopt(curl, CURLOPT_USERAGENT, "piTrove/18.1");
-    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, +[](void* ptr, size_t size, size_t nmemb, void* stream) -> size_t {
-        ((std::string*)stream)->append((char*)ptr, size * nmemb);
-        return size * nmemb;
-    });
-    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &resp);
+    curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1L);
+    curl_easy_setopt(curl, CURLOPT_PROTOCOLS_STR, "https");
+    curl_easy_setopt(curl, CURLOPT_REDIR_PROTOCOLS_STR, "https");
+    curl_easy_setopt(curl, CURLOPT_MAXREDIRS, 3L);
+    curl_easy_setopt(curl, CURLOPT_USERAGENT, "piTrove/18.2");
+    http_transfer::TextBuffer buffer{&resp, 1024 * 1024};
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, http_transfer::append_text);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &buffer);
     
     CURLcode res = curl_easy_perform(curl);
     curl_easy_cleanup(curl);
@@ -399,14 +402,43 @@ std::string get_timestamp() {
     return std::string(buf);
 }
 
+// Bound pending log storage even when a disk or stdout consumer stops draining.
+void Logger::enqueue(LogMessage msg) {
+    if (msg.body.size() > MAX_MESSAGE_BYTES) {
+        msg.body.resize(MAX_MESSAGE_BYTES - 16);
+        msg.body += " [truncated]";
+    }
+    {
+        std::lock_guard lock(queue_mtx);
+        if (flush_running.load()) {
+            if (front_queue.size() >= MAX_QUEUED_MESSAGES ||
+                msg.body.size() > MAX_QUEUED_BYTES - queued_bytes) {
+                ++dropped_messages;
+                return;
+            }
+            const size_t bytes = msg.body.size();
+            front_queue.push_back(std::move(msg));
+            queued_bytes += bytes;
+            cv.notify_one();
+            return;
+        }
+    }
+    // A failed logger-thread spawn must neither lose all diagnostics nor leave
+    // messages queued forever. This path also works during late shutdown.
+    std::fprintf(stderr, "[LOGGER FALLBACK] %s\n", msg.body.c_str());
+}
+
 // Logger Implementation
 void Logger::flush_loop() {
     while (true) {
+        size_t dropped = 0;
         {
             std::unique_lock<std::mutex> lock(queue_mtx);
             cv.wait(lock, [this] { return !front_queue.empty() || !flush_running.load(); });
             if (front_queue.empty() && !flush_running.load()) break;
             std::swap(front_queue, back_queue);
+            queued_bytes = 0;
+            dropped = std::exchange(dropped_messages, 0);
         }
         if (!back_queue.empty()) {
             std::string current_log_path;
@@ -418,6 +450,11 @@ void Logger::flush_loop() {
                     const char* m = "[WARN] Cannot open log file, logging to stdout only.\n";
                     (void)write(STDOUT_FILENO, m, strlen(m));
                 });
+            }
+            if (dropped) {
+                std::string warning = std::format("[WARN] Logger dropped {} messages while its queue was full.\n", dropped);
+                (void)write(STDOUT_FILENO, warning.data(), warning.size());
+                if (f) (void)fputs(warning.c_str(), f);
             }
             for (const auto& msg : back_queue) {
                 auto t = std::chrono::system_clock::to_time_t(msg.time);
@@ -494,12 +531,16 @@ void Logger::init(const std::string& path, LogLevel lvl, int keep_count) {
 
     initialized = true;
     if (!spawn_thread_safe(flush_thread, "logger_flush", &Logger::flush_loop, this)) {
-        // Non-critical: continue without the background flush thread.
+        flush_running.store(false);
+        flush_loop(); // Drain startup diagnostics once; later messages use stderr.
     }
 }
 
 Logger::~Logger() {
-    flush_running.store(false);
+    {
+        std::lock_guard lock(queue_mtx);
+        flush_running.store(false);
+    }
     cv.notify_one();
     if (flush_thread.joinable()) flush_thread.join();
 }

@@ -2580,7 +2580,7 @@ int main(int argc, char** argv) {
 
         // Handle screen blanking state
         if (g_screen_blanked.load()) {
-            if ((g_video_decoder.is_running() || g_video_decoder.has_frames()) && g_video_decoder.is_eof()) {
+            if (g_video_decoder.is_running() || g_video_decoder.has_frames()) {
                 g_logger.info("Screen blanked: stopping video decoder.");
                 g_video_decoder.stop();
                 if (g_video_tex) { SDL_DestroyTexture(g_video_tex); g_video_tex = nullptr; g_video_tex_w = 0; g_video_tex_h = 0; g_video_tex_fmt = SDL_PIXELFORMAT_UNKNOWN; }
@@ -2640,7 +2640,9 @@ int main(int argc, char** argv) {
         if (cmd == 1 || cmd == 2) {
             item_timer = 0.0;
             bool was_video = (g_eligible[current_idx].type == "video");
-            if ((g_video_decoder.is_running() || g_video_decoder.has_frames()) && g_video_decoder.is_eof()) {
+            // Cancel an active video immediately, including a non-EOF worker.
+            // Photo skips preserve a worker prewarming an upcoming video.
+            if (was_video) {
                 g_logger.info("Interrupted video playback via skip request: stopping decoder.");
                 g_video_decoder.stop();
                 if (g_video_tex) { SDL_DestroyTexture(g_video_tex); g_video_tex = nullptr; g_video_tex_w = 0; g_video_tex_h = 0; g_video_tex_fmt = SDL_PIXELFORMAT_UNKNOWN; }
@@ -3656,7 +3658,7 @@ int main(int argc, char** argv) {
         }
     }
 
-    if (g_video_decoder.is_running()) g_video_decoder.stop();
+    g_video_decoder.stop(); // EOF workers can still own audio and queued frames.
     if (g_video_tex) { SDL_DestroyTexture(g_video_tex); g_video_tex = nullptr; g_video_tex_w = 0; g_video_tex_h = 0; g_video_tex_fmt = SDL_PIXELFORMAT_UNKNOWN; }
     if (g_transition) { g_transition->reset(); delete g_transition; }
     if (g_overlay) { g_overlay->cleanup(); delete g_overlay; }
