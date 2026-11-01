@@ -1,7 +1,7 @@
 #ifndef PITROVE_UTIL_H
 #define PITROVE_UTIL_H
 
-#define VERSION "18.1.24"
+#define VERSION "18.2.0"
 #define APP_NAME "piTrove"
 
 #include <format>
@@ -17,6 +17,7 @@
 #include <utility>
 #include <cstdarg>
 #include <charconv>
+#include <cmath>
 #include <type_traits>
 #include <optional>
 #include <tuple>
@@ -59,7 +60,7 @@ struct LogMessage {
 
 std::string redact_secrets(const std::string& msg);
 struct Logger {
-    LogLevel level{LogLevel::INFO};
+    std::atomic<LogLevel> level{LogLevel::INFO};
     std::string log_dir;
     std::string log_file_path;
 
@@ -164,9 +165,14 @@ template<typename T>
     auto start = s.find_first_not_of(" \t\r\n");
     if (start == std::string_view::npos) return def;
     s.remove_prefix(start);
+    s = s.substr(0, s.find_last_not_of(" \t\r\n") + 1);
     T value{};
     auto [ptr, ec] = std::from_chars(s.data(), s.data() + s.size(), value);
-    return (ec == std::errc{}) ? value : def;
+    if (ec != std::errc{} || ptr != s.data() + s.size()) return def;
+    if constexpr (std::is_floating_point_v<T>) {
+        if (!std::isfinite(value)) return def;
+    }
+    return value;
 }
 
 // Legacy wrappers — call sites unchanged

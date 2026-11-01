@@ -127,6 +127,20 @@ static void test_cache() {
     check(cache.prune_missing(live) == 1 && row_count(cache.db) == 1, "standalone pruning failed");
 }
 
+static void test_preprocessed_marker() {
+    CacheManager cache;
+    check(sqlite3_open(":memory:", &cache.db) == SQLITE_OK, "marker cache open failed");
+    sql(cache.db, "CREATE TABLE cache(path TEXT PRIMARY KEY, w INT, h INT, preprocessed INT); "
+                  "INSERT INTO cache VALUES('known',1920,1080,0)");
+    check(cache.mark_preprocessed("known"), "metadata completion marker failed");
+    sqlite3_stmt* query = nullptr;
+    check(sqlite3_prepare_v2(cache.db, "SELECT w,h,preprocessed FROM cache WHERE path='known'", -1, &query, nullptr) == SQLITE_OK, "marker query failed");
+    check(sqlite3_step(query) == SQLITE_ROW && sqlite3_column_int(query, 0) == 1920 &&
+          sqlite3_column_int(query, 1) == 1080 && sqlite3_column_int(query, 2) == 1,
+          "failed metadata extraction erased known dimensions");
+    sqlite3_finalize(query);
+}
+
 int main(int argc, char** argv) {
     try {
         check(argc == 2, "expected font path");
@@ -135,6 +149,7 @@ int main(int argc, char** argv) {
         test_fonts(argv[1]);
         test_scanner();
         test_cache();
+        test_preprocessed_marker();
         SDL_Quit();
         std::cout << "font eviction, scanner admission, and cache rollback regressions passed\n";
         return 0;

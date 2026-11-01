@@ -332,10 +332,10 @@ bool CacheManager::load_cached(MediaItem& mi) {
     return found;
 }
 
-void CacheManager::upsert(MediaItem mi, int bad, int preprocessed) {
+void CacheManager::upsert(MediaItem mi, int bad, int preprocessed, bool resolve_metadata) {
     if (!stmt_upsert) return;
 
-    if ((mi.is_camera == -1 || mi.creation_time == 0) && mi.type == "image" && bad == 0) {
+    if (resolve_metadata && (mi.is_camera == -1 || mi.creation_time == 0) && mi.type == "image" && bad == 0) {
         int db_is_cam = -1;
         int64_t db_creat = 0;
         bool db_found = false;
@@ -408,6 +408,17 @@ void CacheManager::upsert(MediaItem mi, int bad, int preprocessed) {
     }
     sqlite3_reset(stmt_upsert);
     sqlite3_clear_bindings(stmt_upsert);
+}
+
+bool CacheManager::mark_preprocessed(const std::string& path) {
+    std::lock_guard lock(db_mutex);
+    if (!db) return false;
+    sqlite3_stmt* statement = nullptr;
+    if (sqlite3_prepare_v2(db, "UPDATE cache SET preprocessed = 1 WHERE path = ?", -1, &statement, nullptr) != SQLITE_OK) return false;
+    sqlite3_bind_text(statement, 1, path.c_str(), -1, SQLITE_TRANSIENT);
+    bool ok = sqlite3_step(statement) == SQLITE_DONE;
+    sqlite3_finalize(statement);
+    return ok;
 }
 
 void CacheManager::mark_shown(const std::string& path) {

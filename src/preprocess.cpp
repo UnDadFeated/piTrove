@@ -20,6 +20,9 @@
 static std::jthread g_preprocess_thread;
 static std::atomic<bool> g_preprocess_running{false};
 static std::atomic<bool> g_preprocess_finished{true};
+static std::atomic<int> g_metadata_workers{0};
+static constexpr int MAX_METADATA_WORKERS = 2;
+struct MetadataSlot { ~MetadataSlot() { g_metadata_workers.fetch_sub(1); } };
 
 static bool get_image_metadata_fast(const std::string& path, int& out_w, int& out_h, int& out_exif, int& out_is_camera, int64_t& out_creation_time, double& out_lat, double& out_lon, bool& out_has_gps) {
     std::vector<uint8_t> buffer = ImageLoader::read_file_to_buffer(path);
@@ -43,7 +46,7 @@ static bool get_image_metadata_fast(const std::string& path, int& out_w, int& ou
 }
 
 static bool get_video_metadata_ffprobe(const std::string& path, int& out_w, int& out_h, double& out_duration) {
-    std::string cmd = "ffprobe -v error -select_streams v:0 -show_entries stream=width,height -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 '" + escape_shell_arg(path) + "'";
+    std::string cmd = "timeout -k 1 8 ffprobe -v error -select_streams v:0 -show_entries stream=width,height -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 '" + escape_shell_arg(path) + "'";
     FILE* raw_pipe = popen((cmd + " 2>&1").c_str(), "r");
     if (!raw_pipe) return false;
     std::shared_ptr<FILE> pipe(raw_pipe, pclose);
@@ -104,14 +107,21 @@ static void preprocess_loop() {
             continue;
         }
 
+        if (g_metadata_workers.load() >= MAX_METADATA_WORKERS) {
+            for (int i = 0; i < 50 && g_preprocess_running.load() && g_running.load(); ++i)
+                std::this_thread::sleep_for(std::chrono::milliseconds(100));
+            continue;
+        }
         g_logger.info("Preprocess: Found {} items needing preprocessing. Processing...", batch.size());
 
+        bool stat_failed = false;
         for (const auto& [path, type] : batch) {
             if (!g_preprocess_running.load() || !g_running.load()) break;
 
             struct stat st;
             if (!stat_timeout(path, st, 5000)) {
-                g_logger.warn("Preprocess: File '{}' not found or inaccessible (stat timeout). Marking bad.", path.c_str());
+                g_logger.debug("Preprocess: File '{}' inaccessible; deferring metadata.", path);
+                stat_failed = true;
                 continue;
             }
 
@@ -131,8 +141,16 @@ static void preprocess_loop() {
             auto pr = std::make_shared<PreprocessResult>();
             pr->item = mi;
 
+            if (g_metadata_workers.load() >= MAX_METADATA_WORKERS) {
+                // Only this coordinator reserves slots; blocked workers keep their slots.
+                // Do not mark unprocessed items complete just because the NAS is hung.
+                break;
+            }
+            g_metadata_workers.fetch_add(1);
             std::jthread t;
             if (spawn_thread_safe(t, "preprocess_item", [pr, path, type]() {
+                MetadataSlot slot;
+                try {
                 if (type == "image") {
                     int w = 0, h = 0, exif = 1, is_camera = 0;
                     int64_t creation = 0;
@@ -161,12 +179,14 @@ static void preprocess_loop() {
                         pr->item.width = w;
                     }
                 }
+                } catch (...) { pr->success = false; }
                 pr->done.store(true);
             })) {
                 t.detach();
             } else {
-                // Spawn failed: mark done so the waiter proceeds with no metadata.
-                pr->done.store(true);
+                g_metadata_workers.fetch_sub(1);
+                // Leave metadata pending when resources are temporarily exhausted.
+                continue;
             }
 
             auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(10000); // 10s timeout
@@ -177,26 +197,30 @@ static void preprocess_loop() {
             if (pr->done.load()) {
                 if (pr->success) {
                     if (g_cache) {
-                        g_cache->upsert(pr->item, 0, 1);
+                        g_cache->upsert(pr->item, 0, 1, false);
                     }
                 } else {
                     if (g_cache) {
-                        if (pr->item.width == -1) {
-                            pr->item.width = 1920;
-                            pr->item.height = 1080;
-                        }
                         g_logger.warn("Preprocess: Failed/corrupted metadata for '{}'. Marking preprocessed.", path.c_str());
-                        g_cache->upsert(pr->item, 0, 1);
+                        g_cache->mark_preprocessed(path);
                     }
                 }
             } else {
                 g_logger.warn("Preprocess: Timeout (10s) extracting metadata for '{}' -- marking preprocessed.", path.c_str());
                 if (g_cache) {
-                    g_cache->upsert(pr->item, 0, 1);
+                    // Do not read pr->item or replace known dimensions on timeout.
+                    // This update performs no NAS reads and preserves existing metadata.
+                    g_cache->mark_preprocessed(path);
                 }
             }
 
             std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        }
+        if (stat_failed) {
+            // A saturated scanner returns immediately; avoid a hot DB/stat/log loop.
+            g_logger.warn("Preprocess: NAS metadata reads deferred; retrying after backoff.");
+            for (int i = 0; i < 50 && g_preprocess_running.load() && g_running.load(); ++i)
+                std::this_thread::sleep_for(std::chrono::milliseconds(100));
         }
     }
 

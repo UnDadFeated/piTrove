@@ -1,4 +1,5 @@
 #include "stock_streamer.h"
+#include "http_transfer.h"
 #include "config.h"
 #include "util.h"
 #include <curl/curl.h>
@@ -14,21 +15,15 @@ extern Config g_cfg;
 extern std::shared_mutex g_config_mtx;
 extern Logger g_logger;
 
-static size_t curl_write_cb(void* contents, size_t size, size_t nmemb, void* userp) {
-    size_t total_size = size * nmemb;
-    std::string* mem = static_cast<std::string*>(userp);
-    mem->append(static_cast<char*>(contents), total_size);
-    return total_size;
-}
-
 static std::string http_get_json(const std::string& url, int timeout_secs = 4) {
     CURL* curl = curl_easy_init();
     if (!curl) return "";
 
     std::string response;
+    http_transfer::TextBuffer response_buffer{&response, 4 * 1024 * 1024};
     curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
-    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, curl_write_cb);
-    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response);
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, http_transfer::append_text);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response_buffer);
     curl_easy_setopt(curl, CURLOPT_TIMEOUT, (long)timeout_secs);
     curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 3L);
     curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
@@ -36,9 +31,10 @@ static std::string http_get_json(const std::string& url, int timeout_secs = 4) {
     // TLS verification is on by default. Set [stockstreamer] tls_verify = 0 only if this
     // host sits behind a TLS-intercepting proxy and you accept the MITM exposure; any
     // value other than 0 keeps chain and hostname validation enabled.
-    long tls_verify = g_cfg.stockstreamer_tls_verify ? 1L : 0L;
+    long tls_verify;
+    { std::shared_lock lock(g_config_mtx); tls_verify = g_cfg.stockstreamer_tls_verify ? 1L : 0L; }
     curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, tls_verify);
-    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, tls_verify);
+    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, tls_verify ? 2L : 0L);
 
     CURLcode res = curl_easy_perform(curl);
     curl_easy_cleanup(curl);
@@ -306,7 +302,9 @@ void StockStreamer::sync() {
 }
 
 bool StockStreamer::start() {
-    stop();
+    std::lock_guard lifecycle(m_lifecycle_mtx);
+    m_running.store(false);
+    if (m_worker_thread.joinable()) m_worker_thread.join();
     m_running.store(true);
 
     {
@@ -364,6 +362,7 @@ bool StockStreamer::start() {
 }
 
 void StockStreamer::stop() {
+    std::lock_guard lifecycle(m_lifecycle_mtx);
     m_running.store(false);
     if (m_worker_thread.joinable()) m_worker_thread.join();
 }
