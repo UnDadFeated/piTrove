@@ -238,10 +238,14 @@ size_t CacheManager::prune_missing(const std::vector<MediaItem>& live) {
     sqlite3_int64 total = 0;
     {
         sqlite3_stmt* st = nullptr;
-        if (sqlite3_prepare_v2(db, "SELECT COUNT(*) FROM cache", -1, &st, nullptr) == SQLITE_OK) {
-            if (sqlite3_step(st) == SQLITE_ROW) total = sqlite3_column_int64(st, 0);
+        bool counted = false;
+        if (sqlite3_prepare_v2(db, "SELECT COUNT(*) FROM cache", -1, &st, nullptr) == SQLITE_OK &&
+            sqlite3_step(st) == SQLITE_ROW) {
+            total = sqlite3_column_int64(st, 0);
+            counted = true;
         }
         if (st) sqlite3_finalize(st);
+        if (!counted) return 0;
     }
     // Safety net: a scan that returned <5% of the known rows is almost certainly a
     // degraded NAS mount, not a real library change. Never wipe the cache on that.
@@ -250,29 +254,47 @@ size_t CacheManager::prune_missing(const std::vector<MediaItem>& live) {
         return 0;
     }
 
-    char* err = nullptr;
-    if (sqlite3_exec(db, "CREATE TEMP TABLE IF NOT EXISTS live_paths (path TEXT PRIMARY KEY); DELETE FROM live_paths;", nullptr, nullptr, &err) != SQLITE_OK) {
-        if (err) sqlite3_free(err);
+    // A savepoint also works inside an existing transaction. Never continue to
+    // DELETE after a failed insert (disk full, interrupt, etc.): that would turn
+    // an incomplete live set into deletion of valid cooldown history.
+    if (sqlite3_exec(db, "SAVEPOINT prune_cache", nullptr, nullptr, nullptr) != SQLITE_OK) {
+        g_logger.warn("CACHE: cannot start prune: {}", sqlite3_errmsg(db));
         return 0;
     }
-    sqlite3_exec(db, "BEGIN", nullptr, nullptr, nullptr);
+    auto rollback = [&] {
+        g_logger.warn("CACHE: prune rolled back: {}", sqlite3_errmsg(db));
+        sqlite3_exec(db, "ROLLBACK TO prune_cache; RELEASE prune_cache", nullptr, nullptr, nullptr);
+        return size_t{0};
+    };
+    if (sqlite3_exec(db, "CREATE TEMP TABLE IF NOT EXISTS live_paths (path TEXT PRIMARY KEY); DELETE FROM live_paths;", nullptr, nullptr, nullptr) != SQLITE_OK) {
+        return rollback();
+    }
     sqlite3_stmt* ins = nullptr;
     if (sqlite3_prepare_v2(db, "INSERT OR IGNORE INTO live_paths(path) VALUES(?)", -1, &ins, nullptr) != SQLITE_OK) {
-        sqlite3_exec(db, "ROLLBACK", nullptr, nullptr, nullptr);
-        return 0;
+        return rollback();
     }
+    bool inserted = true;
     for (const auto& mi : live) {
-        sqlite3_bind_text(ins, 1, mi.path.c_str(), -1, SQLITE_TRANSIENT);
-        sqlite3_step(ins);
+        if (sqlite3_bind_text(ins, 1, mi.path.c_str(), -1, SQLITE_TRANSIENT) != SQLITE_OK ||
+            sqlite3_step(ins) != SQLITE_DONE) {
+            inserted = false;
+            break;
+        }
         sqlite3_reset(ins);
     }
     sqlite3_finalize(ins);
-    sqlite3_exec(db, "DELETE FROM cache WHERE path NOT IN (SELECT path FROM live_paths)", nullptr, nullptr, nullptr);
+    if (!inserted) return rollback();
+    if (sqlite3_exec(db, "DELETE FROM cache WHERE path NOT IN (SELECT path FROM live_paths)", nullptr, nullptr, nullptr) != SQLITE_OK) {
+        return rollback();
+    }
     size_t removed = static_cast<size_t>(sqlite3_changes(db));
-    sqlite3_exec(db, "COMMIT", nullptr, nullptr, nullptr);
-    sqlite3_exec(db, "DROP TABLE IF EXISTS live_paths", nullptr, nullptr, nullptr);
+    if (sqlite3_exec(db, "DROP TABLE live_paths; RELEASE prune_cache", nullptr, nullptr, nullptr) != SQLITE_OK) {
+        return rollback();
+    }
     if (removed > 0) {
-        sqlite3_exec(db, "PRAGMA wal_checkpoint(TRUNCATE)", nullptr, nullptr, nullptr);
+        if (sqlite3_get_autocommit(db)) {
+            sqlite3_exec(db, "PRAGMA wal_checkpoint(TRUNCATE)", nullptr, nullptr, nullptr);
+        }
         g_logger.info("CACHE: pruned {} rows outside the active window / missing from disk ({} kept)", removed, live.size());
     }
     return removed;

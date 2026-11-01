@@ -13,7 +13,7 @@ class OverlayManager {
 private:
     Renderer* renderer;
     FontRenderer* font_renderer;
-    FontHandle* overlay_font;
+    std::shared_ptr<FontHandle> overlay_font;
     bool font_loaded{false};
 
 public:

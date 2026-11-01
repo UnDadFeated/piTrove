@@ -2,6 +2,7 @@
 #include <malloc.h>
 #include "cache.h"
 #include "video_decoder.h"
+#include "nv12_converter.h"
 #include <span>
 #include <SDL3/SDL_timer.h>
 #include "util.h"
@@ -712,107 +713,11 @@ void VideoDecoder::decode_loop() {
     // the target size as NV12 (bilinear, no color conversion) so the queued frame,
     // texture upload and queue stay small and the display loop can pace 60fps.
     // 1080p and below keep native resolution (renderer GPU-scales to display).
-    uint8_t* nv12_scale_buf = nullptr;
-    SwsContext* nv12_sws = nullptr;
-    int nv12_sws_w = 0, nv12_sws_h = 0;
-    AVPixelFormat actual_pix_fmt = AV_PIX_FMT_NONE;
-    if (m_target_width > 0 && m_target_height > 0 && vcc->width > 0 &&
+    NV12Converter converter;
+    if (m_target_width > 0 && m_target_height > 0 &&
         (vcc->width > dst_w || vcc->height > dst_h)) {
-        nv12_scale_buf = (uint8_t*)av_malloc(av_image_get_buffer_size(AV_PIX_FMT_NV12, dst_w, dst_h, 1));
         g_logger.info("VIDEO_DEC: downscaling {}x{} -> {}x{} NV12 (display pacing)", vcc->width, vcc->height, dst_w, dst_h);
     }
-    auto fill_frame = [&](AVFrame* sw, VideoFrame& vf) {
-        vf.is_nv12 = true;
-        if (nv12_scale_buf && (sw->width > dst_w || sw->height > dst_h)) {
-            if (!nv12_sws || nv12_sws_w != sw->width || nv12_sws_h != sw->height || actual_pix_fmt != (AVPixelFormat)sw->format) {
-                if (nv12_sws) sws_freeContext(nv12_sws);
-                actual_pix_fmt = (AVPixelFormat)sw->format;
-                nv12_sws = sws_getContext(sw->width, sw->height, actual_pix_fmt,
-                                          dst_w, dst_h, AV_PIX_FMT_NV12, SWS_FAST_BILINEAR,
-                                          nullptr, nullptr, nullptr);
-                nv12_sws_w = sw->width;
-                nv12_sws_h = sw->height;
-            }
-            uint8_t* ddata[3] = {nullptr, nullptr, nullptr};
-            int dlines[4] = {0, 0, 0, 0};
-            av_image_fill_arrays(ddata, dlines, nv12_scale_buf, AV_PIX_FMT_NV12, dst_w, dst_h, 1);
-            vf.width = dst_w;
-            vf.height = dst_h;
-            vf.linesize_y = dlines[0];
-            vf.linesize_uv = dlines[1];
-            int size_y = dlines[0] * dst_h;
-            int size_uv = dlines[1] * (dst_h / 2);
-            vf.data = new uint8_t[size_y];
-            vf.data_uv = new uint8_t[size_uv];
-            // Scale directly into the queued buffers (single pass, no intermediate memcpy).
-            uint8_t* odata[3] = {vf.data, vf.data_uv, nullptr};
-            sws_scale(nv12_sws, (const uint8_t* const*)sw->data, sw->linesize, 0, sw->height, odata, dlines);
-        } else if (sw->format == AV_PIX_FMT_NV12) {
-            vf.width = sw->width;
-            vf.height = sw->height;
-            vf.linesize_y = sw->linesize[0];
-            vf.linesize_uv = sw->linesize[1];
-            int size_y = sw->linesize[0] * sw->height;
-            int size_uv = sw->linesize[1] * (sw->height / 2);
-            vf.data = new uint8_t[size_y];
-            vf.data_uv = new uint8_t[size_uv];
-            memcpy(vf.data, sw->data[0], size_y);
-            memcpy(vf.data_uv, sw->data[1], size_uv);
-        } else if (sw->format == AV_PIX_FMT_YUV420P || sw->format == AV_PIX_FMT_YUVJ420P) {
-            vf.width = sw->width;
-            vf.height = sw->height;
-            vf.linesize_y = sw->linesize[0];
-            vf.linesize_uv = sw->width;
-            int size_y = vf.linesize_y * vf.height;
-            int size_uv = vf.linesize_uv * (vf.height / 2);
-            vf.data = new uint8_t[size_y];
-            vf.data_uv = new uint8_t[size_uv];
-            memcpy(vf.data, sw->data[0], size_y);
-
-            const uint8_t* u_plane = sw->data[1];
-            const uint8_t* v_plane = sw->data[2];
-            int uv_w = sw->width / 2;
-            int uv_h = sw->height / 2;
-            int u_stride = sw->linesize[1];
-            int v_stride = sw->linesize[2];
-            for (int y = 0; y < uv_h; y++) {
-                const uint8_t* u_row = u_plane + y * u_stride;
-                const uint8_t* v_row = v_plane + y * v_stride;
-                uint8_t* out_row = vf.data_uv + y * vf.linesize_uv;
-                for (int x = 0; x < uv_w; x++) {
-                    out_row[x * 2] = u_row[x];
-                    out_row[x * 2 + 1] = v_row[x];
-                }
-            }
-        } else {
-            if (!nv12_sws || nv12_sws_w != sw->width || nv12_sws_h != sw->height || actual_pix_fmt != (AVPixelFormat)sw->format) {
-                if (nv12_sws) sws_freeContext(nv12_sws);
-                actual_pix_fmt = (AVPixelFormat)sw->format;
-                nv12_sws = sws_getContext(sw->width, sw->height, actual_pix_fmt,
-                                          dst_w, dst_h, AV_PIX_FMT_NV12, SWS_FAST_BILINEAR,
-                                          nullptr, nullptr, nullptr);
-                nv12_sws_w = sw->width;
-                nv12_sws_h = sw->height;
-            }
-            if (!nv12_scale_buf) {
-                nv12_scale_buf = (uint8_t*)av_malloc(av_image_get_buffer_size(AV_PIX_FMT_NV12, dst_w, dst_h, 1));
-            }
-            uint8_t* ddata[3] = {nullptr, nullptr, nullptr};
-            int dlines[4] = {0, 0, 0, 0};
-            av_image_fill_arrays(ddata, dlines, nv12_scale_buf, AV_PIX_FMT_NV12, dst_w, dst_h, 1);
-            vf.width = dst_w;
-            vf.height = dst_h;
-            vf.linesize_y = dlines[0];
-            vf.linesize_uv = dlines[1];
-            int size_y = dlines[0] * dst_h;
-            int size_uv = dlines[1] * (dst_h / 2);
-            vf.data = new uint8_t[size_y];
-            vf.data_uv = new uint8_t[size_uv];
-            // Scale directly into the queued buffers (single pass, no intermediate memcpy).
-            uint8_t* odata[3] = {vf.data, vf.data_uv, nullptr};
-            sws_scale(nv12_sws, (const uint8_t* const*)sw->data, sw->linesize, 0, sw->height, odata, dlines);
-        }
-    };
     g_logger.info("VIDEO_DEC: Decoding {} ({}x{} -> {}x{})", m_path.c_str(), vcc->width, vcc->height, dst_w, dst_h);
     AVPacket* pkt = av_packet_alloc();
     AVFrame* frame = av_frame_alloc();
@@ -840,7 +745,7 @@ void VideoDecoder::decode_loop() {
     while (is_running() && !eof) {
 
         // Stall detection: abort if queue is empty and no frame produced for too long
-        if (video_stream_idx >= 0 && m_frame_queue.empty() && (av_gettime_relative() - last_frame_ms) > STALL_TIMEOUT_US) {
+        if (video_stream_idx >= 0 && !has_frames() && (av_gettime_relative() - last_frame_ms) > STALL_TIMEOUT_US) {
             g_logger.warn("VIDEO_DEC: Decoder stalled for {}s, aborting decode of {}", (av_gettime_relative() - last_frame_ms) / 1000000, m_path.c_str());
             break;
         }
@@ -953,7 +858,11 @@ void VideoDecoder::decode_loop() {
                         }
                         VideoFrame vf;
                         vf.format = sw_frame2->format;
-                        fill_frame(sw_frame2, vf);
+                        if (!converter.convert(sw_frame2, vf, dst_w, dst_h)) {
+                            if (tmp_sw2) av_frame_free(&tmp_sw2);
+                            av_frame_unref(frame);
+                            continue;
+                        }
                         if (tmp_sw2) av_frame_free(&tmp_sw2); // after last use of sw_frame2
                         int64_t pts_raw1 = pts_raw1_pre;
                         if (pts_raw1 != AV_NOPTS_VALUE) {
@@ -972,10 +881,10 @@ void VideoDecoder::decode_loop() {
                             m_frame_queue.push(std::move(vf));
                         }
                         last_frame_ms = av_gettime_relative();
-                        g_logger.debug("[TRACE] VIDEO_DEC: Pushed frame #{}, queue_size={}", vf_count, m_frame_queue.size());
+                        g_logger.debug("[TRACE] VIDEO_DEC: Pushed frame #{}, queue_size={}", vf_count, frame_queue_size());
                         log_push_rate("flush");
                         av_frame_unref(frame);
-                        if (vf_count % 100 == 0) g_logger.debug("VIDEO_DEC: queue_depth={}", m_frame_queue.size());
+                        if (vf_count % 100 == 0) g_logger.debug("VIDEO_DEC: queue_depth={}", frame_queue_size());
                     }
                 }
             }
@@ -1044,7 +953,11 @@ void VideoDecoder::decode_loop() {
                     }
                     VideoFrame vf;
                     vf.format = sw_frame->format;
-                    fill_frame(sw_frame, vf);
+                    if (!converter.convert(sw_frame, vf, dst_w, dst_h)) {
+                        if (tmp_sw) av_frame_free(&tmp_sw);
+                        av_frame_unref(frame);
+                        continue;
+                    }
                     if (tmp_sw) av_frame_free(&tmp_sw);
                     int64_t pts_raw2 = pts_raw_pre;
                     if (pts_raw2 != AV_NOPTS_VALUE) vf.pts = av_q2d(fmt_ctx->streams[video_stream_idx]->time_base) * pts_raw2;
@@ -1114,7 +1027,11 @@ void VideoDecoder::decode_loop() {
             }
             VideoFrame vf;
             vf.format = sw_frame->format;
-            fill_frame(sw_frame, vf);
+            if (!converter.convert(sw_frame, vf, dst_w, dst_h)) {
+                if (tmp_sw) av_frame_free(&tmp_sw);
+                av_frame_unref(frame);
+                continue;
+            }
             if (tmp_sw) av_frame_free(&tmp_sw);
             // Use pre-captured PTS (saved before av_frame_unref on HW path)
             if (pts_raw != AV_NOPTS_VALUE) {
@@ -1177,8 +1094,6 @@ void VideoDecoder::decode_loop() {
     m_eof.store(true); // Mark EOF so render loop transitions to next item (even on stall)
 
     try {
-    if (nv12_scale_buf) av_free(nv12_scale_buf);
-    if (nv12_sws) sws_freeContext(nv12_sws);
     av_frame_free(&frame);
     if (aframe) av_frame_free(&aframe);
     av_packet_free(&pkt);

@@ -447,9 +447,12 @@ void GoogleCalendar::render(SDL_Renderer* renderer, FontRenderer* font_renderer,
     int body_font_size = (int)round(14.0 * screen_w / 1920.0);
     int sub_font_size = (int)round(12.0 * screen_w / 1920.0);
 
-    FontHandle& title_font = font_renderer->load_font(font_path, title_font_size);
-    FontHandle& body_font = font_renderer->load_font(font_path, body_font_size);
-    FontHandle& sub_font = font_renderer->load_font(font_path, sub_font_size);
+    const auto title_font_owner = font_renderer->load_font(font_path, title_font_size);
+    FontHandle& title_font = *title_font_owner;
+    const auto body_font_owner = font_renderer->load_font(font_path, body_font_size);
+    FontHandle& body_font = *body_font_owner;
+    const auto sub_font_owner = font_renderer->load_font(font_path, sub_font_size);
+    FontHandle& sub_font = *sub_font_owner;
 
     int pad_x = bounds.x + (int)round(18.0 * screen_w / 1920.0);
     int cur_y = bounds.y + (has_matting ? (int)round(((double)mat_size * 0.5) + 10.0) : (int)round(20.0 * screen_w / 1920.0));

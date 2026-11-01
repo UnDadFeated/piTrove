@@ -67,7 +67,7 @@ void PreloadQueue::start() {
             g_logger.error("PreloadQueue: failed to spawn worker {} (running degraded)", i);
         }
     }
-    g_logger.info("PreloadQueue started with {} worker threads (capacity={})", num_threads, state->max_size);
+    g_logger.info("PreloadQueue started with {} worker threads (capacity={})", threads.size(), state->max_size);
     g_logger.info("Health check caching enabled (TTL=5s, NAS monitor=10s)");
 }
 
@@ -115,83 +115,86 @@ void PreloadQueue::enqueue(const std::string& path) {
 }
 
 std::shared_ptr<ImageData> PreloadQueue::try_dequeue(const std::string& target_path) {
-    g_logger.info("TRACE: PreloadQueue::try_dequeue queue_size={} target={}", std::ssize(state->loaded_items), target_path.c_str());
     std::shared_ptr<ImageData> data = nullptr;
+    PreloadedItem item;
     {
         std::scoped_lock lk(state->work_mutex, state->queue_mutex);
+        g_logger.debug("PreloadQueue::try_dequeue queue_size={} target={}", state->loaded_items.size(), target_path);
         auto it = std::find_if(state->loaded_items.begin(), state->loaded_items.end(),
             [&](const PreloadedItem& item) { return item.path == target_path; });
 
         if (it != state->loaded_items.end()) {
-            PreloadedItem item = std::move(*it);
+            item = std::move(*it);
             state->loaded_items.erase(it);
             state->loaded_count.store(std::ssize(state->loaded_items));
             state->active_preloads.erase(target_path);
+        }
+    }
+    if (item.valid) {
+        // Build ImageData from raw pixels (main thread — SDL context is thread-local)
+        data = std::make_shared<ImageData>();
+        data->valid = false;
 
-            // Build ImageData from raw pixels (main thread — SDL context is thread-local)
-            data = std::make_shared<ImageData>();
-            data->valid = false;
+        if (item.raw.valid) {
+            // Retrieve pre-computed EXIF rotation from worker thread
+            data->exif_rotation = item.exif_rotation;
+            data->width = item.raw.width;
+            data->height = item.raw.height;
 
-            if (item.raw.valid) {
-                // Retrieve pre-computed EXIF rotation from worker thread
-                data->exif_rotation = item.exif_rotation;
-                data->width = item.raw.width;
-                data->height = item.raw.height;
-                data->valid = true;
-
-                // Create SDL surface from raw pixels
-                data->surface = SDL_CreateSurface(item.raw.width, item.raw.height, SDL_PIXELFORMAT_RGBA32);
-                if (data->surface) {
-                    uint8_t* dst = (uint8_t*)data->surface->pixels;
-                    const uint8_t* src = item.raw.pixels;
-                    for (int y = 0; y < item.raw.height; y++) {
-                        memcpy(dst + y * data->surface->pitch, src + y * item.raw.width * 4, item.raw.width * 4);
-                    }
+            // Create SDL surface from raw pixels
+            data->surface = SDL_CreateSurface(item.raw.width, item.raw.height, SDL_PIXELFORMAT_RGBA32);
+            if (data->surface) {
+                uint8_t* dst = (uint8_t*)data->surface->pixels;
+                const uint8_t* src = item.raw.pixels;
+                for (int y = 0; y < item.raw.height; y++) {
+                    memcpy(dst + y * data->surface->pitch, src + y * item.raw.width * 4, item.raw.width * 4);
                 }
-                if (item.raw.pixels) {
-                    free(item.raw.pixels);
-                    item.raw.pixels = nullptr;
+            }
+            if (item.raw.pixels) {
+                free(item.raw.pixels);
+                item.raw.pixels = nullptr;
+            }
+
+            if (data->exif_rotation >= 2 && data->exif_rotation <= 8) {
+                SDL_Surface* rotated = ImageLoader::apply_exif_rotation(data->surface, data->exif_rotation);
+                if (rotated) {
+                    SDL_DestroySurface(data->surface);
+                    data->surface = rotated;
                 }
+            }
+            if (data->surface) {
+                data->width = data->surface->w;
+                data->height = data->surface->h;
+            }
 
-                if (data->exif_rotation >= 2 && data->exif_rotation <= 8) {
-                    SDL_Surface* rotated = ImageLoader::apply_exif_rotation(data->surface, data->exif_rotation);
-                    if (rotated) {
-                        SDL_DestroySurface(data->surface);
-                        data->surface = rotated;
-                    }
-                }
-                if (data->surface) {
-                    data->width = data->surface->w;
-                    data->height = data->surface->h;
-                }
+            data->valid = data->surface != nullptr;
 
-                // Extract average color from preloaded background calculations
-                data->avg_r = item.avg_r;
-                data->avg_g = item.avg_g;
-                data->avg_b = item.avg_b;
+            // Extract average color from preloaded background calculations
+            data->avg_r = item.avg_r;
+            data->avg_g = item.avg_g;
+            data->avg_b = item.avg_b;
 
-                // Copy precomputed matte color from worker thread
-                data->matte_r = item.matte_r;
-                data->matte_g = item.matte_g;
-                data->matte_b = item.matte_b;
+            // Copy precomputed matte color from worker thread
+            data->matte_r = item.matte_r;
+            data->matte_g = item.matte_g;
+            data->matte_b = item.matte_b;
 
-                // Copy precomputed edge colors from worker thread
-                for (int e = 0; e < 4; e++) {
-                    data->edge_r[e] = item.edge_r[e];
-                    data->edge_g[e] = item.edge_g[e];
-                    data->edge_b[e] = item.edge_b[e];
-                }
+            // Copy precomputed edge colors from worker thread
+            for (int e = 0; e < 4; e++) {
+                data->edge_r[e] = item.edge_r[e];
+                data->edge_g[e] = item.edge_g[e];
+                data->edge_b[e] = item.edge_b[e];
+            }
 
-                // Copy precomputed per-pixel edge strips from worker thread
-                data->edge_top_rgb = std::move(item.edge_top_rgb);
-                data->edge_bot_rgb = std::move(item.edge_bot_rgb);
-                data->edge_lft_rgb = std::move(item.edge_lft_rgb);
-                data->edge_rgt_rgb = std::move(item.edge_rgt_rgb);
+            // Copy precomputed per-pixel edge strips from worker thread
+            data->edge_top_rgb = std::move(item.edge_top_rgb);
+            data->edge_bot_rgb = std::move(item.edge_bot_rgb);
+            data->edge_lft_rgb = std::move(item.edge_lft_rgb);
+            data->edge_rgt_rgb = std::move(item.edge_rgt_rgb);
 
-                // Move blur_raw to ImageData (no SDL needed — renderer creates texture on demand)
-                if (item.blur_raw.valid && item.blur_raw.pixels) {
-                    data->blur_raw = std::move(item.blur_raw);
-                }
+            // Move blur_raw to ImageData (no SDL needed — renderer creates texture on demand)
+            if (item.blur_raw.valid && item.blur_raw.pixels) {
+                data->blur_raw = std::move(item.blur_raw);
             }
         }
     }
@@ -348,26 +351,25 @@ void PreloadQueue::worker_thread(std::shared_ptr<PreloadState> state, int thread
         }
 
         g_logger.debug("[Worker {}] preloading: {}", thread_id, path.c_str());
+        auto note_failure = [&] {
+            std::lock_guard lock(state->work_mutex);
+            if (task_epoch == state->current_epoch) {
+                state->active_preloads.erase(path);
+                state->stat_failed_ts[path] = now_steady_ms();
+            }
+        };
 
         struct stat st;
         if (!stat_timeout(path, st, 5000)) {
             g_logger.warn("[Worker {}] stat_timeout: '{}' inaccessible, skipping.", thread_id, path.c_str());
-            {
-                std::lock_guard<std::mutex> lock(state->work_mutex);
-                state->active_preloads.erase(path);
-                state->stat_failed_ts[path] = now_steady_ms(); // 60s cooldown
-            }
+            note_failure();
             continue;
         }
 
         std::vector<uint8_t> buffer = ImageLoader::read_file_to_buffer(path);
         if (buffer.empty()) {
             g_logger.warn("[Worker {}] Failed to read file to buffer: {}", thread_id, path.c_str());
-            {
-                std::lock_guard<std::mutex> lock(state->work_mutex);
-                state->active_preloads.erase(path);
-                state->stat_failed_ts[path] = now_steady_ms(); // 60s cooldown
-            }
+            note_failure();
             continue;
         }
 
@@ -375,10 +377,8 @@ void PreloadQueue::worker_thread(std::shared_ptr<PreloadState> state, int thread
         uint8_t* pixels = stbi_load_from_memory(buffer.data(), std::ssize(buffer), &w, &h, &ch, 4);
         if (!pixels || w <= 0 || h <= 0) {
             g_logger.warn("[Worker {}] Failed to decode: {}", thread_id, path.c_str());
-            {
-                std::lock_guard<std::mutex> lock(state->work_mutex);
-                state->active_preloads.erase(path);
-            }
+            stbi_image_free(pixels);
+            note_failure();
             continue;
         }
 
@@ -389,18 +389,9 @@ void PreloadQueue::worker_thread(std::shared_ptr<PreloadState> state, int thread
         raw.format = ImageFormat::RGBA32;
         raw.valid = true;
 
-        size_t buf_size = (size_t)w * h * 4;
-        raw.pixels = (uint8_t*)malloc(buf_size);
-        if (!raw.pixels) {
-            stbi_image_free(pixels);
-            {
-                std::lock_guard<std::mutex> lock(state->work_mutex);
-                state->active_preloads.erase(path);
-            }
-            continue;
-        }
-        memcpy(raw.pixels, pixels, buf_size);
-        stbi_image_free(pixels);
+        // stb uses malloc/free (no custom allocator in this build), matching RawImage.
+        // Transfer ownership instead of allocating and copying another full RGBA image.
+        raw.pixels = pixels;
 
         int exif_rotation = ImageLoader::read_exif_rotation_from_memory(buffer);
 

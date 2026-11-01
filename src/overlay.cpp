@@ -61,7 +61,7 @@ void OverlayManager::init() {
 
     if (file_exists(font_path)) {
         // Load default size 20, font_renderer load_font handles caching and resizing dynamically
-        overlay_font = &font_renderer->load_font(font_path, 20);
+        overlay_font = font_renderer->load_font(font_path, 20);
         font_loaded = true;
         g_logger.info("Overlay manager font loaded: {}", font_path.c_str());
     } else {
@@ -72,6 +72,7 @@ void OverlayManager::init() {
 
 void OverlayManager::cleanup() {
     g_logger.info("TRACE: OverlayManager::cleanup");
+    overlay_font.reset();
     if (font_renderer) {
         delete font_renderer;
         font_renderer = nullptr;
@@ -306,14 +307,16 @@ void OverlayManager::draw_all(int current_idx, int total_items, const MediaItem*
         if (tm_info && strftime(datebuf, sizeof(datebuf), date_text.c_str(), tm_info) != 0) {
             int dx = vx + pad + (int)((vw - pad * 2) * date_x);
             int dy = vy + pad + (int)((vh - pad * 2) * date_y);
-            FontHandle& font = font_renderer->load_font(overlay_font->path, date_size);
+            const auto font_owner = font_renderer->load_font(overlay_font->path, date_size);
+            FontHandle& font = *font_owner;
             draw_contrast_text(dx, dy, font, datebuf, date_col, current_data);
         }
     }
 
     // 2. Filename Overlay (aligned neatly right above the bottom separator line)
     if (file_enabled && item) {
-        FontHandle& font = font_renderer->load_font(overlay_font->path, file_size);
+        const auto font_owner = font_renderer->load_font(overlay_font->path, file_size);
+        FontHandle& font = *font_owner;
         int tw = 0, th = 0;
         font_renderer->measure(font, item->filename, tw, th);
         int off_x = 0;
@@ -340,7 +343,8 @@ void OverlayManager::draw_all(int current_idx, int total_items, const MediaItem*
         std::string geo_str = std::format("{:.4f}Â° {}, {:.4f}Â° {}",
                                           std::abs(lat), lat >= 0.0 ? "N" : "S",
                                           std::abs(lon), lon >= 0.0 ? "E" : "W");
-        FontHandle& font = font_renderer->load_font(overlay_font->path, geotag_size);
+        const auto font_owner = font_renderer->load_font(overlay_font->path, geotag_size);
+        FontHandle& font = *font_owner;
         int tw = 0, th = 0;
         font_renderer->measure(font, geo_str, tw, th);
         int gx = vx + pad + (int)((vw - pad * 2) * geotag_x) - (tw / 2) + geotag_offset_x;
@@ -353,7 +357,8 @@ void OverlayManager::draw_all(int current_idx, int total_items, const MediaItem*
         std::string cntbuf = std::format("{}/{}", current_idx + 1, total_items);
         int cx = vx + pad + (int)((vw - pad * 2) * count_x);
         int cy = vy + pad + (int)((vh - pad * 2) * count_y);
-        FontHandle& font = font_renderer->load_font(overlay_font->path, count_size);
+        const auto font_owner = font_renderer->load_font(overlay_font->path, count_size);
+        FontHandle& font = *font_owner;
         int tw, th;
         font_renderer->measure(font, cntbuf, tw, th);
         cx -= tw / 2;
@@ -362,7 +367,8 @@ void OverlayManager::draw_all(int current_idx, int total_items, const MediaItem*
 
     // 4. Timer Overlay (photo countdown or video remaining, right-aligned close to separator line)
     if (timer_enabled) {
-        FontHandle& font = font_renderer->load_font(overlay_font->path, timer_size);
+        const auto font_owner = font_renderer->load_font(overlay_font->path, timer_size);
+        FontHandle& font = *font_owner;
         std::string tbuf = (is_video && !video_remaining.empty()) ? video_remaining : std::format("{}s", std::max(0, (int)(transition_delay - item_timer)));
         int tw = 0, th = 0;
         font_renderer->measure(font, tbuf, tw, th);
@@ -386,7 +392,8 @@ void OverlayManager::draw_all(int current_idx, int total_items, const MediaItem*
         struct tm* tmi = localtime_r(&now, &tm_buf_clk);
         if (tmi) {
             strftime(clkbuf, sizeof(clkbuf), clock_24h ? "%H:%M" : "%I:%M %p", tmi);
-            FontHandle& font = font_renderer->load_font(overlay_font->path, clock_size);
+            const auto font_owner = font_renderer->load_font(overlay_font->path, clock_size);
+            FontHandle& font = *font_owner;
             int clkw, clkh;
             font_renderer->measure(font, clkbuf, clkw, clkh);
             int clkx = vx + pad + (int)((vw - pad * 2) * clock_x) - clkw / 2;
@@ -460,7 +467,8 @@ void OverlayManager::draw_all(int current_idx, int total_items, const MediaItem*
             lines.push_back("PATH    : " + path);
         }
 
-        FontHandle& hud_font = font_renderer->load_font(overlay_font->path, 11);
+        const auto hud_font_owner = font_renderer->load_font(overlay_font->path, 11);
+        FontHandle& hud_font = *hud_font_owner;
         int max_w = 0, total_h = 0;
         for (const auto& line : lines) {
             int lw, lh;
@@ -545,7 +553,8 @@ void OverlayManager::draw_all(int current_idx, int total_items, const MediaItem*
 
     if (show_ribbon) {
         std::string ribbon_text = std::format("★ {} {}", anniversary_years, anniversary_years == 1 ? " YEAR AGO TODAY" : " YEARS AGO TODAY");
-        FontHandle& font = font_renderer->load_font(overlay_font->path, 22);
+        const auto font_owner = font_renderer->load_font(overlay_font->path, 22);
+        FontHandle& font = *font_owner;
         int tw, th;
         font_renderer->measure(font, ribbon_text, tw, th);
         int rx = (sw - tw) / 2;
@@ -584,8 +593,10 @@ void OverlayManager::draw_all(int current_idx, int total_items, const MediaItem*
             g_cache->get_error_details(code_str, title, desc, rec);
         }
 
-        FontHandle& header_font = font_renderer->load_font(overlay_font->path, 18);
-        FontHandle& body_font = font_renderer->load_font(overlay_font->path, 12);
+        const auto header_font_owner = font_renderer->load_font(overlay_font->path, 18);
+        FontHandle& header_font = *header_font_owner;
+        const auto body_font_owner = font_renderer->load_font(overlay_font->path, 12);
+        FontHandle& body_font = *body_font_owner;
 
         std::string header_text = "★ ERROR " + code_str + ": " + title + " ★";
         std::string desc_text = "DESC: " + desc;
@@ -665,7 +676,8 @@ void OverlayManager::draw_nav_overlay() {
     int center_x = (sw - btn_size) / 2;
     int btn_y = (sh - btn_size) / 2;
 
-    FontHandle& font = font_renderer->load_font(overlay_font->path, 28);
+    const auto font_owner = font_renderer->load_font(overlay_font->path, 28);
+    FontHandle& font = *font_owner;
 
     // Helper to draw a single navigation button
     auto draw_nav_btn = [&](int bx, int by, const std::string& symbol) {
@@ -715,10 +727,14 @@ void OverlayManager::draw_popup_menu() {
     SDL_SetRenderDrawColor(renderer->sdl_renderer, 161, 161, 170, 100); // Zinc border
     SDL_RenderRect(renderer->sdl_renderer, &container_f);
 
-    FontHandle& title_font = font_renderer->load_font(overlay_font->path, 18);
-    FontHandle& item_font = font_renderer->load_font(overlay_font->path, 13);
-    FontHandle& btn_font = font_renderer->load_font(overlay_font->path, 12);
-    FontHandle& footer_font = font_renderer->load_font(overlay_font->path, 11);
+    const auto title_font_owner = font_renderer->load_font(overlay_font->path, 18);
+    FontHandle& title_font = *title_font_owner;
+    const auto item_font_owner = font_renderer->load_font(overlay_font->path, 13);
+    FontHandle& item_font = *item_font_owner;
+    const auto btn_font_owner = font_renderer->load_font(overlay_font->path, 12);
+    FontHandle& btn_font = *btn_font_owner;
+    const auto footer_font_owner = font_renderer->load_font(overlay_font->path, 11);
+    FontHandle& footer_font = *footer_font_owner;
 
     // Draw Title centered
     std::string title_text = "piTrove Quick Configuration";
@@ -959,9 +975,12 @@ void OverlayManager::draw_virtual_keyboard() {
     SDL_SetRenderDrawColor(renderer->sdl_renderer, 161, 161, 170, 255); // Zinc border
     SDL_RenderRect(renderer->sdl_renderer, &kb_r);
 
-    FontHandle& title_font = font_renderer->load_font(overlay_font->path, 15);
-    FontHandle& input_font = font_renderer->load_font(overlay_font->path, 22);
-    FontHandle& key_font = font_renderer->load_font(overlay_font->path, 18);
+    const auto title_font_owner = font_renderer->load_font(overlay_font->path, 15);
+    FontHandle& title_font = *title_font_owner;
+    const auto input_font_owner = font_renderer->load_font(overlay_font->path, 22);
+    FontHandle& input_font = *input_font_owner;
+    const auto key_font_owner = font_renderer->load_font(overlay_font->path, 18);
+    FontHandle& key_font = *key_font_owner;
 
     // Header title
     std::string title = (keyboard_target == 0) ? "Enter Interval Delay (sec)" : "Enter Video Volume (0-100%)";
@@ -1061,8 +1080,10 @@ void OverlayManager::draw_pin_keypad() {
     Uint64 now = SDL_GetTicks();
     bool locked = (pin_locked_until > now);
 
-    FontHandle& title_font = font_renderer->load_font(overlay_font->path, 24);
-    FontHandle& body_font = font_renderer->load_font(overlay_font->path, 18);
+    const auto title_font_owner = font_renderer->load_font(overlay_font->path, 24);
+    FontHandle& title_font = *title_font_owner;
+    const auto body_font_owner = font_renderer->load_font(overlay_font->path, 18);
+    FontHandle& body_font = *body_font_owner;
 
     // Title
     std::string title = locked ? "Dashboard Locked" : "Enter PIN";

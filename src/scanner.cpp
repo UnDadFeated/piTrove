@@ -34,21 +34,19 @@ static inline int get_max_detached_scanner_threads() {
     return std::clamp(static_cast<int>(cores * 4), 8, 64);
 }
 
-static std::atomic<int64_t> g_scanner_last_reset_time{0};
-static constexpr int SCANNER_THREAD_RESET_INTERVAL_S = 120;
-
-static void maybe_reset_leaked_thread_counter() {
-    int64_t now = static_cast<int64_t>(std::time(nullptr));
-    int64_t last = g_scanner_last_reset_time.load();
-    if (now - last > SCANNER_THREAD_RESET_INTERVAL_S) {
-        int leaked = g_scanner_detached_threads.load();
-        if (leaked > 0) {
-            g_logger.warn("Scanner: Resetting leaked detached-thread counter from {} to 0 (threads likely stuck on hung CIFS mount)", leaked);
-            g_scanner_detached_threads.store(0);
-        }
-        g_scanner_last_reset_time.store(now);
+static bool reserve_scanner_thread() {
+    int active = g_scanner_detached_threads.load();
+    const int limit = get_max_detached_scanner_threads();
+    while (active < limit) {
+        if (g_scanner_detached_threads.compare_exchange_weak(active, active + 1)) return true;
     }
+    return false;
 }
+
+struct ScannerThreadSlot {
+    ~ScannerThreadSlot() { g_scanner_detached_threads.fetch_sub(1); }
+};
+
 static constexpr std::string_view IMAGE_EXTS[] = {"jpg", "jpeg", "png", "bmp", "tga", "gif", "webp", "tiff", "tif", "heic", "heif"};
 
 
@@ -79,75 +77,81 @@ std::vector<std::string> read_dir(const std::string& path) {
 }
 
 std::vector<std::string> read_dir_timeout(const std::string& path, int timeout_ms) {
-    maybe_reset_leaked_thread_counter();
-    if (g_scanner_detached_threads.load() >= get_max_detached_scanner_threads()) {
-        g_logger.warn("Scanner: max detached threads limit reached ({}), skipping read_dir for {}",
-                      g_scanner_detached_threads.load(), path.c_str());
-        return {};
-    }
     struct SharedResult {
-        std::atomic<bool> done{false};
+        std::mutex mutex;
+        std::condition_variable cv;
+        bool done = false;
         std::vector<std::string> entries;
     };
     auto sr = std::make_shared<SharedResult>();
-
-    g_scanner_detached_threads++;
     std::string p(path);
+    if (!reserve_scanner_thread()) {
+        g_logger.warn("Scanner: max outstanding threads limit reached, skipping read_dir for {}", path);
+        return {};
+    }
     std::jthread t;
-    if (!spawn_thread_safe(t, "scanner_read_dir", [p, sr]() {
-        sr->entries = read_dir(p);
-        sr->done.store(true);
-        g_scanner_detached_threads--;
+    if (!spawn_thread_safe(t, "scanner_read_dir", [p = std::move(p), sr]() {
+        std::vector<std::string> entries;
+        {
+            ScannerThreadSlot slot;
+            try { entries = read_dir(p); } catch (...) {}
+        }
+        {
+            std::lock_guard lock(sr->mutex);
+            sr->entries = std::move(entries);
+            sr->done = true;
+        }
+        sr->cv.notify_one();
     })) {
-        g_scanner_detached_threads--;
+        g_scanner_detached_threads.fetch_sub(1);
         return {};
     }
     t.detach();
 
-    auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeout_ms);
-    while (!sr->done.load() && std::chrono::steady_clock::now() < deadline) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(1));
-    }
-    if (!sr->done.load()) {
-        g_logger.error("Scanner: read_dir timed out for path {}", path.c_str());
+    std::unique_lock lock(sr->mutex);
+    if (!sr->cv.wait_for(lock, std::chrono::milliseconds(timeout_ms), [&] { return sr->done; })) {
+        g_logger.error("Scanner: read_dir timed out for path {}", path);
         return {};
     }
-    return sr->entries;
+    return std::move(sr->entries);
 }
 
-struct StatResult {
-    bool ok;
-    struct stat data;
-};
-
 bool stat_timeout(const std::string& path, struct stat& st, int timeout_ms) {
-    maybe_reset_leaked_thread_counter();
-    if (g_scanner_detached_threads.load() >= get_max_detached_scanner_threads()) {
-        return false;
-    }
-    struct SharedResult { std::atomic<bool> done{false}; struct stat data{}; };
+    struct SharedResult {
+        std::mutex mutex;
+        std::condition_variable cv;
+        bool done = false;
+        bool ok = false;
+        struct stat data{};
+    };
     auto sr = std::make_shared<SharedResult>();
-
-    g_scanner_detached_threads++;
     std::string p(path);
+    if (!reserve_scanner_thread()) return false;
     std::jthread t;
-    if (!spawn_thread_safe(t, "scanner_stat", [p, sr]() {
-        int ret = stat(p.c_str(), &sr->data);
-        if (ret != 0) memset(&sr->data, 0, sizeof(sr->data));
-        sr->done.store(true);
-        g_scanner_detached_threads--;
+    if (!spawn_thread_safe(t, "scanner_stat", [p = std::move(p), sr]() {
+        struct stat data{};
+        bool ok;
+        {
+            ScannerThreadSlot slot;
+            ok = stat(p.c_str(), &data) == 0;
+        }
+        {
+            std::lock_guard lock(sr->mutex);
+            sr->data = data;
+            sr->ok = ok;
+            sr->done = true;
+        }
+        sr->cv.notify_one();
     })) {
-        g_scanner_detached_threads--;
+        g_scanner_detached_threads.fetch_sub(1);
         return false;
     }
     t.detach();
 
-    auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeout_ms);
-    while (!sr->done.load() && std::chrono::steady_clock::now() < deadline) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    std::unique_lock lock(sr->mutex);
+    if (!sr->cv.wait_for(lock, std::chrono::milliseconds(timeout_ms), [&] { return sr->done; }) || !sr->ok) {
+        return false;
     }
-    if (!sr->done.load()) return false;
-    if (sr->data.st_size == 0 && sr->data.st_mode == 0) return false;
     st = sr->data;
     return true;
 }
