@@ -13,6 +13,13 @@
 #include <sys/stat.h>
 extern Logger g_logger;
 
+// FFmpeg APIs may replace or null these pointers, so cleanup follows the variable.
+template<typename T, void (*Release)(T**)>
+struct AvResource {
+    T*& pointer;
+    ~AvResource() { Release(&pointer); }
+};
+
 extern "C" {
 #include <libavformat/avformat.h>
 #include <libavcodec/avcodec.h>
@@ -24,6 +31,7 @@ extern "C" {
 
 
 struct VideoLimits {
+    bool enabled = false;
     int max_width = 1920;
     int max_height = 1080;
     int64_t max_bitrate = 20 * 1000 * 1000;
@@ -31,7 +39,7 @@ struct VideoLimits {
 };
 
 static bool video_within_budget(AVFormatContext* fmt, const VideoLimits& limits) {
-    if (!g_cfg.video_decode_budget_enabled) {
+    if (!limits.enabled) {
         return true; // Budget enforcement disabled: downscale and play any video using HW decoding
     }
     for (unsigned int i = 0; i < fmt->nb_streams; ++i) {
@@ -139,7 +147,7 @@ void VideoDecoder::init_audio() {
     spec.channels = 2;
 
     m_audio_device = SDL_OpenAudioDevice(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, &spec);
-    if (m_audio_device < 0) {
+    if (m_audio_device == 0) {
         DEBUG_LOG("AUDIO: SDL_OpenAudioDevice failed: {}", SDL_GetError());
         return;
     }
@@ -148,12 +156,19 @@ void VideoDecoder::init_audio() {
     if (!m_audio_stream) {
         DEBUG_LOG("AUDIO: SDL_CreateAudioStream failed: {}", SDL_GetError());
         SDL_CloseAudioDevice(m_audio_device);
-        m_audio_device = -1;
+        m_audio_device = 0;
         return;
     }
 
-    SDL_BindAudioStream(m_audio_device, m_audio_stream);
-    SDL_PauseAudioStreamDevice(m_audio_stream);
+    if (!SDL_BindAudioStream(m_audio_device, m_audio_stream) ||
+        !SDL_PauseAudioStreamDevice(m_audio_stream)) {
+        DEBUG_LOG("AUDIO: Failed to prepare audio stream: {}", SDL_GetError());
+        SDL_DestroyAudioStream(m_audio_stream);
+        m_audio_stream = nullptr;
+        SDL_CloseAudioDevice(m_audio_device);
+        m_audio_device = 0;
+        return;
+    }
     m_audio_initialized = true;
     DEBUG_LOG("AUDIO: Device opened id={} (paused for prebuffering)", m_audio_device);
 }
@@ -168,9 +183,9 @@ void VideoDecoder::shutdown_audio() {
         SDL_DestroyAudioStream(m_audio_stream);
         m_audio_stream = nullptr;
     }
-    if (m_audio_device >= 0) {
+    if (m_audio_device != 0) {
         SDL_CloseAudioDevice(m_audio_device);
-        m_audio_device = -1;
+        m_audio_device = 0;
     }
 }
 
@@ -231,7 +246,7 @@ void VideoDecoder::note_audio_anchor(double pts_s) {
 }
 
 void VideoDecoder::note_presentation_start(double pts_s) {
-    if (!m_av_sync.load(std::memory_order_relaxed)) return;
+    // Audio must resume on visual presentation even in legacy av_sync=0 mode.
     if (!m_anchor_set.load(std::memory_order_relaxed)) {
         m_anchor_pts.store(pts_s, std::memory_order_relaxed);
         m_anchor_wall_ms.store((double)SDL_GetTicks(), std::memory_order_relaxed);
@@ -287,12 +302,19 @@ bool VideoDecoder::start(const std::string& path, int target_width, int target_h
     m_v0_set.store(false);
     m_current_displayed_pts.store(0.0);
     m_pts_valid.store(true);
+    m_decoded_frames.store(0);
+    m_produced_frame = false;
+    m_video_total_duration.store(0.0);
     m_start_failed.store(false);
     decode_start_time.store(0.0, std::memory_order_relaxed);
     m_running.store(true);
     if (!spawn_thread_safe(m_thread, "video_decoder", [this]() {
         try { this->decode_loop(); }
-        catch (...) {}
+        catch (const std::exception& error) { g_logger.error("VIDEO_DEC: Worker failed: {}", error.what()); }
+        catch (...) { g_logger.error("VIDEO_DEC: Worker failed with unknown exception"); }
+        if (!m_produced_frame) m_start_failed.store(true);
+        m_running.store(false);
+        m_eof.store(true);
     })) {
         m_start_failed.store(true);
         m_running.store(false);
@@ -302,12 +324,16 @@ bool VideoDecoder::start(const std::string& path, int target_width, int target_h
     return true;
 }
 
-// Note: stop() signals the decode thread but does not join it.
-// jthread's move-assignment in start() implicitly joins the old thread.
+// Join before resetting shared state or destroying members. In particular, start()
+// must not set m_running=true while an older worker is still using that flag.
 void VideoDecoder::stop() {
     g_logger.info("VIDEO_DEC: stop() called, m_running={}", m_running.load());
-    m_running.store(false);
+    {
+        std::lock_guard lock(m_queue_mtx);
+        m_running.store(false);
+    }
     m_queue_cv.notify_all();
+    if (m_thread.joinable()) m_thread.join();
     shutdown_audio();
     {
         std::lock_guard lk(m_queue_mtx);
@@ -412,6 +438,7 @@ void VideoDecoder::decode_loop() {
     static const int64_t IO_TIMEOUT_US = 30LL * 1000000LL; // 30s timeout for CIFS NAS network share reads
     struct IOInterruptData { int64_t start_time; std::atomic<bool>* running; };
     IOInterruptData io_data{av_gettime_relative(), &m_running};
+    AvResource<AVFormatContext, avformat_close_input> format_guard{fmt_ctx};
 
     fmt_ctx->interrupt_callback.callback = [](void* opaque) -> int {
         auto* d = static_cast<IOInterruptData*>(opaque);
@@ -464,6 +491,7 @@ void VideoDecoder::decode_loop() {
     VideoLimits limits;
     {
         std::shared_lock lk(g_config_mtx);
+        limits.enabled = g_cfg.video_decode_budget_enabled;
         limits.max_width = g_cfg.video_max_width;
         limits.max_height = g_cfg.video_max_height;
         limits.max_bitrate = g_cfg.video_max_bitrate;
@@ -509,7 +537,7 @@ void VideoDecoder::decode_loop() {
             // Clamp to 30fps if framerate seems wrong
             m_frame_duration = 0.033333;
         }
-        DEBUG_LOG("VIDEO_DEC: Detected framerate={:.2f} via stream avg_framerate, frame_duration={:.3f}s", framerate, m_frame_duration);
+        DEBUG_LOG("VIDEO_DEC: Detected framerate={:.2f} via stream avg_framerate, frame_duration={:.3f}s", framerate, m_frame_duration.load());
     } else {
         m_frame_duration = 0.033333; // fallback 30fps
         DEBUG_LOG("VIDEO_DEC: Could not detect framerate, using fallback 30fps");
@@ -543,6 +571,7 @@ void VideoDecoder::decode_loop() {
     AVCodecParameters* vp = fmt_ctx->streams[video_stream_idx]->codecpar;
     // DRM hwaccel for V4L2 stateless decode (Pi 4/5 H264, Pi 4 HEVC)
     AVBufferRef* hw_dev = create_hw_device();
+    AvResource<AVBufferRef, av_buffer_unref> hw_guard{hw_dev};
     if (!hw_dev && hw_disabled_session) {
         g_logger.warn("VIDEO_DEC: HW accel disabled for this session (crawl recovery); using software decode");
     }
@@ -585,7 +614,9 @@ void VideoDecoder::decode_loop() {
         return;
     }
     AVCodecContext* vcc = avcodec_alloc_context3(vc);
-    avcodec_parameters_to_context(vcc, vp);
+    AvResource<AVCodecContext, avcodec_free_context> video_guard{vcc};
+    if (!vcc) throw std::bad_alloc();
+    if (avcodec_parameters_to_context(vcc, vp) < 0) throw std::runtime_error("Invalid video codec parameters");
     vcc->err_recognition = AV_EF_IGNORE_ERR;
     vcc->error_concealment = FF_EC_GUESS_MVS | FF_EC_DEBLOCK;
     vcc->flags2 |= AV_CODEC_FLAG2_FAST;
@@ -621,7 +652,8 @@ void VideoDecoder::decode_loop() {
             vc = avcodec_find_decoder(vp->codec_id);
             if (vc) {
                 vcc = avcodec_alloc_context3(vc);
-                avcodec_parameters_to_context(vcc, vp);
+                if (!vcc) throw std::bad_alloc();
+                if (avcodec_parameters_to_context(vcc, vp) < 0) throw std::runtime_error("Invalid fallback codec parameters");
                 int threads = std::thread::hardware_concurrency();
                 // Software decoder uses max_cores - 1 to preserve 1 core for system watchdogs & render loop
                 vcc->flags2 |= AV_CODEC_FLAG2_FAST;
@@ -643,6 +675,7 @@ void VideoDecoder::decode_loop() {
 
     // Audio codec
     AVCodecContext* acc = nullptr;
+    AvResource<AVCodecContext, avcodec_free_context> audio_guard{acc};
     int audio_channels = 2;
     int audio_sample_rate = 48000;
     if (audio_stream_idx >= 0) {
@@ -650,7 +683,8 @@ void VideoDecoder::decode_loop() {
         const AVCodec* ac = avcodec_find_decoder(ap->codec_id);
         if (ac) {
             acc = avcodec_alloc_context3(ac);
-            avcodec_parameters_to_context(acc, ap);
+            if (!acc) throw std::bad_alloc();
+            if (avcodec_parameters_to_context(acc, ap) < 0) throw std::runtime_error("Invalid audio codec parameters");
             if (avcodec_open2(acc, ac, nullptr) >= 0) {
                 audio_channels = acc->ch_layout.nb_channels;
                 audio_sample_rate = acc->sample_rate;
@@ -668,6 +702,7 @@ void VideoDecoder::decode_loop() {
 
     // Swresample — FFmpeg 6 uses swr_alloc_set_opts2 with robust channel layout fallbacks
     SwrContext* swr = nullptr;
+    AvResource<SwrContext, swr_free> resampler_guard{swr};
     if (acc && audio_sample_rate > 0) {
         AVChannelLayout src_ch, dst_ch;
         memset(&src_ch, 0, sizeof(src_ch));
@@ -683,7 +718,7 @@ void VideoDecoder::decode_loop() {
             0, nullptr);
         if (ret < 0 || !swr) {
             DEBUG_LOG("AUDIO: swr_alloc_set_opts2 failed: {}", ret);
-            swr = nullptr;
+            swr_free(&swr);
         } else {
             ret = swr_init(swr);
             [[unlikely]]
@@ -720,10 +755,14 @@ void VideoDecoder::decode_loop() {
     }
     g_logger.info("VIDEO_DEC: Decoding {} ({}x{} -> {}x{})", m_path.c_str(), vcc->width, vcc->height, dst_w, dst_h);
     AVPacket* pkt = av_packet_alloc();
+    AvResource<AVPacket, av_packet_free> packet_guard{pkt};
     AVFrame* frame = av_frame_alloc();
+    AvResource<AVFrame, av_frame_free> frame_guard{frame};
+    if (!pkt || !frame) throw std::bad_alloc();
 
     AVFrame* aframe = nullptr;
-    if (acc) aframe = av_frame_alloc();
+    AvResource<AVFrame, av_frame_free> audio_frame_guard{aframe};
+    if (acc) { aframe = av_frame_alloc(); if (!aframe) throw std::bad_alloc(); }
 
     decode_start_time.store(av_gettime_relative() / 1000000.0, std::memory_order_relaxed);
     bool eof = false;
@@ -843,9 +882,11 @@ void VideoDecoder::decode_loop() {
                         m_decoded_frames.fetch_add(1, std::memory_order_relaxed);
                         AVFrame* sw_frame2 = frame;
                         AVFrame* tmp_sw2 = nullptr;
+                        AvResource<AVFrame, av_frame_free> tmp_sw2_guard{tmp_sw2};
                         int64_t pts_raw1_pre = (frame->best_effort_timestamp != AV_NOPTS_VALUE) ? frame->best_effort_timestamp : (frame->pts != AV_NOPTS_VALUE ? frame->pts : frame->pkt_dts);
                         if (frame->format == AV_PIX_FMT_DRM_PRIME || frame->hw_frames_ctx) {
                             tmp_sw2 = av_frame_alloc();
+                            if (!tmp_sw2) throw std::bad_alloc();
                             if (av_hwframe_transfer_data(tmp_sw2, frame, 0) >= 0) {
                                 sw_frame2 = tmp_sw2;
                                 av_frame_unref(frame);
@@ -879,6 +920,7 @@ void VideoDecoder::decode_loop() {
                                 decode_start_time.store(av_gettime_relative() / 1000000.0, std::memory_order_relaxed);
                             }
                             m_frame_queue.push(std::move(vf));
+                            m_produced_frame = true;
                         }
                         last_frame_ms = av_gettime_relative();
                         g_logger.debug("[TRACE] VIDEO_DEC: Pushed frame #{}, queue_size={}", vf_count, frame_queue_size());
@@ -939,9 +981,11 @@ void VideoDecoder::decode_loop() {
                     
                     AVFrame* sw_frame = frame;
                     AVFrame* tmp_sw = nullptr;
+                    AvResource<AVFrame, av_frame_free> tmp_sw_guard{tmp_sw};
                     int64_t pts_raw_pre = (frame->best_effort_timestamp != AV_NOPTS_VALUE) ? frame->best_effort_timestamp : (frame->pts != AV_NOPTS_VALUE ? frame->pts : frame->pkt_dts);
                     if (frame->format == AV_PIX_FMT_DRM_PRIME || frame->hw_frames_ctx) {
                         tmp_sw = av_frame_alloc();
+                        if (!tmp_sw) throw std::bad_alloc();
                         if (av_hwframe_transfer_data(tmp_sw, frame, 0) >= 0) {
                             sw_frame = tmp_sw;
                             av_frame_unref(frame);
@@ -967,6 +1011,7 @@ void VideoDecoder::decode_loop() {
                         m_queue_cv.wait(lk, [this] { return m_frame_queue.size() < m_max_queued_frames.load(std::memory_order_relaxed) || !m_running.load(); });
                         if (!m_running.load()) break;
                         m_frame_queue.push(std::move(vf));
+                        m_produced_frame = true;
                     }
                         log_push_rate("drain");
                     last_frame_ms = av_gettime_relative();
@@ -1012,8 +1057,10 @@ void VideoDecoder::decode_loop() {
             // Transfer HW frames (DRM_PRIME/V4L2) to CPU-accessible format before scaling
             AVFrame* sw_frame = frame;
             AVFrame* tmp_sw = nullptr;
+            AvResource<AVFrame, av_frame_free> tmp_sw_guard{tmp_sw};
             if (frame->format == AV_PIX_FMT_DRM_PRIME || frame->hw_frames_ctx) {
                 tmp_sw = av_frame_alloc();
+                if (!tmp_sw) throw std::bad_alloc();
                 if (av_hwframe_transfer_data(tmp_sw, frame, 0) >= 0) {
                     sw_frame = tmp_sw;
                     av_frame_unref(frame); // Release V4L2 output buffer immediately to prevent DPB overflow
@@ -1048,6 +1095,7 @@ void VideoDecoder::decode_loop() {
                 });
                 if (!m_running.load()) break;
                 m_frame_queue.push(std::move(vf));
+                m_produced_frame = true;
             }
             last_frame_ms = av_gettime_relative();
                 crawl_count++;

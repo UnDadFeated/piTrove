@@ -5,6 +5,7 @@
 #include "news_ticker.h"
 #include "calendar.h"
 #include "stock_streamer.h"
+#include "google_photos.h"
 #include <iostream>
 #include <fstream>
 #include <string>
@@ -735,7 +736,9 @@ void config_wizard(const std::string& config_path) {
                 case 19:{ try { g_cfg.gcalendar_max_events=std::clamp(std::stoi(v), 1, 16); } catch(...) {} break; }
             }
         } catch(...) {}
+        const bool reconfigure_photos = c == 10 && i == 0;
         lk.unlock();
+        if (reconfigure_photos) { g_google_photos.stop(); g_google_photos.start(); }
         // Each integration takes its own shared config lock. Never call it while
         // this editor owns the exclusive lock on the same non-recursive mutex.
         try {

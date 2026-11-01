@@ -1911,6 +1911,8 @@ static std::string get_api_settings() {
         g_cfg.gcalendar_max_events);
 }
 
+static thread_local int response_timeout_ms = 2000;
+
 static const std::string VIDEO_FALLBACK_SVG = R"SVG(
 <svg xmlns="http://www.w3.org/2000/svg" width="400" height="300" viewBox="0 0 400 300">
   <defs>
@@ -1932,7 +1934,8 @@ static void send_response(int fd, const std::string& status_line, const std::str
         "{}\r\nContent-Type: {}\r\nContent-Length: {}\r\n"
         "Cache-Control: no-cache, no-store, must-validate\r\nConnection: close\r\n\r\n",
         status_line, mime, body.size());
-    if (http_protocol::send_all(fd, headers)) http_protocol::send_all(fd, body);
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(response_timeout_ms);
+    if (http_protocol::send_until(fd, headers, deadline)) http_protocol::send_until(fd, body, deadline);
 }
 
 static void handle_screenshot(int fd) {
@@ -2101,7 +2104,12 @@ static void handle_preview(int fd) {
 
     // Read file size
     file.seekg(0, std::ios::end);
-    size_t file_size = file.tellg();
+    const auto file_end = file.tellg();
+    if (file_end < 0) {
+        send_response(fd, "HTTP/1.1 500 Internal Server Error", "text/plain", "Failed to determine preview size");
+        return;
+    }
+    const size_t file_size = static_cast<size_t>(file_end);
     file.seekg(0, std::ios::beg);
 
     // Send HTTP Headers
@@ -2112,7 +2120,8 @@ static void handle_preview(int fd) {
         "Cache-Control: no-cache, no-store, must-validate\r\n" 
         "Connection: close\r\n\r\n",
         mime, file_size);
-    if (!http_protocol::send_all(fd, headers)) return;
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(response_timeout_ms);
+    if (!http_protocol::send_until(fd, headers, deadline)) return;
 
     // Stream body in chunks
     char buffer[8192];
@@ -2120,7 +2129,7 @@ static void handle_preview(int fd) {
         file.read(buffer, sizeof(buffer));
         std::streamsize bytes = file.gcount();
         if (bytes > 0) {
-            if (!http_protocol::send_all(fd, std::string_view(buffer, size_t(bytes)))) break;
+            if (!http_protocol::send_until(fd, std::string_view(buffer, size_t(bytes)), deadline)) break;
         }
     }
 }
@@ -2137,6 +2146,7 @@ static void handle_client(int client_fd) {
     struct timeval client_tv;
     { std::lock_guard lk(g_config_mtx); client_tv.tv_sec = g_cfg.http_socket_timeout; }
     client_tv.tv_usec = 0;
+    response_timeout_ms = std::clamp<int>(client_tv.tv_sec, 1, 60) * 1000;
     if (setsockopt(client_fd, SOL_SOCKET, SO_RCVTIMEO, &client_tv, sizeof(client_tv)) < 0) {
         g_logger.warn("HTTP: Failed to set SO_RCVTIMEO on client socket.");
     }
@@ -2228,7 +2238,7 @@ static void handle_client(int client_fd) {
             send_response(client_fd, "HTTP/1.1 200 OK", "text/html", get_dashboard_html());
         } 
         else if (matches_route("GET", "/google_photos_setup") || matches_route("POST", "/google_photos_setup")) {
-            // Writes the OAuth client id/secret into the live config and starts the flow.
+            // Starts a state-bound flow; credentials become live only after a successful exchange.
             // /google_photos_callback is left open on purpose: it is a Google-initiated
             // redirect that cannot carry an Authorization header, and it only persists
             // config after a successful token exchange. Opt-in via [remote] api_key.
@@ -2282,8 +2292,8 @@ static void handle_client(int client_fd) {
                     "&redirect_uri=" + http_protocol::url_encode(flow->redirect_uri) +
                     "&grant_type=authorization_code";
                 std::string json;
-                http_transfer::post_form("https://oauth2.googleapis.com/token", body, json);
-                std::string refresh_token = parse_json_value(json, "refresh_token");
+                const bool exchanged = http_transfer::post_form("https://oauth2.googleapis.com/token", body, json);
+                std::string refresh_token = exchanged ? parse_json_value(json, "refresh_token") : "";
                 
                 if (refresh_token.empty()) {
                     // Try to parse error details
@@ -2587,7 +2597,7 @@ static void handle_client(int client_fd) {
                     if (has_query_param(request, "google_photos_enabled")) {
                         std::string val = get_query_param(request, "google_photos_enabled");
                         bool desired = (val == "true" || val == "1");
-                        if (g_cfg.google_photos_enabled != desired) { g_cfg.google_photos_enabled = desired; changed = true; }
+                        if (g_cfg.google_photos_enabled != desired) { g_cfg.google_photos_enabled = desired; changed = true; reconfigure_panels = true; }
                     }
                     if (has_query_param(request, "google_photos_album_id")) {
                         std::string val = get_query_param(request, "google_photos_album_id");
@@ -2616,16 +2626,18 @@ static void handle_client(int client_fd) {
             // snapshot the latest desired state after releasing the config mutex.
             if (!validation_failed && reconfigure_panels) {
                 std::lock_guard lifecycle(g_infopanels_lifecycle_mtx);
-                bool news, calendar, stocks;
+                bool news, calendar, stocks, photos;
                 {
                     std::shared_lock lock(g_config_mtx);
                     news = g_cfg.infopanels_enabled && g_cfg.news_enabled;
                     calendar = g_cfg.infopanels_enabled && g_cfg.gcalendar_enabled;
                     stocks = g_cfg.infopanels_enabled && g_cfg.stockstreamer_enabled;
+                    photos = g_cfg.google_photos_enabled;
                 }
                 if (news != g_news_ticker.is_running()) { if (news) g_news_ticker.start(); else g_news_ticker.stop(); }
                 if (calendar != g_calendar.is_running()) { if (calendar) g_calendar.start(); else g_calendar.stop(); }
                 if (stocks != g_stock_streamer.is_running()) { if (stocks) g_stock_streamer.start(); else g_stock_streamer.stop(); }
+                if (photos != g_google_photos.is_running()) { if (photos) g_google_photos.start(); else g_google_photos.stop(); }
             }
             // g_config_mtx is released above; fetch_sync() may now take its shared_lock.
             if (!validation_failed && refetch_news) {
