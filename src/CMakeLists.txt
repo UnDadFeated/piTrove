@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(piTrove VERSION 18.2.1 LANGUAGES CXX)
+project(piTrove VERSION 18.3.0 LANGUAGES CXX)
 
 option(ENABLE_ASAN "Enable AddressSanitizer for memory safety testing" OFF)
 if(ENABLE_ASAN)
@@ -91,6 +91,9 @@ set(PISTROVE_SOURCES
     news_ticker.cpp
     calendar.cpp
     stock_streamer.cpp
+    chores.cpp
+    chores_http.cpp
+    chores_panel.cpp
 )
 
 # Video decoder (FFmpeg)
@@ -173,6 +176,14 @@ if(BUILD_TESTING)
     target_compile_options(deep_regression PRIVATE -Wall -Wextra -ffunction-sections -fdata-sections)
     target_link_options(deep_regression PRIVATE -Wl,--gc-sections -Wl,--wrap=curl_easy_perform)
     target_link_libraries(deep_regression PRIVATE ${SQLITE3_LIBRARIES} ${CURL_LIBRARIES} sodium pthread atomic)
+    add_executable(chores_regression tests/chores.cpp chores.cpp chores_http.cpp http_protocol.cpp)
+    target_include_directories(chores_regression PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} ${SDL3_INCLUDE_DIRS} ${SQLITE3_INCLUDE_DIRS})
+    target_compile_options(chores_regression PRIVATE -Wall -Wextra)
+    target_link_libraries(chores_regression PRIVATE ${SQLITE3_LIBRARIES} pthread)
+    add_test(NAME chores_regression COMMAND chores_regression)
+    add_executable(chores_web_fixture tests/chores_web_fixture.cpp chores.cpp chores_http.cpp http_protocol.cpp)
+    target_include_directories(chores_web_fixture PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+    target_link_libraries(chores_web_fixture PRIVATE ${SQLITE3_LIBRARIES} pthread)
     add_executable(playback_regression tests/playback.cpp tests/deep_support.cpp config.cpp auth.cpp video_decoder.cpp nv12_converter.cpp util.cpp http_transfer.cpp file_ops.cpp)
     target_include_directories(playback_regression PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} ${SDL3_INCLUDE_DIRS} ${AVCODEC_INCLUDE_DIRS} ${AVFORMAT_INCLUDE_DIRS} ${AVUTIL_INCLUDE_DIRS} ${SWSCALE_INCLUDE_DIRS} ${SWRESAMPLE_INCLUDE_DIRS} ${CURL_INCLUDE_DIRS})
     target_compile_options(playback_regression PRIVATE -Wall -Wextra -ffunction-sections -fdata-sections)
@@ -183,5 +194,5 @@ if(BUILD_TESTING)
     add_test(NAME nv12_regression COMMAND nv12_regression)
     add_test(NAME audit_regression COMMAND audit_regression ${CMAKE_CURRENT_SOURCE_DIR}/fonts/DejaVuSansMono-Bold.ttf)
     add_test(NAME watchdog_regression COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/tests/watchdog.sh ${CMAKE_CURRENT_SOURCE_DIR}/watchdog/pitrove-watchdog.sh)
-    set_tests_properties(audit_regression watchdog_regression nv12_regression deep_regression playback_regression PROPERTIES TIMEOUT 30)
+    set_tests_properties(audit_regression watchdog_regression nv12_regression deep_regression playback_regression chores_regression PROPERTIES TIMEOUT 30)
 endif()

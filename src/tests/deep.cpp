@@ -76,6 +76,7 @@ static void test_config() {
     config.news_blacklist = {"one,two", "quote\"#;", "back\\slash"};
     config.ignore_folders = config.news_blacklist;
     config.stockstreamer_symbols = {"AAPL", "BRK-B", "^GSPC"};
+    config.left_panel_enabled = true; config.left_panel_max_chores = 17; config.left_panel_show_completed = true;
     config.mqtt_tls_enabled = true; config.mqtt_ca_cert = text;
     config.dashboard_pin = "4391"; config.web_dashboard_enabled = true;
     check(config.save(path), "config save failed");
@@ -87,6 +88,7 @@ static void test_config() {
     check(saved.find("dashboard_pin = \"4391\"") == saved.npos, "plaintext PIN persisted");
     Config loaded;
     check(loaded.load(path), "config reload failed");
+    check(loaded.left_panel_enabled && loaded.left_panel_max_chores == 17 && loaded.left_panel_show_completed, "left panel settings dropped on save/load");
     check(loaded.media_dir == text, "media path changed on reload");
     check(loaded.http_api_key == text, "remote API key changed on reload");
     check(loaded.mqtt_pass == text, "MQTT password changed on reload");

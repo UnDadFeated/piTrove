@@ -175,6 +175,11 @@ timezone = "UTC"
 
 [infopanels]
 enabled = 0
+# Optional left chores panel; requires the infopanels master switch above.
+left_panel_enabled = 0
+left_panel_max_chores = 10
+left_panel_show_completed = 0
+
 
 [news]
 enabled = 0

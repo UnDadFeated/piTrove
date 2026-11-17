@@ -194,6 +194,9 @@ struct Config {
 
     // [infopanels]
     bool        infopanels_enabled{false};
+    bool        left_panel_enabled{false};
+    int         left_panel_max_chores{10};
+    bool        left_panel_show_completed{false};
 
     // [news]
     bool        news_enabled{false};

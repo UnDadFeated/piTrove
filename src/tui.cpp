@@ -237,7 +237,7 @@ void config_wizard(const std::string& config_path) {
     };
     static const CI CINFO[] = {
         {"Timezone", ENM, "System display timezone for dates, news, and calendar"},
-        {"Infopanels Master", TGL, "Master switch for sidebar calendar & bottom news ticker"},
+        {"Infopanels Master", TGL, "Master switch for side panels and bottom news ticker"},
         {"News Ticker", TGL, "Show live scrolling news headlines ticker at bottom of screen"},
         {"News Source", ENM, "Live news feed type (global, local)"},
         {"News Zipcode/Loc", STR, "Zipcode (e.g. 10001, 95624) or city query for top-line local news"},
@@ -255,7 +255,10 @@ void config_wizard(const std::string& config_path) {
         {"Calendar iCal URL", STR, "Direct Google Calendar secret/public iCal address URL"},
         {"Calendar API Key", STR, "Google Calendar API Key (for API source sync)"},
         {"Calendar Refresh Mins", INT, "Minutes between background calendar syncs (5-120)"},
-        {"Max Calendar Events", INT, "Maximum number of upcoming events on sidebar (1-16)"}
+        {"Max Calendar Events", INT, "Maximum number of upcoming events on sidebar (1-16)"},
+        {"Left Chores Panel", TGL, "Show assigned chores on the left; requires Infopanels Master"},
+        {"Max Visible Chores", INT, "Maximum chore cards in the left panel (1-20); overflow pages automatically"},
+        {"Show Done Chores", TGL, "Include completed chores in today's left-panel board"}
     };
 
     static const CI CGP[] = {
@@ -463,6 +466,9 @@ void config_wizard(const std::string& config_path) {
             case 17: return g_cfg.gcalendar_api_key;
             case 18: return std::format("{}", g_cfg.gcalendar_refresh_minutes);
             case 19: return std::format("{}", g_cfg.gcalendar_max_events);
+            case 20: return g_cfg.left_panel_enabled ? "[ON]" : "[OFF]";
+            case 21: return std::to_string(g_cfg.left_panel_max_chores);
+            case 22: return g_cfg.left_panel_show_completed ? "[ON]" : "[OFF]";
         }
         return "";
     };
@@ -734,6 +740,9 @@ void config_wizard(const std::string& config_path) {
                 case 17:g_cfg.gcalendar_api_key=v;break;
                 case 18:{ try { g_cfg.gcalendar_refresh_minutes=std::clamp(std::stoi(v), 5, 120); } catch(...) {} break; }
                 case 19:{ try { g_cfg.gcalendar_max_events=std::clamp(std::stoi(v), 1, 16); } catch(...) {} break; }
+                case 20:g_cfg.left_panel_enabled=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
+                case 21:g_cfg.left_panel_max_chores=std::clamp(safe_stoi(v,10),1,20);break;
+                case 22:g_cfg.left_panel_show_completed=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
             }
         } catch(...) {}
         const bool reconfigure_photos = c == 10 && i == 0;

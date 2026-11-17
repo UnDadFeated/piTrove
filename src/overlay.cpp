@@ -2,6 +2,7 @@
 #include "auth.h"
 #include "util.h"
 #include "config.h"
+#include "infopanel_layout.h"
 #include "media_item.h"
 #include "image_loader.h"
 #include "cache.h"
@@ -241,6 +242,7 @@ void OverlayManager::draw_all(int current_idx, int total_items, const MediaItem*
     int on_this_day_range = 0;
     bool adaptive_text_enabled = false;
     bool has_matting = false;
+    InfopanelOptions panel_options;
 
     {
         std::shared_lock lock(g_config_mtx);
@@ -284,6 +286,9 @@ void OverlayManager::draw_all(int current_idx, int total_items, const MediaItem*
         on_this_day_range = g_cfg.on_this_day_range;
         adaptive_text_enabled = g_cfg.adaptive_text_enabled;
         has_matting = g_cfg.matting;
+        panel_options = {g_cfg.infopanels_enabled, g_cfg.news_enabled, g_cfg.gcalendar_enabled,
+                         g_cfg.stockstreamer_enabled, g_cfg.left_panel_enabled, g_cfg.matting,
+                         g_cfg.matting_size, g_cfg.display_offset_x, g_cfg.display_offset_y};
     }
 
     auto draw_contrast_text = [&](int x, int y, FontHandle& font, const std::string& text, GpuColor def_col, const ImageData* img) {
@@ -320,12 +325,23 @@ void OverlayManager::draw_all(int current_idx, int total_items, const MediaItem*
         FontHandle& font = *font_owner;
         int tw = 0, th = 0;
         font_renderer->measure(font, item->filename, tw, th);
-        int off_x = 0;
-        {
-            std::shared_lock lk_ov(g_config_mtx);
-            off_x = std::clamp(g_cfg.display_offset_x, -sw / 4, sw / 4);
+        const auto panels = make_infopanel_layout(sw, sh, panel_options);
+        const int media_left = viewport ? vx : panels.slideshow_area.x;
+        const int fx = filename_overlay_x(sw, panel_options.offset_x, panels.show_chores, media_left);
+        // Confine long filenames (including twin captions) to the media viewport.
+        const bool was_clipped = SDL_RenderClipEnabled(renderer->sdl_renderer);
+        SDL_Rect previous_clip; SDL_GetRenderClipRect(renderer->sdl_renderer, &previous_clip);
+        SDL_Rect caption_clip = viewport ? SDL_Rect{vx, vy, vw, vh} : panels.slideshow_area;
+        if (was_clipped) {
+            SDL_Rect intersection{};
+            SDL_GetRectIntersection(&caption_clip, &previous_clip, &intersection);
+            caption_clip = intersection;
         }
-        int fx = (int)round(72.0 * sw / 1920.0) + off_x;
+        SDL_SetRenderClipRect(renderer->sdl_renderer, &caption_clip);
+        struct RestoreCaptionClip {
+            SDL_Renderer* renderer; bool enabled; SDL_Rect previous;
+            ~RestoreCaptionClip() { SDL_SetRenderClipRect(renderer, enabled ? &previous : nullptr); }
+        } restore_clip{renderer->sdl_renderer, was_clipped, previous_clip};
         int fy = vy + vh - th - (int)round(4.0 * sw / 1920.0);
 
         if (twin_item) {

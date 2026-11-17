@@ -23,6 +23,9 @@
 #include "news_ticker.h"
 #include "calendar.h"
 #include "stock_streamer.h"
+#include "infopanel_layout.h"
+#include "chores.h"
+#include "chores_panel.h"
 
 
 #include <SDL3/SDL.h>
@@ -252,99 +255,15 @@ static bool should_be_twin_portrait(std::vector<MediaItem>& eligible, int idx) {
 // NOTE: Matting/border offset logic duplicates Renderer::calculate_fit_rect (renderer.cpp:251)
 // Keep in sync if adjusting matte or border inset calculations
 
-struct InfopanelLayout {
-    SDL_Rect slideshow_area;
-    SDL_Rect calendar_area;
-    SDL_Rect stocks_area;
-    SDL_Rect news_area;
-    bool show_calendar{false};
-    bool show_stocks{false};
-    bool show_news{false};
-};
-
 static InfopanelLayout calculate_infopanel_layout(int screen_w, int screen_h) {
-    InfopanelLayout layout;
-    bool infopanels = false;
-    bool news_on = false;
-    bool cal_on = false;
-    bool stocks_on = false;
-    bool has_matting = false;
-    int mat_size = 0;
-    int off_x = 0;
-    int off_y = 0;
+    InfopanelOptions options;
     {
-        std::shared_lock lk(g_config_mtx);
-        infopanels = g_cfg.infopanels_enabled;
-        news_on = g_cfg.news_enabled;
-        cal_on = g_cfg.gcalendar_enabled;
-        stocks_on = g_cfg.stockstreamer_enabled;
-        has_matting = g_cfg.matting;
-        mat_size = g_renderer.scale_px(g_cfg.matting_size);
-        // Human safeguards: clamp global offset to within +/-25% of display dimensions
-        off_x = std::clamp(g_cfg.display_offset_x, -screen_w / 4, screen_w / 4);
-        off_y = std::clamp(g_cfg.display_offset_y, -screen_h / 4, screen_h / 4);
+        std::shared_lock lock(g_config_mtx);
+        options = {g_cfg.infopanels_enabled, g_cfg.news_enabled, g_cfg.gcalendar_enabled,
+                   g_cfg.stockstreamer_enabled, g_cfg.left_panel_enabled, g_cfg.matting,
+                   g_cfg.matting_size, g_cfg.display_offset_x, g_cfg.display_offset_y};
     }
-    
-    // Scale physical matte template coordinates from 1080p reference + global display offsets
-    // Calibrated to physical frame matte: Left red line = 60px, Top red line = 42px, Right = 1860px, Bottom = 1038px
-    int matte_left   = (has_matting ? (int)round(60.0 * screen_w / 1920.0) : 0) + off_x;
-    int matte_top    = (has_matting ? (int)round(42.0 * screen_h / 1080.0) : 0) + off_y;
-    int matte_right  = (has_matting ? (screen_w - (int)round(60.0 * screen_w / 1920.0)) : screen_w) + off_x;
-    int matte_bottom = (has_matting ? (screen_h - (int)round(42.0 * screen_h / 1080.0)) : screen_h) + off_y;
-
-    layout.show_news = infopanels && news_on;
-    layout.show_calendar = infopanels && cal_on;
-    layout.show_stocks = infopanels && stocks_on;
-
-    bool show_side = layout.show_calendar || layout.show_stocks;
-
-    // Skinny compact 2-line news bar (36px on 1080p, scaled for 4k etc.)
-    int news_h = layout.show_news ? (int)round(36.0 * screen_w / 1920.0) : 0;
-    // Bottom edge sits directly above the physical 1" matte opening
-    int news_bottom = (has_matting ? (screen_h - (int)round((double)mat_size * 0.8) + (int)round(45.0 * screen_w / 1920.0)) : screen_h) + off_y;
-    int news_y = news_bottom - news_h;
-
-    // Side panel width (scaled)
-    int cal_w = show_side ? std::clamp((int)round(335.0 * screen_w / 1920.0), 285, screen_w / 3) : 0;
-    int cal_x = (screen_w - cal_w) + off_x;
-    int side_panel_h = layout.show_news ? news_y : (screen_h + off_y);
-
-    if (layout.show_calendar && layout.show_stocks) {
-        // Stocks sits tightly at the bottom (BTC 6px above newsfeed), giving maximum room to Google Calendar
-        int stocks_content_h = (int)round(288.0 * screen_w / 1920.0);
-        int stocks_y = std::max(matte_top + (int)round(40.0 * screen_w / 1920.0), side_panel_h - stocks_content_h);
-        layout.calendar_area = { cal_x, off_y, screen_w - cal_x + off_x, stocks_y - off_y };
-        layout.stocks_area = { cal_x, stocks_y, screen_w - cal_x + off_x, side_panel_h - stocks_y };
-    } else if (layout.show_calendar) {
-        layout.calendar_area = { cal_x, off_y, screen_w - cal_x + off_x, side_panel_h - off_y };
-        layout.stocks_area = { 0, 0, 0, 0 };
-    } else if (layout.show_stocks) {
-        layout.calendar_area = { 0, 0, 0, 0 };
-        layout.stocks_area = { cal_x, off_y, screen_w - cal_x + off_x, side_panel_h - off_y };
-    } else {
-        layout.calendar_area = { 0, 0, 0, 0 };
-        layout.stocks_area = { 0, 0, 0, 0 };
-    }
-
-    if (layout.show_news) {
-        layout.news_area = { off_x, news_y, screen_w, news_h };
-    } else {
-        layout.news_area = { 0, 0, 0, 0 };
-    }
-
-    // Centered Slideshow Area accounting for physical matte aperture, active UI panels and global display offset:
-    // Shifted up by 5px for visual balance inside physical matte frame
-    int x1 = matte_left;
-    int x2 = show_side ? cal_x : matte_right;
-    int y1 = matte_top - (int)round(5.0 * screen_h / 1080.0);
-    int y2 = (layout.show_news ? news_y : matte_bottom) - (int)round(5.0 * screen_h / 1080.0);
-
-    if (x2 <= x1) x2 = screen_w + off_x;
-    if (y2 <= y1) y2 = screen_h + off_y;
-
-    layout.slideshow_area = { x1, y1, x2 - x1, y2 - y1 };
-    
-    return layout;
+    return make_infopanel_layout(screen_w, screen_h, options);
 }
 
 static void calculate_fit_rect_in_area(int img_w, int img_h, int area_x, int area_y, int area_w, int area_h, SDL_Rect& out_rect) {
@@ -1947,6 +1866,15 @@ int main(int argc, char** argv) {
         organize_playlist(g_eligible, videos_per_photos, play_just_photos, play_just_videos, shuffle_enabled);
     }
 
+    // Household data lives beside config and survives media cache maintenance.
+    {
+        std::filesystem::path settings;
+        { std::shared_lock lock(g_config_mtx); settings = g_cfg.loaded_path; }
+        const auto directory = settings.has_parent_path() ? settings.parent_path() : std::filesystem::path(".");
+        const auto result = chores::g_store.open((directory / "chores.db").string());
+        if (!result.ok()) g_logger.error("CHORES: {}", result.error);
+    }
+
     // Start HTTP Web Remote Dashboard if enabled
     {
         bool http_srv = false;
@@ -2791,6 +2719,9 @@ int main(int argc, char** argv) {
                             InfopanelLayout v_layout = calculate_infopanel_layout(g_renderer.screen_w, g_renderer.screen_h);
                             std::string font_p = g_overlay->get_font_path();
                             FontRenderer* fr = g_overlay->get_font_renderer();
+                            if (v_layout.show_chores) {
+                                render_chores_panel(g_renderer.sdl_renderer, fr, font_p, v_layout.chores_area, g_renderer.screen_w);
+                            }
                             if (v_layout.show_calendar) {
                                 g_calendar.render(g_renderer.sdl_renderer, fr, font_p, v_layout.calendar_area, g_renderer.screen_w);
                             }
@@ -3120,6 +3051,9 @@ int main(int argc, char** argv) {
                     if (g_overlay) {
                         std::string font_p = g_overlay->get_font_path();
                         FontRenderer* fr = g_overlay->get_font_renderer();
+                        if (t_layout.show_chores) {
+                            render_chores_panel(g_renderer.sdl_renderer, fr, font_p, t_layout.chores_area, g_renderer.screen_w);
+                        }
                         if (t_layout.show_calendar) {
                             g_calendar.render(g_renderer.sdl_renderer, fr, font_p, t_layout.calendar_area, g_renderer.screen_w);
                         }
@@ -3473,6 +3407,9 @@ int main(int argc, char** argv) {
                     InfopanelLayout layout = calculate_infopanel_layout(g_renderer.screen_w, g_renderer.screen_h);
                     std::string font_p = g_overlay->get_font_path();
                     FontRenderer* fr = g_overlay->get_font_renderer();
+                    if (layout.show_chores) {
+                        render_chores_panel(g_renderer.sdl_renderer, fr, font_p, layout.chores_area, g_renderer.screen_w);
+                    }
                     if (layout.show_calendar) {
                         g_calendar.render(g_renderer.sdl_renderer, fr, font_p, layout.calendar_area, g_renderer.screen_w);
                     }

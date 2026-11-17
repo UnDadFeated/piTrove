@@ -1,6 +1,8 @@
 #include "http_server.h"
 #include "http_protocol.h"
 #include "http_transfer.h"
+#include "chores_http.h"
+#include "chores_page.h"
 #include "oauth_state.h"
 #include <sodium.h>
 #include "auth.h"
@@ -1107,6 +1109,13 @@ static std::string get_dashboard_html() {
             }
             .tabs {
                 padding: 0.25rem;
+                gap: 0.25rem;
+            }
+            .tab-btn {
+                min-width: 0;
+                padding: 0.55rem 0.35rem;
+                font-size: 0.8rem;
+                text-align: center;
             }
         }
         }
@@ -1125,13 +1134,14 @@ static std::string get_dashboard_html() {
                 <button onclick="toggleTheme()" id="theme-btn" style="background: var(--card-bg); color: var(--text-main); border: 1px solid var(--card-border); border-radius: 8px; padding: 0.25rem 0.5rem; font-size: 0.75rem; cursor: pointer; outline: none; color-scheme:dark;">🌙</button>
             </div>
             <h1>piTrove controller</h1>
-            <div class="subtitle">v17.7.10 glassmorphic system</div>
+            <div class="subtitle">v@@VERSION@@ · frame &amp; household controller</div>
         </header>
 
         <div class="tabs">
             <button class="tab-btn active" onclick="switchTab('remote')">Remote</button>
+            <a class="tab-btn" href="/chores" style="text-decoration:none">Chores</a>
             <button class="tab-btn" onclick="switchTab('settings')">Settings</button>
-            <button class="tab-btn" onclick="switchTab('logs')">Diagnostics</button>
+            <button class="tab-btn" onclick="switchTab('logs')">Logs</button>
         </div>
 
         <div id="tab-remote-content" class="tab-content">
@@ -1273,6 +1283,9 @@ static std::string get_dashboard_html() {
                         </div>
                         <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 0.8rem; margin-bottom: 0.6rem;">
                             <div style="display:flex; align-items:center; gap:0.4rem;"><input type="checkbox" id="set-infopanels-enabled" style="cursor:pointer;"><label for="set-infopanels-enabled" style="font-size:0.85rem; color:var(--text-muted); cursor:pointer;">Enable Infopanels</label></div>
+                            <div style="display:flex; align-items:center; gap:0.4rem;"><input type="checkbox" id="set-left-panel-enabled"><label for="set-left-panel-enabled" style="font-size:0.85rem">Left chores panel</label></div>
+                            <div><label for="set-left-panel-max">Visible chores (1–20)</label><input id="set-left-panel-max" type="number" min="1" max="20" value="10"></div>
+                            <div><label for="set-left-panel-done"><input id="set-left-panel-done" type="checkbox"> Show completed chores</label></div>
                             <div style="display:flex; align-items:center; gap:0.4rem;"><input type="checkbox" id="set-news-enabled" style="cursor:pointer;"><label for="set-news-enabled" style="font-size:0.85rem; color:var(--text-muted); cursor:pointer;">Live News Ticker</label></div>
                             <div style="display:flex; align-items:center; gap:0.4rem;"><input type="checkbox" id="set-gcalendar-enabled" style="cursor:pointer;"><label for="set-gcalendar-enabled" style="font-size:0.85rem; color:var(--text-muted); cursor:pointer;">Google Calendar Sidebar</label></div>
                             <div style="display:flex; align-items:center; gap:0.4rem;"><label for="set-gcalendar-name" style="font-size:0.85rem; color:var(--text-muted);">Calendar Name:</label><input type="text" id="set-gcalendar-name" placeholder="Family" style="width:90px; background:rgba(0,0,0,0.3); border:1px solid var(--border-color); color:var(--text); border-radius:4px; padding:2px 5px; font-size:0.85rem;"></div>
@@ -1407,6 +1420,9 @@ static std::string get_dashboard_html() {
                     if (document.getElementById('set-infopanels-enabled')) {
                         document.getElementById('set-infopanels-enabled').checked = !!settings.infopanels_enabled;
                     }
+                    document.getElementById('set-left-panel-enabled').checked = !!settings.left_panel_enabled;
+                    document.getElementById('set-left-panel-max').value = settings.left_panel_max_chores || 10;
+                    document.getElementById('set-left-panel-done').checked = !!settings.left_panel_show_completed;
                     if (document.getElementById('set-news-enabled')) {
                         document.getElementById('set-news-enabled').checked = !!settings.news_enabled;
                     }
@@ -1464,7 +1480,7 @@ static std::string get_dashboard_html() {
             
             try {
                 const apiKey = document.getElementById('set-api-key').value;
-                const url = `/api/settings/update?timezone=${tz}&infopanels_enabled=${info}&news_enabled=${news}&news_source=${newsSrc}&news_local_query=${newsQuery}&news_blacklist=${newsBl}&gcalendar_enabled=${gcal}&gcalendar_name=${gcalName}&gcalendar_ical_url=${gcalUrl}&transition_delay=${delay}&video_volume=${volume}&shuffle=${shuffle}&ken_burns=${kenBurns}&blurred_background=${blurredBg}&color_matched_matte=${matte}&matting=${matting}&matting_size=${mattingSize}&touch_enabled=${touch}&geotag_enabled=${geotag}`;
+                const url = `/api/settings/update?left_panel_enabled=${document.getElementById('set-left-panel-enabled').checked?1:0}&left_panel_max_chores=${encodeURIComponent(document.getElementById('set-left-panel-max').value)}&left_panel_show_completed=${document.getElementById('set-left-panel-done').checked?1:0}&timezone=${tz}&infopanels_enabled=${info}&news_enabled=${news}&news_source=${newsSrc}&news_local_query=${newsQuery}&news_blacklist=${newsBl}&gcalendar_enabled=${gcal}&gcalendar_name=${gcalName}&gcalendar_ical_url=${gcalUrl}&transition_delay=${delay}&video_volume=${volume}&shuffle=${shuffle}&ken_burns=${kenBurns}&blurred_background=${blurredBg}&color_matched_matte=${matte}&matting=${matting}&matting_size=${mattingSize}&touch_enabled=${touch}&geotag_enabled=${geotag}`;
                 const headers = {};
                 if (apiKey) {
                     headers['Authorization'] = 'Bearer ' + apiKey;
@@ -1606,10 +1622,10 @@ static std::string get_dashboard_html() {
 </body>
 </html>
 )HTML";
-    static const std::string placeholder = "v17.4.3 glassmorphic system";
+    static const std::string placeholder = "@@VERSION@@";
     size_t pos = html.find(placeholder);
     if (pos != std::string::npos) {
-        html.replace(pos, placeholder.size(), std::string("v") + VERSION + " glassmorphic system");
+        html.replace(pos, placeholder.size(), VERSION);
     }
     return html;
 }
@@ -1843,6 +1859,9 @@ static std::string get_api_settings() {
   "log_keep_count": {},
   "timezone": "{}",
   "infopanels_enabled": {},
+  "left_panel_enabled": {},
+  "left_panel_max_chores": {},
+  "left_panel_show_completed": {},
   "news_enabled": {},
   "news_source": "{}",
   "news_local_query": "{}",
@@ -1896,6 +1915,9 @@ static std::string get_api_settings() {
         g_cfg.log_keep_count,
         escape_json(g_cfg.timezone),
         g_cfg.infopanels_enabled,
+        g_cfg.left_panel_enabled,
+        g_cfg.left_panel_max_chores,
+        g_cfg.left_panel_show_completed,
         g_cfg.news_enabled,
         escape_json(g_cfg.news_source),
         escape_json(g_cfg.news_local_query),
@@ -2237,6 +2259,20 @@ static void handle_client(int client_fd) {
         if (matches_route("GET", "/") || matches_route("GET", "/dashboard")) {
             send_response(client_fd, "HTTP/1.1 200 OK", "text/html", get_dashboard_html());
         } 
+        else if (matches_route("GET", "/chores")) {
+            send_response(client_fd, "HTTP/1.1 200 OK", "text/html; charset=utf-8", get_chores_page());
+        }
+        else if (parsed_request.path == "/api/chores" || parsed_request.path.starts_with("/api/chores/")) {
+            if (!is_authorized(request, client_fd)) return;
+            std::string timezone;
+            { std::shared_lock lock(g_config_mtx); timezone = g_cfg.timezone; }
+            std::string today = format_epoch_tz(time(nullptr), timezone, "%Y-%m-%d");
+            if (!chores::valid_date(today)) today = format_epoch_tz(time(nullptr), "UTC", "%Y-%m-%d");
+            const auto response = chores::handle_http(chores::g_store, parsed_request.method,
+                                                     parsed_request.path, request, today, timezone);
+            send_response(client_fd, "HTTP/1.1 " + std::to_string(response.status) +
+                          (response.status == 200 ? " OK" : " Error"), "application/json; charset=utf-8", response.body);
+        }
         else if (matches_route("GET", "/google_photos_setup") || matches_route("POST", "/google_photos_setup")) {
             // Starts a state-bound flow; credentials become live only after a successful exchange.
             // /google_photos_callback is left open on purpose: it is a Google-initiated
@@ -2345,6 +2381,18 @@ static void handle_client(int client_fd) {
                 std::lock_guard lock(g_config_mtx);
                 Config previous = g_cfg;
 
+                for (const auto* key : {"left_panel_enabled", "left_panel_show_completed"}) {
+                    if (has_query_param(request, key)) {
+                        const auto value = get_query_param(request, key);
+                        if (value != "0" && value != "1" && value != "true" && value != "false") {
+                            validation_failed = true; err_msg = "Choose a valid left panel setting";
+                        }
+                    }
+                }
+                if (has_query_param(request, "left_panel_max_chores")) {
+                    const int value = safe_stoi(get_query_param(request, "left_panel_max_chores"), -1);
+                    if (value < 1 || value > 20) { validation_failed = true; err_msg = "Visible chores must be between 1 and 20"; }
+                }
                 // 1. Validation Checks
                 if (has_query_param(request, "transition_delay")) {
                     double val = safe_stod(get_query_param(request, "transition_delay"), -999.0);
@@ -2488,6 +2536,20 @@ static void handle_client(int client_fd) {
                     if (has_query_param(request, "timezone")) {
                         std::string val = get_query_param(request, "timezone");
                         if (!val.empty() && g_cfg.timezone != val) { g_cfg.timezone = val; changed = true; }
+                    }
+                    if (has_query_param(request, "left_panel_enabled")) {
+                        const auto value = get_query_param(request, "left_panel_enabled");
+                        const bool desired = value == "1" || value == "true";
+                        if (g_cfg.left_panel_enabled != desired) { g_cfg.left_panel_enabled = desired; changed = true; }
+                    }
+                    if (has_query_param(request, "left_panel_show_completed")) {
+                        const auto value = get_query_param(request, "left_panel_show_completed");
+                        const bool desired = value == "1" || value == "true";
+                        if (g_cfg.left_panel_show_completed != desired) { g_cfg.left_panel_show_completed = desired; changed = true; }
+                    }
+                    if (has_query_param(request, "left_panel_max_chores")) {
+                        const int desired = safe_stoi(get_query_param(request, "left_panel_max_chores"), 10);
+                        if (g_cfg.left_panel_max_chores != desired) { g_cfg.left_panel_max_chores = desired; changed = true; }
                     }
                     if (has_query_param(request, "infopanels_enabled")) {
                         std::string val = get_query_param(request, "infopanels_enabled");

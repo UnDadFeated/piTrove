@@ -172,3 +172,20 @@ src/
 ## License
 
 GNU GPLv3 (or later) License
+
+
+### People, chores and the left panel
+
+Open `http://<pi-ip>:9000/chores` or choose **People & chores** in the controller. Add a household member, then assign a chore. Choose **Every day** or **On a specific date**, and leave **All day** checked or choose a due time. The board has views for today/overdue, upcoming, and all chores, plus a person filter. Check a chore to complete it; uncheck to undo. Daily chores reset on the next local date in the configured timezone. Incomplete dated chores stay overdue until checked off.
+
+Turn on **Show left panel** on that page to show today's chores on the frame. It also enables the infopanels master switch. When the right calendar or stock sidebar is enabled, both visible side panels have equal width and the slideshow/video is centered between them. Both sides stop above the news ticker. Photo and video filenames move with the media area, keeping a 12px gap at 1080p from the right edge of the left column; the old 60px matte allowance is not added again. You can also use **TUI → Infopanels → Left Chores Panel**, or set:
+
+```toml
+[infopanels]
+enabled = 1
+left_panel_enabled = 1
+left_panel_max_chores = 10
+left_panel_show_completed = 0
+```
+
+The panel defaults off, shows up to the selected number of cards per page, and rotates overflow pages every 12 seconds. Completed chores can be included with **Show Done Chores**. Hiding the panel preserves the household data. People, chores and completion records live in `chores.db` beside your active config (normally the persistent `config/` directory), separately from the media cache. The existing optional controller API key also protects chores reads and updates.

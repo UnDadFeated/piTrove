@@ -1,7 +1,7 @@
 #ifndef PITROVE_UTIL_H
 #define PITROVE_UTIL_H
 
-#define VERSION "18.2.1"
+#define VERSION "18.3.0"
 #define APP_NAME "piTrove"
 
 #include <format>
