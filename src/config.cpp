@@ -30,6 +30,7 @@ bool Config::load(const std::string& path) {
         return false;
     }
 
+    bool credentials_in_config = false;
     std::string section;
     std::string line;
     while (std::getline(f, line)) {
@@ -53,10 +54,16 @@ bool Config::load(const std::string& path) {
             val = std::move(*decoded);
         }
 
-        if (key == "media_dir")              this->media_dir = val;
+        if (key == "credentials_in_config" && section == "remote") credentials_in_config = (val == "1" || val == "true");
+        else if (key == "media_dir")              this->media_dir = val;
         else if (key == "cache_dir" && (section == "paths" || section.empty())) this->cache_dir = val;
         else if (key == "log_dir")           this->log_dir = val;
         else if (key == "splash_file")       this->splash_file = val;
+        else if (key == "enforce_read_only_media") this->enforce_read_only_media = (val == "1" || val == "true");
+        else if (key == "max_width" && section == "video") this->video_max_width = safe_stoi(val, this->video_max_width);
+        else if (key == "max_height" && section == "video") this->video_max_height = safe_stoi(val, this->video_max_height);
+        else if (key == "max_bitrate" && section == "video") this->video_max_bitrate = safe_stoll(val, this->video_max_bitrate);
+        else if (key == "max_duration_seconds" && section == "video") this->video_max_duration_seconds = safe_stoi(val, this->video_max_duration_seconds);
         else if (key == "fullscreen")        this->fullscreen = (val == "1" || val == "true");
         else if (key == "rotation") {
             // Deprecated/Ignored in Modesetting DRM pipeline
@@ -307,7 +314,7 @@ bool Config::load(const std::string& path) {
         std::filesystem::path config_dir = std::filesystem::path(path).parent_path();
         std::filesystem::path secrets_path = config_dir / "secrets.toml";
 
-        if (std::filesystem::exists(secrets_path)) {
+        if (!credentials_in_config && std::filesystem::exists(secrets_path)) {
             std::ifstream sf(secrets_path.string());
             std::string ssection, sline;
             while (std::getline(sf, sline)) {
@@ -389,6 +396,8 @@ bool Config::save(const std::string& path) {
     f << "cache_dir = \"" << escape(this->cache_dir) << "\"\n";
     f << "log_dir = \"" << escape(this->log_dir) << "\"\n";
     f << "splash_file = \"" << escape(this->splash_file) << "\"\n\n";
+
+    f << "enforce_read_only_media = " << this->enforce_read_only_media << "\n";
 
     f << "[display]\n";
     f << "resolution = " << this->screen_w << "," << this->screen_h << "\n";
@@ -481,6 +490,10 @@ bool Config::save(const std::string& path) {
 
     f << "[video]\n";
     f << "decode_budget_enabled = " << (this->video_decode_budget_enabled ? "1" : "0") << "\n";
+    f << "max_width = " << this->video_max_width << "\n";
+    f << "max_height = " << this->video_max_height << "\n";
+    f << "max_bitrate = " << this->video_max_bitrate << "\n";
+    f << "max_duration_seconds = " << this->video_max_duration_seconds << "\n";
     f << "volume = " << this->video_volume << "\n";
     f << "av_sync = " << (this->av_sync ? "1" : "0") << "\n";
     f << "probe_timeout = " << this->video_probe_timeout << "\n";
@@ -505,6 +518,8 @@ bool Config::save(const std::string& path) {
     f << "pin_changed = " << (this->pin_changed || migrate_pin ? 1 : 0) << "\n";
 
     f << "[remote]\n";
+    f << "credentials_in_config = 1\n"; // All credentials are included in this atomic snapshot.
+
     f << "http_enabled = " << (this->http_enabled ? "1" : "0") << "\n";
     f << "http_port = " << this->http_port << "\n";
     f << "web_dashboard_enabled = " << (this->web_dashboard_enabled ? "1" : "0") << "\n";

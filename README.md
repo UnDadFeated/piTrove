@@ -174,6 +174,16 @@ src/
 GNU GPLv3 (or later) License
 
 
+### LAN Web UI and full configuration
+
+Open **http://192.168.4.110:9000/** on the example Pi, or `http://<pi-ip>:9000/` on your own installation. Include **http://**: the default controller serves HTTP, and a browser that upgrades the address to HTTPS cannot connect. Your phone must be on a network that can reach the Pi. The home page includes a copyable address for your installation.
+
+The controller adapts from small phones to desktop screens. Use **Frame** for playback controls, a current-media preview, frame-image download, household progress and device status. **Chores** opens the people/chore board; **Activity** has searchable recent logs, live/follow controls and log download. The Auto/Light/Dark appearance choice is shared across pages. The interface works without external font or script services.
+
+Choose **Full configuration** on the home page, or **Settings** in the navigation, to open `/config`. It includes all 183 persisted/TUI settings: display, slideshow, overlays, scanning, weather, hardware, remote access, MQTT, cloud photos, panels, news, stocks, calendar, updates and recovery. Search names, help text or section-qualified keys, or select a category. Lists use one item per line. Edits remain local until **Review changes → Save configuration**; you can discard them or reload the current configuration. A revision check prevents an older browser page from overwriting a newer edit. Options requiring a restart are labeled, and a restart button appears after saving those options.
+
+The optional controller access key protects the full configuration API as well as other private controller actions. Existing keys, passwords, tokens, calendar URLs and PIN hashes are hidden. A blank secret input preserves its configured value; **Clear saved value** explicitly removes it. Setting a four-digit touch PIN hashes it before persistence. The full editor sends changes in POST bodies and only updates edited fields. Saved configurations contain a coherent private credential snapshot (`[remote] credentials_in_config = 1`); legacy `secrets.toml` values bootstrap older configurations until their next save, then no longer override that snapshot. Keep the saved config private as usual.
+
 ### People, chores and the left panel
 
 Open `http://<pi-ip>:9000/chores` or choose **People & chores** in the controller. Add a household member, then assign a chore. Choose **Every day** or **On a specific date**, and leave **All day** checked or choose a due time. The board has views for today/overdue, upcoming, and all chores, plus a person filter. Check a chore to complete it; uncheck to undo. Daily chores reset on the next local date in the configured timezone. Incomplete dated chores stay overdue until checked off.

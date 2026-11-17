@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(piTrove VERSION 18.3.0 LANGUAGES CXX)
+project(piTrove VERSION 18.4.0 LANGUAGES CXX)
 
 option(ENABLE_ASAN "Enable AddressSanitizer for memory safety testing" OFF)
 if(ENABLE_ASAN)
@@ -71,6 +71,7 @@ set(PISTROVE_SOURCES
     safe_mode.cpp
     thermal.cpp
     config.cpp
+    config_editor.cpp
     tui.cpp
     scanner.cpp
     cache.cpp
@@ -184,6 +185,18 @@ if(BUILD_TESTING)
     add_executable(chores_web_fixture tests/chores_web_fixture.cpp chores.cpp chores_http.cpp http_protocol.cpp)
     target_include_directories(chores_web_fixture PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
     target_link_libraries(chores_web_fixture PRIVATE ${SQLITE3_LIBRARIES} pthread)
+    add_executable(config_editor_regression tests/config_editor.cpp config_editor.cpp config.cpp auth.cpp util.cpp file_ops.cpp tests/deep_support.cpp http_protocol.cpp)
+    target_include_directories(config_editor_regression PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} ${SDL3_INCLUDE_DIRS} ${CURL_INCLUDE_DIRS})
+    target_compile_options(config_editor_regression PRIVATE -Wall -Wextra -ffunction-sections -fdata-sections)
+    target_link_options(config_editor_regression PRIVATE -Wl,--gc-sections)
+    target_link_libraries(config_editor_regression PRIVATE ${SDL3_LIBRARIES} ${CURL_LIBRARIES} sodium pthread atomic)
+    add_test(NAME config_editor_regression COMMAND config_editor_regression)
+    set_tests_properties(config_editor_regression PROPERTIES TIMEOUT 30)
+    add_executable(webui_fixture tests/webui_fixture.cpp config_editor.cpp config.cpp auth.cpp util.cpp file_ops.cpp tests/deep_support.cpp chores.cpp chores_http.cpp http_protocol.cpp)
+    target_include_directories(webui_fixture PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} ${SDL3_INCLUDE_DIRS} ${SQLITE3_INCLUDE_DIRS} ${CURL_INCLUDE_DIRS})
+    target_compile_options(webui_fixture PRIVATE -ffunction-sections -fdata-sections)
+    target_link_options(webui_fixture PRIVATE -Wl,--gc-sections)
+    target_link_libraries(webui_fixture PRIVATE ${SDL3_LIBRARIES} ${SQLITE3_LIBRARIES} ${CURL_LIBRARIES} sodium pthread atomic)
     add_executable(playback_regression tests/playback.cpp tests/deep_support.cpp config.cpp auth.cpp video_decoder.cpp nv12_converter.cpp util.cpp http_transfer.cpp file_ops.cpp)
     target_include_directories(playback_regression PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} ${SDL3_INCLUDE_DIRS} ${AVCODEC_INCLUDE_DIRS} ${AVFORMAT_INCLUDE_DIRS} ${AVUTIL_INCLUDE_DIRS} ${SWSCALE_INCLUDE_DIRS} ${SWRESAMPLE_INCLUDE_DIRS} ${CURL_INCLUDE_DIRS})
     target_compile_options(playback_regression PRIVATE -Wall -Wextra -ffunction-sections -fdata-sections)
