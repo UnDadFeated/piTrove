@@ -1,3 +1,4 @@
+#include "scanner.h"
 #include <curl/curl.h>
 #include "http_transfer.h"
 #include <string>
@@ -820,15 +821,9 @@ bool is_media_dir_healthy(const std::string& media_dir) {
         }
     }
 
-    // Original health check logic (filesystem::exists, directory_iterator)
-    // Run outside the lock to prevent blocking callers during slow filesystem operations
-    std::error_code ec;
-    bool healthy = std::filesystem::exists(media_dir, ec) &&
-                   std::filesystem::is_directory(media_dir, ec);
-    if (healthy) {
-        auto it = std::filesystem::directory_iterator(media_dir, ec);
-        healthy = !(ec || it == std::filesystem::directory_iterator());
-    }
+    // CIFS directory listing can stall despite a reachable host. Reuse the
+    // scanner's deadline and bounded pool of outstanding filesystem calls.
+    const bool healthy = !read_dir_timeout(media_dir, 2000).empty();
 
     // Store cache result (statics -- survives across calls)
     {
@@ -1105,36 +1100,41 @@ void cleanup_prefetch_thread() {
     }
 }
 
-std::string format_epoch_tz(time_t epoch_sec, const std::string& tz_name, const std::string& fmt_str) {
-    if (epoch_sec == 0) epoch_sec = time(nullptr);
-    auto tp = std::chrono::system_clock::from_time_t(epoch_sec);
-    std::string zone = tz_name.empty() ? "UTC" : tz_name;
+namespace {
+auto display_time(time_t epoch_sec, const std::string& zone) {
+    const auto time = std::chrono::floor<std::chrono::seconds>(
+        std::chrono::system_clock::from_time_t(epoch_sec == 0 ? std::time(nullptr) : epoch_sec));
     try {
-        auto zt = std::chrono::zoned_time{zone, std::chrono::floor<std::chrono::seconds>(tp)};
-        if (fmt_str == "%I:%M %p") {
-            return std::format("{:%I:%M %p}", zt);
-        } else if (fmt_str == "%I:%M %p %Z") {
-            return std::format("{:%I:%M %p %Z}", zt);
-        } else if (fmt_str == "%Y-%m-%d %H:%M") {
-            return std::format("{:%Y-%m-%d %H:%M}", zt);
-        } else if (fmt_str == "%Y-%m-%d") {
-            return std::format("{:%Y-%m-%d}", zt);
-        } else if (fmt_str == "%a, %b %d") {
-            return std::format("{:%a, %b %d}", zt);
-        } else if (fmt_str == "%A") {
-            return std::format("{:%A}", zt);
-        } else if (fmt_str == "%B %d") {
-            return std::format("{:%B %d}", zt);
-        } else {
-            return std::format("{:%Y-%m-%d %H:%M:%S}", zt);
-        }
-    } catch (...) {
-        try {
-            auto zt_utc = std::chrono::zoned_time{"UTC", std::chrono::floor<std::chrono::seconds>(tp)};
-            return std::format("{:%I:%M %p UTC}", zt_utc);
-        } catch (...) {
-            return "00:00 UTC";
-        }
+        return std::chrono::zoned_time{zone.empty() ? "UTC" : zone, time};
+    } catch (const std::runtime_error&) {
+        return std::chrono::zoned_time{"UTC", time};
+    }
+}
+}
+
+std::string format_epoch_tz(time_t epoch_sec, const std::string& tz_name, const std::string& fmt_str) {
+    try {
+        const auto time = display_time(epoch_sec, tz_name);
+        if (fmt_str == "%I:%M %p") return std::format("{:%I:%M %p}", time);
+        if (fmt_str == "%I:%M %p %Z") return std::format("{:%I:%M %p %Z}", time);
+        if (fmt_str == "%Y-%m-%d %H:%M") return std::format("{:%Y-%m-%d %H:%M}", time);
+        if (fmt_str == "%Y-%m-%d") return std::format("{:%Y-%m-%d}", time);
+        if (fmt_str == "%a, %b %d") return std::format("{:%a, %b %d}", time);
+        if (fmt_str == "%A") return std::format("{:%A}", time);
+        if (fmt_str == "%B %d") return std::format("{:%B %d}", time);
+        return std::format("{:%Y-%m-%d %H:%M:%S}", time);
+    } catch (const std::runtime_error&) {
+        return {};
+    }
+}
+
+std::string format_tomorrow_tz(time_t epoch_sec, const std::string& tz_name) {
+    try {
+        const auto today = std::chrono::floor<std::chrono::days>(display_time(epoch_sec, tz_name).get_local_time());
+        const std::chrono::year_month_day tomorrow{today + std::chrono::days{1}};
+        return std::format("{:%Y-%m-%d}", tomorrow);
+    } catch (const std::runtime_error&) {
+        return {};
     }
 }
 

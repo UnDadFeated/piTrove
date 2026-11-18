@@ -1,6 +1,7 @@
 #include "font_render.h"
 #include "renderer.h"
 #include "util.h"
+#include <cmath>
 #include <stdexcept>
 
 #include <unordered_map>
@@ -109,36 +110,84 @@ std::shared_ptr<FontHandle> FontRenderer::load_font(const std::string& path, int
 
 
 
+const FontRenderer::TextCacheEntry* FontRenderer::get_text_texture(
+    const FontHandle& font, const std::string& text, SDL_Color color) {
+    if (!renderer || !renderer->sdl_renderer || text.empty() || !font.font) return nullptr;
+
+    const uint32_t rgba = (uint32_t(color.r) << 24) | (uint32_t(color.g) << 16) |
+                          (uint32_t(color.b) << 8) | color.a;
+    const std::string key = std::format("{}|{}|{}|{}", text, font.path, font.size, rgba);
+    const auto cached = text_cache.find(key);
+    if (cached != text_cache.end()) return &cached->second;
+
+    const size_t max_text_cache = std::clamp(
+        static_cast<size_t>(get_available_ram_bytes() / (32 * 1024 * 1024)), size_t(64), size_t(256));
+    while (text_cache.size() >= max_text_cache) {
+        auto entry = text_cache.begin();
+        SDL_DestroyTexture(entry->second.texture);
+        text_cache.erase(entry);
+    }
+
+    SDL_Surface* surface = TTF_RenderText_Blended(font.font, text.c_str(), 0, color);
+    if (!surface) return nullptr;
+    TextCacheEntry entry{SDL_CreateTextureFromSurface(renderer->sdl_renderer, surface),
+                         surface->w, surface->h};
+    SDL_DestroySurface(surface);
+    if (!entry.texture) return nullptr;
+
+    // Own the texture until it has been successfully inserted in the cache.
+    std::unique_ptr<SDL_Texture, decltype(&SDL_DestroyTexture)> texture(entry.texture, SDL_DestroyTexture);
+    const auto [inserted, success] = text_cache.emplace(key, entry);
+    if (success) texture.release();
+    return &inserted->second;
+}
+
 void FontRenderer::draw_text(int x, int y, const FontHandle& font, const std::string& text,
                              uint8_t r, uint8_t g, uint8_t b, uint8_t a) {
-    if (!renderer || !renderer->sdl_renderer || text.empty() || !font.font) return;
+    const auto* entry = get_text_texture(font, text, {r, g, b, a});
+    if (!entry) return;
+    const SDL_FRect dst{float(x), float(y), float(entry->w), float(entry->h)};
+    SDL_RenderTexture(renderer->sdl_renderer, entry->texture, nullptr, &dst);
+}
 
-    std::string key = std::format("{}|{}|{}|{}", text, font.path, font.size, (static_cast<uint32_t>(r) << 24) | (static_cast<uint32_t>(g) << 16) | (static_cast<uint32_t>(b) << 8) | a);
-    auto it = text_cache.find(key);
-    if (it != text_cache.end()) {
-        SDL_FRect dst = {(float)x, (float)y, (float)it->second.w, (float)it->second.h};
-        SDL_RenderTexture(renderer->sdl_renderer, it->second.texture, nullptr, &dst);
-        return;
-    }
+int FontRenderer::draw_text_fitted(const SDL_Rect& area, const FontHandle& font,
+                                  const std::string& text, SDL_Color color) {
+    if (area.w <= 0 || area.h <= 0) return 0;
+    const auto* entry = get_text_texture(font, text, color);
+    if (!entry || entry->w <= 0 || entry->h <= 0) return 0;
 
-    size_t max_text_cache = std::clamp(static_cast<size_t>(get_available_ram_bytes() / (32 * 1024 * 1024)), (size_t)64, (size_t)256);
-    if (text_cache.size() >= max_text_cache) {
-        auto it = text_cache.begin();
-        if (it->second.texture) SDL_DestroyTexture(it->second.texture);
-        text_cache.erase(it);
-    }
+    const float scale = std::min(float(area.w) / entry->w, float(area.h) / entry->h);
+    const float width = std::min(float(area.w), entry->w * scale);
+    const float height = std::min(float(area.h), entry->h * scale);
+    const SDL_FRect dst{area.x + (area.w - width) / 2.0f, float(area.y), width, height};
+    if (!SDL_RenderTexture(renderer->sdl_renderer, entry->texture, nullptr, &dst)) return 0;
+    return static_cast<int>(std::ceil(height));
+}
 
-    SDL_Surface* main_surf = TTF_RenderText_Blended(font.font, text.c_str(), 0, {r, g, b, a});
-    if (main_surf) {
-        SDL_Texture* main_tex = SDL_CreateTextureFromSurface(renderer->sdl_renderer, main_surf);
-        int tw = main_surf->w;
-        int th = main_surf->h;
-        SDL_DestroySurface(main_surf);
-        if (main_tex) {
-            text_cache[key] = {main_tex, tw, th};
-            SDL_FRect dst = {(float)x, (float)y, (float)tw, (float)th};
-            SDL_RenderTexture(renderer->sdl_renderer, main_tex, nullptr, &dst);
-        }
+std::string FontRenderer::ellipsize(const FontHandle& font, std::string_view text, int width) {
+    if (width <= 0 || text.empty() || !font.font) return {};
+    size_t length = 0;
+    if (!TTF_MeasureString(font.font, text.data(), text.size(), width, nullptr, &length)) return {};
+    if (length == text.size()) return std::string(text);
+
+    constexpr std::string_view ellipsis = "…";
+    int ellipsis_width = 0;
+    if (!TTF_GetStringSize(font.font, ellipsis.data(), ellipsis.size(), &ellipsis_width, nullptr) ||
+        ellipsis_width > width) return {};
+    if (ellipsis_width == width) return std::string(ellipsis);
+    if (!TTF_MeasureString(font.font, text.data(), text.size(), width - ellipsis_width,
+                           nullptr, &length)) return {};
+
+    // Check the complete string in case glyph spacing changes at the ellipsis.
+    while (true) {
+        std::string result(text.substr(0, length));
+        result += ellipsis;
+        int measured_width = 0;
+        if (TTF_GetStringSize(font.font, result.c_str(), result.size(), &measured_width, nullptr) &&
+            measured_width <= width) return result;
+        if (length == 0) return {};
+        do { --length; }
+        while (length > 0 && (static_cast<unsigned char>(text[length]) & 0xc0) == 0x80);
     }
 }
 

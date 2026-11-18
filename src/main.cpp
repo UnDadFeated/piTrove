@@ -823,8 +823,7 @@ static void watchman_loop() {
                 g_logger.warn("Watchman: NAS/Media directory host is offline. Skipping shift.");
                 continue;
             }
-            struct stat st;
-            if (stat(media_dir.c_str(), &st) != 0 || !S_ISDIR(st.st_mode) || access(media_dir.c_str(), R_OK) != 0) {
+            if (!is_media_dir_healthy(media_dir)) {
                 g_logger.error("Watchman: Media directory '{}' is not readable/accessible (mount failure or permission error). Delaying seasonal window swap.", media_dir.c_str());
                 continue;
             }
@@ -2493,15 +2492,13 @@ int main(int argc, char** argv) {
             if (mqtt_on && cooldown > 0) {
                 int64_t now_ts = static_cast<int64_t>(std::time(nullptr));
                 int64_t last_motion = g_last_motion_time.load();
-                if (last_motion > 0 && (now_ts - last_motion >= cooldown)) {
+                if (last_motion > 0 && now_ts - last_motion >= cooldown &&
+                    !g_screen_blanked.exchange(true)) {
                     g_logger.info("Motion sensor cooldown threshold reached ({} seconds). Blanking screen.", cooldown);
-                    if (!g_screen_blanked.load()) {
-                        g_screen_blanked.store(true);
-                        set_display_power(false);
-                        std::string prefix;
-                        { std::lock_guard lk(g_config_mtx); prefix = g_cfg.mqtt_topic_prefix; }
-                        mqtt_publish(prefix + "/status/screen", "OFF", true);
-                    }
+                    set_display_power(false);
+                    std::string prefix;
+                    { std::lock_guard lk(g_config_mtx); prefix = g_cfg.mqtt_topic_prefix; }
+                    mqtt_publish(prefix + "/status/screen", "OFF", true);
                 }
             }
         }
@@ -2716,11 +2713,10 @@ int main(int argc, char** argv) {
                                 int secs = total_secs % 60;
                                 remaining_str = std::format("{}:{:02d}", mins, secs);
                             }
-                            InfopanelLayout v_layout = calculate_infopanel_layout(g_renderer.screen_w, g_renderer.screen_h);
                             std::string font_p = g_overlay->get_font_path();
                             FontRenderer* fr = g_overlay->get_font_renderer();
                             if (v_layout.show_chores) {
-                                render_chores_panel(g_renderer.sdl_renderer, fr, font_p, v_layout.chores_area, g_renderer.screen_w);
+                                render_chores_panel(g_renderer.sdl_renderer, fr, font_p, v_layout.chores_area, g_renderer.screen_w, v_layout.content_top);
                             }
                             if (v_layout.show_calendar) {
                                 g_calendar.render(g_renderer.sdl_renderer, fr, font_p, v_layout.calendar_area, g_renderer.screen_w);
@@ -2799,11 +2795,10 @@ int main(int argc, char** argv) {
                         g_video_decoder.stop();
                         if (g_video_tex) { SDL_DestroyTexture(g_video_tex); g_video_tex = nullptr; g_video_tex_w = 0; g_video_tex_h = 0; g_video_tex_fmt = SDL_PIXELFORMAT_UNKNOWN; }
                         transitioning = true;
+                        advance_playlist(1);
+                        g_video_stall_ts = 0;
                         playlist_lock.unlock();
                         SDL_Delay(10);
-                        advance_playlist(1);
-                        playlist_lock.lock();
-                        g_video_stall_ts = 0;
                         continue;
                     }
                     SDL_Delay(1);
@@ -2817,10 +2812,9 @@ int main(int argc, char** argv) {
                     if (g_video_tex) { SDL_DestroyTexture(g_video_tex); g_video_tex = nullptr; g_video_tex_w = 0; g_video_tex_h = 0; g_video_tex_fmt = SDL_PIXELFORMAT_UNKNOWN; }
                     mark_item_shown(g_eligible[current_idx].path, false);
                     transitioning = true;
+                    advance_playlist(1);
                     playlist_lock.unlock();
                     SDL_Delay(10);
-                    advance_playlist(1);
-                    playlist_lock.lock();
                     continue;
                 }
                 // Keep drawing video + overlay until decoder completes
@@ -3052,7 +3046,7 @@ int main(int argc, char** argv) {
                         std::string font_p = g_overlay->get_font_path();
                         FontRenderer* fr = g_overlay->get_font_renderer();
                         if (t_layout.show_chores) {
-                            render_chores_panel(g_renderer.sdl_renderer, fr, font_p, t_layout.chores_area, g_renderer.screen_w);
+                            render_chores_panel(g_renderer.sdl_renderer, fr, font_p, t_layout.chores_area, g_renderer.screen_w, t_layout.content_top);
                         }
                         if (t_layout.show_calendar) {
                             g_calendar.render(g_renderer.sdl_renderer, fr, font_p, t_layout.calendar_area, g_renderer.screen_w);
@@ -3408,7 +3402,7 @@ int main(int argc, char** argv) {
                     std::string font_p = g_overlay->get_font_path();
                     FontRenderer* fr = g_overlay->get_font_renderer();
                     if (layout.show_chores) {
-                        render_chores_panel(g_renderer.sdl_renderer, fr, font_p, layout.chores_area, g_renderer.screen_w);
+                        render_chores_panel(g_renderer.sdl_renderer, fr, font_p, layout.chores_area, g_renderer.screen_w, layout.content_top);
                     }
                     if (layout.show_calendar) {
                         g_calendar.render(g_renderer.sdl_renderer, fr, font_p, layout.calendar_area, g_renderer.screen_w);

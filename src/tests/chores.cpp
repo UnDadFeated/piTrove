@@ -36,6 +36,15 @@ static void test_geometry(){
  check(l.chores_area.x==60 && l.chores_area.w==275 && l.slideshow_area.x==335 && l.slideshow_area.w==1250 && l.calendar_area.x==1585,"reference matte calibration moved");
  check(filename_overlay_x(1920,0,true,l.slideshow_area.x)==347,"filename must be 12px beyond the 335px chores border");
  check(l.news_area.y>=l.slideshow_area.y+l.slideshow_area.h,"reference newsfeed overlaps content");
+ // The editor supports custom aspect ratios and large mattes. Even with very
+ // little vertical space, neither right panel can draw into the ticker.
+ o.matting_size = 500;
+ const auto wide = make_infopanel_layout(7680, 480, o);
+ check(wide.content_top==16,"visible opening top did not scale with display height");
+ check(wide.calendar_area.y+wide.calendar_area.h<=wide.stocks_area.y &&
+       wide.stocks_area.y+wide.stocks_area.h<=wide.news_area.y,
+       "wide short display has overlapping side panels or ticker");
+ check(wide.news_area.y+wide.news_area.h<=480-16,"ticker extends behind the bottom matte");
 }
 static void test_store(const std::string& path){
  Store store;check(store.open(path).ok(),"store open failed");

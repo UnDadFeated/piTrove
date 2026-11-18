@@ -1,3 +1,13 @@
+### Release v18.4.2 — Full-width chores clock and audit fixes
+- The clock fills its available space, including AM/PM, with a small margin on both sides. The header reserves room for at least one complete chore card when the column height permits it.
+- Chore titles and assignee names use the same 14px body type as calendar events at 1080p. Calendar and chore labels use UTF-8 aware shortening, and panel clipping keeps content inside the matte and above the ticker.
+- The chores column omits the Web UI prompts and shows a page number only when needed.
+- Full configuration saves decode long form values within the request body limit. Concurrent settings saves reconcile integrations against the latest saved config.
+- Calendar day labels follow local calendar days through daylight saving changes. Invalid zones fall back to UTC while keeping the requested format. Calendar, news, and stock status text is JSON escaped.
+- Stocks and crypto show unavailable states until a real quote arrives. Failed refreshes preserve previously fetched quotes for the selected symbols and leave the last successful sync timestamp intact.
+- Video completion and stall recovery update the playlist while holding its lock. Media directory health checks use the scanner's bounded I/O deadline, and motion cooldown logs only the transition to screen off.
+- The news ticker preserves its last headlines when a feed fails. The older-headline fallback skips entries already moved into the fresh list.
+
 ### Release v18.4.1 — Centered Chores Clock (November 17, 2026)
 - **Clock above chores**: a 28px clock at 1080p sits above the 22px chores heading, horizontally centered inside the visible left column. It always uses 12-hour time with AM/PM and the configured timezone. It appears during photo, transition and video playback; turning it off returns the space to the chore list, which remains clear of the news feed.
 - **Optional everywhere**: `[infopanels] left_panel_clock_enabled` defaults on and is available in the TUI, full web settings, the chores page's quick controls and the settings API. It is independent of the existing on-photo clock. Clock-only edits no longer refresh unrelated calendar, news or stock integrations.

@@ -1,4 +1,6 @@
 #include "font_render.h"
+#include "infopanel_render.h"
+#include "renderer.h"
 #include "cache.h"
 #include "scanner.h"
 #include "util.h"
@@ -54,6 +56,68 @@ static void test_fonts(const std::string& path) {
     check(w > 0, "local title font was invalidated by another load");
     fonts.measure(*body, "Body", w, h);
     check(w > 0, "local body font was invalidated by another load");
+}
+
+static void test_fitted_panel_text(const std::string& path) {
+    std::unique_ptr<SDL_Surface, decltype(&SDL_DestroySurface)> surface(
+        SDL_CreateSurface(360, 180, SDL_PIXELFORMAT_RGBA32), SDL_DestroySurface);
+    check(bool(surface), SDL_GetError());
+    std::unique_ptr<SDL_Renderer, decltype(&SDL_DestroyRenderer)> renderer(
+        SDL_CreateSoftwareRenderer(surface.get()), SDL_DestroyRenderer);
+    check(bool(renderer), SDL_GetError());
+    Renderer render_target;
+    render_target.sdl_renderer = renderer.get();
+    FontRenderer fonts(&render_target);
+    const auto clock = fonts.load_font(path, 88);
+    const auto body = fonts.load_font(path, panel_body_size);
+
+    for (const std::string time : {"9:59 AM", "10:00 AM", "12:00 PM"}) {
+        SDL_SetRenderDrawColor(renderer.get(), 0, 0, 0, 255);
+        SDL_RenderClear(renderer.get());
+        const SDL_Rect box{37, 15, 259, 130};
+        const int height = fonts.draw_text_fitted(box, *clock, time, {255, 255, 255, 255});
+        check(height > 28 && height <= box.h, "clock did not use the available space");
+        SDL_RenderPresent(renderer.get());
+
+        int left = surface->w, right = -1;
+        for (int y = 0; y < surface->h; ++y) {
+            for (int x = 0; x < surface->w; ++x) {
+                Uint8 r, g, b, a;
+                check(SDL_ReadSurfacePixel(surface.get(), x, y, &r, &g, &b, &a), SDL_GetError());
+                if (r < 128) continue;
+                check(x >= box.x && x < box.x + box.w && y >= box.y && y < box.y + box.h,
+                      "fitted clock drew outside the column");
+                left = std::min(left, x);
+                right = std::max(right, x);
+            }
+        }
+        check(right - left > box.w * 9 / 10, "clock did not fill the column width");
+        check(std::abs(left + right + 1 - (2 * box.x + box.w)) <= 9,
+              "clock ink is visibly off center");
+    }
+
+    const int short_width = 57;
+    const auto shortened = fonts.ellipsize(*body, "ZoëZoëZoëZoëZoë", short_width);
+    int measured, height;
+    fonts.measure(*body, shortened, measured, height);
+    check(shortened.ends_with("…") && measured <= short_width, "long Unicode label did not fit");
+    check(fonts.ellipsize(*body, "Zoë", 100) == "Zoë", "short label was changed");
+
+    const SDL_Rect original{30, 10, 80, 80};
+    SDL_SetRenderClipRect(renderer.get(), &original);
+    {
+        const InfopanelClip no_overlap(renderer.get(), {150, 10, 30, 50});
+        check(!no_overlap, "non-overlapping clip entered panel renderer");
+        const InfopanelClip overlap(renderer.get(), {40, 20, 100, 40});
+        check(bool(overlap), "overlap clip was not set");
+        SDL_Rect clipped{};
+        SDL_GetRenderClipRect(renderer.get(), &clipped);
+        check(clipped.x == 40 && clipped.y == 20 && clipped.w == 70 && clipped.h == 40,
+              "panel clip ignored caller bounds");
+    }
+    SDL_Rect restored{};
+    SDL_GetRenderClipRect(renderer.get(), &restored);
+    check(SDL_RectsEqual(&original, &restored), "panel failed to restore caller clip");
 }
 
 static void test_scanner() {
@@ -147,6 +211,7 @@ int main(int argc, char** argv) {
         g_logger.level = LogLevel::ERROR;
         check(SDL_Init(0), SDL_GetError());
         test_fonts(argv[1]);
+        test_fitted_panel_text(argv[1]);
         test_scanner();
         test_cache();
         test_preprocessed_marker();

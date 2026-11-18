@@ -107,7 +107,7 @@ bool send_until(int fd, std::string_view bytes, Deadline deadline) {
     }
     return true;
 }
-static std::string decode_form(std::string_view value) {
+std::string decode_form(std::string_view value) {
     std::string out;
     for (size_t i = 0; i < value.size(); ++i) {
         if (value[i] == '%' && i + 2 < value.size()) {

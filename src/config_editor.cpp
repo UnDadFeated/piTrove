@@ -100,7 +100,7 @@ Result apply(Config& config,const std::map<std::string,std::string>& values,cons
     const auto rev=values.find("revision");
     if(rev==values.end())return error(400,"Reload the full configuration before saving.");
     if(rev->second!=revision(config))return error(409,"Configuration changed on the frame. Reload it, then review your edits again.");
-    Config candidate=config;std::vector<std::string> changed;bool restart=false;
+    Config candidate = config;
     for(const auto& [id,value]:values){
       if(id=="revision")continue;
       const bool clear=id.starts_with("clear.");const auto key=clear?id.substr(6):id;
@@ -108,9 +108,7 @@ Result apply(Config& config,const std::map<std::string,std::string>& values,cons
       if(it==schema().end())return error(400,"Unknown configuration option: "+key);
       if(clear&&(!it->secret||value!="1"||values.contains(key)))return error(400,"Choose one replacement or clear action for "+it->label+".");
       if(it->secret&&!clear&&value.empty())continue; // Blank secret inputs preserve the configured value.
-      const auto before=it->get(candidate);
       if(!it->set(candidate,clear?"":value))return error(400,"Choose a valid value for "+it->label+".");
-      if(it->get(candidate)!=before){changed.push_back(key);restart=restart||it->restart;}
     }
     if(candidate.brightness_auto_min>candidate.brightness_auto_max)return error(400,"Minimum brightness cannot exceed maximum brightness.");
     if(candidate.play_just_photos&&candidate.play_just_videos)return error(400,"Choose photos only or videos only, not both.");
@@ -138,7 +136,8 @@ Result apply(Config& config,const std::map<std::string,std::string>& values,cons
     }
     if(has("stockstreamer.symbols")&&!values.contains("stockstreamer.preset"))candidate.stockstreamer_preset="custom";
     if(values.contains("stockstreamer.preset")&&candidate.stockstreamer_preset!="custom"&&!has("stockstreamer.symbols"))candidate.stockstreamer_symbols=get_stock_preset_symbols(candidate.stockstreamer_preset);
-    changed.clear();restart=false;
+    std::vector<std::string> changed;
+    bool restart = false;
     for(const auto& f:schema())if(f.get(candidate)!=f.get(config)){changed.push_back(f.id);restart=restart||f.restart;}
     if(changed.empty())return {200,"{\"status\":\"ok\",\"restart_required\":false,\"revision\":"+quote(revision(config))+"}",{}};
     if(!candidate.save(path))return error(500,"Configuration could not be saved. Your previous settings are still active.");
@@ -160,8 +159,8 @@ Result handle(Config& config,const std::string& method,const std::string& raw,co
     while(!body.empty()){
       const auto end=body.find('&');const auto pair=body.substr(0,end);const auto eq=pair.find('=');
       if(eq==pair.npos)return error(400,"Invalid configuration form.");
-      const auto decode=[](std::string_view text){const std::string form="GET /?v="+std::string(text)+" HTTP/1.1\r\n\r\n";return http_protocol::query_param(form,"v").value_or("");};
-      const auto id=decode(pair.substr(0,eq)),value=decode(pair.substr(eq+1));
+      const auto id = http_protocol::decode_form(pair.substr(0, eq));
+      const auto value = http_protocol::decode_form(pair.substr(eq + 1));
       if(!fields.emplace(id,value).second)return error(400,"Duplicate configuration option: "+id);
       if(end==body.npos)break;
       body.remove_prefix(end+1);

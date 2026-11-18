@@ -1,6 +1,7 @@
 #include "news_ticker.h"
 #include "http_transfer.h"
 #include "config.h"
+#include "config_text.h"
 #include "util.h"
 #include "error_db.h"
 #include <curl/curl.h>
@@ -216,6 +217,7 @@ void NewsTicker::fetch_sync() {
     std::string local_url = "https://news.google.com/rss/search?q=" + url_encode(local_query_with_time) + "&hl=en-US&gl=US&ceid=US:en";
     g_logger.info("NEWS: Fetching local headlines (past 1 week) from {}", local_url);
     std::string local_xml = execute_http_get(local_url);
+    bool local_fetched = !local_xml.empty();
     
     std::vector<NewsItem> raw_local = parse_rss(local_xml);
     
@@ -226,6 +228,7 @@ void NewsTicker::fetch_sync() {
         std::string broader_xml = execute_http_get(broader_url);
         if (!broader_xml.empty()) {
             raw_local = parse_rss(broader_xml);
+            local_fetched = true;
         }
     }
 
@@ -249,6 +252,7 @@ void NewsTicker::fetch_sync() {
     std::string global_url = "https://news.google.com/rss?hl=en-US&gl=US&ceid=US:en";
     g_logger.info("NEWS: Fetching Google top stories (past 6 hours) from {}", global_url);
     std::string global_xml = execute_http_get(global_url);
+    const bool global_fetched = !global_xml.empty();
     std::vector<NewsItem> raw_global = parse_rss(global_xml);
     
     std::vector<NewsItem> global_items;
@@ -261,6 +265,7 @@ void NewsTicker::fetch_sync() {
     // If fewer than 5 top stories in the exact 6h window, include freshest items from Google top stories
     if (global_items.size() < 5) {
         for (auto& item : raw_global) {
+            if (item.title.empty()) continue; // Already moved into the fresh list.
             bool exists = false;
             for (const auto& gi : global_items) {
                 if (gi.title == item.title) { exists = true; break; }
@@ -278,15 +283,20 @@ void NewsTicker::fetch_sync() {
     now = time(nullptr);
     {
         std::unique_lock lk(m_items_mtx);
-        m_local_items = std::move(local_items);
-        m_global_items = std::move(global_items);
-        m_cached_local_spans.clear();
-        m_cached_global_spans.clear();
-        m_cached_local_total_w = 0;
-        m_cached_global_total_w = 0;
-        m_last_error.store(0);
+        if (local_fetched) {
+            m_local_items = std::move(local_items);
+            m_cached_local_spans.clear();
+            m_cached_local_total_w = 0;
+        }
+        if (global_fetched) {
+            m_global_items = std::move(global_items);
+            m_cached_global_spans.clear();
+            m_cached_global_total_w = 0;
+        }
+        m_last_error.store(local_fetched && global_fetched ? 0 : 537);
+        if (!local_fetched && !global_fetched) return;
         m_last_fetch_time.store(now);
-        g_logger.info("NEWS: Successfully loaded {} local ({}) and {} global headlines in timezone {}",
+        g_logger.info("NEWS: Displaying {} local ({}) and {} global headlines in timezone {}",
                       m_local_items.size(), local_q, m_global_items.size(), tz);
     }
 }
@@ -353,15 +363,15 @@ std::string NewsTicker::get_status_json() const {
        << ",\"local_items\":[";
     for (size_t i = 0; i < m_local_items.size(); ++i) {
         if (i > 0) ss << ",";
-        ss << "{\"title\":\"" << escape_shell_arg(m_local_items[i].title) << "\""
-           << ",\"source\":\"" << escape_shell_arg(m_local_items[i].source) << "\""
+        ss << "{\"title\":\"" << config_text::escape(m_local_items[i].title) << "\""
+           << ",\"source\":\"" << config_text::escape(m_local_items[i].source) << "\""
            << ",\"time\":\"" << m_local_items[i].formatted_time << "\"}";
     }
     ss << "],\"global_items\":[";
     for (size_t i = 0; i < m_global_items.size(); ++i) {
         if (i > 0) ss << ",";
-        ss << "{\"title\":\"" << escape_shell_arg(m_global_items[i].title) << "\""
-           << ",\"source\":\"" << escape_shell_arg(m_global_items[i].source) << "\""
+        ss << "{\"title\":\"" << config_text::escape(m_global_items[i].title) << "\""
+           << ",\"source\":\"" << config_text::escape(m_global_items[i].source) << "\""
            << ",\"time\":\"" << m_global_items[i].formatted_time << "\"}";
     }
     ss << "]}";

@@ -1,6 +1,9 @@
 #include "stock_streamer.h"
 #include "http_transfer.h"
 #include "config.h"
+#include "config_text.h"
+#include "http_protocol.h"
+#include "infopanel_render.h"
 #include "util.h"
 #include <curl/curl.h>
 #include <algorithm>
@@ -215,18 +218,19 @@ void StockStreamer::fetch_sync() {
     for (const auto& sym : symbols) {
         std::string yahoo_sym = (sym == "BRK.B") ? "BRK-B" : sym;
         futures.push_back(std::async(std::launch::async, [sym, yahoo_sym]() {
-            std::string url = std::format("https://query1.finance.yahoo.com/v8/finance/chart/{}?interval=1m&range=1d&includePrePost=true", yahoo_sym);
+            std::string url = std::format("https://query1.finance.yahoo.com/v8/finance/chart/{}?interval=1m&range=1d&includePrePost=true", http_protocol::url_encode(yahoo_sym));
             return std::make_pair(sym, http_get_json(url, 4));
         }));
     }
 
     // Parallel fetch for crypto
     auto crypto_future = std::async(std::launch::async, [crypto_sym]() {
-        std::string url = std::format("https://query1.finance.yahoo.com/v8/finance/chart/{}?interval=1m&range=1d&includePrePost=true", crypto_sym);
+        std::string url = std::format("https://query1.finance.yahoo.com/v8/finance/chart/{}?interval=1m&range=1d&includePrePost=true", http_protocol::url_encode(crypto_sym));
         return http_get_json(url, 4);
     });
 
     std::vector<StockQuote> fetched_stocks;
+    bool fresh_stock_quote = false;
     for (auto& f : futures) {
         auto [sym, json_resp] = f.get();
         StockQuote q;
@@ -236,6 +240,7 @@ void StockStreamer::fetch_sync() {
         q.is_crypto = false;
 
         if (parse_yahoo_chart_meta(json_resp, q)) {
+            fresh_stock_quote = true;
             fetched_stocks.push_back(std::move(q));
         } else {
             std::shared_lock lk(m_quotes_mtx);
@@ -250,12 +255,13 @@ void StockStreamer::fetch_sync() {
     std::string btc_json = crypto_future.get();
     StockQuote fetched_crypto;
     fetched_crypto.symbol = crypto_sym;
-    fetched_crypto.display_symbol = "BTC";
-    fetched_crypto.name = "Bitcoin";
+    fetched_crypto.display_symbol = crypto_sym.ends_with("-USD")
+        ? crypto_sym.substr(0, crypto_sym.size() - 4) : crypto_sym;
+    fetched_crypto.name = get_company_name(crypto_sym);
     fetched_crypto.is_crypto = true;
 
     bool btc_ok = parse_yahoo_chart_meta(btc_json, fetched_crypto);
-    if (!btc_ok) {
+    if (!btc_ok && (crypto_sym == "BTC-USD" || crypto_sym == "BTC")) {
         std::string cg_url = "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd&include_24hr_change=true";
         std::string cg_json = http_get_json(cg_url, 4);
         if (!cg_json.empty()) {
@@ -278,21 +284,22 @@ void StockStreamer::fetch_sync() {
 
     {
         std::unique_lock lk(m_quotes_mtx);
-        if (!fetched_stocks.empty()) {
-            m_stocks = std::move(fetched_stocks);
-        }
+        // This contains fresh results and cached quotes for the currently selected symbols.
+        m_stocks = std::move(fetched_stocks);
         if (btc_ok) {
             m_crypto = std::move(fetched_crypto);
+        } else if (m_crypto.symbol != crypto_sym) {
+            m_crypto = {};
+            m_crypto.symbol = fetched_crypto.symbol;
+            m_crypto.display_symbol = fetched_crypto.display_symbol;
         }
-        m_last_sync_time.store(time(nullptr));
-        // Only report healthy if something actually succeeded. Reporting success after a
-        // total fetch failure left the panel showing stale/seeded prices with no signal.
-        if (!fetched_stocks.empty() || btc_ok) {
+        if (fresh_stock_quote || btc_ok) {
+            m_last_sync_time.store(time(nullptr));
             m_last_error.store(0);
-            g_logger.info("STOCKS: Realtime sync completed for {} S&P 500 stocks + BTC", m_stocks.size());
+            g_logger.info("STOCKS: Updated quotes for the configured symbols");
         } else {
             m_last_error.store(1);
-            g_logger.warn("STOCKS: all fetches failed; retaining last known quotes (check [stockstreamer] tls_verify if unexpected)");
+            g_logger.warn("STOCKS: Quote refresh failed; retaining last known quotes");
         }
     }
 }
@@ -306,36 +313,6 @@ bool StockStreamer::start() {
     m_running.store(false);
     if (m_worker_thread.joinable()) m_worker_thread.join();
     m_running.store(true);
-
-    {
-        std::unique_lock lk(m_quotes_mtx);
-        if (m_stocks.empty()) {
-            std::vector<std::pair<std::string, double>> init_list = {
-                {"NVDA", 208.48}, {"AAPL", 310.34}, {"MSFT", 487.31}, {"AMZN", 262.07},
-                {"GOOGL", 348.06}, {"META", 559.02}, {"BRK.B", 504.32}, {"TSLA", 348.95},
-                {"AVGO", 358.76}, {"JPM", 356.39}
-            };
-            for (const auto& [sym, pr] : init_list) {
-                StockQuote q;
-                q.symbol = sym;
-                q.display_symbol = clean_display_sym(sym);
-                q.name = get_company_name(sym);
-                q.price = pr;
-                q.change = (sym == "NVDA" || sym == "TSLA" || sym == "AVGO") ? -6.24 : 1.20;
-                q.change_pct = (sym == "NVDA" || sym == "TSLA" || sym == "AVGO") ? -1.85 : 1.15;
-                q.formatted_price = format_currency(pr, false);
-                q.is_crypto = false;
-                m_stocks.push_back(std::move(q));
-            }
-            m_crypto.symbol = "BTC-USD";
-            m_crypto.display_symbol = "BTC";
-            m_crypto.name = "Bitcoin";
-            m_crypto.price = 79820.0;
-            m_crypto.change_pct = 1.07;
-            m_crypto.formatted_price = "$79,820.00";
-            m_crypto.is_crypto = true;
-        }
-    }
 
     if (!spawn_thread_safe(m_worker_thread, "stockstreamer", [this]() {
         this->sync();
@@ -385,7 +362,7 @@ std::string StockStreamer::get_status_json() const {
        << ",\"stocks\":[";
     for (size_t i = 0; i < m_stocks.size(); ++i) {
         if (i > 0) ss << ",";
-        ss << "{\"symbol\":\"" << m_stocks[i].display_symbol << "\""
+        ss << "{\"symbol\":\"" << config_text::escape(m_stocks[i].display_symbol) << "\""
            << ",\"price\":" << m_stocks[i].price
            << ",\"change\":" << m_stocks[i].change
            << ",\"change_pct\":" << m_stocks[i].change_pct
@@ -393,16 +370,20 @@ std::string StockStreamer::get_status_json() const {
            << ",\"aftermarket_change_pct\":" << m_stocks[i].aftermarket_change_pct
            << ",\"has_aftermarket\":" << (m_stocks[i].has_aftermarket ? "true" : "false") << "}";
     }
-    ss << "],\"crypto\":{\"symbol\":\"BTC\""
+    ss << "],\"crypto\":{\"symbol\":\"" << config_text::escape(m_crypto.display_symbol) << "\""
        << ",\"price\":" << m_crypto.price
-       << ",\"change_pct\":" << m_crypto.change_pct << "}}";
+       << ",\"change_pct\":" << m_crypto.change_pct
+       << ",\"available\":" << (m_crypto.last_updated_epoch > 0 ? "true" : "false") << "}}";
     return ss.str();
 }
 
 void StockStreamer::render(SDL_Renderer* renderer, FontRenderer* font_renderer, const std::string& font_path, const SDL_Rect& bounds, int screen_w) {
     if (!renderer || !font_renderer || bounds.h <= 0 || bounds.w <= 0) return;
 
-    // 1. Glassmorphic card backdrop
+    const InfopanelClip clip(renderer, bounds);
+    if (!clip) return;
+
+    // 1. Card backdrop
     SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
     SDL_SetRenderDrawColor(renderer, 12, 16, 26, 240);
     SDL_FRect bg_rect = { (float)bounds.x, (float)bounds.y, (float)bounds.w, (float)bounds.h };
@@ -446,7 +427,7 @@ void StockStreamer::render(SDL_Renderer* renderer, FontRenderer* font_renderer, 
     SDL_SetRenderDrawColor(renderer, 140, 150, 165, 255);
     SDL_RenderFillRect(renderer, &dot_rect);
 
-    font_renderer->draw_text(pad_x + dot_r * 2 + 5, cur_y, title_font, "STOCKS  •  S&P 500 TOP 10", 255, 255, 255, 255);
+    font_renderer->draw_text(pad_x + dot_r * 2 + 5, cur_y, title_font, "STOCKS", 255, 255, 255, 255);
     cur_y += title_font_size + 6;
 
     // Column Labels
@@ -472,7 +453,13 @@ void StockStreamer::render(SDL_Renderer* renderer, FontRenderer* font_renderer, 
         crypto_copy = m_crypto;
     }
 
-    // 2. Render Top 10 Stocks (tightly packed with separator lines)
+    if (stocks_copy.empty()) {
+        font_renderer->draw_text(pad_x, cur_y + 3, row_font, "Waiting for stock quotes",
+                                 140, 165, 190, 240);
+        cur_y += panel_px(18, screen_w);
+    }
+
+    // 2. Render stock quotes (tightly packed with separator lines)
     int row_h = (int)round(18.0 * screen_w / 1920.0);
     int max_y_stocks = bounds.y + bounds.h - (int)round(55.0 * screen_w / 1920.0);
 
@@ -541,12 +528,17 @@ void StockStreamer::render(SDL_Renderer* renderer, FontRenderer* font_renderer, 
     const auto btc_font_owner = font_renderer->load_font(font_path, btc_font_size);
     FontHandle& btc_font = *btc_font_owner;
 
-    // Symbol: BTC (Amber Gold)
-    font_renderer->draw_text(x_stock, cur_y + 1, row_font, "BTC", 255, 180, 50, 255);
+    const auto symbol = crypto_copy.display_symbol.empty() ? "—" : crypto_copy.display_symbol;
+    font_renderer->draw_text(x_stock, cur_y + 1, row_font,
+                             font_renderer->ellipsize(row_font, symbol, x_price - x_stock - 2),
+                             255, 180, 50, 255);
 
-    // Price (use smaller font to avoid overlap with change column)
-    std::string btc_price_str = !crypto_copy.formatted_price.empty() ? crypto_copy.formatted_price : "$79,820.00";
-    font_renderer->draw_text(x_price, cur_y + 1, btc_font, btc_price_str, 255, 255, 255, 255);
+    if (crypto_copy.last_updated_epoch == 0) {
+        font_renderer->draw_text(x_price, cur_y + 1, btc_font, "Quote unavailable", 140, 165, 190, 240);
+        return;
+    }
+    font_renderer->draw_text(x_price, cur_y + 1, btc_font, crypto_copy.formatted_price,
+                             255, 255, 255, 255);
 
     // 24h Change ($)
     double btc_chg_val = (crypto_copy.prev_close > 0) ? (crypto_copy.price - crypto_copy.prev_close) : (crypto_copy.price * crypto_copy.change_pct / 100.0);

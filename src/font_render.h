@@ -4,6 +4,7 @@
 #include <SDL3/SDL.h>
 #include <SDL3_ttf/SDL_ttf.h>
 #include <string>
+#include <string_view>
 #include <map>
 #include <unordered_map>
 #include <memory>
@@ -33,6 +34,8 @@ private:
         int h = 0;
     };
     std::unordered_map<std::string, TextCacheEntry> text_cache;
+    const TextCacheEntry* get_text_texture(const FontHandle& font, const std::string& text,
+                                           SDL_Color color);
 
 public:
     FontRenderer(Renderer* renderer);
@@ -46,6 +49,9 @@ public:
     // Text rendering
     void draw_text(int x, int y, const FontHandle& font, const std::string& text,
                    uint8_t r, uint8_t g, uint8_t b, uint8_t a);
+    // Fit to both dimensions, center horizontally, and return the height occupied.
+    int draw_text_fitted(const SDL_Rect& area, const FontHandle& font,
+                         const std::string& text, SDL_Color color);
     void draw_text_uncached(int x, int y, const FontHandle& font, const std::string& text,
                          uint8_t r, uint8_t g, uint8_t b, uint8_t a);
     void draw_text_glow(int x, int y, const FontHandle& font, const std::string& text,
@@ -53,7 +59,8 @@ public:
                         uint8_t gr, uint8_t gg, uint8_t gb, uint8_t ga);
 
 
-    // Measure
+    // Measure and shorten text for narrow columns without splitting UTF-8.
+    std::string ellipsize(const FontHandle& font, std::string_view text, int width);
     void measure(const FontHandle& font, const std::string& text, int& w, int& h);
 };
 

@@ -1,7 +1,7 @@
 #ifndef PITROVE_UTIL_H
 #define PITROVE_UTIL_H
 
-#define VERSION "18.4.1"
+#define VERSION "18.4.2"
 #define APP_NAME "piTrove"
 
 #include <format>
@@ -219,6 +219,7 @@ void get_modified_time_date(int64_t mtime, int& y, int& m, int& d);
 
 // Timezone formatting
 [[nodiscard]] std::string format_epoch_tz(time_t epoch_sec, const std::string& tz_name, const std::string& fmt_str = "%I:%M %p");
+[[nodiscard]] std::string format_tomorrow_tz(time_t epoch_sec, const std::string& tz_name);
 [[nodiscard]] std::vector<std::string> get_supported_timezones();
 [[nodiscard]] std::string infer_timezone_from_zip_or_location(const std::string& input);
 

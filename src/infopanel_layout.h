@@ -4,6 +4,7 @@
 #include <cmath>
 struct InfopanelLayout {
     SDL_Rect slideshow_area{}, calendar_area{}, stocks_area{}, news_area{}, chores_area{};
+    int content_top=0;
     bool show_calendar=false, show_stocks=false, show_news=false, show_chores=false;
 };
 struct InfopanelOptions {
@@ -20,19 +21,25 @@ inline InfopanelLayout make_infopanel_layout(int width, int height, const Infopa
     const int inset=o.matting ? sx(60) : 0;
     const int left=inset+ox, right=width-inset+ox;
     const int top=(o.matting ? sy(37) : 0)+oy;
+    l.content_top=top;
     const int bottom=(o.matting ? height-sy(37) : height)+oy;
     l.show_calendar=o.enabled && o.calendar; l.show_stocks=o.enabled && o.stocks;
     l.show_news=o.enabled && o.news; l.show_chores=o.enabled && o.left;
     const bool right_on=l.show_calendar || l.show_stocks;
-    const int news_h=l.show_news ? std::max(1,sx(36)) : 0;
-    const int news_bottom=std::min(bottom,(o.matting ? height-int(std::round(sx(o.matting_size)*0.8))+sx(45) : height)+oy);
+    l.show_news = l.show_news && bottom - top >= 2;
+    const int preferred_news_bottom =
+        (o.matting ? height - int(std::round(sx(o.matting_size) * 0.8)) + sx(45) : height) + oy;
+    const int news_bottom = l.show_news ? std::clamp(preferred_news_bottom, top + 2, bottom) : bottom;
+    const int news_h = l.show_news ? std::clamp(sx(36), 1, news_bottom - top - 1) : 0;
     const int content_bottom=l.show_news ? std::max(top+1,news_bottom-news_h) : bottom;
     // Both visible rails are 275px inside the physical matte (335px without it).
     const int rail=std::clamp(sx(335)-inset,1,std::max(1,(right-left)/4));
     if (l.show_chores) l.chores_area={left,oy,rail,std::max(1,content_bottom-oy)};
     const int rx=right-rail;
+    if (content_bottom - oy < 2 && l.show_calendar) l.show_stocks = false;
     if (l.show_calendar && l.show_stocks) {
-        const int split=std::max(top+sx(40),content_bottom-sx(288));
+        // Keep the split inside the usable height, including wide, short displays.
+        const int split = std::min(content_bottom - 1, std::max(top + sx(40), content_bottom - sx(288)));
         l.calendar_area={rx,oy,rail,std::max(1,split-oy)};
         l.stocks_area={rx,split,rail,std::max(1,content_bottom-split)};
     } else if (l.show_calendar) l.calendar_area={rx,oy,rail,std::max(1,content_bottom-oy)};

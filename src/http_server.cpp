@@ -1186,15 +1186,48 @@ static void handle_client(int client_fd) {
             }
             // Each subsystem reads config under its own lock; never hold the editor lock here.
             if (result.status == 200 && !result.changed.empty()) {
-                bool master,news,calendar,stocks,photos; std::string level;
-                { std::shared_lock lock(g_config_mtx); master=g_cfg.infopanels_enabled;news=g_cfg.news_enabled;calendar=g_cfg.gcalendar_enabled;stocks=g_cfg.stockstreamer_enabled;photos=g_cfg.google_photos_enabled;level=g_cfg.log_level; }
-                const auto touched=[&](std::string_view prefix){return std::any_of(result.changed.begin(),result.changed.end(),[&](const std::string& id){return id.starts_with(prefix);});};
-                const bool panel_master_changed=std::find(result.changed.begin(),result.changed.end(),"infopanels.enabled")!=result.changed.end();
-                if (panel_master_changed || touched("news.")) { if(master&&news){if(!g_news_ticker.is_running())g_news_ticker.start();g_news_ticker.sync();}else g_news_ticker.stop(); }
-                if (panel_master_changed || touched("gcalendar.") || touched("mqtt.timezone")) { if(master&&calendar){if(!g_calendar.is_running())g_calendar.start();g_calendar.sync();}else g_calendar.stop(); }
-                if (panel_master_changed || touched("stockstreamer.")) { if(master&&stocks){if(!g_stock_streamer.is_running())g_stock_streamer.start();g_stock_streamer.sync();}else g_stock_streamer.stop(); }
-                if (touched("google_photos.")) { g_google_photos.stop();if(photos)g_google_photos.start(); }
-                if (touched("log.level")) g_logger.level.store(level=="debug"||level=="trace"?LogLevel::DEBUG:level=="warn"||level=="warning"?LogLevel::WARN:level=="error"?LogLevel::ERROR:LogLevel::INFO);
+                const auto touched = [&](std::string_view prefix) {
+                    return std::any_of(result.changed.begin(), result.changed.end(),
+                                       [&](const std::string& id) { return id.starts_with(prefix); });
+                };
+                const bool master_changed = std::find(result.changed.begin(), result.changed.end(),
+                                                       "infopanels.enabled") != result.changed.end();
+                const bool update_news = master_changed || touched("news.");
+                const bool update_calendar = master_changed || touched("gcalendar.") || touched("mqtt.timezone");
+                const bool update_stocks = master_changed || touched("stockstreamer.");
+                const bool update_photos = touched("google_photos.");
+                if (update_news || update_calendar || update_stocks || update_photos || touched("log.level")) {
+                    // Update against the latest saved config after entering the lifecycle lock.
+                    // A concurrent save can finish while the previous request joins a worker.
+                    std::lock_guard lifecycle(g_infopanels_lifecycle_mtx);
+                    bool news, calendar, stocks, photos;
+                    std::string level;
+                    {
+                        std::shared_lock lock(g_config_mtx);
+                        news = g_cfg.infopanels_enabled && g_cfg.news_enabled;
+                        calendar = g_cfg.infopanels_enabled && g_cfg.gcalendar_enabled;
+                        stocks = g_cfg.infopanels_enabled && g_cfg.stockstreamer_enabled;
+                        photos = g_cfg.google_photos_enabled;
+                        level = g_cfg.log_level;
+                    }
+                    const auto reconcile = [](auto& integration, bool enabled) {
+                        if (!enabled) integration.stop();
+                        else if (integration.is_running()) integration.sync();
+                        else integration.start();
+                    };
+                    if (update_news) reconcile(g_news_ticker, news);
+                    if (update_calendar) reconcile(g_calendar, calendar);
+                    if (update_stocks) reconcile(g_stock_streamer, stocks);
+                    if (update_photos) {
+                        g_google_photos.stop();
+                        if (photos) g_google_photos.start();
+                    }
+                    if (touched("log.level")) {
+                        g_logger.level.store(level == "debug" || level == "trace" ? LogLevel::DEBUG :
+                            level == "warn" || level == "warning" ? LogLevel::WARN :
+                            level == "error" ? LogLevel::ERROR : LogLevel::INFO);
+                    }
+                }
             }
             send_response(client_fd, "HTTP/1.1 " + std::to_string(result.status) + (result.status==200?" OK":" Error"), "application/json; charset=utf-8", result.body);
         }

@@ -256,8 +256,20 @@ static void test_lifecycles() {
     first.join(); second.join();
     news.stop(); calendar.stop(); stocks.stop(); photos.stop();
     check(!news.is_running() && !calendar.is_running() && !stocks.is_running(), "worker survived stop");
+    // Every quote request in this fixture failed. Never publish sample prices as market data.
+    check(stocks.get_stocks().empty() && stocks.get_crypto().last_updated_epoch == 0,
+          "missing market feed produced fabricated quotes");
+    const auto status = stocks.get_status_json();
+    check(status.find("\"last_sync\":0") != std::string::npos &&
+          status.find("\"available\":false") != std::string::npos,
+          "failed market feed reported a successful refresh");
+
     check(!photos.is_running(), "Google Photos worker survived stop");
     { std::unique_lock lock(g_config_mtx); g_cfg.google_photos_enabled = false; }
+    const auto news_status = news.get_status_json();
+    check(news_status.find("\"last_sync\":0") != std::string::npos &&
+          news_status.find("\"last_error\":537") != std::string::npos,
+          "failed news feeds reported a successful refresh");
     mock_network = false;
 }
 

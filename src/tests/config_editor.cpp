@@ -1,6 +1,7 @@
 #include "config_editor.h"
 #include "auth.h"
 #include "config_text.h"
+#include "http_protocol.h"
 #include "util.h"
 #include <filesystem>
 #include <fstream>
@@ -15,6 +16,14 @@ int main(){const auto dir=std::filesystem::temp_directory_path()/ ("pitrove-conf
  try{
  require(format_epoch_tz(86400,"UTC","%I:%M %p")=="12:00 AM","Midnight must use 12-hour AM format");
  require(format_epoch_tz(129600,"UTC","%I:%M %p")=="12:00 PM","Noon must use 12-hour PM format");
+ require(format_epoch_tz(86400, "Unknown/Timezone", "%Y-%m-%d") == "1970-01-02",
+         "Unknown timezone changed a date into a clock string");
+ require(format_epoch_tz(129600, "Unknown/Timezone", "%I:%M %p") == "12:00 PM",
+         "Unknown timezone did not fall back to UTC with AM/PM");
+ require(format_tomorrow_tz(1772955000, "America/Los_Angeles") == "2026-03-08",
+         "Tomorrow skipped a day at spring daylight saving change");
+ require(format_tomorrow_tz(1793518200, "America/Los_Angeles") == "2026-11-02",
+         "Tomorrow repeated today at fall daylight saving change");
  Config c;c.timezone="UTC";c.http_api_key="private-controller-key";c.mqtt_pass="private-mqtt-pass";c.gcalendar_api_key="private-calendar-key";c.gcalendar_ical_url="https://example.test/private-token/basic.ics";c.google_photos_refresh_token="private-refresh-token";
  const auto description=config_editor::describe(c);
  for(const auto& secret:{c.http_api_key,c.mqtt_pass,c.gcalendar_api_key,c.gcalendar_ical_url,c.google_photos_refresh_token})require(description.find(secret)==std::string::npos,"Schema leaked a configured secret");
@@ -48,6 +57,18 @@ int main(){const auto dir=std::filesystem::temp_directory_path()/ ("pitrove-conf
  const auto form=[&](const std::string& fields,const std::string& query=""){return "POST /api/config"+query+" HTTP/1.1\r\nHost: frame.local\r\nOrigin: http://frame.local\r\nContent-Type: application/x-www-form-urlencoded\r\nContent-Length: "+std::to_string(fields.size())+"\r\n\r\n"+fields;};
  std::string fields="revision="+config_editor::revision(c)+"&infopanels.left_panel_max_chores=13";
  require(config_editor::handle(c,"POST",form(fields,"?infopanels.left_panel_max_chores=19"),path).status==200&&c.left_panel_max_chores==13,"Query overrode posted config");
+ // A valid posted value can exceed the header budget once URL-encoded.
+ std::vector<std::string> blocked;
+ std::string list = "[";
+ for (int i = 0; i < 32; ++i) {
+     blocked.push_back("Channel " + std::to_string(i) + " & café + " + std::string(240, 'x'));
+     if (i != 0) list += ',';
+     list += "\"" + config_text::escape(blocked.back()) + "\"";
+ }
+ list += ']';
+ fields = "revision=" + config_editor::revision(c) + "&news.blacklist=" + http_protocol::url_encode(list);
+ require(config_editor::handle(c, "POST", form(fields), path).status == 200 &&
+         loaded.load(path) && loaded.news_blacklist == blocked, "Long URL-encoded form list was silently lost");
  fields="revision="+config_editor::revision(c)+"&slideshow.shuffle=0&slideshow.shuffle=1";
  require(config_editor::handle(c,"POST",form(fields),path).status==400,"Duplicate field accepted");
  auto raw=form("revision="+config_editor::revision(c));raw.replace(raw.find("Origin: http://frame.local"),25,"Origin: http://elsewhere");

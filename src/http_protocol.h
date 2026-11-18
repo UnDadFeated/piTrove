@@ -18,5 +18,6 @@ using Deadline = std::chrono::steady_clock::time_point;
 bool send_until(int fd, std::string_view bytes, Deadline deadline);
 bool send_all(int fd, std::string_view bytes, int timeout_ms = 2000);
 std::optional<std::string> query_param(std::string_view raw, std::string_view key);
+std::string decode_form(std::string_view value);
 std::string url_encode(std::string_view value);
 }

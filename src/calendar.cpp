@@ -1,6 +1,8 @@
 #include "calendar.h"
 #include "http_transfer.h"
 #include "config.h"
+#include "config_text.h"
+#include "infopanel_render.h"
 #include "util.h"
 #include "health.h"
 #include <curl/curl.h>
@@ -213,7 +215,7 @@ void GoogleCalendar::parse_ical(const std::string& ical_data) {
         // Compute relative day string in target timezone
         std::string ev_date = format_epoch_tz(start_t, tz, "%Y-%m-%d");
         std::string today_date = format_epoch_tz(now, tz, "%Y-%m-%d");
-        std::string tomorrow_date = format_epoch_tz(now + 86400, tz, "%Y-%m-%d");
+        std::string tomorrow_date = format_tomorrow_tz(now, tz);
 
         if (ev_date == today_date) {
             ev.relative_day = "TODAY";
@@ -379,8 +381,8 @@ std::string GoogleCalendar::get_status_json() const {
        << ",\"events\":[";
     for (size_t i = 0; i < m_events.size(); ++i) {
         if (i > 0) ss << ",";
-        ss << "{\"summary\":\"" << escape_shell_arg(m_events[i].summary) << "\""
-           << ",\"location\":\"" << escape_shell_arg(m_events[i].location) << "\""
+        ss << "{\"summary\":\"" << config_text::escape(m_events[i].summary) << "\""
+           << ",\"location\":\"" << config_text::escape(m_events[i].location) << "\""
            << ",\"relative_day\":\"" << m_events[i].relative_day << "\""
            << ",\"time\":\"" << m_events[i].formatted_time << "\""
            << ",\"all_day\":" << (m_events[i].all_day ? "true" : "false") << "}";
@@ -389,7 +391,7 @@ std::string GoogleCalendar::get_status_json() const {
     return ss.str();
 }
 
-static std::vector<std::string> wrap_text_to_width(FontRenderer* font_renderer, FontHandle& font, const std::string& text, int max_w) {
+static std::vector<std::string> wrap_text_to_width(FontRenderer* font_renderer, const FontHandle& font, const std::string& text, int max_w) {
     std::vector<std::string> lines;
     if (text.empty()) return lines;
 
@@ -404,12 +406,12 @@ static std::vector<std::string> wrap_text_to_width(FontRenderer* font_renderer, 
         if (tw <= max_w || current_line.empty()) {
             current_line = test_line;
         } else {
-            lines.push_back(current_line);
+            lines.push_back(font_renderer->ellipsize(font, current_line, max_w));
             current_line = word;
         }
     }
     if (!current_line.empty()) {
-        lines.push_back(current_line);
+        lines.push_back(font_renderer->ellipsize(font, current_line, max_w));
     }
     return lines;
 }
@@ -417,7 +419,10 @@ static std::vector<std::string> wrap_text_to_width(FontRenderer* font_renderer, 
 void GoogleCalendar::render(SDL_Renderer* renderer, FontRenderer* font_renderer, const std::string& font_path, const SDL_Rect& bounds, int screen_w) {
     if (!renderer || !font_renderer || bounds.h <= 0 || bounds.w <= 0) return;
 
-    // 1. Glassmorphic card backdrop
+    const InfopanelClip clip(renderer, bounds);
+    if (!clip) return;
+
+    // 1. Card backdrop
     SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
     SDL_SetRenderDrawColor(renderer, 14, 18, 28, 235); // Sleek dark glass card
     SDL_FRect bg_rect = { (float)bounds.x, (float)bounds.y, (float)bounds.w, (float)bounds.h };
@@ -445,9 +450,10 @@ void GoogleCalendar::render(SDL_Renderer* renderer, FontRenderer* font_renderer,
     std::string day_str = format_epoch_tz(now, tz, "%A");
     std::string date_str = format_epoch_tz(now, tz, "%B %d");
 
-    int title_font_size = (int)round(22.0 * screen_w / 1920.0);
-    int body_font_size = (int)round(14.0 * screen_w / 1920.0);
-    int sub_font_size = (int)round(12.0 * screen_w / 1920.0);
+    const auto px = [screen_w](int value) { return panel_px(value, screen_w); };
+    const int title_font_size = px(panel_heading_size);
+    const int body_font_size = px(panel_body_size);
+    const int sub_font_size = px(panel_detail_size);
 
     const auto title_font_owner = font_renderer->load_font(font_path, title_font_size);
     FontHandle& title_font = *title_font_owner;
@@ -456,22 +462,24 @@ void GoogleCalendar::render(SDL_Renderer* renderer, FontRenderer* font_renderer,
     const auto sub_font_owner = font_renderer->load_font(font_path, sub_font_size);
     FontHandle& sub_font = *sub_font_owner;
 
-    int pad_x = bounds.x + (int)round(18.0 * screen_w / 1920.0);
+    const int inner_width = bounds.w - 2 * px(18);
+    if (inner_width <= 0) return;
+    const int pad_x = bounds.x + px(18);
     int cur_y = bounds.y + (has_matting ? (int)round(((double)mat_size * 0.5) + 10.0) : (int)round(20.0 * screen_w / 1920.0));
 
     // Header title
-    font_renderer->draw_text(pad_x, cur_y, title_font, day_str, 255, 255, 255, 255);
-    cur_y += title_font_size + 4;
+    font_renderer->draw_text(pad_x, cur_y, title_font, font_renderer->ellipsize(title_font, day_str, inner_width), 255, 255, 255, 255);
+    cur_y += TTF_GetFontHeight(title_font.font) + px(4);
 
     std::string header_sub = std::format("{} • {}", date_str, cal_name.empty() ? "Calendar" : cal_name);
-    font_renderer->draw_text(pad_x, cur_y, sub_font, header_sub, 0, 200, 255, 220);
-    cur_y += sub_font_size + 18;
+    font_renderer->draw_text(pad_x, cur_y, sub_font, font_renderer->ellipsize(sub_font, header_sub, inner_width), 0, 200, 255, 220);
+    cur_y += TTF_GetFontHeight(sub_font.font) + px(18);
 
     // Header divider line
     SDL_SetRenderDrawColor(renderer, 255, 255, 255, 30);
     SDL_FRect div_line = { (float)pad_x, (float)cur_y, (float)(bounds.w - (pad_x - bounds.x) * 2), 1.0f };
     SDL_RenderFillRect(renderer, &div_line);
-    cur_y += 18;
+    cur_y += px(18);
 
     // 3. Render event cards
     std::vector<CalendarEvent> events_copy;
@@ -482,7 +490,7 @@ void GoogleCalendar::render(SDL_Renderer* renderer, FontRenderer* font_renderer,
 
     // Dynamic real-time pruning and relative day recalculation on render
     std::string today_date = format_epoch_tz(now, tz, "%Y-%m-%d");
-    std::string tomorrow_date = format_epoch_tz(now + 86400, tz, "%Y-%m-%d");
+    std::string tomorrow_date = format_tomorrow_tz(now, tz);
 
     std::vector<CalendarEvent> active_events;
     for (auto ev : events_copy) {
@@ -500,16 +508,21 @@ void GoogleCalendar::render(SDL_Renderer* renderer, FontRenderer* font_renderer,
     }
 
     if (active_events.empty()) {
-        font_renderer->draw_text(pad_x, cur_y, body_font, "No upcoming events scheduled", 160, 175, 195, 255);
-        cur_y += body_font_size + 8;
-        font_renderer->draw_text(pad_x, cur_y, sub_font, "Add events to Google Calendar to sync", 110, 125, 145, 255);
+        font_renderer->draw_text(pad_x, cur_y, body_font,
+                                 font_renderer->ellipsize(body_font, "No upcoming events scheduled", inner_width), 160, 175, 195, 255);
+        cur_y += TTF_GetFontHeight(body_font.font) + px(8);
+        font_renderer->draw_text(pad_x, cur_y, sub_font,
+                                 font_renderer->ellipsize(sub_font, "Add events to Google Calendar to sync", inner_width), 110, 125, 145, 255);
         return;
     }
 
-    int right_matte_limit = screen_w - (int)round(60.0 * screen_w / 1920.0);
-    int card_right_limit = bounds.x + bounds.w - (int)round(18.0 * screen_w / 1920.0);
-    int text_max_w = std::min(right_matte_limit, card_right_limit) - (pad_x + (int)round(3.0 * screen_w / 1920.0) + 10);
-    if (text_max_w < 120) text_max_w = 240;
+    const int pill_w = px(3);
+    const int text_start_x = pad_x + pill_w + px(10);
+    const int text_max_w = inner_width - (text_start_x - pad_x);
+    if (text_max_w <= 0) return;
+    const int tag_height = TTF_GetFontHeight(sub_font.font) + px(4);
+    const int summary_height = TTF_GetFontHeight(body_font.font) + px(3);
+    const int location_height = TTF_GetFontHeight(sub_font.font) + px(3);
 
     for (const auto& ev : active_events) {
         std::vector<std::string> summary_lines = wrap_text_to_width(font_renderer, body_font, ev.summary, text_max_w);
@@ -518,11 +531,9 @@ void GoogleCalendar::render(SDL_Renderer* renderer, FontRenderer* font_renderer,
             loc_lines = wrap_text_to_width(font_renderer, sub_font, "@ " + ev.location, text_max_w);
         }
 
-        int total_event_h = (sub_font_size + 4) 
-                          + (int)summary_lines.size() * (body_font_size + 3)
-                          + (int)loc_lines.size() * (sub_font_size + 3);
-
-        if (cur_y + total_event_h > bounds.y + bounds.h - 10) break; // Keep within card bounds
+        const int total_event_h = tag_height + int(summary_lines.size()) * summary_height +
+                                  int(loc_lines.size()) * location_height;
+        if (cur_y + total_event_h > bounds.y + bounds.h - px(10)) break;
 
         std::string tag_str = std::format("{} • {}", ev.relative_day, ev.formatted_time);
         uint8_t tr = 0, tg = 200, tb = 255;
@@ -531,28 +542,27 @@ void GoogleCalendar::render(SDL_Renderer* renderer, FontRenderer* font_renderer,
         }
 
         // Left accent indicator pill matching multi-line card height
-        int pill_w = (int)round(3.0 * screen_w / 1920.0);
         int pill_h = total_event_h - 2;
         SDL_FRect pill_rect = { (float)pad_x, (float)cur_y, (float)pill_w, (float)pill_h };
         SDL_SetRenderDrawColor(renderer, tr, tg, tb, 255);
         SDL_RenderFillRect(renderer, &pill_rect);
 
-        int text_start_x = pad_x + pill_w + 10;
-        font_renderer->draw_text(text_start_x, cur_y, sub_font, tag_str, tr, tg, tb, 255);
-        cur_y += sub_font_size + 4;
+        font_renderer->draw_text(text_start_x, cur_y, sub_font,
+                                 font_renderer->ellipsize(sub_font, tag_str, text_max_w), tr, tg, tb, 255);
+        cur_y += tag_height;
 
         // Wrapped event summary lines
         for (const auto& line : summary_lines) {
             font_renderer->draw_text(text_start_x, cur_y, body_font, line, 245, 250, 255, 255);
-            cur_y += body_font_size + 3;
+            cur_y += summary_height;
         }
 
         // Wrapped location lines if present
         for (const auto& line : loc_lines) {
             font_renderer->draw_text(text_start_x, cur_y, sub_font, line, 140, 160, 180, 200);
-            cur_y += sub_font_size + 3;
+            cur_y += location_height;
         }
 
-        cur_y += 10; // Spacing between events
+        cur_y += px(10); // Spacing between events
     }
 }
