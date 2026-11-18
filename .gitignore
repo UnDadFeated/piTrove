@@ -7,12 +7,15 @@ src/build_tidy/
 test_render
 
 # Runtime data
+/backups/
 cache/
 config/
 logs/
 subtitles/
 
 # Compiled binary
+__pycache__/
+*.pyc
 *.o
 *.a
 *.so

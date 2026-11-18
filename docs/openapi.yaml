@@ -52,7 +52,7 @@ paths:
   /api/status:
     get:
       summary: Current playback status
-      description: Open. Disk usage is cached for 30 s; the dashboard polls about once a second.
+      description: "Status is available for frame discovery. When an access key is configured, the filename and broker address require it."
       responses:
         "200":
           description: Status JSON
@@ -191,30 +191,37 @@ paths:
   /api/preview:
     get:
       summary: Stream the currently displayed media file
+      security:
+        - bearerAuth: []
       responses:
         "200": { description: Media bytes }
+        "401": { description: Missing or invalid controller key }
 
   /api/screenshots:
     get:
       summary: List stored screenshots
+      security:
+        - bearerAuth: []
       responses:
         "200": { description: Filename list }
+        "401": { description: Missing or invalid controller key }
 
   /api/screenshots/{name}:
     get:
       summary: Fetch a stored screenshot
+      security:
+        - bearerAuth: []
       parameters:
         - name: name
           in: path
           required: true
           schema: { type: string }
-          description: >-
-            Rejects "..", "/" and is not percent-decoded, so traversal is not possible. The base
-            directory is fixed.
+          description: URL-encoded PNG basename from the screenshot list.
       responses:
         "200": { description: PNG image }
         "400": { description: Invalid filename }
         "404": { description: Not found }
+        "401": { description: Missing or invalid controller key }
 
   /api/news:
     get:
@@ -225,18 +232,21 @@ paths:
   /api/calendar:
     get:
       summary: Upcoming calendar events
+      security:
+        - bearerAuth: []
       responses:
         "200": { description: Calendar JSON }
+        "401": { description: Missing or invalid controller key }
 
   /api/calendar/sync:
-    get:
-      post:
+    get: &calendarRefresh
       summary: Trigger a calendar refresh now
       security:
         - bearerAuth: []
       responses:
         "200": { description: OK }
         "401": { description: Unauthorized }
+    post: *calendarRefresh
 
   /api/stocks:
     get:
@@ -248,8 +258,7 @@ paths:
         "200": { description: Quotes JSON }
 
   /google_photos_setup:
-    get:
-      post:
+    get: &photosSetup
       summary: Google Photos OAuth setup
       description: >-
         Opt-in auth. Accepts `client_id` and `client_secret` and writes them to the live config.
@@ -258,6 +267,7 @@ paths:
       responses:
         "200": { description: Setup page or redirect }
         "401": { description: Unauthorized }
+    post: *photosSetup
 
   /google_photos_callback:
     get:

@@ -43,7 +43,8 @@ Result parse(std::string_view raw, Request& request, size_t& required) {
         value = start == value.npos ? std::string_view{} : value.substr(start);
         if (!value.empty()) value = value.substr(0, value.find_last_not_of(" \t") + 1);
         for (unsigned char c : value) if ((c < 0x20 && c != '\t') || c == 0x7f) return Result::bad_request;
-        if (parsed.headers.contains(name) && (name == "content-length" || name == "authorization" || name == "host")) return Result::bad_request;
+        if (parsed.headers.contains(name) && (name == "content-length" || name == "authorization" || name == "host" ||
+            name == "origin" || name == "referer" || name == "sec-fetch-site")) return Result::bad_request;
         parsed.headers.emplace(std::move(name), value);
         pos = end + 2;
     }
@@ -57,6 +58,31 @@ Result parse(std::string_view raw, Request& request, size_t& required) {
     required = header_end + 4 + parsed.content_length;
     request = std::move(parsed);
     return raw.size() >= required ? Result::complete : Result::incomplete;
+}
+bool controller_origin_allowed(const Request& request) {
+    const auto site = request.headers.find("sec-fetch-site");
+    if (site != request.headers.end() && site->second != "same-origin" && site->second != "none")
+        return false;
+
+    const auto matches_host = [&](std::string_view url) {
+        const auto host = request.headers.find("host");
+        if (host == request.headers.end() || host->second.empty()) return false;
+        if (url.starts_with("http://")) url.remove_prefix(7);
+        else if (url.starts_with("https://")) url.remove_prefix(8);
+        else return false;
+        return url == host->second;
+    };
+    const auto origin = request.headers.find("origin");
+    if (origin != request.headers.end() && !matches_host(origin->second)) return false;
+    const auto referer = request.headers.find("referer");
+    if (referer != request.headers.end()) {
+        std::string_view url = referer->second;
+        const auto scheme = url.find("://");
+        if (scheme == url.npos) return false;
+        const auto end = url.find_first_of("/?#", scheme + 3);
+        if (!matches_host(url.substr(0, end))) return false;
+    }
+    return true;
 }
 using Clock = std::chrono::steady_clock;
 static int wait_fd(int fd, short events, Clock::time_point deadline) {

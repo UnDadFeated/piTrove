@@ -448,19 +448,20 @@ if [[ "$1" == "--update" ]]; then
     # Perform git fetch safely as the primary user
     run_with_spinner "Fetching latest repository states from origin" sudo -u "$PRIMARY_USER" git fetch --all --prune
     
-    # Checkout configured branch if not already on it
-    CURRENT_BRANCH=$(sudo -u "$PRIMARY_USER" git rev-parse --abbrev-ref HEAD)
+    # The update path preserves the installed branch and tracked local work.
+    CURRENT_BRANCH=$(sudo -u "$PRIMARY_USER" git branch --show-current)
     if [[ "$CURRENT_BRANCH" != "$CONFIG_BRANCH" ]]; then
-        run_with_spinner "Switching branch to $CONFIG_BRANCH" sudo -u "$PRIMARY_USER" git checkout "$CONFIG_BRANCH"
+        fail "The checkout is on '$CURRENT_BRANCH'. Set auto_update_branch to the installed branch before updating."
     fi
-    
+    if ! sudo -u "$PRIMARY_USER" git diff --quiet -- ||
+       ! sudo -u "$PRIMARY_USER" git diff --cached --quiet --; then
+        fail "The checkout has local changes. Save them before updating piTrove."
+    fi
+
     LOCAL_COMMIT=$(sudo -u "$PRIMARY_USER" git rev-parse HEAD)
-    REMOTE_COMMIT=$(sudo -u "$PRIMARY_USER" git rev-parse @{u} 2>/dev/null || echo "")
-    
-    if [[ -z "$REMOTE_COMMIT" ]]; then
-        fail "No remote upstream branch tracked. Cannot verify remote updates."
-    fi
-    
+    REMOTE_COMMIT=$(sudo -u "$PRIMARY_USER" git rev-parse --verify "refs/remotes/origin/$CONFIG_BRANCH^{commit}" 2>/dev/null) ||
+        fail "No origin branch is available for '$CONFIG_BRANCH'."
+
     if [[ "$LOCAL_COMMIT" == "$REMOTE_COMMIT" ]]; then
         ok "piTrove is already up-to-date at the latest version!"
         exit 0
@@ -468,8 +469,7 @@ if [[ "$1" == "--update" ]]; then
     
     info "Updates discovered! Upgrading repository from commit ${CYAN}${LOCAL_COMMIT:0:7}${NC} to ${GREEN}${REMOTE_COMMIT:0:7}${NC}..."
     
-    # Reset latest changes to match remote branch cleanly
-    run_with_spinner "Pulling latest changes from remote branch" sudo -u "$PRIMARY_USER" git reset --hard "origin/$CONFIG_BRANCH"
+    run_with_spinner "Fast-forwarding the installed branch" sudo -u "$PRIMARY_USER" git merge --ff-only "$REMOTE_COMMIT"
     
     # Rebuild docker compose container image
     run_with_spinner "Rebuilding container image" env BUILDKIT_PROGRESS=plain docker compose build --pull
@@ -700,8 +700,8 @@ fi
 info "Setting up piTrove repository clone..."
 if [[ ! -d "$PRIMARY_HOME/piTrove/.git" ]]; then
     if [[ -d "$PRIMARY_HOME/piTrove" ]]; then
-        warn "Directory $PRIMARY_HOME/piTrove exists but is not a valid Git repository. Cleaning it up for a fresh clone..."
-        rm -rf "$PRIMARY_HOME/piTrove"
+        rmdir -- "$PRIMARY_HOME/piTrove" ||
+            fail "The piTrove directory contains files and is not a Git checkout. Move it before installing."
     fi
     run_with_spinner "Cloning piTrove repository (branch: $INSTALL_BRANCH)" sudo -u "$PRIMARY_USER" git clone --branch "$INSTALL_BRANCH" --single-branch https://github.com/UnDadFeated/piTrove.git "$PRIMARY_HOME/piTrove"
 else
@@ -710,10 +710,10 @@ else
     CURRENT_BRANCH=$(sudo -u "$PRIMARY_USER" git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
     if [[ "$CURRENT_BRANCH" != "$INSTALL_BRANCH" ]]; then
         info "Switching from branch '$CURRENT_BRANCH' to '$INSTALL_BRANCH'..."
-        sudo -u "$PRIMARY_USER" git fetch origin &>/dev/null || true
-        sudo -u "$PRIMARY_USER" git checkout "$INSTALL_BRANCH" &>/dev/null || true
+        run_with_spinner "Fetching installation branches" sudo -u "$PRIMARY_USER" git fetch origin
+        run_with_spinner "Switching installation branch" sudo -u "$PRIMARY_USER" git checkout "$INSTALL_BRANCH"
     fi
-    run_with_spinner "Pulling latest repository changes (branch: $INSTALL_BRANCH)" sudo -u "$PRIMARY_USER" git pull origin "$INSTALL_BRANCH"
+    run_with_spinner "Pulling latest repository changes (branch: $INSTALL_BRANCH)" sudo -u "$PRIMARY_USER" git pull --ff-only origin "$INSTALL_BRANCH"
 fi
 chown -R $PRIMARY_USER:$PRIMARY_USER "$PRIMARY_HOME/piTrove"
 info "Repository ready at: ${CYAN}$PRIMARY_HOME/piTrove${NC} (branch: ${BOLD}${BRANCH_LABEL}${NC})"

@@ -194,19 +194,16 @@ void VideoDecoder::push_audio_samples(std::span<const int16_t> samples, double p
     if (m_av_sync.load(std::memory_order_relaxed) && pts_s > 0.0) {
         note_audio_anchor(pts_s);
     }
+    int volume;
+    {
+        std::shared_lock lk(g_config_mtx);
+        volume = g_cfg.video_volume;
+    }
     std::lock_guard lk(m_audio_mtx);
     if (!m_audio_initialized || !m_audio_stream) return;
 
-    int bytes = static_cast<int>(samples.size_bytes());
-    SDL_PutAudioStreamData(m_audio_stream, samples.data(), bytes);
-
-    int volume = 0;
-    {
-        std::lock_guard lk(g_config_mtx);
-        volume = g_cfg.video_volume;
-    }
-    float gain = volume / 100.0f;
-    SDL_SetAudioStreamGain(m_audio_stream, gain);
+    SDL_SetAudioStreamGain(m_audio_stream, volume / 100.0f);
+    SDL_PutAudioStreamData(m_audio_stream, samples.data(), static_cast<int>(samples.size_bytes()));
 }
 
 void VideoDecoder::set_av_sync(bool on) { m_av_sync.store(on, std::memory_order_relaxed); }

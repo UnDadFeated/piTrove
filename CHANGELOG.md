@@ -1,3 +1,13 @@
+### Release v18.4.3 — Media integrity, controller privacy, and recovery
+
+- Incomplete media scans preserve the playlist and cache. Shutdown cancels scan waits and joins the watchman before teardown.
+- Legacy SQLite media caches migrate in place. A busy database stays on disk, and replaced media refreshes metadata while retaining cooldown history.
+- Configured controller keys protect media previews, saved screenshots, and calendar details. Public pairing status omits filenames and broker addresses when a key is required. Controller writes check browser origin metadata.
+- Preview and screenshot responses share a bounded stream. Dashboard polling reports disk space directly without starting a shell.
+- MQTT publish and subscribe use the same TLS settings and stop their own child processes. Publisher payloads remain intact when the broker stalls or exits.
+- Updates verify the image ID and health before reporting success and roll back on startup failure. Watchdog recovery shares a cooldown and refreshes only the media mount.
+- Installer updates preserve the current branch and local changes. Heartbeat checks reject malformed and future timestamps. Build context excludes runtime backups and screenshots, and the security workflow pins its scanner action.
+
 ### Release v18.4.2 — Full-width chores clock and audit fixes
 - The clock fills its available space, including AM/PM, with a small margin on both sides. The header reserves room for at least one complete chore card when the column height permits it.
 - Chore titles and assignee names use the same 14px body type as calendar events at 1080p. Calendar and chore labels use UTF-8 aware shortening, and panel clipping keeps content inside the matte and above the ticker.

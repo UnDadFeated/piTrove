@@ -16,14 +16,17 @@
 #include <unistd.h>
 #include <sys/types.h>
 #include <sys/wait.h>
+#include <spawn.h>
+#include <cerrno>
+#include <memory>
 #include <signal.h>
 #include <fcntl.h>
 #include <format>
 
+extern char** environ;
+
 static std::jthread g_mqtt_thread;
-static std::mutex g_mqtt_mtx;
-static pid_t g_mqtt_pid = -1;
-static int g_mqtt_pipe_fd = -1;
+static std::mutex g_mqtt_lifecycle_mtx;
 
 struct MqttPubRequest {
     std::vector<std::string> args;
@@ -31,116 +34,115 @@ struct MqttPubRequest {
 };
 static std::queue<MqttPubRequest> g_pub_queue;
 static std::mutex g_pub_mtx;
-static std::condition_variable g_pub_cv;
+static std::condition_variable_any g_pub_cv;
 static std::jthread g_pub_worker_thread;
 static std::atomic<bool> g_pub_worker_running{false};
 
-static void pub_worker_loop() {
-    g_logger.info("MQTT Publisher worker thread started");
-    while (g_pub_worker_running.load()) {
-        MqttPubRequest req;
-        {
-            std::unique_lock<std::mutex> lk(g_pub_mtx);
-            g_pub_cv.wait(lk, []() { return !g_pub_queue.empty() || !g_pub_worker_running.load(); });
-            if (!g_pub_worker_running.load() && g_pub_queue.empty()) {
-                break;
-            }
-            if (!g_pub_queue.empty()) {
-                req = std::move(g_pub_queue.front());
-                g_pub_queue.pop();
-            }
-        }
-        if (!req.args.empty()) {
-            int pipefds[2];
-            if (pipe(pipefds) == 0) {
-                pid_t pid = fork();
-                if (pid == 0) {
-                    dup2(pipefds[0], STDIN_FILENO);
-                    close(pipefds[0]);
-                    close(pipefds[1]);
-                    int devnull = open("/dev/null", O_WRONLY);
-                    if (devnull >= 0) {
-                        dup2(devnull, STDOUT_FILENO);
-                        dup2(devnull, STDERR_FILENO);
-                        close(devnull);
-                    }
-                    std::vector<char*> c_argv;
-                    for (const auto& a : req.args) c_argv.push_back(const_cast<char*>(a.c_str()));
-                    c_argv.push_back(nullptr);
-                    execvp(c_argv[0], c_argv.data());
-                    _exit(1);
-                } else if (pid > 0) {
-                    close(pipefds[0]);
-                    if (!req.payload.empty()) {
-                        ssize_t written = write(pipefds[1], req.payload.data(), req.payload.size());
-                        (void)written;
-                    }
-                    close(pipefds[1]);
-                    int status = 0;
-                    waitpid(pid, &status, 0);
-                } else {
-                    close(pipefds[0]);
-                    close(pipefds[1]);
-                }
-            }
-        }
-    }
-    g_logger.info("MQTT Publisher worker thread stopped");
+// Spawn with file actions so a child of this multithreaded process never runs
+// C++ code or inherits the frame's display, database, and listening descriptors.
+static pid_t spawn_mosquitto(const std::vector<std::string>& args, int input, int output) {
+    std::vector<char*> argv;
+    argv.reserve(args.size() + 1);
+    for (const auto& arg : args) argv.push_back(const_cast<char*>(arg.c_str()));
+    argv.push_back(nullptr);
+
+    posix_spawn_file_actions_t actions;
+    if (posix_spawn_file_actions_init(&actions) != 0) return -1;
+    int result = input >= 0
+        ? posix_spawn_file_actions_adddup2(&actions, input, STDIN_FILENO)
+        : posix_spawn_file_actions_addopen(&actions, STDIN_FILENO, "/dev/null", O_RDONLY, 0);
+    if (result == 0) result = output >= 0
+        ? posix_spawn_file_actions_adddup2(&actions, output, STDOUT_FILENO)
+        : posix_spawn_file_actions_addopen(&actions, STDOUT_FILENO, "/dev/null", O_WRONLY, 0);
+    if (result == 0) result = posix_spawn_file_actions_addopen(&actions, STDERR_FILENO, "/dev/null", O_WRONLY, 0);
+    if (result == 0) result = posix_spawn_file_actions_addclosefrom_np(&actions, 3);
+    pid_t pid = -1;
+    if (result == 0) result = posix_spawnp(&pid, argv.front(), &actions, nullptr, argv.data(), environ);
+    posix_spawn_file_actions_destroy(&actions);
+    return result == 0 ? pid : -1;
 }
 
-static void ensure_pub_worker_running() {
-    std::lock_guard<std::mutex> lk(g_pub_mtx);
-    if (!g_running.load()) return;
-    if (!g_pub_worker_running.load()) {
-        if (g_pub_worker_thread.joinable()) {
-            g_pub_worker_thread.join();
+static bool wait_for_mosquitto(pid_t pid, std::chrono::seconds timeout, std::stop_token stop) {
+    const auto deadline = std::chrono::steady_clock::now() + timeout;
+    int status = 0;
+    do {
+        const auto result = waitpid(pid, &status, WNOHANG);
+        if (result == pid) return WIFEXITED(status) && WEXITSTATUS(status) == 0;
+        if (result < 0 && errno != EINTR) return false;
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    } while (!stop.stop_requested() && g_running.load() && std::chrono::steady_clock::now() < deadline);
+    kill(pid, SIGKILL);
+    while (waitpid(pid, &status, 0) < 0 && errno == EINTR) {}
+    return false;
+}
+
+// Called with a config snapshot held by the caller.
+static std::vector<std::string> mosquitto_args(const char* command, const Config& cfg) {
+    std::vector<std::string> args = {command, "-h", cfg.mqtt_broker, "-p", std::to_string(cfg.mqtt_port)};
+    if (!cfg.mqtt_user.empty()) args.insert(args.end(), {"-u", cfg.mqtt_user});
+    if (!cfg.mqtt_pass.empty()) args.insert(args.end(), {"-P", cfg.mqtt_pass});
+    if (cfg.mqtt_tls_enabled) {
+        if (cfg.mqtt_ca_cert.empty()) args.push_back("--tls-use-os-certs");
+        else args.insert(args.end(), {"--cafile", cfg.mqtt_ca_cert});
+        args.insert(args.end(), {"--tls-version", "tlsv1.2"});
+    }
+    return args;
+}
+
+static void pub_worker_loop(std::stop_token stop) {
+    g_logger.info("MQTT publisher started");
+    while (true) {
+        MqttPubRequest req;
+        {
+            std::unique_lock lock(g_pub_mtx);
+            if (!g_pub_cv.wait(lock, stop, [] { return !g_pub_queue.empty(); }) ||
+                stop.stop_requested()) break;
+            req = std::move(g_pub_queue.front());
+            g_pub_queue.pop();
         }
-        g_pub_worker_running.store(true);
-        if (!spawn_thread_safe(g_pub_worker_thread, "mqtt_pub_worker", pub_worker_loop)) {
-            g_pub_worker_running.store(false);
+
+        // A private, unlinked file preserves the full payload even if the CLI
+        // exits early. Writing to a pipe could block or raise SIGPIPE.
+        const auto close_file = [](FILE* file) { fclose(file); };
+        std::unique_ptr<FILE, decltype(close_file)> payload(tmpfile(), close_file);
+        if (!payload ||
+            fwrite(req.payload.data(), 1, req.payload.size(), payload.get()) != req.payload.size() ||
+            fseek(payload.get(), 0, SEEK_SET) != 0) {
+            g_logger.warn("MQTT: Could not prepare publish payload");
+            continue;
+        }
+        const auto pid = spawn_mosquitto(req.args, fileno(payload.get()), -1);
+        payload.reset();
+        if (pid < 0 || !wait_for_mosquitto(pid, std::chrono::seconds(10), stop)) {
+            if (!stop.stop_requested() && g_running.load())
+                g_logger.warn("MQTT: Publish failed or timed out");
         }
     }
+    g_logger.info("MQTT publisher stopped");
 }
 
 void mqtt_publish(const std::string& topic, const std::string& payload, bool retain) {
-    bool enabled;
-    std::string broker;
-    int port = 1883;
-    std::string user, pass;
+    std::vector<std::string> args;
     {
-        std::shared_lock<std::shared_mutex> lk(g_config_mtx);
-        enabled = g_cfg.mqtt_enabled;
-        broker = g_cfg.mqtt_broker;
-        port = g_cfg.mqtt_port;
-        user = g_cfg.mqtt_user;
-        pass = g_cfg.mqtt_pass;
+        std::shared_lock lock(g_config_mtx);
+        if (!g_cfg.mqtt_enabled) return;
+        args = mosquitto_args("mosquitto_pub", g_cfg);
     }
-    if (!enabled) return;
+    if (retain) args.push_back("-r");
+    args.insert(args.end(), {"-t", topic, "-s"});
 
-    std::vector<std::string> args = {"mosquitto_pub", "-h", broker, "-p", std::format("{}", port)};
-    if (!user.empty()) {
-        args.push_back("-u");
-        args.push_back(user);
-    }
-    if (!pass.empty()) {
-        args.push_back("-P");
-        args.push_back(pass);
-    }
-    if (retain) {
-        args.push_back("-r");
-    }
-    args.push_back("-t");
-    args.push_back(topic);
-    args.push_back("-s");
-
-    ensure_pub_worker_running();
     {
-        std::lock_guard<std::mutex> lk(g_pub_mtx);
+        std::lock_guard lock(g_pub_mtx);
+        if (!g_running.load()) return;
+        if (!g_pub_worker_running.load()) {
+            if (!spawn_thread_safe(g_pub_worker_thread, "mqtt_pub_worker", pub_worker_loop)) return;
+            g_pub_worker_running.store(true);
+        }
         if (g_pub_queue.size() >= 50) {
-            g_logger.warn("MQTT: Outbound queue cap reached (50). Dropping publish request for topic '{}'", topic.c_str());
+            g_logger.warn("MQTT: Outbound queue cap reached (50). Dropping publish request for topic '{}'", topic);
             return;
         }
-        g_pub_queue.push({args, payload});
+        g_pub_queue.push({std::move(args), payload});
     }
     g_pub_cv.notify_one();
 }
@@ -224,280 +226,160 @@ void start_mqtt_client() {
         std::shared_lock<std::shared_mutex> lk(g_config_mtx);
         enabled = g_cfg.mqtt_enabled;
     }
-    if (!enabled) return;
+    if (!enabled || !g_running.load()) return;
 
-    {
-        std::lock_guard<std::mutex> lk(g_mqtt_mtx);
-        if (g_mqtt_thread.joinable()) return;
-    }
-    
-    std::jthread t;
-    if (spawn_thread_safe(t, "mqtt", []() {
-        while (g_running.load()) {
-            std::string broker, prefix, sensor_topic;
-            int port = 1883;
+    std::lock_guard lifecycle(g_mqtt_lifecycle_mtx);
+    if (g_mqtt_thread.joinable()) return;
+    spawn_thread_safe(g_mqtt_thread, "mqtt", [](std::stop_token stop) {
+        const auto active = [&] { return g_running.load() && !stop.stop_requested(); };
+        const auto retry = [&] {
+            for (int i = 0; i < 100 && active(); ++i)
+                std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        };
+        while (active()) {
+            std::string prefix, sensor_topic;
+            std::vector<std::string> args;
             {
-                std::shared_lock<std::shared_mutex> lk(g_config_mtx);
-                broker = g_cfg.mqtt_broker;
-                port = g_cfg.mqtt_port;
+                std::shared_lock lock(g_config_mtx);
+                args = mosquitto_args("mosquitto_sub", g_cfg);
                 prefix = g_cfg.mqtt_topic_prefix;
                 sensor_topic = g_cfg.mqtt_motionsensor_topic;
             }
-            
-            std::vector<std::string> args = {"mosquitto_sub", "-h", broker, "-p", std::format("{}", port)};
-            std::string user, pass;
-            {
-                std::shared_lock<std::shared_mutex> lk(g_config_mtx);
-                user = g_cfg.mqtt_user;
-                pass = g_cfg.mqtt_pass;
-            }
-            if (!user.empty()) {
-                args.push_back("-u");
-                args.push_back(user);
-            }
-            if (!pass.empty()) {
-                args.push_back("-P");
-                args.push_back(pass);
-            }
-            if (!sensor_topic.empty()) {
-                args.push_back("-t");
-                args.push_back(sensor_topic);
-            }
-            args.push_back("-t");
-            args.push_back(prefix + "/command/#");
-            args.push_back("-F");
-            args.push_back("%t:%p");
+            if (!sensor_topic.empty()) args.insert(args.end(), {"-t", sensor_topic});
+            args.insert(args.end(), {"-t", prefix + "/command/#", "-F", "%t:%p"});
 
-                        // Capture TLS config under lock BEFORE fork (fork-safety)
-            bool tls_enabled = false;
-            std::string ca_cert;
-            {
-                std::shared_lock lk(g_config_mtx);
-                tls_enabled = g_cfg.mqtt_tls_enabled;
-                ca_cert = g_cfg.mqtt_ca_cert;
-            }
-
-            if (tls_enabled && !ca_cert.empty()) {
-                args.push_back("--cafile");
-                args.push_back(ca_cert);
-                args.push_back("--tls-version");
-                args.push_back("tlsv1.2");
-            }
-
-std::vector<char*> argv;
-            argv.reserve(args.size() + 1);
-            for (const auto& a : args) {
-                argv.push_back(const_cast<char*>(a.c_str()));
-            }
-            argv.push_back(nullptr);
-
-            g_logger.info("Starting MQTT Subscriber via fork+execvp");
-            
             int pipefds[2];
-            if (pipe(pipefds) < 0) {
-                trigger_error(701); // E701: MQTT_BROKER_UNREACHABLE
-                g_logger.error("MQTT: pipe creation failed. Retrying in 10 seconds...");
-                for (int i = 0; i < 100 && g_running.load(); ++i) {
-                    std::this_thread::sleep_for(std::chrono::milliseconds(100));
-                }
+            if (pipe2(pipefds, O_CLOEXEC) < 0) {
+                trigger_error(701);
+                g_logger.error("MQTT: Pipe creation failed. Retrying in 10 seconds.");
+                retry();
                 continue;
             }
-
-            
-            pid_t pid = fork();
+            const auto pid = spawn_mosquitto(args, -1, pipefds[1]);
+            close(pipefds[1]);
             if (pid < 0) {
                 close(pipefds[0]);
-                close(pipefds[1]);
-                trigger_error(701); // E701: MQTT_BROKER_UNREACHABLE
-                g_logger.error("MQTT: fork failed. Retrying in 10 seconds...");
-                for (int i = 0; i < 100 && g_running.load(); ++i) {
-                    std::this_thread::sleep_for(std::chrono::milliseconds(100));
-                }
+                trigger_error(701);
+                g_logger.error("MQTT: Could not start the subscriber. Retrying in 10 seconds.");
+                retry();
                 continue;
             }
-
-            if (pid == 0) {
-                // Child process: strictly use local variables, NO g_cfg access
-                dup2(pipefds[1], STDOUT_FILENO);
-                int devnull = open("/dev/null", O_WRONLY);
-                if (devnull >= 0) {
-                    dup2(devnull, STDERR_FILENO);
-                    close(devnull);
-                }
-                close(pipefds[0]);
-                close(pipefds[1]);
-                int max_fd = sysconf(_SC_OPEN_MAX);
-                if (max_fd < 0) max_fd = 1024;
-                for (int i = 3; i < max_fd; ++i) close(i);
-                
-                execvp(argv[0], argv.data());
-                _exit(1);
-            }
-            // Parent process
-            close(pipefds[1]);
-
-            {
-                std::lock_guard<std::mutex> lk(g_mqtt_mtx);
-                g_mqtt_pid = pid;
-                g_mqtt_pipe_fd = pipefds[0];
-            }
-
             FILE* fp = fdopen(pipefds[0], "r");
             if (!fp) {
                 close(pipefds[0]);
-                g_logger.error("MQTT: fdopen failed. Retrying in 10 seconds...");
-                {
-                    std::lock_guard<std::mutex> lk(g_mqtt_mtx);
-                    g_mqtt_pid = -1;
-                    g_mqtt_pipe_fd = -1;
-                }
-                kill(pid, SIGTERM);
-                int status;
-                waitpid(pid, &status, 0);
+                kill(pid, SIGKILL);
+                wait_for_mosquitto(pid, std::chrono::seconds(2), stop);
                 trigger_error(701);
-                for (int i = 0; i < 100 && g_running.load(); ++i) {
-                    std::this_thread::sleep_for(std::chrono::milliseconds(100));
-                }
+                retry();
                 continue;
             }
 
-            // Clear active MQTT connection error upon successful startup
-            if (is_error_active(701)) {
-                clear_error(701);
-            }
-
-            // Publish Home Assistant auto-discovery configs
-            publish_ha_discovery();
-
-            // Publish birth (online) message
-            mqtt_publish(prefix + "/status", R"({"state":"online"})", true);
-            
-            // Publish current state
-            mqtt_publish(prefix + "/status/screen", g_screen_blanked.load() ? "OFF" : "ON", true);
-
-            // Keep track of active motion timestamp initially
-            g_last_motion_time.store(static_cast<int64_t>(std::time(nullptr)));
-
-            char buf[4096];
-            while (g_running.load() && fgets(buf, sizeof(buf), fp)) {
-                std::string line(buf);
-                line = trim(line);
-                if (line.empty()) continue;
-
-                size_t colon = line.find(':');
-                if (colon == std::string::npos) continue;
-
-                std::string topic = line.substr(0, colon);
-                std::string payload = line.substr(colon + 1);
-
-                g_logger.info("MQTT Received on [{}]: {}", topic.c_str(), payload.c_str());
-
-                if (topic == sensor_topic) {
-                    if (payload == "ON" || payload == "1" || payload == "true" || payload == "motion") {
-                        g_last_motion_time.store(static_cast<int64_t>(std::time(nullptr)));
-                        if (g_screen_blanked.load()) {
-                            g_logger.info("MQTT motion detected: waking up display");
-                            g_screen_blanked.store(false);
-                            set_display_power(true);
-                            mqtt_publish(prefix + "/status/screen", "ON", true);
-                        }
-                    }
-                } else if (topic == prefix + "/command/next") {
-                    if (payload == "PRESS" || payload == "1" || payload == "true" || payload == "ON" || payload == "next") {
-                        g_logger.info("MQTT remote command: Skip Next");
-                        g_remote_command.store(1);
-                    }
-                } else if (topic == prefix + "/command/prev") {
-                    if (payload == "PRESS" || payload == "1" || payload == "true" || payload == "prev") {
-                        g_logger.info("MQTT remote command: Prev Slide");
-                        g_remote_command.store(2);
-                    }
-                } else if (topic == prefix + "/command/pause") {
-                    if (payload == "PRESS" || payload == "1" || payload == "true" || payload == "pause") {
-                        g_logger.info("MQTT remote command: Play/Pause Toggle");
-                        g_remote_command.store(3);
-                    }
-                } else if (topic == prefix + "/command/screen") {
-                    if (payload == "OFF" || payload == "0" || payload == "false") {
-                        if (!g_screen_blanked.load()) {
-                            g_logger.info("MQTT remote command: Screen OFF");
-                            g_screen_blanked.store(true);
-                            set_display_power(false);
-                            mqtt_publish(prefix + "/status/screen", "OFF", true);
-                        }
-                    } else if (payload == "ON" || payload == "1" || payload == "true") {
-                        if (g_screen_blanked.load()) {
-                            g_logger.info("MQTT remote command: Screen ON");
-                            g_screen_blanked.store(false);
-                            set_display_power(true);
-                            g_last_motion_time.store(static_cast<int64_t>(std::time(nullptr)));
-                            mqtt_publish(prefix + "/status/screen", "ON", true);
-                        }
-                    }
-                }
-            }
-
-            fclose(fp);
             {
-                std::lock_guard<std::mutex> lk(g_mqtt_mtx);
-                g_mqtt_pipe_fd = -1;
-                if (g_mqtt_pid == pid) {
-                    int status;
-                    waitpid(pid, &status, 0);
-                    g_mqtt_pid = -1;
+                // Wake fgets on stop without racing the worker's waitpid.
+                std::stop_callback cancel_subscriber(stop, [pid] { kill(pid, SIGKILL); });
+                // Clear active MQTT connection error upon successful startup
+                if (is_error_active(701)) {
+                    clear_error(701);
                 }
-            }
+
+                // Publish Home Assistant auto-discovery configs
+                publish_ha_discovery();
+
+                // Publish birth (online) message
+                mqtt_publish(prefix + "/status", R"({"state":"online"})", true);
             
-            if (g_running.load()) {
-                g_logger.warn("MQTT subscriber connection dropped. Retrying in 10 seconds...");
-                trigger_error(701); // E701: MQTT_BROKER_UNREACHABLE
-                for (int i = 0; i < 100 && g_running.load(); ++i) {
-                    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+                // Publish current state
+                mqtt_publish(prefix + "/status/screen", g_screen_blanked.load() ? "OFF" : "ON", true);
+
+                // Keep track of active motion timestamp initially
+                g_last_motion_time.store(static_cast<int64_t>(std::time(nullptr)));
+
+                char buf[4096];
+                while (active() && fgets(buf, sizeof(buf), fp)) {
+                    std::string line(buf);
+                    line = trim(line);
+                    if (line.empty()) continue;
+
+                    size_t colon = line.find(':');
+                    if (colon == std::string::npos) continue;
+
+                    std::string topic = line.substr(0, colon);
+                    std::string payload = line.substr(colon + 1);
+
+                    g_logger.info("MQTT Received on [{}]: {}", topic.c_str(), payload.c_str());
+
+                    if (topic == sensor_topic) {
+                        if (payload == "ON" || payload == "1" || payload == "true" || payload == "motion") {
+                            g_last_motion_time.store(static_cast<int64_t>(std::time(nullptr)));
+                            if (g_screen_blanked.load()) {
+                                g_logger.info("MQTT motion detected: waking up display");
+                                g_screen_blanked.store(false);
+                                set_display_power(true);
+                                mqtt_publish(prefix + "/status/screen", "ON", true);
+                            }
+                        }
+                    } else if (topic == prefix + "/command/next") {
+                        if (payload == "PRESS" || payload == "1" || payload == "true" || payload == "ON" || payload == "next") {
+                            g_logger.info("MQTT remote command: Skip Next");
+                            g_remote_command.store(1);
+                        }
+                    } else if (topic == prefix + "/command/prev") {
+                        if (payload == "PRESS" || payload == "1" || payload == "true" || payload == "prev") {
+                            g_logger.info("MQTT remote command: Prev Slide");
+                            g_remote_command.store(2);
+                        }
+                    } else if (topic == prefix + "/command/pause") {
+                        if (payload == "PRESS" || payload == "1" || payload == "true" || payload == "pause") {
+                            g_logger.info("MQTT remote command: Play/Pause Toggle");
+                            g_remote_command.store(3);
+                        }
+                    } else if (topic == prefix + "/command/screen") {
+                        if (payload == "OFF" || payload == "0" || payload == "false") {
+                            if (!g_screen_blanked.load()) {
+                                g_logger.info("MQTT remote command: Screen OFF");
+                                g_screen_blanked.store(true);
+                                set_display_power(false);
+                                mqtt_publish(prefix + "/status/screen", "OFF", true);
+                            }
+                        } else if (payload == "ON" || payload == "1" || payload == "true") {
+                            if (g_screen_blanked.load()) {
+                                g_logger.info("MQTT remote command: Screen ON");
+                                g_screen_blanked.store(false);
+                                set_display_power(true);
+                                g_last_motion_time.store(static_cast<int64_t>(std::time(nullptr)));
+                                mqtt_publish(prefix + "/status/screen", "ON", true);
+                            }
+                        }
+                    }
                 }
+
+                fclose(fp);
+            }
+            // This worker owns reaping from spawn to exit.
+            wait_for_mosquitto(pid, std::chrono::seconds(2), stop);
+            if (active()) {
+                g_logger.warn("MQTT subscriber connection dropped. Retrying in 10 seconds.");
+                trigger_error(701);
+                retry();
             }
         }
-        g_logger.info("MQTT subscriber thread exiting.");
-    })) {
-        g_mqtt_thread = std::move(t);
-    }
+        g_logger.info("MQTT subscriber stopped");
+    });
 }
 
 void stop_mqtt_client() {
-    pid_t pid_to_kill = -1;
+    std::lock_guard lifecycle(g_mqtt_lifecycle_mtx);
+    g_mqtt_thread.request_stop();
+    if (g_mqtt_thread.joinable()) g_mqtt_thread.join();
+
+    std::jthread publisher;
     {
-        std::lock_guard<std::mutex> lk(g_mqtt_mtx);
-        if (g_mqtt_pid > 0) {
-            pid_to_kill = g_mqtt_pid;
-            g_mqtt_pid = -1;
-        }
-    }
-    if (pid_to_kill > 0) {
-        kill(pid_to_kill, SIGTERM);
-        int status;
-        for (int i = 0; i < 30; i++) {   // 3 second grace
-            if (waitpid(pid_to_kill, &status, WNOHANG) > 0) break;
-            std::this_thread::sleep_for(std::chrono::milliseconds(100));
-        }
-        kill(pid_to_kill, SIGKILL);       // ensure dead
-        waitpid(pid_to_kill, &status, 0);
-    }
-    if (g_mqtt_thread.joinable()) {
-        g_mqtt_thread.join();
-    }
-    
-    // Stop the publisher worker thread cleanly
-    std::jthread to_join;
-    {
-        std::lock_guard<std::mutex> lk(g_pub_mtx);
-        if (g_pub_worker_running.load()) {
-            g_pub_worker_running.store(false);
-            if (g_pub_worker_thread.joinable()) {
-                to_join = std::move(g_pub_worker_thread);
-            }
-        }
+        std::lock_guard lock(g_pub_mtx);
+        g_pub_worker_running.store(false);
+        g_pub_queue = {};
+        publisher = std::move(g_pub_worker_thread);
+        publisher.request_stop();
     }
     g_pub_cv.notify_all();
-    if (to_join.joinable()) {
-        to_join.join();
-    }
+    if (publisher.joinable()) publisher.join();
 }

@@ -9,62 +9,63 @@
 #include <cstdio>
 #include <climits>
 #include <format>
+#include <unordered_set>
+
+namespace {
+int check_cache_integrity(sqlite3* db) {
+    sqlite3_stmt* stmt = nullptr;
+    int result = sqlite3_prepare_v2(db, "PRAGMA quick_check(1)", -1, &stmt, nullptr);
+    if (result == SQLITE_OK) {
+        result = sqlite3_step(stmt);
+        if (result == SQLITE_ROW) {
+            const auto* value = sqlite3_column_text(stmt, 0);
+            result = !value ? SQLITE_ERROR :
+                     std::strcmp(reinterpret_cast<const char*>(value), "ok") == 0
+                         ? SQLITE_OK : SQLITE_CORRUPT;
+        }
+    }
+    sqlite3_finalize(stmt);
+    return result & 0xff;
+}
+}
 
 bool CacheManager::open(const std::string& dir) {
-    g_logger.info("[TRACE] CacheManager::open dir={}", dir.c_str());
     std::error_code ec;
     std::filesystem::create_directories(dir, ec);
-    [[unlikely]]
     if (ec) {
-        g_logger.error("CacheManager: Failed to create directories {}: {}", dir.c_str(), ec.message().c_str());
-    }
-
-    std::string path = dir + "/cache.db";
-    if (std::filesystem::exists(path, ec) && !ec && !verify_database(path)) {
-        g_logger.warn("Cache database at {} has an outdated schema or is corrupt. Purging to rebuild...", path.c_str());
-        std::filesystem::remove(path, ec);
-        std::filesystem::remove(path + "-wal", ec);
-        std::filesystem::remove(path + "-shm", ec);
-    }
-
-    int flags = SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_FULLMUTEX;
-    if (sqlite3_open_v2(path.c_str(), &db, flags, nullptr) != SQLITE_OK) {
-        if (db) { sqlite3_close(db); db = nullptr; }
-    [[unlikely]]
-        trigger_error(413); // E413: SQLITE_OPEN_FAILED
+        g_logger.error("CacheManager: Failed to create directories {}: {}", dir, ec.message());
+        trigger_error(413);
         return false;
     }
-    sqlite3_busy_timeout(db, 5000);
 
-    // Proactive SQLite integrity check
-    sqlite3_stmt* stmt = nullptr;
-    if (sqlite3_prepare_v2(db, "PRAGMA integrity_check;", -1, &stmt, nullptr) == SQLITE_OK) {
-        if (sqlite3_step(stmt) == SQLITE_ROW) {
-            const char* result = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0));
-            if (result && std::string(result) != "ok") {
-    [[unlikely]]
-                trigger_error(401); // E401: SQLITE_DB_CORRUPTED
-                sqlite3_finalize(stmt);
-                stmt = nullptr;
-                sqlite3_close(db);
-                db = nullptr;
-                std::remove(path.c_str());
-                std::string wal = path + "-wal";
-                std::string shm = path + "-shm";
-                std::remove(wal.c_str());
-                std::remove(shm.c_str());
-                if (sqlite3_open_v2(path.c_str(), &db, flags, nullptr) != SQLITE_OK) {
-                    if (db) { sqlite3_close(db); db = nullptr; }
-    [[unlikely]]
-                    trigger_error(413); // E413: SQLITE_OPEN_FAILED
-                    return false;
-                }
-                sqlite3_busy_timeout(db, 5000);
+    const std::string path = dir + "/cache.db";
+    const auto connect = [&] {
+        constexpr int flags = SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_FULLMUTEX;
+        if (sqlite3_open_v2(path.c_str(), &db, flags, nullptr) != SQLITE_OK) {
+            close();
+            trigger_error(413);
+            return false;
+        }
+        sqlite3_busy_timeout(db, 5000);
+        return true;
+    };
+
+    if (!connect()) return false;
+    const int integrity = check_cache_integrity(db);
+    if (integrity != SQLITE_OK) {
+        g_logger.warn("Cache check failed (SQLite {}).", integrity);
+        close();
+        if (integrity != SQLITE_CORRUPT && integrity != SQLITE_NOTADB) return false;
+        trigger_error(401);
+        g_logger.warn("Cache database is corrupt. Rebuilding the media index.");
+        for (const auto* suffix : {"", "-wal", "-shm"}) {
+            std::filesystem::remove(path + suffix, ec);
+            if (ec) {
+                g_logger.error("CacheManager: Could not remove a corrupt cache file: {}", ec.message());
+                return false;
             }
         }
-        if (stmt) {
-            sqlite3_finalize(stmt);
-        }
+        if (!connect()) return false;
     }
 
     char* err = nullptr;
@@ -104,38 +105,38 @@ bool CacheManager::open(const std::string& dir) {
         return false;
     }
 
-    // Safe migration for existing databases
-    if (sqlite3_exec(db, "ALTER TABLE cache ADD COLUMN last_shown INTEGER DEFAULT 0",
-                  nullptr, nullptr, &err) != SQLITE_OK) {
-        if (err) sqlite3_free(err);
+    // Existing databases keep their rows and cooldowns when new columns are added.
+    std::unordered_set<std::string> columns;
+    sqlite3_stmt* schema = nullptr;
+    int schema_result = sqlite3_prepare_v2(db, "PRAGMA table_info(cache)", -1, &schema, nullptr);
+    if (schema_result == SQLITE_OK) {
+        while ((schema_result = sqlite3_step(schema)) == SQLITE_ROW) {
+            if (const auto* name = sqlite3_column_text(schema, 1))
+                columns.emplace(reinterpret_cast<const char*>(name));
+        }
     }
-    if (sqlite3_exec(db, "ALTER TABLE cache ADD COLUMN bad INT DEFAULT 0",
-                  nullptr, nullptr, &err) != SQLITE_OK) {
-        if (err) sqlite3_free(err);
-    }
-    if (sqlite3_exec(db, "ALTER TABLE cache ADD COLUMN is_camera INT DEFAULT -1",
-                  nullptr, nullptr, &err) != SQLITE_OK) {
-        if (err) sqlite3_free(err);
-    }
-    if (sqlite3_exec(db, "ALTER TABLE cache ADD COLUMN creation_time INTEGER DEFAULT 0",
-                  nullptr, nullptr, &err) != SQLITE_OK) {
-        if (err) sqlite3_free(err);
-    }
-    if (sqlite3_exec(db, "ALTER TABLE cache ADD COLUMN preprocessed INTEGER DEFAULT 0",
-                  nullptr, nullptr, &err) != SQLITE_OK) {
-        if (err) sqlite3_free(err);
-    }
-    if (sqlite3_exec(db, "ALTER TABLE cache ADD COLUMN lat REAL DEFAULT 0.0",
-                  nullptr, nullptr, &err) != SQLITE_OK) {
-        if (err) sqlite3_free(err);
-    }
-    if (sqlite3_exec(db, "ALTER TABLE cache ADD COLUMN lon REAL DEFAULT 0.0",
-                  nullptr, nullptr, &err) != SQLITE_OK) {
-        if (err) sqlite3_free(err);
-    }
-    if (sqlite3_exec(db, "ALTER TABLE cache ADD COLUMN has_gps INT DEFAULT 0",
-                  nullptr, nullptr, &err) != SQLITE_OK) {
-        if (err) sqlite3_free(err);
+    sqlite3_finalize(schema);
+
+    const auto migrate = [&](const char* name, const char* definition) {
+        if (columns.contains(name)) return true;
+        const auto sql = std::format("ALTER TABLE cache ADD COLUMN {} {}", name, definition);
+        return sqlite3_exec(db, sql.c_str(), nullptr, nullptr, nullptr) == SQLITE_OK;
+    };
+    if (schema_result != SQLITE_DONE ||
+        !migrate("framerate", "REAL DEFAULT 0") ||
+        !migrate("last_shown", "INTEGER DEFAULT 0") ||
+        !migrate("bad", "INT DEFAULT 0") ||
+        !migrate("timestamp", "INTEGER DEFAULT 0") ||
+        !migrate("is_camera", "INT DEFAULT -1") ||
+        !migrate("creation_time", "INTEGER DEFAULT 0") ||
+        !migrate("preprocessed", "INT DEFAULT 0") ||
+        !migrate("lat", "REAL DEFAULT 0.0") ||
+        !migrate("lon", "REAL DEFAULT 0.0") ||
+        !migrate("has_gps", "INT DEFAULT 0")) {
+        g_logger.error("Cache migration failed: {}", sqlite3_errmsg(db));
+        trigger_error(407);
+        close();
+        return false;
     }
 
     sqlite3_finalize(stmt_upsert); stmt_upsert = nullptr;
@@ -148,7 +149,10 @@ bool CacheManager::open(const std::string& dir) {
         "ON CONFLICT(path) DO UPDATE SET "
         "w=excluded.w, h=excluded.h, exif=excluded.exif, "
         "duration=excluded.duration, framerate=excluded.framerate, bad=excluded.bad, "
-        "last_shown=MAX(cache.last_shown, excluded.last_shown), timestamp=excluded.timestamp, is_camera=excluded.is_camera, creation_time=excluded.creation_time, preprocessed=excluded.preprocessed, lat=excluded.lat, lon=excluded.lon, has_gps=excluded.has_gps",
+        "last_shown=MAX(cache.last_shown, excluded.last_shown), "
+        "timestamp=CASE WHEN excluded.timestamp=0 THEN cache.timestamp ELSE excluded.timestamp END, "
+        "is_camera=excluded.is_camera, creation_time=excluded.creation_time, "
+        "preprocessed=excluded.preprocessed, lat=excluded.lat, lon=excluded.lon, has_gps=excluded.has_gps",
         -1, &stmt_upsert, nullptr) != SQLITE_OK) {
     [[unlikely]]
         trigger_error(410); // E410: SQLITE_PREPARE_STMT_FAIL
@@ -310,22 +314,26 @@ bool CacheManager::load_cached(MediaItem& mi) {
     bool found = false;
     sqlite3_bind_text(stmt_load, 1, mi.path.c_str(), -1, SQLITE_TRANSIENT);
     if (sqlite3_step(stmt_load) == SQLITE_ROW) {
-        int64_t col_w = sqlite3_column_int64(stmt_load, 0);
-        int64_t col_h = sqlite3_column_int64(stmt_load, 1);
-        mi.width      = (int)std::min(col_w, (int64_t)INT_MAX);
-        mi.height     = (int)std::min(col_h, (int64_t)INT_MAX);
-        mi.duration   = sqlite3_column_double(stmt_load, 2);
-        mi.framerate        = sqlite3_column_double(stmt_load, 3);
-        mi.exif_rotation = sqlite3_column_int(stmt_load, 4);
-        int bad = sqlite3_column_int(stmt_load, 5);
         mi.last_shown = sqlite3_column_int64(stmt_load, 6);
-        mi.modified_time = sqlite3_column_int64(stmt_load, 7);
-        mi.is_camera  = sqlite3_column_int(stmt_load, 8);
-        mi.creation_time = sqlite3_column_int64(stmt_load, 9);
-        mi.latitude   = sqlite3_column_double(stmt_load, 10);
-        mi.longitude  = sqlite3_column_double(stmt_load, 11);
-        mi.has_gps    = (sqlite3_column_int(stmt_load, 12) != 0);
-        if (bad == 0) found = true;
+        const auto modified = sqlite3_column_int64(stmt_load, 7);
+        const bool same_file = mi.modified_time == 0 || mi.modified_time == modified;
+        if (same_file) {
+            int64_t col_w = sqlite3_column_int64(stmt_load, 0);
+            int64_t col_h = sqlite3_column_int64(stmt_load, 1);
+            mi.width      = (int)std::min(col_w, (int64_t)INT_MAX);
+            mi.height     = (int)std::min(col_h, (int64_t)INT_MAX);
+            mi.duration   = sqlite3_column_double(stmt_load, 2);
+            mi.framerate        = sqlite3_column_double(stmt_load, 3);
+            mi.exif_rotation = sqlite3_column_int(stmt_load, 4);
+            int bad = sqlite3_column_int(stmt_load, 5);
+            mi.modified_time = modified;
+            mi.is_camera  = sqlite3_column_int(stmt_load, 8);
+            mi.creation_time = sqlite3_column_int64(stmt_load, 9);
+            mi.latitude   = sqlite3_column_double(stmt_load, 10);
+            mi.longitude  = sqlite3_column_double(stmt_load, 11);
+            mi.has_gps    = (sqlite3_column_int(stmt_load, 12) != 0);
+            found = bad == 0;
+        }
     }
     sqlite3_reset(stmt_load);
     sqlite3_clear_bindings(stmt_load);
@@ -505,25 +513,6 @@ void CacheManager::reset_all_cooldowns() {
     } else {
         g_logger.info("Successfully reset shown history cooldowns inside database.");
     }
-}
-
-bool verify_database(const std::string& path) {
-    sqlite3* db = nullptr;
-    sqlite3_stmt* stmt = nullptr;
-    bool ok = false;
-    if (sqlite3_open_v2(path.c_str(), &db, SQLITE_OPEN_READONLY, nullptr) != SQLITE_OK) {
-        if (db) { sqlite3_close(db); }
-        return false;
-    }
-    
-    // Check if the table 'cache' exists and has all the required columns
-    const char* sql = "SELECT path, type, w, h, duration, framerate, exif, bad, last_shown, timestamp, is_camera, creation_time, preprocessed FROM cache LIMIT 1;";
-    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) == SQLITE_OK) {
-        ok = true;
-        sqlite3_finalize(stmt);
-    }
-    sqlite3_close(db);
-    return ok;
 }
 
 void CacheManager::seed_error_catalog() {

@@ -33,11 +33,13 @@
 #include <functional>
 #include <fstream>
 #include <cstring>
+#include <strings.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <unistd.h>
 #include <fcntl.h>
 #include <sys/stat.h>
+#include <sys/statvfs.h>
 #include <algorithm>
 #include <filesystem>
 #include <iomanip>
@@ -559,11 +561,10 @@ static std::string escape_json(const std::string& s) {
     return result;
 }
 
-static std::string get_api_status() {
+static std::string get_api_status(bool include_private_details) {
     int idx = 0;
     int total = 0;
-    std::string filename = "None";
-    std::string path;
+    std::string filename;
     std::string type;
     bool shuffle = false;
     bool paused = false;
@@ -573,8 +574,7 @@ static std::string get_api_status() {
         total = std::ssize(g_eligible);
         if (total > 0 && current_idx >= 0 && current_idx < total) {
             idx = current_idx;
-            filename = g_eligible[current_idx].filename;
-            path = g_eligible[current_idx].path;
+            if (include_private_details) filename = g_eligible[current_idx].filename;
             type = g_eligible[current_idx].type;
         }
     }
@@ -589,7 +589,7 @@ static std::string get_api_status() {
         std::lock_guard lk(g_config_mtx);
         shuffle = g_cfg.shuffle;
         mqtt_enabled = g_cfg.mqtt_enabled;
-        mqtt_broker = g_cfg.mqtt_broker;
+        if (include_private_details) mqtt_broker = g_cfg.mqtt_broker;
         mqtt_port = g_cfg.mqtt_port;
         transition_delay = g_cfg.transition_delay;
     }
@@ -649,47 +649,33 @@ static std::string get_api_status() {
             std::string line;
             uint64_t mem_total = 0, mem_available = 0;
             while (std::getline(meminfo, line)) {
-                if (line.find("MemTotal:") == 0) {
-                    mem_total = std::stoull(line.substr(9)) / 1024;
-                } else if (line.find("MemAvailable:") == 0) {
-                    mem_available = std::stoull(line.substr(13)) / 1024;
+                const auto colon = line.find(':');
+                const auto name = std::string_view(line).substr(0, colon);
+                if (name == "MemTotal" || name == "MemAvailable") {
+                    uint64_t kilobytes = 0;
+                    std::istringstream value(line.substr(colon + 1));
+                    if (value >> kilobytes) {
+                        (name == "MemTotal" ? mem_total : mem_available) = kilobytes / 1024;
+                    }
                 }
             }
             meminfo.close();
             if (mem_total > 0) {
-                int used_mb = static_cast<int>(mem_total - mem_available);
-                int total_mb = static_cast<int>(mem_total);
-                int pct = static_cast<int>(100.0 * used_mb / total_mb);
-                mem_str = std::format("{}MB/{}MB ({}%)", used_mb, total_mb, pct);
+                const auto used_mb = mem_total - std::min(mem_total, mem_available);
+                const auto pct = static_cast<int>(100.0 * used_mb / mem_total);
+                mem_str = std::format("{}MB/{}MB ({}%)", used_mb, mem_total, pct);
             }
         }
     }
 
-    // Query disk usage, cached. The dashboard polls /api/status about once a second and
-    // each call previously forked a three-stage shell pipeline (df | tail | tr).
+    // Report the filesystem that backs the app. No subprocess is needed per poll.
     std::string disk_str = "N/A";
-    {
-        static std::mutex disk_mtx;
-        static std::string cached_disk = "N/A";
-        static int64_t cached_at = 0;
-        std::lock_guard lk(disk_mtx);
-        int64_t now = std::chrono::duration_cast<std::chrono::milliseconds>(
-            std::chrono::steady_clock::now().time_since_epoch()).count();
-        if (cached_at == 0 || now - cached_at > 30000) {
-            std::string disk_out;
-            auto read_cmd = popen("df / --output=pcent 2>/dev/null | tail -1 | tr -d ' %'", "r");
-            if (read_cmd) {
-                char buf[256];
-                while (fgets(buf, sizeof(buf), read_cmd)) {
-                    disk_out += buf;
-                }
-                pclose(read_cmd);
-                if (!disk_out.empty() && disk_out.back() == '\n') disk_out.pop_back();
-                cached_disk = disk_out.empty() ? "N/A" : disk_out + "%";
-            }
-            cached_at = now;
-        }
-        disk_str = cached_disk;
+    struct statvfs disk{};
+    if (statvfs("/", &disk) == 0 && disk.f_blocks >= disk.f_bfree) {
+        const auto used = static_cast<long double>(disk.f_blocks - disk.f_bfree);
+        const auto accessible = used + disk.f_bavail;
+        if (accessible > 0)
+            disk_str = std::format("{}%", static_cast<int>(std::ceil(100 * used / accessible)));
     }
 
     // Determine MQTT status string
@@ -868,6 +854,12 @@ static void send_response(int fd, const std::string& status_line, const std::str
     if (http_protocol::send_until(fd, headers, deadline)) http_protocol::send_until(fd, body, deadline);
 }
 
+static bool valid_screenshot_name(std::string_view name) {
+    return name.ends_with(".png") && name.size() <= 255 &&
+           name.find("..") == name.npos && name.find_first_of("/\\") == name.npos &&
+           name.find('\0') == name.npos;
+}
+
 static void handle_screenshot(int fd) {
     std::unique_lock capture(g_capture_request_mtx, std::try_to_lock);
     if (!capture.owns_lock()) {
@@ -910,7 +902,8 @@ static void handle_screenshot(int fd) {
     try {
         std::vector<std::filesystem::directory_entry> entries;
         for (const auto& entry : std::filesystem::directory_iterator(dir, ec)) {
-            if (entry.is_regular_file() && entry.path().extension() == ".png") {
+            if (std::filesystem::is_regular_file(entry.symlink_status()) &&
+                valid_screenshot_name(entry.path().filename().string())) {
                 entries.push_back(entry);
             }
         }
@@ -945,13 +938,38 @@ static void handle_screenshot(int fd) {
     }
 }
 
+static void stream_image(int fd, std::ifstream& file, std::string_view mime) {
+    file.seekg(0, std::ios::end);
+    const auto end = file.tellg();
+    if (end < 0 || !file.seekg(0, std::ios::beg)) {
+        send_response(fd, "HTTP/1.1 500 Internal Server Error", "text/plain", "Could not read the image");
+        return;
+    }
+    auto remaining = static_cast<uintmax_t>(end);
+    const auto headers = std::format(
+        "HTTP/1.1 200 OK\r\nContent-Type: {}\r\nContent-Length: {}\r\n"
+        "Cache-Control: no-store\r\nX-Content-Type-Options: nosniff\r\nConnection: close\r\n\r\n",
+        mime, remaining);
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(response_timeout_ms);
+    if (!http_protocol::send_until(fd, headers, deadline)) return;
+
+    char buffer[8192];
+    while (remaining && std::chrono::steady_clock::now() < deadline) {
+        file.read(buffer, std::min<uintmax_t>(sizeof(buffer), remaining));
+        const size_t bytes = file.gcount();
+        if (!bytes || !http_protocol::send_until(fd, std::string_view(buffer, bytes), deadline)) break;
+        remaining -= bytes;
+    }
+}
+
 static void handle_screenshots_list(int fd) {
     std::string dir = "/app/screenshots";
     std::error_code ec;
     std::vector<std::filesystem::directory_entry> entries;
     try {
         for (const auto& entry : std::filesystem::directory_iterator(dir, ec)) {
-            if (entry.is_regular_file() && entry.path().extension() == ".png") {
+            if (std::filesystem::is_regular_file(entry.symlink_status()) &&
+                valid_screenshot_name(entry.path().filename().string())) {
                 entries.push_back(entry);
             }
         }
@@ -962,40 +980,37 @@ static void handle_screenshots_list(int fd) {
 
     std::ostringstream ss;
     ss << "[";
-    for (size_t i = 0; i < entries.size(); ++i) {
-        if (i > 0) ss << ",";
-        std::string fname = entries[i].path().filename().string();
-        uintmax_t fsz = entries[i].file_size(ec);
-        ss << "{\"filename\":\"" << fname << "\",\"size_bytes\":" << fsz << ",\"url\":\"/api/screenshots/" << fname << "\"}";
+    bool first = true;
+    for (const auto& entry : entries) {
+        const auto size = entry.file_size(ec);
+        if (ec) continue; // A capture may have aged out after we listed the directory.
+        if (!first) ss << ",";
+        first = false;
+        const auto name = entry.path().filename().string();
+        ss << "{\"filename\":\"" << escape_json(name) << "\",\"size_bytes\":" << size
+           << ",\"url\":\"/api/screenshots/" << http_protocol::url_encode(name) << "\"}";
     }
     ss << "]";
     send_response(fd, "HTTP/1.1 200 OK", "application/json", ss.str());
 }
 
 static void handle_screenshot_file(int fd, const std::string& filename) {
-    // Sanitization: disallow path traversal
-    if (filename.find("..") != std::string::npos || filename.find('/') != std::string::npos) {
+    if (!valid_screenshot_name(filename)) {
         send_response(fd, "HTTP/1.1 400 Bad Request", "text/plain", "Invalid filename");
         return;
     }
-    std::string path = "/app/screenshots/" + filename;
-    std::ifstream file(path, std::ios::binary | std::ios::ate);
+    const std::string path = "/app/screenshots/" + filename;
+    std::error_code ec;
+    if (!std::filesystem::is_regular_file(std::filesystem::symlink_status(path, ec))) {
+        send_response(fd, "HTTP/1.1 404 Not Found", "text/plain", "Screenshot not found");
+        return;
+    }
+    std::ifstream file(path, std::ios::binary);
     if (!file.is_open()) {
         send_response(fd, "HTTP/1.1 404 Not Found", "text/plain", "Screenshot not found");
         return;
     }
-    std::streamsize size = file.tellg();
-    if (size < 0) {
-        send_response(fd, "HTTP/1.1 500 Internal Server Error", "text/plain", "Failed to determine screenshot size");
-        return;
-    }
-    file.seekg(0, std::ios::beg);
-    std::string buffer(static_cast<size_t>(size), '\0');
-    if (file.read(&buffer[0], size)) {
-        send_response(fd, "HTTP/1.1 200 OK", "image/png", buffer);
-    } else {
-        send_response(fd, "HTTP/1.1 500 Internal Server Error", "text/plain", "Failed to read screenshot");
-    }
+    stream_image(fd, file, "image/png");
 }
 
 static void handle_preview(int fd) {
@@ -1026,42 +1041,15 @@ static void handle_preview(int fd) {
     // Determine MIME type
     std::string mime = "image/jpeg";
     std::string lower_path = path;
-    std::transform(lower_path.begin(), lower_path.end(), lower_path.begin(), ::tolower);
+    std::transform(lower_path.begin(), lower_path.end(), lower_path.begin(), [](unsigned char c) {
+        return static_cast<char>(std::tolower(c));
+    });
     std::string ext = std::filesystem::path(lower_path).extension().string();
     if (ext == ".png") mime = "image/png";
     else if (ext == ".webp") mime = "image/webp";
     else if (ext == ".gif") mime = "image/gif";
 
-    // Read file size
-    file.seekg(0, std::ios::end);
-    const auto file_end = file.tellg();
-    if (file_end < 0) {
-        send_response(fd, "HTTP/1.1 500 Internal Server Error", "text/plain", "Failed to determine preview size");
-        return;
-    }
-    const size_t file_size = static_cast<size_t>(file_end);
-    file.seekg(0, std::ios::beg);
-
-    // Send HTTP Headers
-    std::string headers = std::format(
-        "HTTP/1.1 200 OK\r\n" 
-        "Content-Type: {}\r\n" 
-        "Content-Length: {}\r\n" 
-        "Cache-Control: no-cache, no-store, must-validate\r\n" 
-        "Connection: close\r\n\r\n",
-        mime, file_size);
-    const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(response_timeout_ms);
-    if (!http_protocol::send_until(fd, headers, deadline)) return;
-
-    // Stream body in chunks
-    char buffer[8192];
-    while (file.good()) {
-        file.read(buffer, sizeof(buffer));
-        std::streamsize bytes = file.gcount();
-        if (bytes > 0) {
-            if (!http_protocol::send_until(fd, std::string_view(buffer, size_t(bytes)), deadline)) break;
-        }
-    }
+    stream_image(fd, file, mime);
 }
 
 static void handle_client(int client_fd) {
@@ -1110,32 +1098,40 @@ static void handle_client(int client_fd) {
             return std::chrono::duration_cast<std::chrono::milliseconds>(
                 std::chrono::steady_clock::now().time_since_epoch()).count();
         };
-        // Constant-time equality: std::string::operator!= short-circuits on the first
-        // differing byte, which leaks the length of the matching prefix.
-        auto secure_equals = [](const std::string& a, const std::string& b) -> bool {
-            if (a.size() != b.size()) return false;
-            return sodium_memcmp(a.data(), b.data(), a.size()) == 0;
+        const auto configured_key = [] {
+            std::shared_lock lock(g_config_mtx);
+            return g_cfg.http_api_key;
+        };
+        const auto valid_key = [&](std::string_view api_key) {
+            const auto header = parsed_request.headers.find("authorization");
+            if (header == parsed_request.headers.end()) return false;
+            std::string_view supplied = header->second;
+            if (supplied.size() >= 7 && strncasecmp(supplied.data(), "Bearer ", 7) == 0)
+                supplied.remove_prefix(7);
+            return supplied.size() == api_key.size() &&
+                   sodium_memcmp(supplied.data(), api_key.data(), api_key.size()) == 0;
         };
 
-        auto is_authorized = [&](const std::string& req, int fd) -> bool {
-            std::string api_key;
-            {
-                std::shared_lock<std::shared_mutex> lk(g_config_mtx);
-                api_key = g_cfg.http_api_key;
+        auto is_authorized = [&] {
+            if (!http_protocol::controller_origin_allowed(parsed_request)) {
+                send_response(client_fd, "HTTP/1.1 403 Forbidden", "text/plain",
+                              "Open this action from your piTrove controller");
+                return false;
             }
+            const auto api_key = configured_key();
             // Opt-in: with no key configured the control API stays open. Reported at
             // startup rather than enforced, so an absent key is a deliberate choice.
             if (api_key.empty()) return true;
 
             if (auth_now_ms() < g_auth_lockout_until.load()) {
                 std::string body = "HTTP/1.1 429 Too Many Requests\r\nContent-Type: text/plain\r\nConnection: close\r\n\r\nToo many failed attempts";
-                http_protocol::send_all(fd, body);
+                http_protocol::send_all(client_fd, body);
                 return false;
             }
-            auto deny = [&](const char* msg) {
+            auto deny = [&](const char* msg, bool invalid_key) {
                 std::string body = std::string("HTTP/1.1 401 Unauthorized\r\nContent-Type: text/plain\r\nConnection: close\r\n\r\n") + msg;
-                http_protocol::send_all(fd, body);
-                if (g_auth_failures.fetch_add(1) + 1 >= AUTH_MAX_FAILURES) {
+                http_protocol::send_all(client_fd, body);
+                if (invalid_key && g_auth_failures.fetch_add(1) + 1 >= AUTH_MAX_FAILURES) {
                     g_auth_lockout_until.store(auth_now_ms() + AUTH_LOCKOUT_MS);
                     g_auth_failures.store(0);
                     g_logger.warn("HTTP: auth lockout engaged for {}s after {} failed attempts",
@@ -1144,17 +1140,10 @@ static void handle_client(int client_fd) {
                 return false;
             };
 
-            auto header = parsed_request.headers.find("authorization");
-            if (header == parsed_request.headers.end()) return deny("API key required");
-            std::string auth_value = header->second;
-            if (auth_value.size() >= 7) {
-                std::string scheme = auth_value.substr(0, 7);
-                std::transform(scheme.begin(), scheme.end(), scheme.begin(), [](unsigned char c) { return std::tolower(c); });
-                if (scheme == "bearer ") auth_value.erase(0, 7);
-            }
-            if (!secure_equals(auth_value, api_key)) {
+            if (!parsed_request.headers.contains("authorization")) return deny("API key required", false);
+            if (!valid_key(api_key)) {
                 g_logger.warn("HTTP: Unauthorized request - invalid key");
-                return deny("Invalid API key");
+                return deny("Invalid API key", true);
             }
             g_auth_failures.store(0);
             return true;
@@ -1174,7 +1163,7 @@ static void handle_client(int client_fd) {
             send_response(client_fd, "HTTP/1.1 200 OK", "text/html; charset=utf-8", get_config_page(VERSION));
         }
         else if (parsed_request.path == "/api/config") {
-            if (!is_authorized(request, client_fd)) return;
+            if (!is_authorized()) return;
             config_editor::Result result;
             if (parsed_request.method == "GET") {
                 std::shared_lock lock(g_config_mtx);
@@ -1232,7 +1221,7 @@ static void handle_client(int client_fd) {
             send_response(client_fd, "HTTP/1.1 " + std::to_string(result.status) + (result.status==200?" OK":" Error"), "application/json; charset=utf-8", result.body);
         }
         else if (parsed_request.path == "/api/chores" || parsed_request.path.starts_with("/api/chores/")) {
-            if (!is_authorized(request, client_fd)) return;
+            if (!is_authorized()) return;
             std::string timezone;
             { std::shared_lock lock(g_config_mtx); timezone = g_cfg.timezone; }
             std::string today = format_epoch_tz(time(nullptr), timezone, "%Y-%m-%d");
@@ -1247,7 +1236,7 @@ static void handle_client(int client_fd) {
             // /google_photos_callback is left open on purpose: it is a Google-initiated
             // redirect that cannot carry an Authorization header, and it only persists
             // config after a successful token exchange. Opt-in via [remote] api_key.
-            if (!is_authorized(request, client_fd)) return;
+            if (!is_authorized()) return;
             std::string action = get_query_param(request, "action");
             if (action == "submit") {
                 std::string client_id = get_query_param(request, "client_id");
@@ -1335,7 +1324,7 @@ static void handle_client(int client_fd) {
             }
         } 
         else if (matches_route("GET", "/api/settings/update")) {
-            if (!is_authorized(request, client_fd)) return;
+            if (!is_authorized()) return;
             bool changed = false;
             bool validation_failed = false;
             std::string err_msg = "";
@@ -1693,12 +1682,12 @@ static void handle_client(int client_fd) {
             }
         }
         else if (matches_route("GET", "/api/settings")) {
-            if (is_authorized(request, client_fd)) {
+            if (is_authorized()) {
                 send_response(client_fd, "HTTP/1.1 200 OK", "application/json", get_api_settings());
             }
         }
         else if (matches_route("GET", "/api/logs")) {
-            if (is_authorized(request, client_fd)) {
+            if (is_authorized()) {
             std::string log_content = "";
             std::string path = g_logger.log_file_path;
             bool read_success = false;
@@ -1739,7 +1728,7 @@ static void handle_client(int client_fd) {
             send_response(client_fd, "HTTP/1.1 200 OK", "application/json", g_news_ticker.get_status_json());
         }
         else if (matches_route("GET", "/api/calendar/sync") || matches_route("POST", "/api/calendar/sync")) {
-            if (is_authorized(request, client_fd)) {
+            if (is_authorized()) {
                 spawn_tracked_thread([]() {
                     g_calendar.sync();
                 });
@@ -1747,13 +1736,16 @@ static void handle_client(int client_fd) {
             }
         }
         else if (matches_route("GET", "/api/calendar")) {
+            if (!is_authorized()) return;
             send_response(client_fd, "HTTP/1.1 200 OK", "application/json", g_calendar.get_status_json());
         }
         else if (matches_route("GET", "/api/status")) {
-            send_response(client_fd, "HTTP/1.1 200 OK", "application/json", get_api_status());
+            const auto key = configured_key();
+            const bool include_private_details = key.empty() || valid_key(key);
+            send_response(client_fd, "HTTP/1.1 200 OK", "application/json", get_api_status(include_private_details));
         } 
         else if (matches_route("GET", "/api/next")) {
-            if (!is_authorized(request, client_fd)) return;
+            if (!is_authorized()) return;
             static std::atomic<int64_t> last_next_ms{0};
             int64_t now_ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
             if (now_ms - last_next_ms.load() < 500) {
@@ -1765,17 +1757,19 @@ static void handle_client(int client_fd) {
             send_response(client_fd, "HTTP/1.1 200 OK", "application/json", "{\"status\":\"ok\"}");
         } 
         else if (parsed_request.method == "GET" && parsed_request.path.starts_with("/api/screenshots/")) {
+            if (!is_authorized()) return;
             std::string sub = parsed_request.path.substr(std::string_view("/api/screenshots/").size());
-            handle_screenshot_file(client_fd, sub);
+            handle_screenshot_file(client_fd, http_protocol::decode_form(sub));
         }
         else if (matches_route("GET", "/api/screenshots")) {
+            if (!is_authorized()) return;
             handle_screenshots_list(client_fd);
         }
         else if (matches_route("GET", "/api/screenshot")) {
             // Was the only state-changing route with neither is_authorized nor a cooldown:
             // each call blocks its worker up to 5s and forces a full framebuffer readback
             // plus PNG encode on the render thread.
-            if (!is_authorized(request, client_fd)) return;
+            if (!is_authorized()) return;
             static std::atomic<int64_t> last_shot_ms{0};
             int64_t now_ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
             if (now_ms - last_shot_ms.load() < 2000) {
@@ -1786,10 +1780,11 @@ static void handle_client(int client_fd) {
             handle_screenshot(client_fd);
         }
         else if (matches_route("GET", "/api/preview")) {
+            if (!is_authorized()) return;
             handle_preview(client_fd);
         } 
         else if (matches_route("GET", "/api/prev")) {
-            if (!is_authorized(request, client_fd)) return;
+            if (!is_authorized()) return;
             static std::atomic<int64_t> last_prev_ms{0};
             int64_t now_ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
             if (now_ms - last_prev_ms.load() < 500) {
@@ -1801,7 +1796,7 @@ static void handle_client(int client_fd) {
             send_response(client_fd, "HTTP/1.1 200 OK", "application/json", "{\"status\":\"ok\"}");
         } 
         else if (matches_route("GET", "/api/pause")) {
-            if (!is_authorized(request, client_fd)) return;
+            if (!is_authorized()) return;
             static std::atomic<int64_t> last_pause_ms{0};
             int64_t now_ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
             if (now_ms - last_pause_ms.load() < 500) {
@@ -1813,7 +1808,7 @@ static void handle_client(int client_fd) {
             send_response(client_fd, "HTTP/1.1 200 OK", "application/json", "{\"status\":\"ok\"}");
         } 
         else if (matches_route("GET", "/api/toggle_shuffle")) {
-            if (!is_authorized(request, client_fd)) return;
+            if (!is_authorized()) return;
             static std::atomic<int64_t> last_shuffle_ms{0};
             int64_t now_ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
             if (now_ms - last_shuffle_ms.load() < 500) {
@@ -1839,7 +1834,7 @@ static void handle_client(int client_fd) {
             send_response(client_fd, "HTTP/1.1 200 OK", "application/json", g_stock_streamer.get_status_json());
         }
         else if (matches_route("GET", "/api/news/refresh") || matches_route("POST", "/api/news/refresh")) {
-            if (!is_authorized(request, client_fd)) return;
+            if (!is_authorized()) return;
             g_news_ticker.sync();
             send_response(client_fd, "HTTP/1.1 200 OK", "application/json", g_news_ticker.get_status_json());
         }
@@ -1847,7 +1842,7 @@ static void handle_client(int client_fd) {
             send_response(client_fd, "HTTP/1.1 200 OK", "application/json", g_news_ticker.get_status_json());
         }
         else if (matches_route("GET", "/api/restart")) {
-            if (!is_authorized(request, client_fd)) return;
+            if (!is_authorized()) return;
             static std::atomic<int64_t> last_restart_ms{0};
             int64_t now_ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
             if (now_ms - last_restart_ms.load() < 500) {
@@ -1859,7 +1854,7 @@ static void handle_client(int client_fd) {
             send_response(client_fd, "HTTP/1.1 200 OK", "application/json", "{\"status\":\"ok\"}");
         } 
         else if (matches_route("GET", "/api/toggle_screen")) {
-            if (!is_authorized(request, client_fd)) return;
+            if (!is_authorized()) return;
             static std::atomic<int64_t> last_toggle_screen_ms{0};
             int64_t now_ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
             if (now_ms - last_toggle_screen_ms.load() < 500) {
@@ -1879,7 +1874,7 @@ static void handle_client(int client_fd) {
             send_response(client_fd, "HTTP/1.1 200 OK", "application/json", "{\"status\":\"ok\"}");
         }
         else if (matches_route("GET", "/api/trigger_motion")) {
-            if (!is_authorized(request, client_fd)) return;
+            if (!is_authorized()) return;
             static std::atomic<int64_t> last_motion_ms{0};
             int64_t now_ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
             if (now_ms - last_motion_ms.load() < 500) {
@@ -1907,7 +1902,7 @@ static void handle_client(int client_fd) {
             send_response(client_fd, "HTTP/1.1 200 OK", "application/json", "{\"status\":\"ok\"}");
         }
         else if (matches_route("GET", "/api/play_video")) {
-            if (!is_authorized(request, client_fd)) return;
+            if (!is_authorized()) return;
             static std::atomic<int64_t> last_video_ms{0};
             int64_t now_ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
             if (now_ms - last_video_ms.load() < 500) {

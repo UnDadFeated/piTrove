@@ -111,8 +111,6 @@ SDL_Texture* g_video_tex = nullptr;
 int g_video_tex_w = 0, g_video_tex_h = 0;
 SDL_PixelFormat g_video_tex_fmt = SDL_PIXELFORMAT_UNKNOWN;
 static std::jthread g_watchman_thread;
-static std::atomic<bool> g_watchman_running{false};
-static std::atomic<bool> g_watchman_finished{false};
 // Held as a raw epoch count: the watchdog thread and the main loop both write it, and the
 // 8-byte time_point could tear. A garbage value here makes `elapsed` huge, and a large
 // elapsed triggers a forced _exit(99) container restart.
@@ -785,9 +783,8 @@ static void advance_playlist(int step) {
     }
 }
 
-static void watchman_loop() {
+static void watchman_loop(std::stop_token stop) {
     g_logger.info("Watchman: Background watchman thread started.");
-    g_watchman_finished.store(false);
     
     // Get current day of year
     time_t last_check_time = std::time(nullptr);
@@ -795,56 +792,41 @@ static void watchman_loop() {
     struct tm* last_check_tm = localtime_r(&last_check_time, &tm_buf);
     int last_yday = last_check_tm ? last_check_tm->tm_yday : 0;
     
-    while (g_watchman_running.load()) {
-        // Sleep for 10 seconds between checks (quick responsive exit checks)
-        for (int i = 0; i < 10 && g_watchman_running.load(); i++) {
-            std::this_thread::sleep_for(std::chrono::seconds(1));
-        }
-        if (!g_watchman_running.load()) break;
-        
+    std::mutex wait_mutex;
+    std::condition_variable_any wake;
+    std::unique_lock wait_lock(wait_mutex);
+    auto retry_after = std::chrono::steady_clock::time_point::min();
+    while (!stop.stop_requested()) {
+        wake.wait_for(wait_lock, stop, std::chrono::seconds(10), [] { return false; });
+        if (stop.stop_requested()) break;
+
         time_t now = std::time(nullptr);
         struct tm curr_tm;
         struct tm* tm_res = localtime_r(&now, &curr_tm);
         
         if (tm_res && curr_tm.tm_yday != last_yday) {
+            const auto attempt = std::chrono::steady_clock::now();
+            if (attempt < retry_after) continue;
+            retry_after = attempt + std::chrono::minutes(1);
             if (g_offline_mode.load()) {
                 g_logger.warn("Watchman: System is in Offline Recovery Mode. Skipping midnight temporal window shift.");
                 continue;
             }
             g_logger.info("Watchman: Midnight detected! Shifting temporal window. Old day={}, New day={}", last_yday, curr_tm.tm_yday);
             
-            // Validate media directory readability and accessibility to handle network drops gracefully
             std::string media_dir;
+            int depth, screen_w, screen_h;
             {
-                std::lock_guard lock(g_config_mtx);
+                std::shared_lock lock(g_config_mtx);
                 media_dir = g_cfg.media_dir;
-            }
-            if (!is_nas_online()) {
-                g_logger.warn("Watchman: NAS/Media directory host is offline. Skipping shift.");
-                continue;
-            }
-            if (!is_media_dir_healthy(media_dir)) {
-                g_logger.error("Watchman: Media directory '{}' is not readable/accessible (mount failure or permission error). Delaying seasonal window swap.", media_dir.c_str());
-                continue;
-            }
-
-            last_yday = curr_tm.tm_yday;
-            g_logger.info("Watchman: Starting background media scan for shifted seasonal window...");
-            
-            std::vector<MediaItem> scanned;
-            int depth = 10;
-            int screen_w = 1920, screen_h = 1080;
-            {
-                std::lock_guard lock(g_config_mtx);
                 depth = g_cfg.scan_depth;
                 screen_w = g_cfg.screen_w;
                 screen_h = g_cfg.screen_h;
             }
-            // scan_directory() walks a NAS mount that can hang or return errors on
-            // individual entries. Same rule as below: a background task must never abort
-            // the whole process.
+
+            ScanResult scan;
             try {
-                scan_directory(media_dir, depth, scanned, nullptr);
+                scan = scan_directory(media_dir, depth, nullptr, stop);
             } catch (const std::exception& e) {
                 g_logger.error("Watchman: media scan failed ({}: {}); keeping the existing playlist.",
                                typeid(e).name(), e.what());
@@ -853,18 +835,18 @@ static void watchman_loop() {
                 g_logger.error("Watchman: media scan failed with an unknown exception; keeping the existing playlist.");
                 continue;
             }
+            if (stop.stop_requested()) break;
+            if (!scan.complete || scan.items.empty()) {
+                g_logger.warn("Watchman: No complete media scan available. Keeping the playlist and cache.");
+                continue;
+            }
+            auto& scanned = scan.items;
             g_logger.info("Watchman: Background scan complete. Scanned {} items. Caching metadata...", scanned.size());
 
-            // Everything from here on is background bookkeeping. An exception escaping a
-            // std::jthread body is undefined and reaches std::terminate -> abort(), which
-            // takes the whole slideshow down. That is exactly what happened on
-            // 2026-09-29 00:00:59 UTC: an unhandled exception thrown inside
-            // filter_playlist() aborted the process, and the watchdog restarted it ~2
-            // minutes later. A background task must never be able to kill the app.
             try {
                 if (g_cache) {
-                    g_cache->begin_transaction();
                     for (auto& mi : scanned) {
+                        if (stop.stop_requested()) break;
                         if (g_cache->load_cached(mi)) {
                             mi.cached = true;
                         } else {
@@ -877,10 +859,11 @@ static void watchman_loop() {
                                 mi.height = screen_h;
                                 mi.duration = 0.0;
                             }
-                            g_cache->upsert(mi, 0, 0);
+                            // Metadata preprocessing handles image I/O off the watchman thread.
+                            g_cache->upsert(mi, 0, 0, false);
                         }
                     }
-                    g_cache->commit_transaction();
+                    if (stop.stop_requested()) break;
                     g_cache->prune_missing(scanned);
                 }
 
@@ -907,6 +890,7 @@ static void watchman_loop() {
                     organize_playlist(new_eligible, videos_per_photos, play_just_photos, play_just_videos, shuffle_enabled);
                 }
 
+                if (stop.stop_requested()) break;
                 // Short critical section: publish the results.
                 {
                     std::scoped_lock lock(g_playlist_mtx);
@@ -937,6 +921,7 @@ static void watchman_loop() {
                         g_logger.warn("Watchman: New playlist is empty. Keeping old playlist to prevent interruption.");
                     }
                 }
+                last_yday = curr_tm.tm_yday;
             } catch (const std::exception& e) {
                 g_logger.error("Watchman: post-scan processing failed ({}: {}); keeping the existing playlist.",
                                typeid(e).name(), e.what());
@@ -945,7 +930,6 @@ static void watchman_loop() {
             }
         }
     }
-    g_watchman_finished.store(true);
     g_logger.info("Watchman: Background watchman thread exiting.");
 }
 
@@ -1576,29 +1560,19 @@ int main(int argc, char** argv) {
     // --- Fast-path: skip scan+cache if DB already exists ---
     std::string db_path = cache_dir + "/cache.db";
     struct stat db_stat{};
-    bool db_exists = (stat(db_path.c_str(), &db_stat) == 0 && db_stat.st_size > 0);
+    const bool db_exists = (stat(db_path.c_str(), &db_stat) == 0 && db_stat.st_size > 0);
 
     if (db_exists) {
-        bool db_ok = verify_database(db_path);
-        if (!db_ok) {
-            g_logger.error("CORRUPT DB: cache.db is corrupted — removing and will rebuild");
-            trigger_error(401); // E401: SQLITE_DB_CORRUPTED
-            std::filesystem::remove(db_path);
-            std::filesystem::remove(db_path + "-wal");
-            std::filesystem::remove(db_path + "-shm");
-            db_exists = false;
-        }
-    }
-    if (db_exists) {
-        CacheManager* fast_cache = new CacheManager();
+        auto fast_cache = std::make_unique<CacheManager>();
         if (fast_cache->open(cache_dir)) {
-            g_cache = fast_cache;
+            g_cache = fast_cache.release();
             if (g_cfg.reset_cooldown_on_restart) {
                 g_cache->reset_all_cooldowns();
             }
             sqlite3_stmt* stmt = nullptr;
-            int load_rc = sqlite3_prepare_v2(fast_cache->db,
-                "SELECT path, type, w, h, duration, framerate, exif, last_shown, is_camera FROM cache WHERE bad = 0;",
+            int load_rc = sqlite3_prepare_v2(g_cache->db,
+                "SELECT path, type, w, h, duration, framerate, exif, last_shown, is_camera, "
+                "timestamp, creation_time, lat, lon, has_gps FROM cache WHERE bad = 0;",
                 -1, &stmt, nullptr);
             if (load_rc == SQLITE_OK) {
                 while (sqlite3_step(stmt) == SQLITE_ROW) {
@@ -1611,10 +1585,15 @@ int main(int argc, char** argv) {
                     mi.width = sqlite3_column_int(stmt, 2);
                     mi.height = sqlite3_column_int(stmt, 3);
                     mi.duration = sqlite3_column_double(stmt, 4);
-                mi.framerate = sqlite3_column_double(stmt, 5);
+                    mi.framerate = sqlite3_column_double(stmt, 5);
                     mi.exif_rotation = sqlite3_column_int(stmt, 6);
                     mi.last_shown = sqlite3_column_int64(stmt, 7);
                     mi.is_camera = sqlite3_column_int(stmt, 8);
+                    mi.modified_time = sqlite3_column_int64(stmt, 9);
+                    mi.creation_time = sqlite3_column_int64(stmt, 10);
+                    mi.latitude = sqlite3_column_double(stmt, 11);
+                    mi.longitude = sqlite3_column_double(stmt, 12);
+                    mi.has_gps = sqlite3_column_int(stmt, 13) != 0;
                     auto slash = mi.path.rfind('/');
                     mi.filename = (slash != std::string::npos) ? mi.path.substr(slash + 1) : mi.path;
                     auto dot = mi.filename.find_last_of('.');
@@ -1637,13 +1616,7 @@ int main(int argc, char** argv) {
                 }
                 g_database_complete.store(true);
             } else {
-                g_logger.warn("Cache DB loaded 0 valid items — will re-scan and purge empty/corrupt DB files");
-                g_cache = nullptr;
-                fast_cache->close();
-                delete fast_cache;
-                std::filesystem::remove(db_path);
-                std::filesystem::remove(db_path + "-wal");
-                std::filesystem::remove(db_path + "-shm");
+                g_logger.warn("Cache DB loaded 0 valid items. Scanning media.");
             }
         } else {
             g_logger.warn("Failed to open cache DB — will re-scan");
@@ -1678,6 +1651,7 @@ int main(int argc, char** argv) {
 
         std::atomic<int64_t> scan_count{0};
         std::atomic<bool> scan_done{false};
+        bool scan_complete = false;
 
         // Thread-safe progress callback updating only the atomic counter
         auto safe_progress_callback = [&](int count) {
@@ -1688,8 +1662,16 @@ int main(int argc, char** argv) {
         { std::lock_guard lk(g_config_mtx); depth = g_cfg.scan_depth; }
 
         std::jthread scan_thread;
-        if (!spawn_thread_safe(scan_thread, "scanner", [&]() {
-            scan_directory(media_dir, depth, g_scanned_items, safe_progress_callback);
+        if (!spawn_thread_safe(scan_thread, "scanner", [&](std::stop_token stop) {
+            try {
+                auto result = scan_directory(media_dir, depth, safe_progress_callback, stop);
+                scan_complete = result.complete;
+                g_scanned_items = std::move(result.items);
+            } catch (const std::exception& e) {
+                g_logger.error("Startup scan failed: {}", e.what());
+            } catch (...) {
+                g_logger.error("Startup scan failed.");
+            }
             scan_done.store(true);
         })) {
             // Spawn failed: proceed with an empty gallery rather than hang on the splash.
@@ -1698,6 +1680,7 @@ int main(int argc, char** argv) {
 
         // Main thread polls and renders splash safely on EGL context
         while (!scan_done.load()) {
+            if (!g_running.load()) scan_thread.request_stop();
             dot_counter++;
             g_renderer.render_splash(2, (int)scan_count.load(), 0, 0, "SCANNING", dot_counter, nullptr, false);
             SDL_Delay(33); // ~30 FPS throttling
@@ -1705,6 +1688,13 @@ int main(int argc, char** argv) {
 
         if (scan_thread.joinable()) {
             scan_thread.join();
+        }
+        if (!g_running.load()) {
+            g_renderer.cleanup_splash();
+            g_renderer.cleanup();
+            delete g_cache;
+            g_cache = nullptr;
+            return 0;
         }
 
         auto scan_end = std::chrono::steady_clock::now();
@@ -1760,7 +1750,7 @@ int main(int argc, char** argv) {
                     mi.height = g_cfg.screen_h;
                     mi.duration = 0.0;
                 }
-                g_cache->upsert(mi, 0, 0);
+                g_cache->upsert(mi, 0, 0, false);
                 cached++;
             }
 
@@ -1773,7 +1763,7 @@ int main(int argc, char** argv) {
             }
         }
         g_cache->commit_transaction();
-        g_cache->prune_missing(g_scanned_items);
+        if (scan_complete) g_cache->prune_missing(g_scanned_items);
         g_logger.info("Cache complete: {} items", cached);
         int current_err = g_active_error_code.load();
         if (current_err == 401 || current_err == 413) {
@@ -2175,11 +2165,8 @@ int main(int argc, char** argv) {
                 pitrove::thermal::set_fan_speed_percent(g_cfg.fan_speed); }
 
     // --- Start Background Watchman Thread ---
-    g_watchman_running.store(true);
     if (spawn_thread_safe(g_watchman_thread, "watchman", watchman_loop)) {
         g_logger.info("Watchman: Background watchman thread spawned successfully.");
-    } else {
-        g_watchman_running.store(false);
     }
 
     // --- Start Background Preprocess Thread ---
@@ -3537,8 +3524,9 @@ int main(int argc, char** argv) {
     set_display_power(true);
     
     // Stop background HTTP server
+    g_watchman_thread.request_stop();
     stop_http_server();
-        g_news_ticker.stop();
+    g_news_ticker.stop();
     g_calendar.stop();
     g_stock_streamer.stop();
     
@@ -3565,29 +3553,9 @@ int main(int argc, char** argv) {
         g_logger.info("Keepalive: Background connection monitoring thread stopped successfully.");
     }
     
-    // Stop background watchman thread safely.
-    // The watchman sleeps in 1s increments, so a 500ms budget tripped routinely and left
-    // a detached thread that could still call into g_cache / g_playlist_mtx while main()
-    // went on to delete them. Give it a budget that covers the sleep granularity several
-    // times over, and if it still will not stop, deliberately leak the objects it can
-    // reach rather than freeing memory under a live thread.
-    g_watchman_running.store(false);
-    bool watchman_still_running = false;
-    if (g_watchman_thread.joinable()) {
-        int timeout_ms = 5000;
-        while (timeout_ms > 0 && !g_watchman_finished.load()) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(50));
-            timeout_ms -= 50;
-        }
-        if (g_watchman_finished.load()) {
-            g_watchman_thread.join();
-            g_logger.info("Watchman: Background watchman thread stopped successfully.");
-        } else {
-            watchman_still_running = true;
-            g_watchman_thread.detach();
-            g_logger.warn("Watchman: did not exit within 5000ms; detached. Skipping teardown of objects it may still touch.");
-        }
-    }
+    // Its filesystem waits are cancellable, so the coordinator can always be
+    // joined before cache and playlist teardown, even on an unresponsive NAS.
+    if (g_watchman_thread.joinable()) g_watchman_thread.join();
 
     g_video_decoder.stop(); // EOF workers can still own audio and queued frames.
     if (g_video_tex) { SDL_DestroyTexture(g_video_tex); g_video_tex = nullptr; g_video_tex_w = 0; g_video_tex_h = 0; g_video_tex_fmt = SDL_PIXELFORMAT_UNKNOWN; }
@@ -3606,10 +3574,7 @@ int main(int argc, char** argv) {
     if (next_twin_data) { next_twin_data = nullptr; }
     if (transition_prev_target) { SDL_DestroyTexture(transition_prev_target); }
     if (transition_next_target) { SDL_DestroyTexture(transition_next_target); }
-    // A still-running detached watchman can be inside g_cache->begin_transaction()/
-    // load_cached()/upsert(). Leaking the object at process exit is strictly safer than
-    // freeing it underneath a live thread.
-    if (g_cache && !watchman_still_running) { g_cache->close(); delete g_cache; g_cache = nullptr; }
+    if (g_cache) { g_cache->close(); delete g_cache; g_cache = nullptr; }
     g_renderer.cleanup();
 
     flock(lock_fd, LOCK_UN); close(lock_fd);

@@ -13,9 +13,8 @@ CIFS_REMOUNT_COOLDOWN="${CIFS_REMOUNT_COOLDOWN:-60}"
 
 FAIL_COUNT=0
 MAX_FAIL=12          # 12 checks * 15 seconds = 180s (3 minutes) offline trigger
-WIFI_RESET_DONE=false
 WAS_OFFLINE=false
-LAST_REMOUNT=0
+LAST_RECOVERY=-1
 
 
 log() {
@@ -52,43 +51,36 @@ network_is_ok() {
 # mount), so a plain mount check is not enough — the timed read catches it.
 nas_is_healthy() {
     timeout -k 1 5 mountpoint -q "$CIFS_MOUNT" 2>/dev/null || return 1
-    timeout -k 1 5 ls "$CIFS_MOUNT" >/dev/null 2>&1
+    timeout -k 1 5 ls -U "$CIFS_MOUNT" >/dev/null 2>&1
 }
 
-# App container reports healthy (fresh heartbeat)
-container_is_healthy() {
-    timeout -k 1 5 docker inspect --format='{{.State.Health.Status}}' "$DOCKER_CONTAINER" 2>/dev/null | grep -qx "healthy"
+container_health() {
+    timeout -k 1 5 docker inspect --format='{{.State.Health.Status}}' "$DOCKER_CONTAINER" 2>/dev/null
 }
 
-# Detect if Docker container has a stale/empty bind-mount while the host NAS is healthy.
+# The caller has already checked that the host NAS is readable.
 container_bind_is_stale() {
-    timeout -k 1 5 docker inspect --format='{{.State.Running}}' "$DOCKER_CONTAINER" 2>/dev/null | grep -qx "true" || return 1
-    if nas_is_healthy && [ -n "$(timeout -k 1 5 ls -A "$CIFS_MOUNT" 2>/dev/null)" ]; then
-        if ! timeout -k 1 5 docker exec "$DOCKER_CONTAINER" /bin/bash -c "test -n \"\$(ls -A /app/media 2>/dev/null)\"" 2>/dev/null; then
-            return 0
-        fi
-    fi
-    return 1
+    timeout -k 1 5 docker inspect --format='{{.State.Running}}' "$DOCKER_CONTAINER" 2>/dev/null | grep -qx true || return 1
+    local host_item
+    host_item=$(timeout -k 1 5 find "$CIFS_MOUNT" -mindepth 1 -maxdepth 1 -print -quit 2>/dev/null) || return 1
+    [[ -n "$host_item" ]] || return 1
+    ! timeout -k 1 5 docker exec "$DOCKER_CONTAINER" /bin/bash -c         'test -n "$(find /app/media -mindepth 1 -maxdepth 1 -print -quit 2>/dev/null)"' 2>/dev/null
 }
 
-# Force-refresh the fstab-managed CIFS mount. Detach first (force, then lazy)
-# before remounting.
+# Refresh only the media mount so recovery cannot mount other fstab entries.
 refresh_nas_mount() {
-    log "Refreshing network storage mount at $CIFS_MOUNT..."
-    umount -f "$CIFS_MOUNT" 2>/dev/null || umount -l "$CIFS_MOUNT" 2>/dev/null || true
-    sleep 1
-    mount -a 2>/dev/null || true
-    if nas_is_healthy; then
-        log "Network storage mount at $CIFS_MOUNT is mounted and readable."
-        return 0
-    else
-        if mountpoint -q "$CIFS_MOUNT"; then
-            log "WARNING: $CIFS_MOUNT mounted but unreadable after refresh"
-        else
-            log "WARNING: $CIFS_MOUNT not mounted after refresh"
-        fi
-        return 1
+    log "Refreshing network storage mount at $CIFS_MOUNT."
+    if timeout -k 1 5 mountpoint -q "$CIFS_MOUNT" 2>/dev/null; then
+        timeout -k 1 5 umount -f -- "$CIFS_MOUNT" 2>/dev/null ||
+            timeout -k 1 5 umount -l -- "$CIFS_MOUNT" 2>/dev/null || return 1
     fi
+    timeout -k 2 15 mount -- "$CIFS_MOUNT" 2>/dev/null || true
+    if nas_is_healthy; then
+        log "Network storage mounted and readable."
+        return 0
+    fi
+    log "WARNING: Media mount is still unavailable. Retrying after cooldown."
+    return 1
 }
 
 reset_wifi() {
@@ -110,8 +102,45 @@ restart_application() {
         log "WARNING: NAS unavailable. Deferring application restart to avoid an empty media bind."
         return 1
     fi
-    systemctl reset-failed piTrove.service 2>/dev/null || true
-    systemctl restart piTrove.service 2>/dev/null
+    timeout -k 1 5 systemctl reset-failed piTrove.service 2>/dev/null || true
+    timeout -k 2 55 systemctl restart piTrove.service 2>/dev/null
+}
+
+recover_online() {
+    # All recovery paths share a cooldown, including failed service restarts.
+    if (( LAST_RECOVERY >= 0 && SECONDS - LAST_RECOVERY < CIFS_REMOUNT_COOLDOWN )); then return; fi
+
+    local reason health refresh=false
+    if ! nas_is_healthy; then
+        reason="Media mount is unavailable."
+        refresh=true
+    elif ! timeout -k 1 5 systemctl is-active --quiet piTrove.service 2>/dev/null; then
+        reason="piTrove.service is inactive."
+        refresh=true
+    else
+        health=$(container_health || true)
+        if [[ "$health" == unhealthy ]]; then
+            reason="piTrove container is unhealthy."
+            refresh=true
+        elif container_bind_is_stale; then
+            reason="Container media bind is stale."
+        elif [[ "$WAS_OFFLINE" == true && "$health" == healthy ]]; then
+            log "Network recovered and piTrove can read the media mount."
+            WAS_OFFLINE=false
+            return
+        else
+            return
+        fi
+    fi
+
+    LAST_RECOVERY=$SECONDS
+    log "$reason Starting recovery."
+    if [[ "$refresh" == true ]] && ! refresh_nas_mount; then return; fi
+    if restart_application; then
+        WAS_OFFLINE=false
+    else
+        log "Application restart deferred or failed. Retrying after cooldown."
+    fi
 }
 
 main() {
@@ -120,6 +149,10 @@ main() {
     if [ -f "$CONF_FILE" ]; then
         # shellcheck source=/dev/null
         source "$CONF_FILE"
+    fi
+
+    if [[ ! "$CIFS_REMOUNT_COOLDOWN" =~ ^[1-9][0-9]{0,4}$ ]]; then
+        CIFS_REMOUNT_COOLDOWN=60
     fi
 
     # If disabled by flag file, exit silently
@@ -131,59 +164,8 @@ main() {
 
     while true; do
         if network_is_ok; then
-            current_time=$(date +%s)
-
-            if [ "$WAS_OFFLINE" = true ]; then
-                # Check cooldown throttle
-                if [ $((current_time - LAST_REMOUNT)) -ge "$CIFS_REMOUNT_COOLDOWN" ]; then
-                    if container_is_healthy && nas_is_healthy && ! container_bind_is_stale; then
-                        # Brief WiFi blip: CIFS session survived, container healthy, and media mount intact.
-                        log "Network recovered; app healthy and NAS readable - no action needed (self-recovered)."
-                        WAS_OFFLINE=false
-                    else
-                        LAST_REMOUNT=$current_time
-                        log "Network connection recovered. Performing recovery sequence..."
-                        refresh_nas_mount
-                        if nas_is_healthy; then
-                            log "NAS mounted successfully. Restarting application systemd service..."
-                            if restart_application; then WAS_OFFLINE=false; fi
-                        else
-                            log "WARNING: NAS not yet reachable/mounted after network recovery. Deferring application restart."
-                        fi
-                    fi
-                fi
-            fi
-
-            # Verify piTrove application service & container health when network is online
-            if ! systemctl is-active --quiet piTrove.service 2>/dev/null; then
-                log "Service check: piTrove.service is inactive! Refreshing NAS mount and auto-reviving service..."
-                refresh_nas_mount
-                restart_application || true
-            elif timeout -k 1 5 docker inspect --format='{{.State.Health.Status}}' "$DOCKER_CONTAINER" 2>/dev/null | grep -qx "unhealthy"; then
-                log "Health check: piTrove container reported UNHEALTHY! Refreshing NAS mount and restarting service..."
-                refresh_nas_mount
-                restart_application || true
-            elif ! nas_is_healthy; then
-                if [ $((current_time - LAST_REMOUNT)) -ge "$CIFS_REMOUNT_COOLDOWN" ]; then
-                    LAST_REMOUNT=$current_time
-                    log "NAS health check: $CIFS_MOUNT is unmounted or unreadable! Attempting refresh..."
-                    refresh_nas_mount
-                    if nas_is_healthy; then
-                        log "NAS recovered successfully! Restarting piTrove to re-bind media mount..."
-                        if restart_application; then WAS_OFFLINE=false; fi
-                    else
-                        log "NAS check: $CIFS_MOUNT still unavailable. Retrying after cooldown."
-                    fi
-                fi
-            elif container_bind_is_stale; then
-                if [ $((current_time - LAST_REMOUNT)) -ge "$CIFS_REMOUNT_COOLDOWN" ]; then
-                    LAST_REMOUNT=$current_time
-                    log "Stale mount check: host $CIFS_MOUNT is mounted but container /app/media is empty! Restarting piTrove..."
-                    restart_application || true
-                fi
-            fi
+            recover_online
             FAIL_COUNT=0
-            WIFI_RESET_DONE=false
         else
             FAIL_COUNT=$((FAIL_COUNT + 1))
             log "Network check failed ($FAIL_COUNT/$MAX_FAIL)"

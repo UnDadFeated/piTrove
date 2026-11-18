@@ -11,3 +11,6 @@ cache/
 config/
 logs/
 build-test/
+/backups/
+/screenshots/
+/android/

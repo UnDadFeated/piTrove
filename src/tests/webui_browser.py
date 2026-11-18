@@ -69,8 +69,11 @@ with tempfile.TemporaryDirectory(prefix='pitrove-chrome-') as profile:
         call('Emulation.setDeviceMetricsOverride', {'width':1280,'height':1000,'deviceScaleFactor':1,'mobile':False})
         call('Page.navigate', {'url':base+'/'})
         wait("document.getElementById('unlock') && !document.getElementById('unlock').hidden")
+        assert not js("document.getElementById('preview').getAttribute('src')"), 'Locked preview revealed media'
+        assert js("document.getElementById('media-title').textContent") != 'A long family photo filename & <safe text> — 2026.jpg'
         fill('api-key',key);submit('unlock')
         wait("document.getElementById('unlock').hidden && document.getElementById('media-title').textContent.includes('family')")
+        wait("document.getElementById('preview').naturalWidth > 0 && document.getElementById('preview').src.startsWith('blob:')")
         assert js("document.getElementById('lan-address').value") == base+'/'
         assert not js("!!document.querySelector('.heading-actions a[href=\"/config\"]')"), 'Duplicate full configuration button remains'
         assert js("document.querySelector('.nav-link[data-page=settings]').getAttribute('href')") == '/config'

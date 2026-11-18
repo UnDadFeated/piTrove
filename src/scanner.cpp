@@ -60,42 +60,38 @@ static bool ext_matches(std::string_view ext, std::string_view target) {
     return true;
 }
 
-std::vector<std::string> read_dir(const std::string& path) {
+static std::optional<std::vector<std::string>> read_dir(const std::string& path) {
+    std::error_code ec;
+    std::filesystem::directory_iterator entry(path, ec), end;
     std::vector<std::string> entries;
-    try {
-        std::error_code ec;
-        for (const auto& entry : std::filesystem::directory_iterator(path, ec)) {
-            if (ec) break;
-            std::string name = entry.path().filename().string();
-            if (name.empty() || name[0] == '.') continue;
-            entries.push_back(std::move(name));
-        }
-    } catch (...) {
-        g_logger.error("Scanner: Exception in read_dir for path {}", path.c_str());
+    for (; !ec && entry != end; entry.increment(ec)) {
+        auto name = entry->path().filename().string();
+        if (!name.empty() && name.front() != '.') entries.push_back(std::move(name));
     }
+    if (ec) return std::nullopt;
     return entries;
 }
 
-std::vector<std::string> read_dir_timeout(const std::string& path, int timeout_ms) {
+std::optional<std::vector<std::string>> read_dir_timeout(const std::string& path, int timeout_ms,
+                                                        std::stop_token stop) {
+    if (stop.stop_requested()) return std::nullopt;
     struct SharedResult {
         std::mutex mutex;
-        std::condition_variable cv;
+        std::condition_variable_any cv;
         bool done = false;
-        std::vector<std::string> entries;
+        std::optional<std::vector<std::string>> entries;
     };
     auto sr = std::make_shared<SharedResult>();
     std::string p(path);
     if (!reserve_scanner_thread()) {
         g_logger.warn("Scanner: max outstanding threads limit reached, skipping read_dir for {}", path);
-        return {};
+        return std::nullopt;
     }
     std::jthread t;
     if (!spawn_thread_safe(t, "scanner_read_dir", [p = std::move(p), sr]() {
-        std::vector<std::string> entries;
-        {
-            ScannerThreadSlot slot;
-            try { entries = read_dir(p); } catch (...) {}
-        }
+        ScannerThreadSlot slot;
+        std::optional<std::vector<std::string>> entries;
+        try { entries = read_dir(p); } catch (...) {}
         {
             std::lock_guard lock(sr->mutex);
             sr->entries = std::move(entries);
@@ -104,22 +100,24 @@ std::vector<std::string> read_dir_timeout(const std::string& path, int timeout_m
         sr->cv.notify_one();
     })) {
         g_scanner_detached_threads.fetch_sub(1);
-        return {};
+        return std::nullopt;
     }
     t.detach();
 
     std::unique_lock lock(sr->mutex);
-    if (!sr->cv.wait_for(lock, std::chrono::milliseconds(timeout_ms), [&] { return sr->done; })) {
-        g_logger.error("Scanner: read_dir timed out for path {}", path);
-        return {};
+    if (!sr->cv.wait_for(lock, stop, std::chrono::milliseconds(timeout_ms), [&] { return sr->done; })) {
+        if (!stop.stop_requested()) g_logger.warn("Scanner: read_dir timed out for path {}", path);
+        return std::nullopt;
     }
+    if (!sr->entries) g_logger.debug("Scanner: failed to list {}", path);
     return std::move(sr->entries);
 }
 
-bool stat_timeout(const std::string& path, struct stat& st, int timeout_ms) {
+bool stat_timeout(const std::string& path, struct stat& st, int timeout_ms, std::stop_token stop) {
+    if (stop.stop_requested()) return false;
     struct SharedResult {
         std::mutex mutex;
-        std::condition_variable cv;
+        std::condition_variable_any cv;
         bool done = false;
         bool ok = false;
         struct stat data{};
@@ -149,7 +147,7 @@ bool stat_timeout(const std::string& path, struct stat& st, int timeout_ms) {
     t.detach();
 
     std::unique_lock lock(sr->mutex);
-    if (!sr->cv.wait_for(lock, std::chrono::milliseconds(timeout_ms), [&] { return sr->done; }) || !sr->ok) {
+    if (!sr->cv.wait_for(lock, stop, std::chrono::milliseconds(timeout_ms), [&] { return sr->done; }) || !sr->ok) {
         return false;
     }
     st = sr->data;
@@ -222,11 +220,11 @@ bool MediaScanner::is_month_in_window(std::string_view dirname, int window_days)
     int gc = 0;
     size_t i = 0;
     while (i < dirname.size() && gc < 2) {
-        while (i < dirname.size() && !isdigit(dirname[i])) i++;
+        while (i < dirname.size() && !std::isdigit(static_cast<unsigned char>(dirname[i]))) i++;
         if (i >= dirname.size()) break;
         int val = 0;
         int digit_count = 0;
-        while (i < dirname.size() && isdigit(dirname[i])) {
+        while (i < dirname.size() && std::isdigit(static_cast<unsigned char>(dirname[i]))) {
             if (digit_count < 9) {
                 val = val * 10 + (dirname[i] - '0');
             }
@@ -270,12 +268,12 @@ bool MediaScanner::is_month_in_window(std::string_view dirname, int window_days)
     return month_diff <= max_spread;
 }
 
-std::vector<MediaItem> MediaScanner::scan(const std::string& directory,
-                                         const std::vector<std::string>& exts,
-                                         int window_days,
-                                         int max_depth,
-                                         const std::vector<std::string>& ignore_folders,
-                                         std::function<void(int)> progress) {
+ScanResult MediaScanner::scan(const std::string& directory, const std::vector<std::string>& exts,
+                              int window_days, int max_depth,
+                              const std::vector<std::string>& ignore_folders,
+                              std::function<void(int)> progress, std::stop_token stop) {
+    const auto running = [&] { return g_running.load() && !stop.stop_requested(); };
+    if (!running()) return {};
     if (!is_nas_online()) {
         g_logger.warn("MediaScanner: NAS/Media directory host is offline. Skipping scan.");
         return {};
@@ -283,6 +281,17 @@ std::vector<MediaItem> MediaScanner::scan(const std::string& directory,
     live_found_count.store(0);
     std::vector<MediaItem> all_items;
     std::mutex list_mutex;
+    std::atomic<bool> complete{true};
+    const auto list_directory = [&](const std::string& path) {
+        auto entries = read_dir_timeout(path, 15000, stop);
+        if (!entries) complete.store(false);
+        return entries ? std::move(*entries) : std::vector<std::string>{};
+    };
+    const auto stat_entry = [&](const std::string& path, struct stat& st) {
+        if (stat_timeout(path, st, 5000, stop)) return true;
+        complete.store(false);
+        return false;
+    };
 
     g_logger.info("TRACE: scan start dir='{}' exts={} window={} depth={} ignore={}", directory.c_str(), std::ssize(exts), window_days, max_depth, std::ssize(ignore_folders));
     std::vector<std::string> subdirs;
@@ -290,14 +299,14 @@ std::vector<MediaItem> MediaScanner::scan(const std::string& directory,
 
     std::function<void(const std::string&, int)> gather_dirs;
     gather_dirs = [&](const std::string& dir, int d) {
-        if (!g_running.load()) return;
+        if (!running()) return;
         if (d > 2) return;
-        std::vector<std::string> entries = read_dir_timeout(dir, 15000);
+        const auto entries = list_directory(dir);
         for (const auto& name : entries) {
-            if (!g_running.load()) return;
+            if (!running()) return;
             std::string p = dir + "/" + name;
             struct stat st;
-            if (!stat_timeout(p, st, 5000)) continue;
+            if (!stat_entry(p, st)) continue;
             if (S_ISDIR(st.st_mode)) {
                 if (name[0] == '.') continue;
                 bool ignored = false;
@@ -326,18 +335,18 @@ std::vector<MediaItem> MediaScanner::scan(const std::string& directory,
     auto worker = [&](int start_idx, int end_idx) {
         try {
             for (int i = start_idx; i < end_idx; i++) {
-                if (!g_running.load()) break;
+                if (!running()) break;
                 std::string target_dir = subdirs[i];
                 std::function<void(const std::string&, int)> rec;
                 rec = [&](const std::string& dir, int d) {
-                    if (!g_running.load()) return;
+                    if (!running()) return;
                     if (d > max_depth) return;
-                    std::vector<std::string> entries = read_dir_timeout(dir, 15000);
+                    const auto entries = list_directory(dir);
                     for (const auto& name : entries) {
-                        if (!g_running.load()) return;
+                        if (!running()) return;
                         std::string p = dir + "/" + name;
                         struct stat st;
-                        if (!stat_timeout(p, st, 5000)) continue;
+                        if (!stat_entry(p, st)) continue;
                         if (S_ISDIR(st.st_mode)) {
                             if (name[0] == '.') continue;
                             bool ignored = false;
@@ -355,7 +364,7 @@ std::vector<MediaItem> MediaScanner::scan(const std::string& directory,
                 };
                 rec(target_dir, 2);
             }
-        } catch (...) {}
+        } catch (...) { complete.store(false); }
     };
 
     // Use hardware threads (like legacy) for max throughput
@@ -383,13 +392,14 @@ std::vector<MediaItem> MediaScanner::scan(const std::string& directory,
     }
 
     for (const auto& [p, st] : root_files) {
+        if (!running()) break;
         process_entry(p, st, exts, list_mutex, all_items);
         if (progress) progress(live_found_count.load());
     }
 
     g_logger.info("TRACE: scan threads joined, total={}", std::ssize(all_items));
     if (progress) progress(live_found_count.load());
-    return all_items;
+    return {std::move(all_items), complete.load() && running()};
 }
 
 
@@ -403,7 +413,9 @@ void MediaScanner::process_entry(const std::string& path_str,
     if (path_obj.stem().string().empty()) return;
 
     std::string ext = path_obj.extension().string();
-    std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
+    std::transform(ext.begin(), ext.end(), ext.begin(), [](unsigned char c) {
+        return static_cast<char>(std::tolower(c));
+    });
 
     if (std::find(exts.begin(), exts.end(), ext) != exts.end()) {
         MediaItem mi;
@@ -420,9 +432,8 @@ void MediaScanner::process_entry(const std::string& path_str,
     }
 }
 
-void scan_directory(const std::string& dir, int depth,
-                    std::vector<MediaItem>& items,
-                    std::function<void(int)> progress) {
+ScanResult scan_directory(const std::string& dir, int depth,
+                          std::function<void(int)> progress, std::stop_token stop) {
     g_logger.info("TRACE: scan_directory dir='{}' depth={}", dir.c_str(), depth);
     MediaScanner scanner;
     std::vector<std::string> exts = {".jpg", ".jpeg", ".png", ".webp", ".heic", ".heif", ".gif", ".bmp", ".tiff", ".mp4", ".mov", ".mkv", ".avi", ".webm"};
@@ -434,10 +445,9 @@ void scan_directory(const std::string& dir, int depth,
         ignore_f = g_cfg.ignore_folders;
     }
 
-    auto media_files = scanner.scan(dir, exts, scan_days, depth, ignore_f, progress);
-    g_logger.info("TRACE: scan returned {} media files", std::ssize(media_files));
-
-    items = std::move(media_files);
+    auto result = scanner.scan(dir, exts, scan_days, depth, ignore_f, std::move(progress), stop);
+    g_logger.info("Scanner: returned {} media files (complete={})", result.items.size(), result.complete);
+    return result;
 }
 
 unsigned long long make_entropy_seed() {

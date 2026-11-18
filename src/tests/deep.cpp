@@ -166,6 +166,18 @@ static void test_http() {
     check(parse_text(raw) == Result::complete && request.path == "/api/next_extra" && !request.headers.contains("authorization"), "auth header forged outside header field");
     check(query_param(raw, "value") == "a&b+c" && !query_param(raw, "fake"), "query decoding failed");
     check(url_encode("a+b &") == "a%2Bb%20%26", "form encoding failed");
+    Request browser;
+    browser.headers = {{"host", "frame.test:9000"}, {"origin", "http://frame.test:9000"},
+                       {"referer", "http://frame.test:9000/chores"}, {"sec-fetch-site", "same-origin"}};
+    check(controller_origin_allowed(browser), "same-origin controller request rejected");
+    browser.headers["sec-fetch-site"] = "same-site";
+    check(!controller_origin_allowed(browser), "different origin allowed by same-site metadata");
+    browser.headers.erase("sec-fetch-site");
+    browser.headers.erase("origin");
+    browser.headers["referer"] = "http://different.test/";
+    check(!controller_origin_allowed(browser), "foreign Referrer accepted");
+    browser.headers.clear();
+    check(controller_origin_allowed(browser), "command-line request without browser headers rejected");
     int sockets[2]; check(socketpair(AF_UNIX, SOCK_STREAM, 0, sockets) == 0, "socketpair failed");
     std::jthread writer([&] {
         send_all(sockets[1], "POST / HTTP/1.1\r\ncontent-LENGTH: 3\r\n\r\na");

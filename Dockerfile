@@ -73,8 +73,9 @@ COPY src/ /build-src/src/
 # Compile piTrove executable target in Release mode
 RUN rm -rf /build-src/src/build && mkdir -p /build-src/src/build
 WORKDIR /build-src/src/build
+ARG PITROVE_BUILD_JOBS
 RUN cmake .. -DCMAKE_BUILD_TYPE=Release && \
-    cmake --build . -j$(nproc)
+    cmake --build . --parallel "${PITROVE_BUILD_JOBS:-$(nproc)}"
 
 # ============================================================
 # Stage 2: Runtime stage

@@ -13,6 +13,7 @@ struct Request {
 };
 enum class Result { complete, incomplete, bad_request, too_large, timeout, closed };
 Result parse(std::string_view raw, Request& request, size_t& required);
+bool controller_origin_allowed(const Request& request);
 Result receive(int fd, std::string& raw, Request& request, int timeout_ms);
 using Deadline = std::chrono::steady_clock::time_point;
 bool send_until(int fd, std::string_view bytes, Deadline deadline);

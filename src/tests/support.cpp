@@ -2,6 +2,8 @@
 #include "util.h"
 #include "renderer.h"
 #include "config.h"
+#include "error_db.h"
+#include "image_loader.h"
 #include <filesystem>
 
 Logger::~Logger() = default;
@@ -16,3 +18,16 @@ Renderer::Renderer() = default;
 Renderer::~Renderer() = default;
 
 Config::Config() = default;
+
+bool is_nas_online() { return true; }
+std::vector<ErrorSeed> get_all_error_seeds() { return {}; }
+std::vector<uint8_t> ImageLoader::read_file_to_buffer(const std::string&) { return {}; }
+ImageMetadata ImageLoader::read_metadata_from_memory(std::span<const uint8_t>) { return {}; }
+
+void set_display_power(bool) {}
+
+std::string trim(std::string_view text) {
+    const auto first = text.find_first_not_of(" \t\r\n");
+    if (first == text.npos) return {};
+    return std::string(text.substr(first, text.find_last_not_of(" \t\r\n") - first + 1));
+}

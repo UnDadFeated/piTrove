@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(piTrove VERSION 18.4.2 LANGUAGES CXX)
+project(piTrove VERSION 18.4.3 LANGUAGES CXX)
 
 option(ENABLE_ASAN "Enable AddressSanitizer for memory safety testing" OFF)
 if(ENABLE_ASAN)
@@ -164,7 +164,7 @@ install(TARGETS piTrove DESTINATION ..)
 option(BUILD_TESTING "Build isolated regression tests" OFF)
 if(BUILD_TESTING)
     enable_testing()
-    add_executable(audit_regression tests/regression.cpp tests/support.cpp font_render.cpp scanner.cpp cache.cpp)
+    add_executable(audit_regression tests/regression.cpp tests/support.cpp font_render.cpp scanner.cpp cache.cpp mqtt.cpp)
     target_include_directories(audit_regression PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} ${SDL3_INCLUDE_DIRS} ${SDL3_TTF_INCLUDE_DIRS} ${SQLITE3_INCLUDE_DIRS})
     target_compile_options(audit_regression PRIVATE -Wall -Wextra -ffunction-sections -fdata-sections)
     target_link_options(audit_regression PRIVATE -Wl,--gc-sections -Wl,--wrap=stat)
@@ -214,5 +214,10 @@ if(BUILD_TESTING)
     add_test(NAME nv12_regression COMMAND nv12_regression)
     add_test(NAME audit_regression COMMAND audit_regression ${CMAKE_CURRENT_SOURCE_DIR}/fonts/DejaVuSansMono-Bold.ttf)
     add_test(NAME watchdog_regression COMMAND bash ${CMAKE_CURRENT_SOURCE_DIR}/tests/watchdog.sh ${CMAKE_CURRENT_SOURCE_DIR}/watchdog/pitrove-watchdog.sh)
+    add_test(NAME deployment_regression COMMAND bash
+        ${CMAKE_CURRENT_SOURCE_DIR}/tests/deployment.sh
+        ${CMAKE_CURRENT_SOURCE_DIR}/../scripts/update.sh
+        ${CMAKE_CURRENT_SOURCE_DIR}/../scripts/healthcheck.sh)
+    set_tests_properties(deployment_regression PROPERTIES TIMEOUT 30)
     set_tests_properties(audit_regression watchdog_regression nv12_regression deep_regression playback_regression chores_regression PROPERTIES TIMEOUT 30)
 endif()

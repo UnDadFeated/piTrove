@@ -3,10 +3,13 @@
 #include "renderer.h"
 #include "cache.h"
 #include "scanner.h"
+#include "mqtt.h"
+#include "config.h"
 #include "util.h"
 #include <condition_variable>
 #include <filesystem>
 #include <iostream>
+#include <fstream>
 #include <latch>
 #include <stdexcept>
 #include <cstring>
@@ -124,7 +127,8 @@ static void test_scanner() {
     struct stat st{};
     check(stat_timeout(".", st, 1000) && S_ISDIR(st.st_mode), "normal stat failed");
     check(!stat_timeout("/pitrove-no-such-test-path", st, 1000), "missing stat succeeded");
-    check(!read_dir_timeout(".", 1000).empty(), "normal directory read failed");
+    const auto entries = read_dir_timeout(".", 1000);
+    check(entries && !entries->empty(), "normal directory read failed");
     const int cores = std::max(1U, std::thread::hardware_concurrency());
     const int limit = std::clamp(cores * 4, 8, 64);
     std::latch start(1);
@@ -142,7 +146,7 @@ static void test_scanner() {
     check(unexpectedly_completed == 0, "blocked I/O unexpectedly completed");
     check(g_scanner_detached_threads == limit, "thread admission limit was exceeded or lost");
     check(!stat_timeout(".", st, 1000), "stat admitted work despite exhausted slots");
-    check(read_dir_timeout(".", 1000).empty(), "directory read bypassed shared limit");
+    check(!read_dir_timeout(".", 1000), "directory read bypassed shared limit");
     {
         std::unique_lock lock(io_mutex);
         check(io_cv.wait_for(lock, std::chrono::seconds(5), [&] { return entered_io == limit; }),
@@ -156,6 +160,61 @@ static void test_scanner() {
     check(g_scanner_detached_threads == 0, "completed workers did not return their slots");
     check(stat_timeout(".", st, 1000), "scanner did not recover when blocked I/O returned");
 }
+
+static void test_scan_result() {
+    namespace fs = std::filesystem;
+    char path[] = "/tmp/pitrove-scan-XXXXXX";
+    check(mkdtemp(path) != nullptr, "scan fixture directory creation failed");
+    const fs::path root(path);
+    struct Cleanup { fs::path root; ~Cleanup() { fs::remove_all(root); } } cleanup{root};
+    const auto empty = scan_directory(path, 10);
+    check(empty.complete && empty.items.empty(), "readable empty directory is a complete scan");
+    const auto missing = scan_directory((root / "absent").string(), 10);
+    check(!missing.complete, "missing directory reported a complete scan");
+    std::ofstream(root / "good.JPG").put('x');
+    fs::create_symlink(root / "absent", root / "disappeared");
+    const auto partial = scan_directory(path, 10);
+    check(!partial.complete && partial.items.size() == 1, "failed stat lost partial-scan status");
+    fs::remove(root / "disappeared");
+    const auto recovered = scan_directory(path, 10);
+    check(recovered.complete && recovered.items.size() == 1, "recovered scan did not complete");
+}
+
+static void test_scan_cancel() {
+    {
+        std::lock_guard lock(io_mutex);
+        entered_io = 0;
+        release_io = false;
+    }
+    bool stat_succeeded = false;
+    std::jthread caller([&](std::stop_token stop) {
+        struct stat result{};
+        stat_succeeded = stat_timeout("/blocked-cifs-test", result, 4000, stop);
+    });
+    bool entered;
+    {
+        std::unique_lock lock(io_mutex);
+        entered = io_cv.wait_for(lock, std::chrono::seconds(1), [] { return entered_io == 1; });
+    }
+    const auto started = std::chrono::steady_clock::now();
+    caller.request_stop();
+    caller.join();
+    const auto elapsed = std::chrono::steady_clock::now() - started;
+    const int still_blocked = g_scanner_detached_threads.load();
+    {
+        std::lock_guard lock(io_mutex);
+        release_io = true;
+    }
+    io_cv.notify_all();
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(1);
+    while (g_scanner_detached_threads != 0 && std::chrono::steady_clock::now() < deadline)
+        std::this_thread::yield();
+    check(entered && !stat_succeeded && elapsed < std::chrono::seconds(1),
+          "cancelled scan coordinator waited for the NAS syscall");
+    check(still_blocked == 1 && g_scanner_detached_threads == 0,
+          "cancelling a wait lost the blocked worker's slot");
+}
+
 
 static void sql(sqlite3* db, const char* statement) {
     check(sqlite3_exec(db, statement, nullptr, nullptr, nullptr) == SQLITE_OK, sqlite3_errmsg(db));
@@ -205,6 +264,122 @@ static void test_preprocessed_marker() {
     sqlite3_finalize(query);
 }
 
+static void test_cache_migration() {
+    namespace fs = std::filesystem;
+    char path[] = "/tmp/pitrove-cache-XXXXXX";
+    check(mkdtemp(path) != nullptr, "cache fixture directory creation failed");
+    const fs::path root(path);
+    struct Cleanup { fs::path root; ~Cleanup() { fs::remove_all(root); } } cleanup{root};
+    auto database = (root / "cache.db").string();
+
+    sqlite3* legacy = nullptr;
+    check(sqlite3_open(database.c_str(), &legacy) == SQLITE_OK, "legacy database open failed");
+    sql(legacy, "CREATE TABLE cache(path TEXT PRIMARY KEY, type TEXT, w INT, h INT, "
+                "duration REAL, exif INT, last_shown INTEGER, timestamp INTEGER); "
+                "INSERT INTO cache VALUES('clip','video',1280,720,5,1,200,100); BEGIN EXCLUSIVE");
+    CacheManager cache;
+    const bool opened_while_locked = cache.open(path);
+    sql(legacy, "ROLLBACK");
+    sqlite3_close(legacy);
+    check(!opened_while_locked, "exclusive SQLite lock was not observed");
+    check(cache.open(path), "legacy database did not migrate");
+
+    MediaItem original;
+    original.path = "clip";
+    original.modified_time = 100;
+    check(cache.load_cached(original) && original.width == 1280 && original.last_shown == 200,
+          "legacy metadata or cooldown was lost");
+    MediaItem replaced;
+    replaced.path = original.path;
+    replaced.modified_time = 300;
+    check(!cache.load_cached(replaced) && replaced.width == 0 && replaced.last_shown == 200,
+          "replacement media reused stale dimensions or lost cooldown");
+    original.modified_time = 0;
+    cache.upsert(original, 0, 1, false);
+    MediaItem from_cache;
+    from_cache.path = original.path;
+    check(cache.load_cached(from_cache) && from_cache.modified_time == 100,
+          "upsert with unknown timestamp erased cached modification time");
+}
+
+
+static void test_mqtt_lifecycle() {
+    namespace fs = std::filesystem;
+    char path[] = "/tmp/pitrove-mqtt-XXXXXX";
+    check(mkdtemp(path) != nullptr, "MQTT fixture directory creation failed");
+    const fs::path root(path);
+    const auto* environment_path = getenv("PATH");
+    const std::string original_path = environment_path ? environment_path : "";
+    struct Cleanup {
+        fs::path root;
+        std::string search_path;
+        ~Cleanup() {
+            stop_mqtt_client();
+            setenv("PATH", search_path.c_str(), 1);
+            unsetenv("PITROVE_MQTT_FIXTURE");
+            fs::remove_all(root);
+        }
+    } cleanup{root, original_path};
+    const auto script = [&](const char* name, const char* body) {
+        const auto file = root / name;
+        std::ofstream(file) << "#!/bin/sh\n" << body;
+        fs::permissions(file, fs::perms::owner_all);
+    };
+    const auto read = [](const fs::path& file) {
+        std::ifstream input(file);
+        return std::string(std::istreambuf_iterator<char>(input), std::istreambuf_iterator<char>());
+    };
+    const auto wait_for = [](auto condition) {
+        const auto end = std::chrono::steady_clock::now() + std::chrono::seconds(3);
+        while (!condition() && std::chrono::steady_clock::now() < end)
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        return condition();
+    };
+
+    setenv("PATH", (root.string() + ":" + original_path).c_str(), 1);
+    setenv("PITROVE_MQTT_FIXTURE", path, 1);
+    {
+        std::lock_guard lock(g_config_mtx);
+        g_cfg.mqtt_enabled = true;
+        g_cfg.mqtt_tls_enabled = true;
+        g_cfg.mqtt_broker = "unused.test";
+        g_cfg.mqtt_ca_cert.clear();
+    }
+
+    script("mosquitto_pub", R"SH(printf '%s\n' "$@" > "$PITROVE_MQTT_FIXTURE/pub-args"
+cat > "$PITROVE_MQTT_FIXTURE/payload"
+touch "$PITROVE_MQTT_FIXTURE/pub-finished"
+)SH");
+    const std::string body(100000, 'x');
+    mqtt_publish("fixture/one", body);
+    check(wait_for([&] { return fs::exists(root / "pub-finished"); }), "publisher CLI did not finish");
+    check(read(root / "payload") == body, "publisher lost bytes in the payload");
+    check(read(root / "pub-args").find("--tls-use-os-certs") != std::string::npos,
+          "publisher did not use configured TLS");
+    stop_mqtt_client();
+
+    script("mosquitto_sub", R"SH(printf '%s\n' "$@" > "$PITROVE_MQTT_FIXTURE/sub-args"
+exec sleep 30
+)SH");
+    script("mosquitto_pub", R"SH(touch "$PITROVE_MQTT_FIXTURE/pub-blocked"
+exec sleep 30
+)SH");
+    start_mqtt_client();
+    check(wait_for([&] { return fs::exists(root / "sub-args") && fs::exists(root / "pub-blocked"); }),
+          "subscriber or blocked publisher did not start");
+    check(read(root / "sub-args").find("--tls-use-os-certs") != std::string::npos,
+          "subscriber did not use configured TLS");
+    const auto started = std::chrono::steady_clock::now();
+    stop_mqtt_client();
+    check(std::chrono::steady_clock::now() - started < std::chrono::seconds(2),
+          "blocked MQTT child delayed shutdown");
+    {
+        std::lock_guard lock(g_config_mtx);
+        g_cfg.mqtt_enabled = false;
+    }
+}
+
+
 int main(int argc, char** argv) {
     try {
         check(argc == 2, "expected font path");
@@ -213,8 +388,12 @@ int main(int argc, char** argv) {
         test_fonts(argv[1]);
         test_fitted_panel_text(argv[1]);
         test_scanner();
+        test_scan_result();
+        test_scan_cancel();
         test_cache();
+        test_cache_migration();
         test_preprocessed_marker();
+        test_mqtt_lifecycle();
         SDL_Quit();
         std::cout << "font eviction, scanner admission, and cache rollback regressions passed\n";
         return 0;

@@ -151,9 +151,8 @@ Result handle(Config& config,const std::string& method,const std::string& raw,co
     if(http_protocol::parse(raw,request,required)!=http_protocol::Result::complete)return error(400,"Incomplete configuration request.");
     const auto type=request.headers.find("content-type");
     if(type==request.headers.end()||type->second.substr(0,type->second.find(';'))!="application/x-www-form-urlencoded")return error(415,"Send form-encoded configuration changes.");
-    if(auto origin=request.headers.find("origin");origin!=request.headers.end()){
-      const auto host=request.headers.find("host");if(host==request.headers.end()||(origin->second!="http://"+host->second&&origin->second!="https://"+host->second))return error(403,"Open the configuration from your piTrove controller to save changes.");
-    }
+    if (!http_protocol::controller_origin_allowed(request))
+        return error(403, "Open the configuration from your piTrove controller to save changes.");
     std::string_view body(raw.data()+raw.find("\r\n\r\n")+4,request.content_length);std::map<std::string,std::string> fields;
     // Decode each posted pair separately; query parameters never override posted values.
     while(!body.empty()){

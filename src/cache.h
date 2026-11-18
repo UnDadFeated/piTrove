@@ -36,9 +36,6 @@ struct CacheManager {
     ~CacheManager();
 };
 
-// Verify database integrity before use (legacy pattern)
-bool verify_database(const std::string& path);
-
 inline CacheManager* g_cache = nullptr;
 
 #endif // PITROVE_CACHE_H

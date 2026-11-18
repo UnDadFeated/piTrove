@@ -5,6 +5,8 @@
 #include <vector>
 #include <atomic>
 #include <mutex>
+#include <optional>
+#include <stop_token>
 #include <chrono>
 #include <cmath>
 #include <algorithm>
@@ -22,10 +24,18 @@
 #include <poll.h>
 #include "media_item.h"
 
-// CIFS getdents64 directory read wrappers
-std::vector<std::string> read_dir(const std::string& path);
-std::vector<std::string> read_dir_timeout(const std::string& path, int timeout_ms = 15000);
-bool stat_timeout(const std::string& path, struct stat& st, int timeout_ms = 5000);
+// A disengaged listing means a failed or interrupted read. An empty directory
+// is a successful listing. Workers may outlive the wait if CIFS is blocked.
+std::optional<std::vector<std::string>> read_dir_timeout(const std::string& path,
+                                                         int timeout_ms = 15000,
+                                                         std::stop_token stop = {});
+bool stat_timeout(const std::string& path, struct stat& st, int timeout_ms = 5000,
+                  std::stop_token stop = {});
+
+struct ScanResult {
+    std::vector<MediaItem> items;
+    bool complete = false;
+};
 
 bool is_image(std::string_view ext_or_path);
 
@@ -42,12 +52,10 @@ public:
     MediaScanner() = default;
 
   bool is_month_in_window(std::string_view dirname, int window_days);
-    std::vector<MediaItem> scan(const std::string& directory,
-                                   const std::vector<std::string>& exts,
-                                   int window_days,
-                                   int max_depth,
-                                   const std::vector<std::string>& ignore_folders,
-                                   std::function<void(int)> progress = nullptr);
+    ScanResult scan(const std::string& directory,
+                    const std::vector<std::string>& exts, int window_days, int max_depth,
+                    const std::vector<std::string>& ignore_folders,
+                    std::function<void(int)> progress, std::stop_token stop);
 
 
 private:
@@ -59,9 +67,8 @@ private:
 };
 
 // Global scanner interface
-void scan_directory(const std::string& dir, int depth,
-                    std::vector<MediaItem>& items,
-                    std::function<void(int)> progress = nullptr);
+ScanResult scan_directory(const std::string& dir, int depth,
+                          std::function<void(int)> progress = nullptr, std::stop_token stop = {});
 
 // Triple-entropy/playlist helpers
 unsigned long long make_entropy_seed();

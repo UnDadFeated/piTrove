@@ -42,11 +42,8 @@ HttpResponse handle_http(Store& store,const std::string& method,const std::strin
     }
     http_protocol::Request parsed; size_t required;
     if (http_protocol::parse(raw,parsed,required)!=http_protocol::Result::complete) return error(400,"Incomplete chore request");
-    if (auto origin=parsed.headers.find("origin"); origin!=parsed.headers.end()) {
-        const auto host=parsed.headers.find("host");
-        if (host==parsed.headers.end() || (origin->second!="http://"+host->second && origin->second!="https://"+host->second))
-            return error(403,"Open chores from your piTrove controller to make changes");
-    }
+    if (!http_protocol::controller_origin_allowed(parsed))
+        return error(403, "Open chores from your piTrove controller to make changes");
     const auto type=parsed.headers.find("content-type");
     if (type==parsed.headers.end() || type->second.substr(0,type->second.find(';'))!="application/x-www-form-urlencoded") return error(415,"Send form-encoded chore fields");
     // Mutations read form bodies only. Query strings cannot override a posted ID/assignee.

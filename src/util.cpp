@@ -823,7 +823,8 @@ bool is_media_dir_healthy(const std::string& media_dir) {
 
     // CIFS directory listing can stall despite a reachable host. Reuse the
     // scanner's deadline and bounded pool of outstanding filesystem calls.
-    const bool healthy = !read_dir_timeout(media_dir, 2000).empty();
+    const auto entries = read_dir_timeout(media_dir, 2000);
+    const bool healthy = entries && !entries->empty();
 
     // Store cache result (statics -- survives across calls)
     {
