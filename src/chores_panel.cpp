@@ -33,18 +33,25 @@ std::vector<std::string> title_lines(FontRenderer* fr, const FontHandle& font, c
 }
 void render_chores_panel(SDL_Renderer* renderer, FontRenderer* fonts, const std::string& path, const SDL_Rect& bounds, int screen_w) {
     if (!renderer || !fonts || bounds.w<=0 || bounds.h<=0) return;
-    int max_items; bool completed,matting; std::string timezone;
-    { std::shared_lock lock(g_config_mtx); max_items=g_cfg.left_panel_max_chores; completed=g_cfg.left_panel_show_completed; timezone=g_cfg.timezone; matting=g_cfg.matting; }
+    int max_items; bool completed,matting,show_clock; std::string timezone;
+    { std::shared_lock lock(g_config_mtx); max_items=g_cfg.left_panel_max_chores; completed=g_cfg.left_panel_show_completed; timezone=g_cfg.timezone; matting=g_cfg.matting; show_clock=g_cfg.left_panel_clock_enabled; }
     auto px=[&](int value){return std::max(1,int(std::round(double(value)*screen_w/1920.0)));};
     struct State {
-        uint64_t next=0; std::string zone,today; chores::Snapshot data;
-        std::vector<chores::Chore> rows; bool ready=false, show_done=false; int total=0, done=0;
+        uint64_t next=0; std::string zone,today,clock; chores::Snapshot data;
+        std::vector<chores::Chore> rows; bool ready=false, show_done=false, show_clock=false; int total=0, done=0;
     };
     static State state;
     const uint64_t ticks=SDL_GetTicks();
-    if (ticks>=state.next || timezone!=state.zone || completed!=state.show_done) {
-        state.zone=timezone; state.today=format_epoch_tz(time(nullptr),timezone,"%Y-%m-%d");
-        if (!chores::valid_date(state.today)) state.today=format_epoch_tz(time(nullptr),"UTC","%Y-%m-%d");
+    if (ticks>=state.next || timezone!=state.zone || completed!=state.show_done || show_clock!=state.show_clock) {
+        const auto now=time(nullptr);
+        state.zone=timezone; state.today=format_epoch_tz(now,timezone,"%Y-%m-%d");
+        if (!chores::valid_date(state.today)) state.today=format_epoch_tz(now,"UTC","%Y-%m-%d");
+        state.show_clock=show_clock;
+        if (show_clock) {
+            state.clock=format_epoch_tz(now,timezone,"%I:%M %p");
+            if (state.clock.ends_with(" UTC")) state.clock.resize(state.clock.size()-4);
+            if (state.clock.starts_with('0')) state.clock.erase(0,1);
+        }
         state.ready=chores::g_store.ready(); state.data=chores::g_store.snapshot(state.today); state.next=ticks+1000;
         state.rows.clear(); state.total=0; state.done=0; state.show_done=completed;
     for (const auto& c:state.data.chores) if (chores::due_today_or_overdue(c,state.today)) {
@@ -72,6 +79,16 @@ void render_chores_panel(SDL_Renderer* renderer, FontRenderer* fonts, const std:
     const int x=bounds.x+px(18), available=bounds.w-px(36);
     const int top=matting ? int(std::round(37.0*screen_w/1920.0)) : 0;
     int y=bounds.y+top+px(18);
+    if (show_clock) {
+        const auto clock=fonts->load_font(path,px(28));
+        if (clock && clock->font) {
+            int width=0,height=0;
+            fonts->measure(*clock,state.clock,width,height);
+            // Bounds already exclude the physical matte; center in the visible column.
+            fonts->draw_text(bounds.x+(bounds.w-width)/2,y,*clock,state.clock,255,255,255,255);
+            y+=height+px(12);
+        }
+    }
     fonts->draw_text(x,y,*title,"Today's chores",255,255,255,255); y+=px(30);
     fonts->draw_text(x,y,*small,fit_text(fonts,*small,std::to_string(state.done)+" of "+std::to_string(state.total)+" done • "+state.today,available),56,189,248,255);
     y+=px(30);

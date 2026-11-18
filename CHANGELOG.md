@@ -1,3 +1,9 @@
+### Release v18.4.1 — Centered Chores Clock (November 17, 2026)
+- **Clock above chores**: a 28px clock at 1080p sits above the 22px chores heading, horizontally centered inside the visible left column. It always uses 12-hour time with AM/PM and the configured timezone. It appears during photo, transition and video playback; turning it off returns the space to the chore list, which remains clear of the news feed.
+- **Optional everywhere**: `[infopanels] left_panel_clock_enabled` defaults on and is available in the TUI, full web settings, the chores page's quick controls and the settings API. It is independent of the existing on-photo clock. Clock-only edits no longer refresh unrelated calendar, news or stock integrations.
+- **Cleaner navigation**: removed the extra Full configuration button/link from the frame and chores pages. The shared Settings navigation still opens the complete editor, now with 184 options.
+- **Clean TUI exit**: initialize secret-redaction patterns with the logger so they remain valid during static cleanup. This fixes a pre-existing crash after quitting/saving the config wizard, verified with an isolated late-cleanup regression.
+
 ### Release v18.4.0 — Modern LAN Controller & Complete Web Configuration (November 17, 2026)
 - **Shared responsive interface**: frame controls, the household board, full settings and activity share a clean layout, Auto/Light/Dark themes, keyboard focus, mobile bottom navigation and touch controls. Desktop uses a larger preview beside household and device cards. The pages have no external font/script dependencies.
 - **Useful frame controls**: authenticated playback commands, connection feedback, household progress, frame-image download and an exact, copyable LAN address. Activity includes local text filtering, live/follow controls and log download. Background polling pauses in hidden tabs and avoids overlapping requests.

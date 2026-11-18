@@ -1,6 +1,7 @@
 #include "config_editor.h"
 #include "auth.h"
 #include "config_text.h"
+#include "util.h"
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -12,6 +13,8 @@ void require(bool condition,const char* message){if(!condition)throw std::runtim
 std::map<std::string,std::string> edit(const Config& c,std::map<std::string,std::string> fields){fields["revision"]=config_editor::revision(c);return fields;}
 int main(){const auto dir=std::filesystem::temp_directory_path()/ ("pitrove-config-editor-"+std::to_string(getpid()));std::filesystem::create_directories(dir);const auto path=(dir/"config.toml").string();
  try{
+ require(format_epoch_tz(86400,"UTC","%I:%M %p")=="12:00 AM","Midnight must use 12-hour AM format");
+ require(format_epoch_tz(129600,"UTC","%I:%M %p")=="12:00 PM","Noon must use 12-hour PM format");
  Config c;c.timezone="UTC";c.http_api_key="private-controller-key";c.mqtt_pass="private-mqtt-pass";c.gcalendar_api_key="private-calendar-key";c.gcalendar_ical_url="https://example.test/private-token/basic.ics";c.google_photos_refresh_token="private-refresh-token";
  const auto description=config_editor::describe(c);
  for(const auto& secret:{c.http_api_key,c.mqtt_pass,c.gcalendar_api_key,c.gcalendar_ical_url,c.google_photos_refresh_token})require(description.find(secret)==std::string::npos,"Schema leaked a configured secret");
@@ -26,7 +29,11 @@ int main(){const auto dir=std::filesystem::temp_directory_path()/ ("pitrove-conf
  const auto old=config_editor::revision(c);
  result=apply(c,edit(c,{{"display.resolution","2560,1440"},{"news.blacklist","[\"a,b.test\",\"quoted\\\".test\"]"},{"video.max_width","3840"},{"video.max_bitrate","42000000"},{"mqtt.pass",""},{"display.vignette_strength","0.8"}}),path);
  require(result.status==200&&c.screen_w==2560&&c.video_max_width==3840&&c.mqtt_pass=="private-mqtt-pass","Valid full config edit failed");
- Config loaded;require(loaded.load(path),"Saved config could not reload");require(loaded.video_max_width==3840&&loaded.video_max_bitrate==42000000&&loaded.news_blacklist==c.news_blacklist&&loaded.mqtt_pass==c.mqtt_pass,"Saved fields did not round trip");
+ require(c.left_panel_clock_enabled,"Chores clock should default on");
+ require(apply(c,edit(c,{{"infopanels.left_panel_clock_enabled","maybe"}}),path).status==400&&c.left_panel_clock_enabled,"Invalid clock toggle was accepted");
+ require(apply(c,edit(c,{{"infopanels.left_panel_clock_enabled","0"}}),path).status==200&&!c.left_panel_clock_enabled&&!c.clock_enabled,"Panel clock toggled the independent on-photo clock");
+ Config loaded;require(loaded.load(path),"Saved config could not reload");require(!loaded.left_panel_clock_enabled,"Chores clock off preference was not persisted");
+ require(apply(c,edit(c,{{"infopanels.left_panel_clock_enabled","1"}}),path).status==200&&c.left_panel_clock_enabled,"Chores clock could not be restored");require(loaded.video_max_width==3840&&loaded.video_max_bitrate==42000000&&loaded.news_blacklist==c.news_blacklist&&loaded.mqtt_pass==c.mqtt_pass,"Saved fields did not round trip");
  require(apply(c,{{"revision",old},{"slideshow.shuffle","0"}},path).status==409,"Stale configuration overwrote a newer edit");
  const auto good=config_editor::revision(c);require(apply(c,edit(c,{{"slideshow.shuffle","0"}}),(dir/"missing"/"config.toml").string()).status==500&&config_editor::revision(c)==good,"Failed save published config");
  require(apply(c,edit(c,{{"clear.mqtt.pass","1"}}),path).status==200&&c.mqtt_pass.empty(),"Explicit secret clear failed");

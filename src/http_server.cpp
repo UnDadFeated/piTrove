@@ -768,6 +768,7 @@ static std::string get_api_settings() {
   "left_panel_enabled": {},
   "left_panel_max_chores": {},
   "left_panel_show_completed": {},
+  "left_panel_clock_enabled": {},
   "news_enabled": {},
   "news_source": "{}",
   "news_local_query": "{}",
@@ -824,6 +825,7 @@ static std::string get_api_settings() {
         g_cfg.left_panel_enabled,
         g_cfg.left_panel_max_chores,
         g_cfg.left_panel_show_completed,
+        g_cfg.left_panel_clock_enabled,
         g_cfg.news_enabled,
         escape_json(g_cfg.news_source),
         escape_json(g_cfg.news_local_query),
@@ -1187,9 +1189,10 @@ static void handle_client(int client_fd) {
                 bool master,news,calendar,stocks,photos; std::string level;
                 { std::shared_lock lock(g_config_mtx); master=g_cfg.infopanels_enabled;news=g_cfg.news_enabled;calendar=g_cfg.gcalendar_enabled;stocks=g_cfg.stockstreamer_enabled;photos=g_cfg.google_photos_enabled;level=g_cfg.log_level; }
                 const auto touched=[&](std::string_view prefix){return std::any_of(result.changed.begin(),result.changed.end(),[&](const std::string& id){return id.starts_with(prefix);});};
-                if (touched("infopanels.") || touched("news.")) { if(master&&news){if(!g_news_ticker.is_running())g_news_ticker.start();g_news_ticker.sync();}else g_news_ticker.stop(); }
-                if (touched("infopanels.") || touched("gcalendar.") || touched("mqtt.timezone")) { if(master&&calendar){if(!g_calendar.is_running())g_calendar.start();g_calendar.sync();}else g_calendar.stop(); }
-                if (touched("infopanels.") || touched("stockstreamer.")) { if(master&&stocks){if(!g_stock_streamer.is_running())g_stock_streamer.start();g_stock_streamer.sync();}else g_stock_streamer.stop(); }
+                const bool panel_master_changed=std::find(result.changed.begin(),result.changed.end(),"infopanels.enabled")!=result.changed.end();
+                if (panel_master_changed || touched("news.")) { if(master&&news){if(!g_news_ticker.is_running())g_news_ticker.start();g_news_ticker.sync();}else g_news_ticker.stop(); }
+                if (panel_master_changed || touched("gcalendar.") || touched("mqtt.timezone")) { if(master&&calendar){if(!g_calendar.is_running())g_calendar.start();g_calendar.sync();}else g_calendar.stop(); }
+                if (panel_master_changed || touched("stockstreamer.")) { if(master&&stocks){if(!g_stock_streamer.is_running())g_stock_streamer.start();g_stock_streamer.sync();}else g_stock_streamer.stop(); }
                 if (touched("google_photos.")) { g_google_photos.stop();if(photos)g_google_photos.start(); }
                 if (touched("log.level")) g_logger.level.store(level=="debug"||level=="trace"?LogLevel::DEBUG:level=="warn"||level=="warning"?LogLevel::WARN:level=="error"?LogLevel::ERROR:LogLevel::INFO);
             }
@@ -1314,7 +1317,7 @@ static void handle_client(int client_fd) {
                 std::lock_guard lock(g_config_mtx);
                 Config previous = g_cfg;
 
-                for (const auto* key : {"left_panel_enabled", "left_panel_show_completed"}) {
+                for (const auto* key : {"left_panel_enabled", "left_panel_show_completed", "left_panel_clock_enabled"}) {
                     if (has_query_param(request, key)) {
                         const auto value = get_query_param(request, key);
                         if (value != "0" && value != "1" && value != "true" && value != "false") {
@@ -1479,6 +1482,11 @@ static void handle_client(int client_fd) {
                         const auto value = get_query_param(request, "left_panel_show_completed");
                         const bool desired = value == "1" || value == "true";
                         if (g_cfg.left_panel_show_completed != desired) { g_cfg.left_panel_show_completed = desired; changed = true; }
+                    }
+                    if (has_query_param(request, "left_panel_clock_enabled")) {
+                        const auto value = get_query_param(request, "left_panel_clock_enabled");
+                        const bool desired = value == "1" || value == "true";
+                        if (g_cfg.left_panel_clock_enabled != desired) { g_cfg.left_panel_clock_enabled = desired; changed = true; }
                     }
                     if (has_query_param(request, "left_panel_max_chores")) {
                         const int desired = safe_stoi(get_query_param(request, "left_panel_max_chores"), 10);

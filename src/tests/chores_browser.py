@@ -106,6 +106,16 @@ with tempfile.TemporaryDirectory(prefix='pitrove-chrome-') as profile:
         click('panel')
         wait("!document.getElementById('panel').disabled && document.getElementById('panel').checked")
         assert api('/api/settings')['left_panel_enabled']
+        assert js("document.getElementById('panel-clock').checked"), 'Clock should default on'
+        assert not js("!!document.querySelector('.board-status a[href=\"/config\"]')"), 'Duplicate settings link remains'
+        click('panel-clock');wait("!document.getElementById('panel-clock').disabled && !document.getElementById('panel-clock').checked")
+        assert not api('/api/settings')['left_panel_clock_enabled']
+        assert api('/api/settings')['left_panel_enabled'], 'Clock toggle hid the panel'
+        call('Page.reload');wait("document.getElementById('panel-clock') && !document.getElementById('panel-clock').disabled")
+        assert not js("document.getElementById('panel-clock').checked"), 'Clock preference lost on reload'
+        click('panel-clock');wait("!document.getElementById('panel-clock').disabled && document.getElementById('panel-clock').checked")
+        assert api('/api/settings')['left_panel_clock_enabled']
+
         # Full reload gets persisted people/chores and the active panel state.
         call('Page.reload')
         wait("document.querySelectorAll('.person').length===1 && !document.getElementById('panel').disabled")
@@ -128,7 +138,7 @@ with tempfile.TemporaryDirectory(prefix='pitrove-chrome-') as profile:
         js("document.querySelector('.person-actions button:last-child').click()")
         wait("document.querySelectorAll('.person').length===0")
         assert not api('/api/chores')['people'] and not api('/api/chores')['chores']
-        print('Chromium: auth, people/chore create/edit/delete, safe text, daily completion, dated time, panel toggle, reload and mobile layout passed')
+        print('Chromium: auth, people/chore create/edit/delete, safe text, daily completion, dated time, panel/clock toggles, reload and mobile layout passed')
         ws.close()
     finally:
         chrome.terminate()

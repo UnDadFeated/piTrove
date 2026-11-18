@@ -180,7 +180,7 @@ Open **http://192.168.4.110:9000/** on the example Pi, or `http://<pi-ip>:9000/`
 
 The controller adapts from small phones to desktop screens. Use **Frame** for playback controls, a current-media preview, frame-image download, household progress and device status. **Chores** opens the people/chore board; **Activity** has searchable recent logs, live/follow controls and log download. The Auto/Light/Dark appearance choice is shared across pages. The interface works without external font or script services.
 
-Choose **Full configuration** on the home page, or **Settings** in the navigation, to open `/config`. It includes all 183 persisted/TUI settings: display, slideshow, overlays, scanning, weather, hardware, remote access, MQTT, cloud photos, panels, news, stocks, calendar, updates and recovery. Search names, help text or section-qualified keys, or select a category. Lists use one item per line. Edits remain local until **Review changes → Save configuration**; you can discard them or reload the current configuration. A revision check prevents an older browser page from overwriting a newer edit. Options requiring a restart are labeled, and a restart button appears after saving those options.
+Choose **Settings** in the navigation to open `/config`. It includes all 184 persisted/TUI settings: display, slideshow, overlays, scanning, weather, hardware, remote access, MQTT, cloud photos, panels, news, stocks, calendar, updates and recovery. Search names, help text or section-qualified keys, or select a category. Lists use one item per line. Edits remain local until **Review changes → Save configuration**; you can discard them or reload the current configuration. A revision check prevents an older browser page from overwriting a newer edit. Options requiring a restart are labeled, and a restart button appears after saving those options.
 
 The optional controller access key protects the full configuration API as well as other private controller actions. Existing keys, passwords, tokens, calendar URLs and PIN hashes are hidden. A blank secret input preserves its configured value; **Clear saved value** explicitly removes it. Setting a four-digit touch PIN hashes it before persistence. The full editor sends changes in POST bodies and only updates edited fields. Saved configurations contain a coherent private credential snapshot (`[remote] credentials_in_config = 1`); legacy `secrets.toml` values bootstrap older configurations until their next save, then no longer override that snapshot. Keep the saved config private as usual.
 
@@ -196,6 +196,9 @@ enabled = 1
 left_panel_enabled = 1
 left_panel_max_chores = 10
 left_panel_show_completed = 0
+left_panel_clock_enabled = 1
 ```
+
+A centered 12-hour clock with AM/PM appears above **Today's chores** by default, using the configured display timezone. Its 28px text at 1080p is larger than the chores heading. Turn it off using **Show 12-hour clock** on the chores page, **Settings → Side panels → Chores column clock (12-hour)**, **TUI → Infopanels → Chores Clock**, or `left_panel_clock_enabled = 0` under `[infopanels]`. It is independent of the on-photo clock and its 24-hour setting. Hiding it reclaims the space for chores.
 
 The panel defaults off, shows up to the selected number of cards per page, and rotates overflow pages every 12 seconds. Completed chores can be included with **Show Done Chores**. Hiding the panel preserves the household data. People, chores and completion records live in `chores.db` beside your active config (normally the persistent `config/` directory), separately from the media cache. The existing optional controller API key also protects chores reads and updates.

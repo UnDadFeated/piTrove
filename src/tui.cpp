@@ -258,7 +258,8 @@ void config_wizard(const std::string& config_path) {
         {"Max Calendar Events", INT, "Maximum number of upcoming events on sidebar (1-16)"},
         {"Left Chores Panel", TGL, "Show assigned chores on the left; requires Infopanels Master"},
         {"Max Visible Chores", INT, "Maximum chore cards in the left panel (1-20); overflow pages automatically"},
-        {"Show Done Chores", TGL, "Include completed chores in today's left-panel board"}
+        {"Show Done Chores", TGL, "Include completed chores in today's left-panel board"},
+        {"Chores Clock", TGL, "Centered 12-hour clock above today's chores, using the display timezone"}
     };
 
     static const CI CGP[] = {
@@ -469,6 +470,7 @@ void config_wizard(const std::string& config_path) {
             case 20: return g_cfg.left_panel_enabled ? "[ON]" : "[OFF]";
             case 21: return std::to_string(g_cfg.left_panel_max_chores);
             case 22: return g_cfg.left_panel_show_completed ? "[ON]" : "[OFF]";
+            case 23: return g_cfg.left_panel_clock_enabled ? "[ON]" : "[OFF]";
         }
         return "";
     };
@@ -743,6 +745,7 @@ void config_wizard(const std::string& config_path) {
                 case 20:g_cfg.left_panel_enabled=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
                 case 21:g_cfg.left_panel_max_chores=std::clamp(safe_stoi(v,10),1,20);break;
                 case 22:g_cfg.left_panel_show_completed=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
+                case 23:g_cfg.left_panel_clock_enabled=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
             }
         } catch(...) {}
         const bool reconfigure_photos = c == 10 && i == 0;

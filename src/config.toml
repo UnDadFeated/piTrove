@@ -179,6 +179,8 @@ enabled = 0
 left_panel_enabled = 0
 left_panel_max_chores = 10
 left_panel_show_completed = 0
+# Centered 12-hour clock above today's chores (uses the display timezone).
+left_panel_clock_enabled = 1
 
 
 [news]

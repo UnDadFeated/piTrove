@@ -1,7 +1,7 @@
 #ifndef PITROVE_UTIL_H
 #define PITROVE_UTIL_H
 
-#define VERSION "18.4.0"
+#define VERSION "18.4.1"
 #define APP_NAME "piTrove"
 
 #include <format>
@@ -88,7 +88,11 @@ struct Logger {
     void log_error_code(int code_num);
     bool is_initialized() const { return initialized; }
 
-    Logger() = default;
+    Logger() {
+        // Construct the redaction patterns before this logger's destructor is
+        // registered. They must outlive logs emitted by global cleanup objects.
+        (void)redact_secrets("");
+    }
     ~Logger();
 template<typename... Args>
 void info(const std::format_string<Args...> fmt, Args&&... args) {

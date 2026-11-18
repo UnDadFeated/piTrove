@@ -72,6 +72,8 @@ with tempfile.TemporaryDirectory(prefix='pitrove-chrome-') as profile:
         fill('api-key',key);submit('unlock')
         wait("document.getElementById('unlock').hidden && document.getElementById('media-title').textContent.includes('family')")
         assert js("document.getElementById('lan-address').value") == base+'/'
+        assert not js("!!document.querySelector('.heading-actions a[href=\"/config\"]')"), 'Duplicate full configuration button remains'
+        assert js("document.querySelector('.nav-link[data-page=settings]').getAttribute('href')") == '/config'
         click('btn-pause');wait("document.getElementById('txt-pause').textContent==='Resume'")
         assert api('/api/status')['paused'], 'Authenticated playback command failed'
         click('btn-next');wait("document.getElementById('media-progress').textContent.startsWith('2 /')")
@@ -94,8 +96,8 @@ with tempfile.TemporaryDirectory(prefix='pitrove-chrome-') as profile:
         call('Page.navigate',{'url':base+'/config'})
         wait("document.querySelectorAll('.config-field').length>=180")
         assert js("document.documentElement.dataset.theme")=='light','Appearance did not persist across pages'
-        data=api('/api/config');assert len(data['fields'])==183
-        assert len({f['id'] for f in data['fields']})==183
+        data=api('/api/config');assert len(data['fields'])==184
+        assert len({f['id'] for f in data['fields']})==184
         assert all(not f['value'] for f in data['fields'] if f['secret']), 'API exposed configured credentials'
         for width in (320,390,768,1280):viewport(width)
         fill('config-search','preload');js("document.getElementById('config-search').dispatchEvent(new Event('input'))")
@@ -163,7 +165,7 @@ with tempfile.TemporaryDirectory(prefix='pitrove-chrome-') as profile:
             shot=call('Page.captureScreenshot',{'format':'png','captureBeyondViewport':True})
             with open('/artifacts/frame-mobile.png','wb') as output:output.write(base64.b64decode(shot['data']))
         assert not exceptions,exceptions
-        print('Chromium: authenticated playback, shared themes, 183 config options, search/review/save, lists, secrets/PIN, conflicts, access-key rotation, safe logs and 320/390/768/1280px layouts passed')
+        print('Chromium: authenticated playback, shared themes, 184 config options, search/review/save, lists, secrets/PIN, conflicts, access-key rotation, safe logs and 320/390/768/1280px layouts passed')
         ws.close()
     finally:
         chrome.terminate();chrome.wait(timeout=10)

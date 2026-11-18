@@ -255,6 +255,7 @@ bool Config::load(const std::string& path) {
         else if (key == "left_panel_enabled" && section == "infopanels") this->left_panel_enabled = (val == "1" || val == "true");
         else if (key == "left_panel_max_chores" && section == "infopanels") this->left_panel_max_chores = std::clamp(safe_stoi(val, this->left_panel_max_chores), 1, 20);
         else if (key == "left_panel_show_completed" && section == "infopanels") this->left_panel_show_completed = (val == "1" || val == "true");
+        else if (key == "left_panel_clock_enabled" && section == "infopanels") this->left_panel_clock_enabled = (val == "1" || val == "true");
         else if (key == "enabled" && section == "news")                       this->news_enabled = (val == "1" || val == "true");
         else if (key == "source" && section == "news")                        this->news_source = val;
         else if (key == "local_query" && section == "news")                   this->news_local_query = val;
@@ -582,7 +583,8 @@ bool Config::save(const std::string& path) {
     f << "enabled = " << (this->infopanels_enabled ? "1" : "0") << "\n";
     f << "left_panel_enabled = " << this->left_panel_enabled << "\n";
     f << "left_panel_max_chores = " << this->left_panel_max_chores << "\n";
-    f << "left_panel_show_completed = " << this->left_panel_show_completed << "\n\n";
+    f << "left_panel_show_completed = " << this->left_panel_show_completed << "\n";
+    f << "left_panel_clock_enabled = " << this->left_panel_clock_enabled << "\n\n";
 
     f << "[news]\n";
     f << "enabled = " << (this->news_enabled ? "1" : "0") << "\n";

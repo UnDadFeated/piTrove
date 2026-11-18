@@ -197,6 +197,7 @@ struct Config {
     bool        left_panel_enabled{false};
     int         left_panel_max_chores{10};
     bool        left_panel_show_completed{false};
+    bool        left_panel_clock_enabled{true};
 
     // [news]
     bool        news_enabled{false};

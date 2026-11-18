@@ -149,6 +149,7 @@ make("infopanels.enabled","Infopanels Master","Side panels","Master switch for s
 make("infopanels.left_panel_enabled","Left Chores Panel","Side panels","Show assigned chores on the left; requires Infopanels Master",&Config::left_panel_enabled,-2147483648,2147483647,{},false,false),
 make("infopanels.left_panel_max_chores","Max Visible Chores","Side panels","Maximum chore cards in the left panel (1-20); overflow pages automatically",&Config::left_panel_max_chores,1.0,20.0,{},false,false),
 make("infopanels.left_panel_show_completed","Show Done Chores","Side panels","Include completed chores in today's left-panel board",&Config::left_panel_show_completed,-2147483648,2147483647,{},false,false),
+make("infopanels.left_panel_clock_enabled","Chores column clock (12-hour)","Side panels","Center a larger 12-hour clock with AM/PM above today's chores. Uses the display timezone; independent of the on-photo clock.",&Config::left_panel_clock_enabled,0,1,{},false,false),
 make("news.enabled","News Ticker","News ticker","Show live scrolling news headlines ticker at bottom of screen",&Config::news_enabled,-2147483648,2147483647,{},false,false),
 make("news.source","News source","News ticker","Stored source preference. The current ticker combines local headlines with top stories.",&Config::news_source,-2147483648,2147483647,{"global","local"},false,false),
 make("news.local_query","News Zipcode/Loc","News ticker","Zipcode (e.g. 10001, 95624) or city query for top-line local news",&Config::news_local_query,-2147483648,2147483647,{},false,false),
