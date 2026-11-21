@@ -337,6 +337,18 @@ static void test_cache_migration() {
     from_cache.path = original.path;
     check(cache.load_cached(from_cache) && from_cache.modified_time == 100,
           "upsert with unknown timestamp erased cached modification time");
+
+    cache.mark_shown(original.path);
+    check(cache.load_cached(from_cache) && from_cache.last_shown > 200,
+          "pending history was not visible to playlist lookup");
+    const auto shown = from_cache.last_shown;
+    const auto before = sqlite3_total_changes64(cache.db);
+    cache.upsert(from_cache, 0, 1);
+    check(sqlite3_total_changes64(cache.db) == before,
+          "metadata update forced a write for a queued playback timestamp");
+    cache.close();
+    check(cache.open(path) && cache.load_cached(from_cache) && from_cache.last_shown == shown,
+          "normal shutdown did not persist the buffered history");
 }
 
 

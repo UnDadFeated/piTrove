@@ -389,6 +389,11 @@ bool report_cache_write(int result) {
 } // namespace
 
 int CacheManager::upsert_locked(const MediaItem& mi, int bad, int preprocessed) {
+    // Playlist copies expose pending cooldowns immediately, but metadata writes
+    // should leave those timestamps for the playback history batch.
+    const auto shown = pending_shown.find(mi.path);
+    const int64_t last_shown = shown != pending_shown.end() && mi.last_shown <= shown->second
+        ? 0 : mi.last_shown;
     const int bindings[] = {
         sqlite3_bind_text(stmt_upsert, 1, mi.path.c_str(), -1, SQLITE_TRANSIENT),
         sqlite3_bind_text(stmt_upsert, 2, mi.type.c_str(), -1, SQLITE_TRANSIENT),
@@ -398,7 +403,7 @@ int CacheManager::upsert_locked(const MediaItem& mi, int bad, int preprocessed) 
         sqlite3_bind_double(stmt_upsert, 6, mi.duration),
         sqlite3_bind_double(stmt_upsert, 7, mi.framerate),
         sqlite3_bind_int(stmt_upsert, 8, bad),
-        sqlite3_bind_int64(stmt_upsert, 9, mi.last_shown),
+        sqlite3_bind_int64(stmt_upsert, 9, last_shown),
         sqlite3_bind_int64(stmt_upsert, 10, mi.modified_time),
         sqlite3_bind_int(stmt_upsert, 11, mi.is_camera),
         sqlite3_bind_int64(stmt_upsert, 12, mi.creation_time),
@@ -465,12 +470,25 @@ bool CacheManager::upsert_batch(std::span<const MediaItem> items, int preprocess
     return report_cache_write(result);
 }
 
+namespace {
+
+constexpr auto playback_history_interval = std::chrono::minutes(5);
+constexpr size_t playback_history_limit = 512;
+
+} // namespace
+
 void CacheManager::mark_shown(const std::string& path) {
     std::lock_guard lock(db_mutex);
     if (!stmt_mark) return;
-    if (pending_shown.empty()) shown_due = std::chrono::steady_clock::now() + std::chrono::seconds(30);
-    if (pending_shown.size() >= 512) flush_shown_locked();
-    if (pending_shown.size() < 512 || pending_shown.contains(path)) pending_shown[path] = time(nullptr);
+    const auto timestamp = static_cast<int64_t>(std::time(nullptr));
+    if (const auto item = pending_shown.find(path); item != pending_shown.end()) {
+        item->second = std::max(item->second, timestamp);
+        return;
+    }
+    if (pending_shown.size() >= playback_history_limit) flush_shown_locked();
+    if (pending_shown.size() >= playback_history_limit) return;
+    if (pending_shown.empty()) shown_due = std::chrono::steady_clock::now() + playback_history_interval;
+    pending_shown.emplace(path, timestamp);
 }
 
 void CacheManager::flush_shown() {
@@ -480,6 +498,7 @@ void CacheManager::flush_shown() {
 
 void CacheManager::flush_shown_locked() {
     if (pending_shown.empty() || !stmt_mark || !db || !sqlite3_get_autocommit(db)) return;
+    // A successful flush clears the batch. An I/O failure gets a shorter retry.
     shown_due = std::chrono::steady_clock::now() + std::chrono::seconds(30);
     int result = sqlite3_exec(db, "BEGIN IMMEDIATE", nullptr, nullptr, nullptr);
     if (result == SQLITE_OK) {

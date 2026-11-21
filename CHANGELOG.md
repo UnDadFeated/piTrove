@@ -1,3 +1,7 @@
+### Release v18.4.9
+
+- Keep playback timestamps out of slideshow metadata updates and coalesce history writes across multiple slides.
+
 ### Release v18.4.8
 
 - Remove the direct stb runtime dependency while retaining bounded decoding for JPEG, PNG, GIF, BMP, WebP, TIFF, and HEIF.
