@@ -1,3 +1,10 @@
+### Release v18.4.6
+
+- Batch SQLite writes from media discovery and metadata preprocessing.
+- Keep Wi-Fi recovery scoped to the interface and its network service.
+- Respect cgroup memory limits when sizing playback buffers.
+- Publish runtime advisory IDs in the security check summary.
+
 ### Release v18.4.5 — Media, controls, and integration reliability
 
 - Add bounded HEIF and TIFF decoding, convert embedded RGB profiles to sRGB, and honor video rotation, pixel aspect ratio, and presentation timestamps.

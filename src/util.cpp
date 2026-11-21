@@ -54,23 +54,40 @@ bool geocode_location_sync(const std::string& query, float& out_lat, float& out_
 #include <mntent.h>
 
 uint64_t get_available_ram_bytes() {
+    uint64_t available = 0;
     std::ifstream meminfo("/proc/meminfo");
-    if (meminfo.is_open()) {
-        std::string line;
-        while (std::getline(meminfo, line)) {
-            if (line.rfind("MemAvailable:", 0) == 0) {
-                uint64_t kb = 0;
-                if (std::sscanf(line.c_str(), "MemAvailable: %lu kB", &kb) == 1) {
-                    return kb * 1024ULL;
-                }
-            }
+    for (std::string line; std::getline(meminfo, line);) {
+        unsigned long long kb = 0;
+        if (std::sscanf(line.c_str(), "MemAvailable: %llu kB", &kb) == 1) {
+            available = kb * 1024ULL;
+            break;
         }
     }
-    struct sysinfo si;
-    if (sysinfo(&si) == 0) {
-        return (uint64_t)si.freeram * si.mem_unit;
+    if (!available) {
+        struct sysinfo si;
+        available = sysinfo(&si) == 0 ? static_cast<uint64_t>(si.freeram) * si.mem_unit
+                                     : 1024ULL * 1024 * 1024;
     }
-    return 1024ULL * 1024 * 1024;
+
+    // MemAvailable describes the host, including inside a Docker container.
+    const std::filesystem::path root("/sys/fs/cgroup");
+    std::ifstream membership("/proc/self/cgroup");
+    for (std::string line; std::getline(membership, line);) {
+        if (!line.starts_with("0::/")) continue;
+        auto group = line.size() == 4 ? root : root / line.substr(4);
+        while (true) {
+            uint64_t limit, used;
+            std::ifstream maximum(group / "memory.max");
+            std::ifstream current(group / "memory.current");
+            if (maximum >> limit && current >> used) {
+                available = std::min(available, limit > used ? limit - used : uint64_t{0});
+            }
+            if (group == root) break;
+            group = group.parent_path();
+        }
+        break;
+    }
+    return available;
 }
 
 uint64_t get_total_ram_bytes() {

@@ -5,6 +5,7 @@ import http.client
 import json
 import os
 from pathlib import Path
+import re
 import socket
 import struct
 import sqlite3
@@ -36,7 +37,7 @@ def tiff_fixture():
             struct.pack("<IHHH", 0, 8, 8, 8) + bytes((24, 160, 80)) * width * height)
 
 
-def verify(port, cache):
+def verify(port, cache, version):
     def request(path, key=None, *, source="127.0.0.1", host=None, method="GET", body=None):
         connection = http.client.HTTPConnection("127.0.0.1", port, timeout=5, source_address=(source, 0))
         headers = {}
@@ -65,6 +66,8 @@ def verify(port, cache):
             raise RuntimeError("The production controller did not come up")
         time.sleep(1)
 
+    status, _, dashboard = request("/")
+    assert status == 200 and f"piTrove {version}</span>".encode() in dashboard
     assert not json.loads(payload).get("filename")
     assert headers["X-Content-Type-Options"] == "nosniff"
     assert request("/", host="untrusted.example")[0] == 400
@@ -98,6 +101,8 @@ def verify(port, cache):
 
 
 def smoke(image):
+    cmake = (Path(__file__).resolve().parents[1] / "CMakeLists.txt").read_text()
+    version = re.search(r"project\(piTrove VERSION (\d+\.\d+\.\d+)", cmake).group(1)
     with tempfile.TemporaryDirectory(prefix="pitrove-controller-") as directory:
         root = Path(directory)
         for name in ("config", "media", "cache", "logs", "screenshots"):
@@ -155,7 +160,7 @@ enabled = 0
             command += ["-v", f"{root / name}:/app/{name}{suffix}"]
         container = subprocess.check_output(command + [image], text=True).strip()
         try:
-            verify(port, root / "cache")
+            verify(port, root / "cache", version)
             decoded = subprocess.check_output(["docker", "exec", container, "/app/piTrove",
                                                "--selftest-media", "/app/media/tiff-fixture.tiff"], text=True)
             assert "32x24 RGBA" in decoded

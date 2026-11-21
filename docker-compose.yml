@@ -67,7 +67,6 @@ services:
       - ./logs:/app/logs
       - ./screenshots:/app/screenshots
       - ./subtitles:/app/subtitles
-      - /sys:/sys:ro
       - ${MEDIA_DIR:-/mnt/nas}:/app/media:ro,rslave
     tmpfs:
       - /app/cache/run:size=1m,mode=0755,uid=${PITROVE_UID:-1000},gid=${PITROVE_GID:-1000}
