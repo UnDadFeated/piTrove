@@ -3,7 +3,7 @@
 
 #include <string>
 #include <mutex>
-#include <atomic>
+#include <span>
 #include <vector>
 #include <chrono>
 #include <unordered_map>
@@ -16,18 +16,16 @@ struct CacheManager {
     sqlite3_stmt* stmt_upsert{nullptr};
     sqlite3_stmt* stmt_load{nullptr};
     sqlite3_stmt* stmt_mark{nullptr};
-    std::atomic<bool> in_transaction{false};
 
     bool open(const std::string& dir);
     void close();
     bool load_cached(MediaItem& mi);
     void upsert(const MediaItem& mi, int bad, int preprocessed = 1);
-    bool mark_preprocessed(const std::string& path);
+    bool upsert_batch(std::span<const MediaItem> items, int preprocessed,
+                      std::span<const std::string> completed_without_metadata = {});
     void mark_shown(const std::string& path);
     void flush_shown();
     void mark_bad(const std::string& filepath);
-    void begin_transaction();
-    void commit_transaction();
     void reset_all_cooldowns();
     void seed_error_catalog();
     bool get_error_details(const std::string& code, std::string& title, std::string& desc, std::string& recovery);
@@ -41,6 +39,7 @@ private:
     std::unordered_map<std::string, int64_t> pending_shown;
     std::chrono::steady_clock::time_point shown_due{};
     void flush_shown_locked();
+    int upsert_locked(const MediaItem& mi, int bad, int preprocessed);
 };
 
 inline CacheManager* g_cache = nullptr;

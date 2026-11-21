@@ -89,18 +89,30 @@ refresh_nas_mount() {
     return 1
 }
 
-reset_wifi() {
-    log "Attempting soft WiFi reset (wpa_supplicant/nmcli + interface bounce)..."
-    wpa_cli -i "$INTERFACE" reconfigure 2>/dev/null || nmcli device connect "$INTERFACE" 2>/dev/null || true
-    ip link set "$INTERFACE" down 2>/dev/null || true
-    sleep 2
-    ip link set "$INTERFACE" up 2>/dev/null || true
-    systemctl restart wpa_supplicant@"$INTERFACE" 2>/dev/null || true
-    nmcli device connect "$INTERFACE" 2>/dev/null || true
-    # Give it time to reassociate
-    sleep 15
+recover_interface() {
+    if [ ! -d "/sys/class/net/$INTERFACE" ]; then
+        log "Recovery deferred: interface $INTERFACE is unavailable."
+        return
+    fi
+    local supplicant="wpa_supplicant@$INTERFACE.service"
+    if systemctl is-active --quiet "$supplicant" || systemctl is-enabled --quiet "$supplicant"; then
+        log "Restarting the standalone supplicant for $INTERFACE."
+        timeout -k 2 12 systemctl restart "$supplicant" 2>/dev/null || true
+    elif systemctl is-active --quiet NetworkManager; then
+        local state
+        state=$(LC_ALL=C timeout -k 1 5 nmcli -g GENERAL.STATE device show "$INTERFACE" 2>/dev/null) || state=
+        state=${state%% *}
+        if [[ "$state" =~ ^[0-9]+$ ]] && (( state >= 20 )); then
+            log "Asking NetworkManager to reconnect $INTERFACE."
+            timeout -k 1 8 nmcli --wait 6 device disconnect "$INTERFACE" 2>/dev/null || true
+            timeout -k 1 12 nmcli --wait 10 device connect "$INTERFACE" 2>/dev/null || true
+            return
+        fi
+    fi
+    if systemctl is-active --quiet systemd-networkd; then
+        timeout -k 1 8 networkctl renew "$INTERFACE" 2>/dev/null || true
+    fi
 }
-
 
 # Every restart must see a readable NAS; Docker resolves the bind at creation.
 restart_application() {
@@ -193,8 +205,7 @@ main() {
             if [ "$FAIL_COUNT" -ge "$MAX_FAIL" ]; then
                 log "Network offline for ~3 minutes. Attempting WiFi & network service recovery..."
                 FAIL_COUNT=0
-                reset_wifi
-                systemctl restart systemd-networkd 2>/dev/null || systemctl restart NetworkManager 2>/dev/null || true
+                recover_interface
                 sleep 15
                 # Never execute hard system reboot solely for network outages;
                 # the app continues running in Offline Mode using local cache without reboot loops.

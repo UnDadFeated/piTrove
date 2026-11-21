@@ -884,6 +884,9 @@ static void watchman_loop(std::stop_token stop) {
 
             try {
                 if (g_cache) {
+                    std::vector<MediaItem> pending;
+                    pending.reserve(64);
+                    bool saved = true;
                     for (auto& mi : scanned) {
                         if (stop.stop_requested()) break;
                         if (g_cache->load_cached(mi)) {
@@ -899,10 +902,16 @@ static void watchman_loop(std::stop_token stop) {
                                 mi.duration = 0.0;
                             }
                             // Metadata preprocessing handles image I/O off the watchman thread.
-                            g_cache->upsert(mi, 0, 0);
+                            pending.push_back(mi);
+                            if (pending.size() == 64) {
+                                saved = g_cache->upsert_batch(pending, 0);
+                                if (!saved) break;
+                                pending.clear();
+                            }
                         }
                     }
                     if (stop.stop_requested()) break;
+                    if (!saved || !g_cache->upsert_batch(pending, 0)) continue;
                 }
 
                 // Snapshot the settings we need, then do the expensive filtering OUTSIDE
@@ -1672,7 +1681,8 @@ int main(int argc, char** argv) {
             return (path.front() != '/') ? ("./" + path) : ("." + path);
         };
 
-        g_cache->begin_transaction();
+        std::vector<MediaItem> pending;
+        pending.reserve(64);
         int cached = 0;
         auto last_render = std::chrono::steady_clock::now() - std::chrono::seconds(1);
 
@@ -1694,8 +1704,11 @@ int main(int argc, char** argv) {
                     mi.height = g_cfg.screen_h;
                     mi.duration = 0.0;
                 }
-                g_cache->upsert(mi, 0, 0);
-                cached++;
+                pending.push_back(mi);
+                if (pending.size() == 64) {
+                    if (g_cache->upsert_batch(pending, 0)) cached += static_cast<int>(pending.size());
+                    pending.clear();
+                }
             }
 
             auto render_now = std::chrono::steady_clock::now();
@@ -1706,7 +1719,7 @@ int main(int argc, char** argv) {
                 last_render = render_now;
             }
         }
-        g_cache->commit_transaction();
+        if (g_cache->upsert_batch(pending, 0)) cached += static_cast<int>(pending.size());
         if (scan_complete && g_cfg.scan_window_days == 0) g_cache->prune_missing(g_scanned_items);
         g_logger.info("Cache complete: {} items", cached);
         clear_error(401);

@@ -218,7 +218,6 @@ void CacheManager::close() {
         sqlite3_close_v2(db);
         db = nullptr;
     }
-    in_transaction.store(false);
 }
 
 
@@ -374,52 +373,96 @@ bool CacheManager::load_cached(MediaItem& mi) {
     return found;
 }
 
-void CacheManager::upsert(const MediaItem& mi, int bad, int preprocessed) {
-    std::lock_guard<std::mutex> lk(db_mutex);
-    if (!stmt_upsert) return;
-    sqlite3_bind_text(stmt_upsert, 1, mi.path.c_str(), -1, SQLITE_TRANSIENT);
-    sqlite3_bind_text(stmt_upsert, 2, mi.type.c_str(), -1, SQLITE_TRANSIENT);
-    sqlite3_bind_int64(stmt_upsert, 3, mi.width);
-    sqlite3_bind_int64(stmt_upsert, 4, mi.height);
-    sqlite3_bind_int(stmt_upsert, 5, mi.exif_rotation);
-    sqlite3_bind_double(stmt_upsert, 6, mi.duration);
-    sqlite3_bind_double(stmt_upsert, 7, mi.framerate);
-    sqlite3_bind_int(stmt_upsert, 8, bad);
-    sqlite3_bind_int64(stmt_upsert, 9, mi.last_shown);
-    sqlite3_bind_int64(stmt_upsert, 10, mi.modified_time);
-    sqlite3_bind_int(stmt_upsert, 11, mi.is_camera);
-    sqlite3_bind_int64(stmt_upsert, 12, mi.creation_time);
-    sqlite3_bind_int(stmt_upsert, 13, preprocessed);
-    sqlite3_bind_double(stmt_upsert, 14, mi.latitude);
-    sqlite3_bind_double(stmt_upsert, 15, mi.longitude);
-    sqlite3_bind_int(stmt_upsert, 16, mi.has_gps ? 1 : 0);
-    int step_ret = sqlite3_step(stmt_upsert);
-    [[unlikely]]
-    if (step_ret != SQLITE_DONE) {
-        if (step_ret == SQLITE_BUSY || step_ret == SQLITE_LOCKED) {
-    [[unlikely]]
-            trigger_error(402); // E402: SQLITE_LOCK_TIMEOUT
-        } else {
-            trigger_error(408); // E408: DISK_WRITE_FAIL
-        }
-        g_logger.error("Failed to execute upsert for: {} (error code: {})", mi.path.c_str(), step_ret);
-    } else {
+namespace {
+
+bool report_cache_write(int result) {
+    if (result == SQLITE_OK) {
         clear_error(402);
         clear_error(408);
+        return true;
+    }
+    trigger_error(result == SQLITE_BUSY || result == SQLITE_LOCKED ? 402 : 408);
+    g_logger.error("Cache write failed (SQLite {}).", result);
+    return false;
+}
+
+} // namespace
+
+int CacheManager::upsert_locked(const MediaItem& mi, int bad, int preprocessed) {
+    const int bindings[] = {
+        sqlite3_bind_text(stmt_upsert, 1, mi.path.c_str(), -1, SQLITE_TRANSIENT),
+        sqlite3_bind_text(stmt_upsert, 2, mi.type.c_str(), -1, SQLITE_TRANSIENT),
+        sqlite3_bind_int64(stmt_upsert, 3, mi.width),
+        sqlite3_bind_int64(stmt_upsert, 4, mi.height),
+        sqlite3_bind_int(stmt_upsert, 5, mi.exif_rotation),
+        sqlite3_bind_double(stmt_upsert, 6, mi.duration),
+        sqlite3_bind_double(stmt_upsert, 7, mi.framerate),
+        sqlite3_bind_int(stmt_upsert, 8, bad),
+        sqlite3_bind_int64(stmt_upsert, 9, mi.last_shown),
+        sqlite3_bind_int64(stmt_upsert, 10, mi.modified_time),
+        sqlite3_bind_int(stmt_upsert, 11, mi.is_camera),
+        sqlite3_bind_int64(stmt_upsert, 12, mi.creation_time),
+        sqlite3_bind_int(stmt_upsert, 13, preprocessed),
+        sqlite3_bind_double(stmt_upsert, 14, mi.latitude),
+        sqlite3_bind_double(stmt_upsert, 15, mi.longitude),
+        sqlite3_bind_int(stmt_upsert, 16, mi.has_gps ? 1 : 0),
+    };
+    int result = SQLITE_OK;
+    for (const int binding : bindings) {
+        if (binding == SQLITE_OK) continue;
+        result = binding;
+        break;
+    }
+    if (result == SQLITE_OK) {
+        result = sqlite3_step(stmt_upsert);
+        if (result == SQLITE_DONE) result = SQLITE_OK;
     }
     sqlite3_reset(stmt_upsert);
     sqlite3_clear_bindings(stmt_upsert);
+    return result;
 }
 
-bool CacheManager::mark_preprocessed(const std::string& path) {
+void CacheManager::upsert(const MediaItem& mi, int bad, int preprocessed) {
     std::lock_guard lock(db_mutex);
-    if (!db) return false;
-    sqlite3_stmt* statement = nullptr;
-    if (sqlite3_prepare_v2(db, "UPDATE cache SET preprocessed = 1 WHERE path = ?", -1, &statement, nullptr) != SQLITE_OK) return false;
-    sqlite3_bind_text(statement, 1, path.c_str(), -1, SQLITE_TRANSIENT);
-    bool ok = sqlite3_step(statement) == SQLITE_DONE;
-    sqlite3_finalize(statement);
-    return ok;
+    if (stmt_upsert) report_cache_write(upsert_locked(mi, bad, preprocessed));
+}
+
+bool CacheManager::upsert_batch(std::span<const MediaItem> items, int preprocessed,
+                                std::span<const std::string> completed_without_metadata) {
+    if (items.empty() && completed_without_metadata.empty()) return true;
+    std::lock_guard lock(db_mutex);
+    if (!db || (!items.empty() && !stmt_upsert)) return false;
+
+    int result = sqlite3_exec(db, "SAVEPOINT metadata_batch", nullptr, nullptr, nullptr);
+    if (result != SQLITE_OK) return report_cache_write(result);
+    for (const auto& item : items) {
+        result = upsert_locked(item, 0, preprocessed);
+        if (result != SQLITE_OK) break;
+    }
+    if (result == SQLITE_OK && !completed_without_metadata.empty()) {
+        sqlite3_stmt* statement = nullptr;
+        result = sqlite3_prepare_v2(db,
+            "UPDATE cache SET preprocessed = 1 WHERE path = ? AND preprocessed = 0 AND bad = 0",
+            -1, &statement, nullptr);
+        if (result == SQLITE_OK) {
+            for (const auto& path : completed_without_metadata) {
+                result = sqlite3_bind_text(statement, 1, path.c_str(), -1, SQLITE_TRANSIENT);
+                if (result == SQLITE_OK) result = sqlite3_step(statement);
+                sqlite3_reset(statement);
+                sqlite3_clear_bindings(statement);
+                if (result != SQLITE_DONE) break;
+                result = SQLITE_OK;
+            }
+        }
+        sqlite3_finalize(statement);
+    }
+    if (result == SQLITE_OK) {
+        result = sqlite3_exec(db, "RELEASE metadata_batch", nullptr, nullptr, nullptr);
+    }
+    if (result != SQLITE_OK) {
+        sqlite3_exec(db, "ROLLBACK TO metadata_batch; RELEASE metadata_batch", nullptr, nullptr, nullptr);
+    }
+    return report_cache_write(result);
 }
 
 void CacheManager::mark_shown(const std::string& path) {
@@ -471,40 +514,6 @@ void CacheManager::mark_bad(const std::string& filepath) {
         sqlite3_step(stmt);
         sqlite3_finalize(stmt);
     }
-}
-
-void CacheManager::begin_transaction() {
-    if (!db) return;
-    std::lock_guard<std::mutex> lk(db_mutex);
-    if (in_transaction.load()) {
-        g_logger.warn("CacheManager: begin_transaction called but in_transaction is already true.");
-        return;
-    }
-    char* err = nullptr;
-    int rc = sqlite3_exec(db, "BEGIN TRANSACTION;", nullptr, nullptr, &err);
-    if (rc != SQLITE_OK) {
-        g_logger.error("Failed to BEGIN TRANSACTION: {}", err ? err : "unknown error");
-        if (err) sqlite3_free(err);
-    } else {
-        in_transaction.store(true);
-    }
-}
-
-void CacheManager::commit_transaction() {
-    if (!db) return;
-    std::lock_guard<std::mutex> lk(db_mutex);
-    if (!in_transaction.load()) {
-        g_logger.warn("CacheManager: commit_transaction called but in_transaction is false.");
-        return;
-    }
-    char* err = nullptr;
-    int rc = sqlite3_exec(db, "COMMIT;", nullptr, nullptr, &err);
-    if (rc != SQLITE_OK) {
-        g_logger.error("Failed to COMMIT transaction: {}. Performing ROLLBACK...", err ? err : "unknown error");
-        if (err) sqlite3_free(err);
-        sqlite3_exec(db, "ROLLBACK;", nullptr, nullptr, nullptr);
-    }
-    in_transaction.store(false);
 }
 
 void CacheManager::reset_all_cooldowns() {

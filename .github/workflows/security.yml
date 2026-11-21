@@ -35,6 +35,27 @@ jobs:
           format: sarif
           output: trivy-image.sarif
 
+      - name: Summarize runtime vulnerabilities
+        if: always() && hashFiles('trivy-image.sarif') != ''
+        run: |
+          python3 - <<'PYTHON'
+          import json
+          import os
+          import re
+
+          with open("trivy-image.sarif", encoding="utf-8") as report:
+              sarif = json.load(report)
+          results = [result for run in sarif["runs"] for result in run.get("results", [])]
+          advisories = sorted({result["ruleId"] for result in results
+                               if re.fullmatch(r"CVE-\d{4}-\d{4,}", result.get("ruleId", ""))})
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as summary:
+              summary.write(f"### ARM64 runtime scan\n\n{len(results)} high or critical findings.\n")
+              for advisory in advisories:
+                  summary.write(f"- [{advisory}](https://www.cve.org/CVERecord?id={advisory})\n")
+          if advisories:
+              print("::warning title=Runtime vulnerabilities::" + ", ".join(advisories[:20]))
+          PYTHON
+
       - name: Scan repository
         if: always()
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0

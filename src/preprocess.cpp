@@ -123,6 +123,8 @@ static void preprocess_loop() {
         }
         g_logger.info("Preprocess: Found {} items needing preprocessing. Processing...", batch.size());
 
+        std::vector<MediaItem> processed;
+        std::vector<std::string> completed_without_metadata;
         bool stat_failed = false;
         for (const auto& [path, type] : batch) {
             if (!g_preprocess_running.load() || !g_running.load()) break;
@@ -205,29 +207,21 @@ static void preprocess_loop() {
 
             if (pr->done.load()) {
                 if (pr->success) {
-                    if (g_cache) {
-                        g_cache->upsert(pr->item, 0, 1);
-                    }
+                    processed.push_back(std::move(pr->item));
                 } else {
-                    if (g_cache) {
-                        g_logger.warn("Preprocess: Failed/corrupted metadata for '{}'. Marking preprocessed.", path.c_str());
-                        g_cache->mark_preprocessed(path);
-                    }
+                    g_logger.warn("Preprocess: Metadata probe failed for '{}'.", path);
+                    completed_without_metadata.push_back(path);
                 }
-            } else {
-                g_logger.warn("Preprocess: Timeout (10s) extracting metadata for '{}' -- marking preprocessed.", path.c_str());
-                if (g_cache) {
-                    // Do not read pr->item or replace known dimensions on timeout.
-                    // This update performs no NAS reads and preserves existing metadata.
-                    g_cache->mark_preprocessed(path);
-                }
+            } else if (g_preprocess_running.load() && g_running.load()) {
+                g_logger.warn("Preprocess: Metadata probe timed out for '{}'.", path);
+                completed_without_metadata.push_back(path);
             }
 
             std::this_thread::sleep_for(std::chrono::milliseconds(100));
         }
-        if (stat_failed) {
-            // A saturated scanner returns immediately; avoid a hot DB/stat/log loop.
-            g_logger.warn("Preprocess: NAS metadata reads deferred; retrying after backoff.");
+        const bool saved = g_cache && g_cache->upsert_batch(processed, 1, completed_without_metadata);
+        if (stat_failed || !saved) {
+            if (stat_failed) g_logger.warn("Preprocess: NAS metadata reads deferred; retrying after backoff.");
             for (int i = 0; i < 50 && g_preprocess_running.load() && g_running.load(); ++i)
                 std::this_thread::sleep_for(std::chrono::milliseconds(100));
         }

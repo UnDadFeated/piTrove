@@ -259,9 +259,20 @@ static void test_cache() {
 static void test_preprocessed_marker() {
     CacheManager cache;
     check(sqlite3_open(":memory:", &cache.db) == SQLITE_OK, "marker cache open failed");
-    sql(cache.db, "CREATE TABLE cache(path TEXT PRIMARY KEY, w INT, h INT, preprocessed INT); "
-                  "INSERT INTO cache VALUES('known',1920,1080,0)");
-    check(cache.mark_preprocessed("known"), "metadata completion marker failed");
+    sql(cache.db, "CREATE TABLE cache(path TEXT PRIMARY KEY, w INT, h INT, preprocessed INT, bad INT); "
+                  "INSERT INTO cache VALUES('known',1920,1080,0,0),('broken',1280,720,0,0); "
+                  "CREATE TRIGGER reject_marker BEFORE UPDATE ON cache WHEN old.path = 'broken' "
+                  "BEGIN SELECT RAISE(ABORT, 'injected batch failure'); END");
+    const std::vector<std::string> rejected{"known", "broken"};
+    check(!cache.upsert_batch({}, 1, rejected), "failing batch reported success");
+    check(sqlite3_get_autocommit(cache.db), "failing batch left a transaction open");
+    sqlite3_stmt* rolled_back = nullptr;
+    check(sqlite3_prepare_v2(cache.db, "SELECT SUM(preprocessed) FROM cache", -1, &rolled_back, nullptr) == SQLITE_OK &&
+          sqlite3_step(rolled_back) == SQLITE_ROW && sqlite3_column_int(rolled_back, 0) == 0,
+          "failing batch partially changed completion markers");
+    sqlite3_finalize(rolled_back);
+    const std::vector<std::string> completed{"known"};
+    check(cache.upsert_batch({}, 1, completed), "metadata completion marker failed");
     sqlite3_stmt* query = nullptr;
     check(sqlite3_prepare_v2(cache.db, "SELECT w,h,preprocessed FROM cache WHERE path='known'", -1, &query, nullptr) == SQLITE_OK, "marker query failed");
     check(sqlite3_step(query) == SQLITE_ROW && sqlite3_column_int(query, 0) == 1920 &&
