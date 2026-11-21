@@ -32,8 +32,13 @@ private:
         SDL_Texture* texture = nullptr;
         int w = 0;
         int h = 0;
+        uint64_t last_used = 0;
+
+        size_t pixel_bytes() const { return static_cast<size_t>(w) * h * 4; }
     };
     std::unordered_map<std::string, TextCacheEntry> text_cache;
+    size_t text_cache_bytes = 0;
+    uint64_t text_sequence = 0;
     const TextCacheEntry* get_text_texture(const FontHandle& font, const std::string& text,
                                            SDL_Color color);
 
@@ -52,8 +57,6 @@ public:
     // Fit to both dimensions, center horizontally, and return the height occupied.
     int draw_text_fitted(const SDL_Rect& area, const FontHandle& font,
                          const std::string& text, SDL_Color color);
-    void draw_text_uncached(int x, int y, const FontHandle& font, const std::string& text,
-                         uint8_t r, uint8_t g, uint8_t b, uint8_t a);
     void draw_text_glow(int x, int y, const FontHandle& font, const std::string& text,
                         uint8_t r, uint8_t g, uint8_t b, uint8_t a,
                         uint8_t gr, uint8_t gg, uint8_t gb, uint8_t ga);

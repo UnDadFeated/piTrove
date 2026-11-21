@@ -90,11 +90,13 @@ public:
     void set_displayed_pts(double pts_s);
  double get_video_duration() const { return m_video_total_duration.load(std::memory_order_relaxed); }
  double get_fps() const { const double duration = m_frame_duration.load(); return duration > 0 ? 1.0 / duration : 0; }
- size_t get_max_queued_frames() const { return m_max_queued_frames.load(std::memory_order_relaxed); }
+ size_t get_max_queued_frames() const;
  static size_t calculate_max_queued_frames(int target_w, int target_h);
 
 private:
+ bool start_impl(const std::string& path, int target_width, int target_height, bool prewarm);
  std::atomic<size_t> m_max_queued_frames{512};
+ std::atomic<size_t> m_prewarm_limit{0};
  std::atomic<bool> m_decode_fast{false}; // decoder runs well ahead of realtime -> bounded lookahead
  std::string m_path;
  mutable std::mutex m_path_mtx;

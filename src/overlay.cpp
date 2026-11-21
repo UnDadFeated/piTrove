@@ -393,9 +393,8 @@ void OverlayManager::draw_all(int current_idx, int total_items, const MediaItem*
         int ty = has_matting ? (int)round(((double)(g_renderer.scale_px(g_cfg.matting_size)) * 0.5) + 10.0) : (int)round(20.0 * sw / 1920.0);
 
         if (is_video && !video_remaining.empty()) {
-            g_logger.debug("REM: remaining={}", video_remaining.c_str());
-            font_renderer->draw_text_uncached(tx + 2, ty + 2, font, video_remaining, 0, 0, 0, 180);
-            font_renderer->draw_text_uncached(tx, ty, font, video_remaining, timer_col.r, timer_col.g, timer_col.b, timer_col.a);
+            font_renderer->draw_text(tx + 2, ty + 2, font, video_remaining, 0, 0, 0, 180);
+            font_renderer->draw_text(tx, ty, font, video_remaining, timer_col.r, timer_col.g, timer_col.b, timer_col.a);
         } else if (!is_video) {
             draw_contrast_text(tx, ty, font, tbuf, timer_col, current_data);
         }

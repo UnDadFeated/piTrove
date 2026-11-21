@@ -1,3 +1,8 @@
+### Release v18.4.7
+
+- Keep recently drawn text textures in a bounded cache without polling system memory during rendering.
+- Reuse video countdown textures and limit speculative video buffering until playback starts.
+
 ### Release v18.4.6
 
 - Batch SQLite writes from media discovery and metadata preprocessing.

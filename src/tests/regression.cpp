@@ -41,6 +41,13 @@ extern "C" int __wrap_stat(const char* path, struct stat* result) {
     return 0;
 }
 
+static size_t rasterized_textures = 0;
+extern "C" SDL_Surface* __real_TTF_RenderText_Blended(TTF_Font*, const char*, size_t, SDL_Color);
+extern "C" SDL_Surface* __wrap_TTF_RenderText_Blended(TTF_Font* font, const char* text, size_t length, SDL_Color color) {
+    ++rasterized_textures;
+    return __real_TTF_RenderText_Blended(font, text, length, color);
+}
+
 static void test_fonts(const std::string& path) {
     FontRenderer fonts(nullptr);
     auto pinned = fonts.load_font(path, 14);
@@ -104,6 +111,19 @@ static void test_fitted_panel_text(const std::string& path) {
         check(std::abs(left + right + 1 - (2 * box.x + box.w)) <= 9,
               "clock ink is visibly off center");
     }
+
+    const auto draw = [&](const std::string& text) {
+        fonts.draw_text(0, 0, *body, text, 255, 255, 255, 255);
+    };
+    const size_t before = rasterized_textures;
+    for (int i = 0; i < 256; ++i) draw("Ticker " + std::to_string(i));
+    check(rasterized_textures == before + 256, "new ticker text was not rasterized");
+    draw("Ticker 0");  // Keep the oldest inserted entry in current use.
+    draw("Ticker 256");
+    draw("Ticker 0");
+    check(rasterized_textures == before + 257, "active ticker text was evicted");
+    draw("Ticker 1");
+    check(rasterized_textures == before + 258, "old ticker text was not evicted");
 
     const int short_width = 57;
     const auto shortened = fonts.ellipsize(*body, "ZoëZoëZoëZoëZoë", short_width);

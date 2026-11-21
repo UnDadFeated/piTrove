@@ -1,6 +1,7 @@
 #include "font_render.h"
 #include "renderer.h"
 #include "util.h"
+#include <algorithm>
 #include <cmath>
 #include <stdexcept>
 
@@ -118,27 +119,38 @@ const FontRenderer::TextCacheEntry* FontRenderer::get_text_texture(
                           (uint32_t(color.b) << 8) | color.a;
     const std::string key = std::format("{}|{}|{}|{}", text, font.path, font.size, rgba);
     const auto cached = text_cache.find(key);
-    if (cached != text_cache.end()) return &cached->second;
-
-    const size_t max_text_cache = std::clamp(
-        static_cast<size_t>(get_available_ram_bytes() / (32 * 1024 * 1024)), size_t(64), size_t(256));
-    while (text_cache.size() >= max_text_cache) {
-        auto entry = text_cache.begin();
-        SDL_DestroyTexture(entry->second.texture);
-        text_cache.erase(entry);
+    if (cached != text_cache.end()) {
+        cached->second.last_used = ++text_sequence;
+        return &cached->second;
     }
 
     SDL_Surface* surface = TTF_RenderText_Blended(font.font, text.c_str(), 0, color);
     if (!surface) return nullptr;
     TextCacheEntry entry{SDL_CreateTextureFromSurface(renderer->sdl_renderer, surface),
-                         surface->w, surface->h};
+                         surface->w, surface->h, ++text_sequence};
     SDL_DestroySurface(surface);
     if (!entry.texture) return nullptr;
 
-    // Own the texture until it has been successfully inserted in the cache.
+    // Keep the active overlays and visible ticker text resident without polling
+    // system memory during rendering. The current entry may be larger by itself.
+    constexpr size_t max_entries = 256;
+    constexpr size_t max_bytes = 16 * 1024 * 1024;
+    while (!text_cache.empty() &&
+           (text_cache.size() >= max_entries || text_cache_bytes + entry.pixel_bytes() > max_bytes)) {
+        auto oldest = std::ranges::min_element(text_cache, {}, [](const auto& item) {
+            return item.second.last_used;
+        });
+        text_cache_bytes -= oldest->second.pixel_bytes();
+        SDL_DestroyTexture(oldest->second.texture);
+        text_cache.erase(oldest);
+    }
+
     std::unique_ptr<SDL_Texture, decltype(&SDL_DestroyTexture)> texture(entry.texture, SDL_DestroyTexture);
     const auto [inserted, success] = text_cache.emplace(key, entry);
-    if (success) texture.release();
+    if (success) {
+        text_cache_bytes += entry.pixel_bytes();
+        texture.release();
+    }
     return &inserted->second;
 }
 
@@ -188,23 +200,6 @@ std::string FontRenderer::ellipsize(const FontHandle& font, std::string_view tex
         if (length == 0) return {};
         do { --length; }
         while (length > 0 && (static_cast<unsigned char>(text[length]) & 0xc0) == 0x80);
-    }
-}
-
-void FontRenderer::draw_text_uncached(int x, int y, const FontHandle& font, const std::string& text,
-                             uint8_t r, uint8_t g, uint8_t b, uint8_t a) {
-    if (!renderer || !renderer->sdl_renderer || text.empty() || !font.font) return;
-    SDL_Surface* main_surf = TTF_RenderText_Blended(font.font, text.c_str(), 0, {r, g, b, a});
-    if (main_surf) {
-        SDL_Texture* main_tex = SDL_CreateTextureFromSurface(renderer->sdl_renderer, main_surf);
-        int tw = main_surf->w;
-        int th = main_surf->h;
-        SDL_DestroySurface(main_surf);
-        if (main_tex) {
-            SDL_FRect dst = {(float)x, (float)y, (float)tw, (float)th};
-            SDL_RenderTexture(renderer->sdl_renderer, main_tex, nullptr, &dst);
-            SDL_DestroyTexture(main_tex);
-        }
     }
 }
 

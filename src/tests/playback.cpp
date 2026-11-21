@@ -147,6 +147,23 @@ int main() {
             decoder.stop();
             check(!decoder.is_running() && !decoder.has_frames(), "full queue did not stop and drain");
         }
+        {
+            VideoDecoder decoder;
+            check(decoder.prewarm(long_path, 1920, 1080), "prewarm did not start");
+            check(until([&] { return decoder.frame_queue_size() >= decoder.get_max_queued_frames(); }),
+                  "prewarm queue did not fill");
+            const auto warm_limit = decoder.get_max_queued_frames();
+            check(warm_limit <= 16 && decoder.frame_queue_size() == warm_limit, "prewarm exceeded its budget");
+            VideoFrame first;
+            check(decoder.get_frame(first), "prewarm did not supply a frame");
+            decoder.note_presentation_start(first.pts);
+            check(decoder.get_max_queued_frames() >= warm_limit, "presentation reduced the queue limit");
+            if (VideoDecoder::calculate_max_queued_frames(1920, 1080) > warm_limit) {
+                check(until([&] { return decoder.frame_queue_size() > warm_limit; }),
+                      "prewarmed decoder did not switch to the playback budget");
+            }
+            decoder.stop();
+        }
         for (int fail_after : {0, 1}) {
             codec_fail_after = fail_after;
             VideoDecoder decoder; decoder.start(path, 64, 48);

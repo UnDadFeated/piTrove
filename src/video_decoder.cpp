@@ -115,17 +115,27 @@ static AVBufferRef* create_hw_device() {
 #define DEBUG_LOG(fmt, ...) \
     do { g_logger.debug(fmt, ##__VA_ARGS__); } while (0)
 
+namespace {
+
+size_t estimated_frame_bytes(int width, int height) {
+    if (width <= 0) width = 1920;
+    if (height <= 0) height = 1080;
+    return static_cast<size_t>(width) * static_cast<size_t>(height) * 3 / 2 + 64;
+}
+
+} // namespace
+
 size_t VideoDecoder::calculate_max_queued_frames(int target_w, int target_h) {
-    if (target_w <= 0) target_w = 1920;
-    if (target_h <= 0) target_h = 1080;
-
-    // NV12 frame buffer size: width * height * 1.5 bytes + struct overhead
-    size_t frame_bytes = static_cast<size_t>(target_w) * static_cast<size_t>(target_h) * 3 / 2 + 64;
-
-    uint64_t avail_ram = get_available_ram_bytes();
     constexpr uint64_t max_lookahead_bytes = 512ULL * 1024 * 1024;
-    const uint64_t budget = std::min(avail_ram / 4, max_lookahead_bytes);
-    return std::clamp(static_cast<size_t>(budget / frame_bytes), size_t{1}, size_t{8192});
+    const uint64_t budget = std::min(get_available_ram_bytes() / 4, max_lookahead_bytes);
+    return std::clamp(static_cast<size_t>(budget / estimated_frame_bytes(target_w, target_h)),
+                      size_t{1}, size_t{8192});
+}
+
+size_t VideoDecoder::get_max_queued_frames() const {
+    const auto limit = m_max_queued_frames.load(std::memory_order_relaxed);
+    const auto warm = m_prewarm_limit.load(std::memory_order_relaxed);
+    return warm == 0 ? limit : std::min(warm, limit);
 }
 
 VideoDecoder::VideoDecoder() {}
@@ -322,10 +332,14 @@ bool VideoDecoder::prewarm(const std::string& path, int target_width, int target
         return false;
     }
     g_logger.info("VIDEO_DEC: Pre-warming upcoming video in background: {}", path.c_str());
-    return start(path, target_width, target_height);
+    return start_impl(path, target_width, target_height, true);
 }
 
 bool VideoDecoder::start(const std::string& path, int target_width, int target_height) {
+    return start_impl(path, target_width, target_height, false);
+}
+
+bool VideoDecoder::start_impl(const std::string& path, int target_width, int target_height, bool prewarm) {
     {
         std::lock_guard lk(m_path_mtx);
         if (m_path == path && (m_running.load(std::memory_order_relaxed) || has_frames())) {
@@ -343,6 +357,9 @@ bool VideoDecoder::start(const std::string& path, int target_width, int target_h
     m_target_width = target_width;
     m_target_height = target_height;
     m_max_queued_frames.store(calculate_max_queued_frames(target_width, target_height), std::memory_order_relaxed);
+    constexpr size_t warm_bytes = 48 * 1024 * 1024;
+    const size_t warm_limit = std::max(size_t{1}, warm_bytes / estimated_frame_bytes(target_width, target_height));
+    m_prewarm_limit.store(prewarm ? warm_limit : 0, std::memory_order_relaxed);
     m_eof.store(false);
     m_anchor_set.store(false);
     m_v0_set.store(false);
@@ -440,6 +457,9 @@ bool VideoDecoder::get_frame(VideoFrame& out) {
     if (m_frame_queue.empty()) return false;
     out = std::move(m_frame_queue.front());
     m_frame_queue.pop();
+    // The first consumer pop begins playback. The worker can now refill to
+    // its normal lookahead limit, including after waiting on a full warm queue.
+    m_prewarm_limit.store(0, std::memory_order_relaxed);
     m_queue_cv.notify_one();
     return true;
 }
@@ -996,7 +1016,7 @@ void VideoDecoder::decode_loop() {
                         {
                             std::unique_lock<std::mutex> lk(m_queue_mtx);
                             m_queue_cv.wait(lk, [this] {
-                                return m_frame_queue.size() < m_max_queued_frames.load(std::memory_order_relaxed) || !m_running.load();
+                                return m_frame_queue.size() < get_max_queued_frames() || !m_running.load();
                             });
                             if (!m_running.load()) break;
                             if (decode_start_time.load(std::memory_order_relaxed) == 0.0) {
@@ -1017,11 +1037,6 @@ void VideoDecoder::decode_loop() {
             if (eof) { m_eof.store(true); g_logger.info("VIDEO_DEC: Natural EOF reached. vf={} pkt={}", vf_count, af_count); }
             break;
         }
-        [[unlikely]]
-            if (ret < 0 && ret != AVERROR(EAGAIN)) {
-                if (ret == AVERROR_EOF) break;
-            }
-
         if (pkt->stream_index == video_stream_idx) {
             // Periodically refresh available RAM budget as played frames are freed from memory
             if (vf_count % 60 == 0) {
@@ -1089,7 +1104,7 @@ void VideoDecoder::decode_loop() {
                     note_frame_anchor(vf.pts, pts_raw2 != AV_NOPTS_VALUE, eof);
                     {
                         std::unique_lock<std::mutex> lk(m_queue_mtx);
-                        m_queue_cv.wait(lk, [this] { return m_frame_queue.size() < m_max_queued_frames.load(std::memory_order_relaxed) || !m_running.load(); });
+                        m_queue_cv.wait(lk, [this] { return m_frame_queue.size() < get_max_queued_frames() || !m_running.load(); });
                         if (!m_running.load()) break;
                         m_frame_queue.push(std::move(vf));
                         m_produced_frame = true;
@@ -1172,7 +1187,7 @@ void VideoDecoder::decode_loop() {
             {
                 std::unique_lock<std::mutex> lk(m_queue_mtx);
                 m_queue_cv.wait(lk, [this] {
-                    return m_frame_queue.size() < m_max_queued_frames.load(std::memory_order_relaxed) || !m_running.load();
+                    return m_frame_queue.size() < get_max_queued_frames() || !m_running.load();
                 });
                 if (!m_running.load()) break;
                 m_frame_queue.push(std::move(vf));
