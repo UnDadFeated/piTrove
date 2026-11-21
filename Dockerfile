@@ -1,7 +1,7 @@
 # ============================================================
 # Stage 1: Build stage
 # ============================================================
-FROM debian:trixie AS builder
+FROM debian:trixie@sha256:4ae67669760b807c19f23902a3fd7c121a6a70cf2ae709035674b23e712e4d62 AS builder
 
 # Prevent interactive prompts
 ENV DEBIAN_FRONTEND=noninteractive
@@ -47,25 +47,6 @@ RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-reco
     libv4l-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Build FFmpeg 7.1.5 with --enable-v4l2-m2m (kernel M2M HW decode).
-# The RPI/Debian libav* 7.1.5 packages ship WITHOUT the v4l2_m2m hwcontext, so
-# hevc_v4l2m2m is missing and HEVC decoding silently falls back to software
-# (~10fps on 4K60). Same upstream source as the system libs (Debian pool
-# 7.1.5-0+deb13u1) => ABI-identical sonames (libavutil.so.59, libavcodec.so.61).
-RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-recommends wget xz-utils \
-    && cd /tmp \
-    && wget -q http://deb.debian.org/debian/pool/main/f/ffmpeg/ffmpeg_7.1.5.orig.tar.xz \
-    && wget -q http://deb.debian.org/debian/pool/main/f/ffmpeg/ffmpeg_7.1.5-0+deb13u1.debian.tar.xz \
-    && tar -xf ffmpeg_7.1.5.orig.tar.xz \
-    && tar -xf ffmpeg_7.1.5-0+deb13u1.debian.tar.xz \
-    && cd ffmpeg-7.1.5 \
-    && ./configure --prefix=/opt/ffmpeg --enable-shared --enable-v4l2-m2m --disable-doc \
-    && make -j$(nproc) \
-    && make install \
-    && cd / && rm -rf /tmp/ffmpeg-7.1.5 /tmp/ffmpeg_7.1.5.orig.tar.xz /tmp/ffmpeg_7.1.5-0+deb13u1.debian.tar.xz
-# Compile+link the app against the custom FFmpeg via pkg-config
-ENV PKG_CONFIG_PATH=/opt/ffmpeg/lib/pkgconfig
-
 # Set up build directories
 WORKDIR /build-src
 COPY src/ /build-src/src/
@@ -80,7 +61,7 @@ RUN cmake .. -DCMAKE_BUILD_TYPE=Release && \
 # ============================================================
 # Stage 2: Runtime stage
 # ============================================================
-FROM debian:trixie
+FROM debian:trixie@sha256:4ae67669760b807c19f23902a3fd7c121a6a70cf2ae709035674b23e712e4d62
 
 # Prevent interactive prompts
 ENV DEBIAN_FRONTEND=noninteractive
@@ -108,23 +89,19 @@ RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-reco
     libswscale8 \
     libswresample5 \
     libavutil59 \
-    imagemagick \
-    exiftool \
-    dav1d \
-    ffmpeg \
     mosquitto-clients \
     libsodium23 \
     libcurl4 \
     ca-certificates \
-    curl \
     iputils-ping \
     libstb0t64 \
     libv4l-0t64 \
     libv4lconvert0t64 \
-    v4l-utils \
-    network-manager \
-    sudo \
     tzdata \
+    && rm -rf /var/lib/apt/lists/*
+
+# SDL loads these libraries and drivers dynamically for KMSDRM and headless rendering.
+RUN apt-get update && apt-get install -y --no-install-recommends libgl1 libgl1-mesa-dri \
     && rm -rf /var/lib/apt/lists/*
 
 # Establish runtime directory tree
@@ -133,12 +110,6 @@ RUN mkdir -p /app/cache /app/config /app/logs /app/subtitles /app/screenshots /a
 
 # Deploy compiled binary
 COPY --from=builder /build-src/src/piTrove /app/piTrove
-
-# Deploy the custom FFmpeg shared libs (v4l2_m2m HW decode enabled).
-# /usr/local/lib is searched before /lib/aarch64-linux-gnu, so /app/piTrove
-# resolves the v4l2_m2m-enabled sonames; system libav* remain as fallback.
-COPY --from=builder /opt/ffmpeg/lib/ /usr/local/lib/
-RUN ldconfig
 
 # Deploy static default fonts, assets, and configs
 COPY src/fonts/ /app/src/fonts/

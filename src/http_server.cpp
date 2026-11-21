@@ -33,6 +33,8 @@
 #include <functional>
 #include <fstream>
 #include <cstring>
+#include <unordered_map>
+#include <cmath>
 #include <strings.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
@@ -149,7 +151,7 @@ static std::string get_host_header(const std::string& request) {
         if (auto it = parsed.headers.find("host"); it != parsed.headers.end()) return it->second;
     }
     std::shared_lock lock(g_config_mtx);
-    return std::format("192.168.4.110:{}", g_cfg.http_port);
+    return std::format("localhost:{}", g_cfg.http_port);
 }
 
 // Escape a value for interpolation into an HTML text/attribute context. The OAuth
@@ -764,7 +766,7 @@ static std::string get_api_settings() {
   "news_font_size": {},
   "gcalendar_enabled": {},
   "gcalendar_source_type": "{}",
-  "gcalendar_ical_url": "{}",
+  "gcalendar_ical_url_set": {},
   "gcalendar_name": "{}",
   "gcalendar_refresh_minutes": {},
   "gcalendar_max_events": {}
@@ -821,7 +823,7 @@ static std::string get_api_settings() {
         g_cfg.news_font_size,
         g_cfg.gcalendar_enabled,
         escape_json(g_cfg.gcalendar_source_type),
-        escape_json(g_cfg.gcalendar_ical_url),
+        !g_cfg.gcalendar_ical_url.empty(),
         escape_json(g_cfg.gcalendar_name),
         g_cfg.gcalendar_refresh_minutes,
         g_cfg.gcalendar_max_events);
@@ -848,8 +850,12 @@ static const std::string VIDEO_FALLBACK_SVG = R"SVG(
 static void send_response(int fd, const std::string& status_line, const std::string& mime, const std::string& body) {
     std::string headers = std::format(
         "{}\r\nContent-Type: {}\r\nContent-Length: {}\r\n"
-        "Cache-Control: no-cache, no-store, must-validate\r\nConnection: close\r\n\r\n",
-        status_line, mime, body.size());
+        "Cache-Control: no-store, must-revalidate\r\n"
+        "X-Content-Type-Options: nosniff\r\nX-Frame-Options: DENY\r\n"
+        "Referrer-Policy: no-referrer\r\n"
+        "Content-Security-Policy: frame-ancestors 'none'; base-uri 'none'; object-src 'none'\r\n"
+        "Connection: close\r\n\r\n",
+        status_line, mime == "text/html" ? "text/html; charset=utf-8" : mime, body.size());
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(response_timeout_ms);
     if (http_protocol::send_until(fd, headers, deadline)) http_protocol::send_until(fd, body, deadline);
 }
@@ -1052,7 +1058,7 @@ static void handle_preview(int fd) {
     stream_image(fd, file, mime);
 }
 
-static void handle_client(int client_fd) {
+static void handle_client(int client_fd, uint32_t peer_ip) {
     struct ClientFdGuard {
         int fd;
         ClientFdGuard(int f) : fd(f) { try { register_client_fd(fd); } catch (...) { close(fd); throw; } }
@@ -1083,21 +1089,27 @@ static void handle_client(int client_fd) {
         send_response(client_fd, status, "text/plain", "Incomplete or invalid HTTP request");
         return;
     }
+    const auto host = parsed_request.headers.find("host");
+    if (host == parsed_request.headers.end() || !http_protocol::controller_host_allowed(host->second)) {
+        send_response(client_fd, "HTTP/1.1 400 Bad Request", "text/plain",
+                      "Open piTrove using its LAN IP address or .local hostname");
+        return;
+    }
     auto matches_route = [&](std::string_view method, std::string_view path) {
         return parsed_request.method == method && parsed_request.path == path;
     };
 
     if (!request.empty()) {
-        // Failed-attempt throttling. The accept loop discards the peer address, so this is
-        // a global lockout rather than per-IP; enough to make online brute force impractical.
-        static std::atomic<int64_t> g_auth_failures{0};
-        static std::atomic<int64_t> g_auth_lockout_until{0};
-        static constexpr int64_t AUTH_MAX_FAILURES = 5;
-        static constexpr int64_t AUTH_LOCKOUT_MS  = 60000;
-        auto auth_now_ms = []() -> int64_t {
-            return std::chrono::duration_cast<std::chrono::milliseconds>(
-                std::chrono::steady_clock::now().time_since_epoch()).count();
+        // Each source has its own bounded failed-attempt window.
+        using Clock = std::chrono::steady_clock;
+        struct AuthAttempts {
+            Clock::time_point expires;
+            unsigned failures;
         };
+        static std::mutex auth_mutex;
+        static std::unordered_map<uint32_t, AuthAttempts> attempts;
+        constexpr unsigned max_failures = 5;
+        constexpr auto lockout = std::chrono::minutes(1);
         const auto configured_key = [] {
             std::shared_lock lock(g_config_mtx);
             return g_cfg.http_api_key;
@@ -1112,41 +1124,50 @@ static void handle_client(int client_fd) {
                    sodium_memcmp(supplied.data(), api_key.data(), api_key.size()) == 0;
         };
 
-        auto is_authorized = [&] {
+        auto is_authorized = [&](bool* status_details = nullptr) {
+            const auto api_key = configured_key();
+            const bool has_credentials = parsed_request.headers.contains("authorization");
+            if (status_details && !has_credentials) {
+                *status_details = api_key.empty();
+                return true;
+            }
+            if (status_details) *status_details = true;
             if (!http_protocol::controller_origin_allowed(parsed_request)) {
                 send_response(client_fd, "HTTP/1.1 403 Forbidden", "text/plain",
                               "Open this action from your piTrove controller");
                 return false;
             }
-            const auto api_key = configured_key();
             // Opt-in: with no key configured the control API stays open. Reported at
             // startup rather than enforced, so an absent key is a deliberate choice.
             if (api_key.empty()) return true;
 
-            if (auth_now_ms() < g_auth_lockout_until.load()) {
-                std::string body = "HTTP/1.1 429 Too Many Requests\r\nContent-Type: text/plain\r\nConnection: close\r\n\r\nToo many failed attempts";
-                http_protocol::send_all(client_fd, body);
+            if (!has_credentials) {
+                send_response(client_fd, "HTTP/1.1 401 Unauthorized", "text/plain", "API key required");
                 return false;
             }
-            auto deny = [&](const char* msg, bool invalid_key) {
-                std::string body = std::string("HTTP/1.1 401 Unauthorized\r\nContent-Type: text/plain\r\nConnection: close\r\n\r\n") + msg;
-                http_protocol::send_all(client_fd, body);
-                if (invalid_key && g_auth_failures.fetch_add(1) + 1 >= AUTH_MAX_FAILURES) {
-                    g_auth_lockout_until.store(auth_now_ms() + AUTH_LOCKOUT_MS);
-                    g_auth_failures.store(0);
-                    g_logger.warn("HTTP: auth lockout engaged for {}s after {} failed attempts",
-                                  AUTH_LOCKOUT_MS / 1000, AUTH_MAX_FAILURES);
-                }
-                return false;
-            };
 
-            if (!parsed_request.headers.contains("authorization")) return deny("API key required", false);
-            if (!valid_key(api_key)) {
-                g_logger.warn("HTTP: Unauthorized request - invalid key");
-                return deny("Invalid API key", true);
+            bool limited = false;
+            {
+                std::lock_guard lock(auth_mutex);
+                const auto now = Clock::now();
+                std::erase_if(attempts, [&](const auto& item) { return item.second.expires <= now; });
+                const auto previous = attempts.find(peer_ip);
+                if (previous != attempts.end() && previous->second.failures >= max_failures) {
+                    limited = true;
+                } else if (valid_key(api_key)) {
+                    if (previous != attempts.end()) attempts.erase(previous);
+                    return true;
+                } else if (previous != attempts.end()) {
+                    if (++previous->second.failures == max_failures) previous->second.expires = now + lockout;
+                } else if (attempts.size() < 1024) {
+                    attempts.emplace(peer_ip, AuthAttempts{now + lockout, 1});
+                } else {
+                    limited = true;
+                }
             }
-            g_auth_failures.store(0);
-            return true;
+            send_response(client_fd, limited ? "HTTP/1.1 429 Too Many Requests" : "HTTP/1.1 401 Unauthorized",
+                          "text/plain", limited ? "Too many failed attempts" : "Invalid API key");
+            return false;
         };
 
         // Query parameters can contain OAuth codes or credentials. Log only the route.
@@ -1354,21 +1375,21 @@ static void handle_client(int client_fd) {
                 // 1. Validation Checks
                 if (has_query_param(request, "transition_delay")) {
                     double val = safe_stod(get_query_param(request, "transition_delay"), -999.0);
-                    if (val < 1.0) {
+                    if (!std::isfinite(val) || val < 1.0) {
                         validation_failed = true;
                         err_msg = "transition_delay must be >= 1.0";
                     }
                 }
                 if (!validation_failed && has_query_param(request, "transition_duration")) {
                     double val = safe_stod(get_query_param(request, "transition_duration"), -999.0);
-                    if (val < 0.1 || val > 10.0) {
+                    if (!std::isfinite(val) || val < 0.1 || val > 10.0) {
                         validation_failed = true;
                         err_msg = "transition_duration must be between 0.1 and 10.0";
                     }
                 }
                 if (!validation_failed && has_query_param(request, "ken_burns_speed")) {
                     double val = safe_stod(get_query_param(request, "ken_burns_speed"), -999.0);
-                    if (val < 0.001 || val > 5.0) {
+                    if (!std::isfinite(val) || val < 0.001 || val > 5.0) {
                         validation_failed = true;
                         err_msg = "ken_burns_speed must be between 0.001 and 5.0";
                     }
@@ -1696,18 +1717,19 @@ static void handle_client(int client_fd) {
                 std::ifstream log_file(path);
                 if (log_file.is_open()) {
                     log_file.seekg(0, std::ios::end);
-                    size_t size = log_file.tellg();
-                    size_t offset = (size > 30720) ? (size - 30720) : 0;
-                    log_file.seekg(offset, std::ios::beg);
-                    
-                    std::string line;
-                    if (offset > 0) {
-                        std::getline(log_file, line);
+                    const std::streamoff size = log_file.tellg();
+                    if (size >= 0) {
+                        const auto length = std::min<std::streamoff>(size, 30720);
+                        log_file.seekg(size - length);
+                        log_content.resize(static_cast<size_t>(length));
+                        log_file.read(log_content.data(), length);
+                        log_content.resize(static_cast<size_t>(log_file.gcount()));
+                        if (size > length) {
+                            const auto first_line = log_content.find('\n');
+                            if (first_line != log_content.npos) log_content.erase(0, first_line + 1);
+                        }
+                        read_success = !log_file.bad();
                     }
-                    while (std::getline(log_file, line)) {
-                        log_content += line + "\n";
-                    }
-                    read_success = true;
                 }
             }
             
@@ -1725,6 +1747,7 @@ static void handle_client(int client_fd) {
                     }
         }
         else if (matches_route("GET", "/api/news")) {
+            if (!is_authorized()) return;
             send_response(client_fd, "HTTP/1.1 200 OK", "application/json", g_news_ticker.get_status_json());
         }
         else if (matches_route("GET", "/api/calendar/sync") || matches_route("POST", "/api/calendar/sync")) {
@@ -1740,8 +1763,8 @@ static void handle_client(int client_fd) {
             send_response(client_fd, "HTTP/1.1 200 OK", "application/json", g_calendar.get_status_json());
         }
         else if (matches_route("GET", "/api/status")) {
-            const auto key = configured_key();
-            const bool include_private_details = key.empty() || valid_key(key);
+            bool include_private_details = false;
+            if (!is_authorized(&include_private_details)) return;
             send_response(client_fd, "HTTP/1.1 200 OK", "application/json", get_api_status(include_private_details));
         } 
         else if (matches_route("GET", "/api/next")) {
@@ -1831,14 +1854,12 @@ static void handle_client(int client_fd) {
             send_response(client_fd, "HTTP/1.1 200 OK", "application/json", "{\"status\":\"ok\"}");
         } 
         else if (matches_route("GET", "/api/stocks")) {
+            if (!is_authorized()) return;
             send_response(client_fd, "HTTP/1.1 200 OK", "application/json", g_stock_streamer.get_status_json());
         }
         else if (matches_route("GET", "/api/news/refresh") || matches_route("POST", "/api/news/refresh")) {
             if (!is_authorized()) return;
             g_news_ticker.sync();
-            send_response(client_fd, "HTTP/1.1 200 OK", "application/json", g_news_ticker.get_status_json());
-        }
-        else if (matches_route("GET", "/api/news")) {
             send_response(client_fd, "HTTP/1.1 200 OK", "application/json", g_news_ticker.get_status_json());
         }
         else if (matches_route("GET", "/api/restart")) {
@@ -1926,7 +1947,7 @@ static void server_loop(int port) {
     { std::lock_guard lk(g_config_mtx); max_attempts = g_cfg.http_bind_attempts; }
     bool bound = false;
 
-    for (int attempt = 0; attempt < max_attempts; attempt++) {
+    for (int attempt = 0; attempt < max_attempts && current_port <= 65535; attempt++) {
         int socket_fd = socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC, 0);
         if (socket_fd < 0) {
             g_logger.error("HTTP: Failed to open stream socket.");
@@ -1968,7 +1989,7 @@ static void server_loop(int port) {
     }
 
     int active_fd = g_listen_fd.load();
-    if (active_fd < 0 || listen(active_fd, 10) < 0) {
+    if (active_fd < 0 || listen(active_fd, 64) < 0) {
         g_logger.error("HTTP: Listen failed on socket.");
         int fd_to_close = g_listen_fd.exchange(-1);
         if (fd_to_close >= 0) {
@@ -2006,12 +2027,15 @@ static void server_loop(int port) {
         }
         if (select_rc == 0) continue; // select timed out, loop around to check running status
 
-        struct sockaddr_in client_addr;
+        if (!g_server_running.load() || (listener.revents & (POLLHUP | POLLERR | POLLNVAL))) break;
+        if (!(listener.revents & POLLIN)) continue;
+        struct sockaddr_in client_addr{};
         socklen_t client_len = sizeof(client_addr);
         int current_fd = g_listen_fd.load();
         if (current_fd < 0) break;
         int client_fd = accept4(current_fd, (struct sockaddr*)&client_addr, &client_len, SOCK_CLOEXEC);
         if (client_fd < 0) {
+            if (!g_server_running.load()) break;
             if (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR || errno == ECONNABORTED || errno == EMFILE) {
                 if (errno == EMFILE) {
                     std::this_thread::sleep_for(std::chrono::milliseconds(50));
@@ -2039,13 +2063,15 @@ static void server_loop(int port) {
         int prev = g_active_connections.fetch_add(1);
         if (prev >= 32) {
             g_active_connections.fetch_sub(1);
-            send_response(client_fd, "HTTP/1.1 503 Service Unavailable", "text/plain", "Too Many Connections");
+            constexpr std::string_view busy =
+                "HTTP/1.1 503 Service Unavailable\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+            send(client_fd, busy.data(), busy.size(), MSG_DONTWAIT | MSG_NOSIGNAL);
             close(client_fd);
             continue;
         }
-        if (!spawn_tracked_thread([client_fd]() {
+        if (!spawn_tracked_thread([client_fd, peer_ip = client_addr.sin_addr.s_addr]() {
             struct ConnectionCountGuard { ~ConnectionCountGuard() { g_active_connections.fetch_sub(1); } } count_guard;
-            handle_client(client_fd);
+            handle_client(client_fd, peer_ip);
         })) {
             g_active_connections.fetch_sub(1);
             close(client_fd);

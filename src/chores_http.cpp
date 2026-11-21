@@ -64,10 +64,7 @@ HttpResponse handle_http(Store& store,const std::string& method,const std::strin
         const auto value=field("completed"); if (value!="1" && value!="0") return error(400,"Choose a valid completion state");
         const auto date=field("date");
         if (!valid_date(date)) return error(400,"Choose a valid occurrence date");
-        const auto state=store.snapshot(today);
-        for (const auto& c:state.chores) if (c.id==id("id") && c.repeat=="daily" && date!=today)
-            return error(409,"A new local day has started. Refresh the board and try again.");
-        return result(store.set_completed(id("id"),date,value=="1"));
+        return result(store.set_completed(id("id"),date,value=="1",today));
     }
     const auto all_day=field("all_day");
     if (all_day!="1" && all_day!="0") return error(400,"Choose all day or a time");

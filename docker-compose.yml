@@ -10,12 +10,11 @@ services:
     network_mode: host
     cap_add:
       - SYS_ADMIN
-      - SYS_RAWIO
       - SYS_NICE
-      - NET_ADMIN
     devices:
       - /dev/dri:/dev/dri
       - /dev/input:/dev/input
+      - /dev/snd:/dev/snd
       - /dev/media0:/dev/media0
       - /dev/media1:/dev/media1
       - /dev/media2:/dev/media2
@@ -43,6 +42,7 @@ services:
       - SDL_VIDEO_DRIVER=kmsdrm
       - SDL_VIDEO_KMSDRM_DEVICE=${SDL_VIDEO_KMSDRM_DEVICE:-/dev/dri/card1}
       - SDL_KMSDRM_DEVICE_INDEX=${SDL_KMSDRM_DEVICE_INDEX:-1}
+      - MALLOC_ARENA_MAX=2
       - XDG_CACHE_HOME=/app/cache
       - MESA_SHADER_CACHE_DIR=/app/cache/mesa_shader_cache
     healthcheck:
@@ -57,15 +57,13 @@ services:
         max-size: "5m"
         max-file: "3"
     volumes:
-      - events:/app/events
-      - /var/run/dbus/system_bus_socket:/var/run/dbus/system_bus_socket
       - ./cache:/app/cache
       - ./config:/app/config
       - ./logs:/app/logs
       - ./screenshots:/app/screenshots
       - ./subtitles:/app/subtitles
       - /sys:/sys
-      - ${MEDIA_DIR:-/mnt/nas}:/app/media:ro
-
-volumes:
-  events:
+      - ${MEDIA_DIR:-/mnt/nas}:/app/media:ro,rslave
+    tmpfs:
+      - /app/cache/run:size=1m,mode=0755
+    pids_limit: 256

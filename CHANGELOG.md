@@ -1,3 +1,12 @@
+### Release v18.4.4 — Playback, storage, and LAN controller hardening
+
+- Pace photo rendering during video prewarm and draw bias lighting with a reusable GPU texture clipped to the media area. Cache procedural backgrounds at their configured animation rate.
+- Decode WebP through the shared, dimension-limited image loader. Bound media preloads, index pending SQLite metadata, preserve out-of-season cooldowns, and probe videos in-process.
+- Preserve existing installer configuration and use owner-only files for settings.
+- Rate-limit controller authentication per client and keep private calendar URLs out of settings responses.
+- Require verified HTTPS to public addresses for feed downloads and debounce NAS recovery.
+- Use Debian FFmpeg in the container, enable ALSA devices, and move the health heartbeat into memory.
+
 ### Release v18.4.3 — Media integrity, controller privacy, and recovery
 
 - Incomplete media scans preserve the playlist and cache. Shutdown cancels scan waits and joins the watchman before teardown.

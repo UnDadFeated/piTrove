@@ -1,5 +1,5 @@
 #include "health.h"
-#include <chrono>
+#include <ctime>
 #include <filesystem>
 #include <fstream>
 
@@ -12,15 +12,16 @@ void heartbeat_tick() {
     std::error_code ec;
     std::filesystem::create_directories(heartbeat_path.parent_path(), ec);
 
-    const auto now = std::chrono::duration_cast<std::chrono::seconds>(
-        std::chrono::system_clock::now().time_since_epoch()).count();
+    // /proc/uptime uses the same boot clock and is independent of NTP.
+    timespec now{};
+    if (clock_gettime(CLOCK_BOOTTIME, &now) != 0) return;
 
     std::filesystem::path tmp = heartbeat_path;
     tmp += ".tmp";
 
     {
         std::ofstream out(tmp, std::ios::trunc);
-        out << now;
+        if (!(out << now.tv_sec) || !(out.flush())) return;
     }
 
     std::filesystem::rename(tmp, heartbeat_path, ec);

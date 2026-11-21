@@ -1,4 +1,5 @@
 #include "http_protocol.h"
+#include <arpa/inet.h>
 #include <algorithm>
 #include <charconv>
 #include <chrono>
@@ -59,6 +60,34 @@ Result parse(std::string_view raw, Request& request, size_t& required) {
     request = std::move(parsed);
     return raw.size() >= required ? Result::complete : Result::incomplete;
 }
+bool controller_host_allowed(std::string_view host) {
+    auto port_separator = host.find(':');
+    if (port_separator != host.npos) {
+        const auto port = host.substr(port_separator + 1);
+        unsigned number = 0;
+        auto [end, error] = std::from_chars(port.data(), port.data() + port.size(), number);
+        if (error != std::errc{} || end != port.data() + port.size() || number == 0 || number > 65535)
+            return false;
+        host = host.substr(0, port_separator);
+    }
+
+    std::string name(host);
+    std::transform(name.begin(), name.end(), name.begin(), [](unsigned char c) { return std::tolower(c); });
+    if (name.ends_with('.')) name.pop_back();
+    if (name == "localhost") return true;
+    if (name.ends_with(".local") && name.size() > 6 &&
+        std::all_of(name.begin(), name.end(), [](unsigned char c) {
+            return (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-' || c == '.';
+        })) {
+        return true;
+    }
+    in_addr address{};
+    if (inet_pton(AF_INET, name.c_str(), &address) != 1) return false;
+    const auto ip = ntohl(address.s_addr);
+    return ip >> 24 == 127 || ip >> 24 == 10 || (ip >> 20) == 0xac1 ||
+           (ip >> 16) == 0xc0a8 || (ip >> 16) == 0xa9fe || (ip >> 22) == 0x191;
+}
+
 bool controller_origin_allowed(const Request& request) {
     const auto site = request.headers.find("sec-fetch-site");
     if (site != request.headers.end() && site->second != "same-origin" && site->second != "none")
@@ -70,7 +99,8 @@ bool controller_origin_allowed(const Request& request) {
         if (url.starts_with("http://")) url.remove_prefix(7);
         else if (url.starts_with("https://")) url.remove_prefix(8);
         else return false;
-        return url == host->second;
+        return std::equal(url.begin(), url.end(), host->second.begin(), host->second.end(),
+                          [](unsigned char a, unsigned char b) { return std::tolower(a) == std::tolower(b); });
     };
     const auto origin = request.headers.find("origin");
     if (origin != request.headers.end() && !matches_host(origin->second)) return false;

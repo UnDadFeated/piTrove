@@ -139,6 +139,15 @@ bool CacheManager::open(const std::string& dir) {
         return false;
     }
 
+    if (sqlite3_exec(db,
+        "CREATE INDEX IF NOT EXISTS idx_cache_needs_preprocess ON cache(path, type) "
+        "WHERE bad = 0 AND preprocessed = 0; PRAGMA journal_size_limit=1048576;",
+        nullptr, nullptr, nullptr) != SQLITE_OK) {
+        g_logger.error("Cache preprocess index setup failed: {}", sqlite3_errmsg(db));
+        close();
+        return false;
+    }
+
     sqlite3_finalize(stmt_upsert); stmt_upsert = nullptr;
     sqlite3_finalize(stmt_load); stmt_load = nullptr;
     sqlite3_finalize(stmt_mark); stmt_mark = nullptr;
@@ -147,12 +156,19 @@ bool CacheManager::open(const std::string& dir) {
         "INSERT INTO cache (path, type, w, h, exif, duration, framerate, bad, last_shown, timestamp, is_camera, creation_time, preprocessed, lat, lon, has_gps) "
         "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
         "ON CONFLICT(path) DO UPDATE SET "
-        "w=excluded.w, h=excluded.h, exif=excluded.exif, "
+        "type=excluded.type, w=excluded.w, h=excluded.h, exif=excluded.exif, "
         "duration=excluded.duration, framerate=excluded.framerate, bad=excluded.bad, "
         "last_shown=MAX(cache.last_shown, excluded.last_shown), "
         "timestamp=CASE WHEN excluded.timestamp=0 THEN cache.timestamp ELSE excluded.timestamp END, "
         "is_camera=excluded.is_camera, creation_time=excluded.creation_time, "
-        "preprocessed=excluded.preprocessed, lat=excluded.lat, lon=excluded.lon, has_gps=excluded.has_gps",
+        "preprocessed=excluded.preprocessed, lat=excluded.lat, lon=excluded.lon, has_gps=excluded.has_gps "
+        "WHERE (cache.type, cache.w, cache.h, cache.exif, cache.duration, cache.framerate, cache.bad, "
+        "cache.last_shown, cache.timestamp, cache.is_camera, cache.creation_time, cache.preprocessed, "
+        "cache.lat, cache.lon, cache.has_gps) IS NOT "
+        "(excluded.type, excluded.w, excluded.h, excluded.exif, excluded.duration, excluded.framerate, excluded.bad, "
+        "MAX(cache.last_shown, excluded.last_shown), "
+        "CASE WHEN excluded.timestamp=0 THEN cache.timestamp ELSE excluded.timestamp END, "
+        "excluded.is_camera, excluded.creation_time, excluded.preprocessed, excluded.lat, excluded.lon, excluded.has_gps)",
         -1, &stmt_upsert, nullptr) != SQLITE_OK) {
     [[unlikely]]
         trigger_error(410); // E410: SQLITE_PREPARE_STMT_FAIL
@@ -182,11 +198,17 @@ bool CacheManager::open(const std::string& dir) {
 }
 
 void CacheManager::close() {
-    g_logger.info("[TRACE] CacheManager::close");
+    std::lock_guard lock(db_mutex);
     if (stmt_upsert) { sqlite3_finalize(stmt_upsert); stmt_upsert = nullptr; }
     if (stmt_load) { sqlite3_finalize(stmt_load); stmt_load = nullptr; }
     if (stmt_mark) { sqlite3_finalize(stmt_mark); stmt_mark = nullptr; }
-    if (db) { sqlite3_close_v2(db); db = nullptr; }
+    if (db) {
+        if (sqlite3_get_autocommit(db))
+            sqlite3_wal_checkpoint_v2(db, nullptr, SQLITE_CHECKPOINT_TRUNCATE, nullptr, nullptr);
+        sqlite3_close_v2(db);
+        db = nullptr;
+    }
+    in_transaction.store(false);
 }
 
 
@@ -299,7 +321,7 @@ size_t CacheManager::prune_missing(const std::vector<MediaItem>& live) {
         if (sqlite3_get_autocommit(db)) {
             sqlite3_exec(db, "PRAGMA wal_checkpoint(TRUNCATE)", nullptr, nullptr, nullptr);
         }
-        g_logger.info("CACHE: pruned {} rows outside the active window / missing from disk ({} kept)", removed, live.size());
+        g_logger.info("CACHE: pruned {} rows missing from disk ({} kept)", removed, live.size());
     }
     return removed;
 }
@@ -309,8 +331,8 @@ CacheManager::~CacheManager() {
 }
 
 bool CacheManager::load_cached(MediaItem& mi) {
-    if (!stmt_load) return false;
     std::lock_guard<std::mutex> lk(db_mutex);
+    if (!stmt_load) return false;
     bool found = false;
     sqlite3_bind_text(stmt_load, 1, mi.path.c_str(), -1, SQLITE_TRANSIENT);
     if (sqlite3_step(stmt_load) == SQLITE_ROW) {
@@ -340,48 +362,9 @@ bool CacheManager::load_cached(MediaItem& mi) {
     return found;
 }
 
-void CacheManager::upsert(MediaItem mi, int bad, int preprocessed, bool resolve_metadata) {
-    if (!stmt_upsert) return;
-
-    if (resolve_metadata && (mi.is_camera == -1 || mi.creation_time == 0) && mi.type == "image" && bad == 0) {
-        int db_is_cam = -1;
-        int64_t db_creat = 0;
-        bool db_found = false;
-        {
-            std::lock_guard<std::mutex> lk(db_mutex);
-            sqlite3_stmt* stmt_chk = nullptr;
-            const char* sql_chk = "SELECT is_camera, creation_time FROM cache WHERE path = ?;";
-            if (sqlite3_prepare_v2(db, sql_chk, -1, &stmt_chk, nullptr) == SQLITE_OK) {
-                sqlite3_bind_text(stmt_chk, 1, mi.path.c_str(), -1, SQLITE_TRANSIENT);
-                if (sqlite3_step(stmt_chk) == SQLITE_ROW) {
-                    db_is_cam = sqlite3_column_int(stmt_chk, 0);
-                    db_creat = sqlite3_column_int64(stmt_chk, 1);
-                    db_found = true;
-                }
-                sqlite3_finalize(stmt_chk);
-            }
-        }
-        if (db_found && db_is_cam != -1) {
-            mi.is_camera = db_is_cam;
-            mi.creation_time = db_creat;
-        } else if (!in_transaction) {
-            std::vector<uint8_t> buffer = ImageLoader::read_file_to_buffer(mi.path);
-            if (!buffer.empty()) {
-                ImageMetadata meta = ImageLoader::read_metadata_from_memory(buffer);
-                mi.is_camera = meta.is_camera ? 1 : 0;
-                mi.creation_time = meta.creation_time;
-                if (!mi.has_gps && meta.has_gps) {
-                    mi.latitude = meta.latitude;
-                    mi.longitude = meta.longitude;
-                    mi.has_gps = true;
-                }
-            } else {
-                mi.is_camera = 0;
-            }
-        }
-    }
-
+void CacheManager::upsert(const MediaItem& mi, int bad, int preprocessed) {
     std::lock_guard<std::mutex> lk(db_mutex);
+    if (!stmt_upsert) return;
     sqlite3_bind_text(stmt_upsert, 1, mi.path.c_str(), -1, SQLITE_TRANSIENT);
     sqlite3_bind_text(stmt_upsert, 2, mi.type.c_str(), -1, SQLITE_TRANSIENT);
     sqlite3_bind_int64(stmt_upsert, 3, mi.width);
@@ -431,8 +414,8 @@ bool CacheManager::mark_preprocessed(const std::string& path) {
 
 void CacheManager::mark_shown(const std::string& path) {
     g_logger.info("[TRACE] CacheManager::mark_shown path={}", path.c_str());
-    if (!stmt_mark) return;
     std::lock_guard<std::mutex> lk(db_mutex);
+    if (!stmt_mark) return;
     sqlite3_bind_int64(stmt_mark, 1, time(nullptr));
     sqlite3_bind_text(stmt_mark, 2, path.c_str(), -1, SQLITE_TRANSIENT);
     int step_ret = sqlite3_step(stmt_mark);

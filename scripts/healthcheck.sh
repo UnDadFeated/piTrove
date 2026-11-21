@@ -15,7 +15,8 @@ if [[ ! "$HB_TIME" =~ ^[0-9]{1,12}$ ]]; then
   exit 1
 fi
 
-NOW=$(date +%s)
+read -r UPTIME _ < /proc/uptime
+NOW=${UPTIME%%.*}
 AGE=$((NOW - 10#$HB_TIME))
 if (( AGE < 0 || AGE > MAX_AGE )); then
   echo "stale heartbeat: ${AGE}s"

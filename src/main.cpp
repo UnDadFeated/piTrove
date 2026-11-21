@@ -75,7 +75,7 @@ static std::string probe_connected_connector(std::string& out_card, int& out_car
                     // Example path: /sys/class/drm/card1-HDMI-A-1/status
                     size_t slash = status_path.rfind('/');
                     if (slash != std::string::npos) {
-                        std::string dir_name = status_path.substr(slash + 1);
+                        std::string dir_name = std::filesystem::path(status_path).parent_path().filename().string();
                         size_t dash = dir_name.find('-');
                         if (dash != std::string::npos) {
                             std::string card_part = dir_name.substr(0, dash); // "card1"
@@ -395,10 +395,10 @@ static SDL_Texture* render_state_to_texture(
         // 4. Draw bias lighting if enabled
         if (has_bias) {
             int bw_l = has_border ? border_w : 0;
-            g_renderer.draw_bias_lighting(rect_l, primary->avg_r, primary->avg_g, primary->avg_b,
+            g_renderer.draw_bias_lighting(rect_l, layout.slideshow_area, primary->avg_r, primary->avg_g, primary->avg_b,
                 bias_strength, (float)item_timer, anim_speed, style, bw_l, snap_glow_depth);
             int bw_r = has_border ? border_w : 0;
-            g_renderer.draw_bias_lighting(rect_r, twin->avg_r, twin->avg_g, twin->avg_b,
+            g_renderer.draw_bias_lighting(rect_r, layout.slideshow_area, twin->avg_r, twin->avg_g, twin->avg_b,
                 bias_strength, (float)item_timer, anim_speed, style, bw_r, snap_glow_depth);
         }
 
@@ -468,7 +468,7 @@ static SDL_Texture* render_state_to_texture(
         // 4. Draw bias lighting if enabled
         if (has_bias) {
             int bw_param = has_border ? border_w : 0;
-            g_renderer.draw_bias_lighting(rect, primary->avg_r, primary->avg_g, primary->avg_b,
+            g_renderer.draw_bias_lighting(rect, layout.slideshow_area, primary->avg_r, primary->avg_g, primary->avg_b,
                 bias_strength, (float)item_timer, anim_speed, style, bw_param, snap_glow_depth);
         }
 
@@ -713,6 +713,17 @@ static void organize_playlist(std::vector<MediaItem>& eligible, int videos_per_p
     }
 }
 
+static void update_image_metadata(MediaItem& item, const ImageData& data) {
+    item.width = data.width;
+    item.height = data.height;
+    item.exif_rotation = data.exif_rotation;
+    item.is_camera = data.is_camera ? 1 : 0;
+    item.creation_time = data.creation_time;
+    item.latitude = data.latitude;
+    item.longitude = data.longitude;
+    item.has_gps = data.has_gps;
+}
+
 static void mark_item_shown(const std::string& path, bool lock_playlist) {
     int64_t now = static_cast<int64_t>(std::time(nullptr));
     if (g_cache) g_cache->mark_shown(path);
@@ -860,11 +871,10 @@ static void watchman_loop(std::stop_token stop) {
                                 mi.duration = 0.0;
                             }
                             // Metadata preprocessing handles image I/O off the watchman thread.
-                            g_cache->upsert(mi, 0, 0, false);
+                            g_cache->upsert(mi, 0, 0);
                         }
                     }
                     if (stop.stop_requested()) break;
-                    g_cache->prune_missing(scanned);
                 }
 
                 // Snapshot the settings we need, then do the expensive filtering OUTSIDE
@@ -1019,7 +1029,6 @@ static void keepalive_loop() {
                   gateway.c_str(), interface.c_str(), interval_secs);
                   
     int64_t network_lost_time = 0;
-    int64_t last_wifi_reset_time = 0;
                   
     while (g_keepalive_running.load() && g_running.load()) {
         // Poll faster (every 15 seconds) when network is down to catch recovery sooner
@@ -1047,13 +1056,12 @@ static void keepalive_loop() {
                     g_logger.info("Keepalive: Gateway {} is reachable and NAS mount is healthy. Connection restored.", gateway.c_str());
                 }
                 network_lost_time = 0;
-                last_wifi_reset_time = 0;
+                if (is_error_active(519)) clear_error(519);
             }
         } else {
             // Gateway unreachable OR NAS unreachable — track downtime
             if (network_lost_time == 0) {
                 network_lost_time = now;
-                last_wifi_reset_time = now;
                 WifiStats ws = read_wifi_stats(interface);
                 
                 std::string reason;
@@ -1070,93 +1078,11 @@ static void keepalive_loop() {
                     g_logger.warn("Keepalive: {}. Start tracking downtime.", reason.c_str());
                 }
                 
-                // Capture kernel WiFi driver logs at the moment of network loss
-                FILE* dmesg_fp = popen("journalctl -k -n 200 --no-pager | grep -iE 'wlan|wifi|80211|mac80211|brcm|deauth|disconn|assoc|beacon|carrier|firmware|tx|rx|link|power|reset|scan|reconnect|pm|rate|ht|vht|chandef' | tail -20", "r");
-                if (dmesg_fp) {
-                    char line[512];
-                    g_logger.warn("Keepalive: === Kernel WiFi logs at network loss ===");
-                    while (fgets(line, sizeof(line), dmesg_fp)) {
-                        g_logger.warn("  {}", line);
-                    }
-                    g_logger.warn("Keepalive: === End kernel WiFi logs ===");
-                    pclose(dmesg_fp);
-                }
             }
-            
-            int64_t offline_duration = now - network_lost_time;
-            g_logger.warn("Keepalive: Network is offline. Duration: {} seconds. Interface: {}", 
-                          (int)offline_duration, interface.c_str());
-            
-            // Check for 3-minute (180 seconds) timeout to force host reboot
-            if (offline_duration >= 180) {
-                g_logger.error("Keepalive: CRITICAL: Gateway unreachable for {} seconds (>= 3 minutes). Forcing system reboot...", 
-                               (int)offline_duration);
+
+            if (now - network_lost_time >= 180 && !is_error_active(519)) {
                 trigger_error(519);
-
-                sync();
-                std::this_thread::sleep_for(std::chrono::seconds(2));
-
-                // Capture kernel WiFi driver logs right before hard reboot
-                FILE* dmesg_fp2 = popen("journalctl -k -n 200 --no-pager | grep -iE 'wlan|wifi|80211|mac80211|brcm|deauth|disconn|assoc|beacon|carrier|firmware|tx|rx|link|power|reset|scan|reconnect|pm|rate|ht|vht|chandef' | tail -30", "r");
-                if (dmesg_fp2) {
-                    char line[512];
-                    g_logger.error("Keepalive: === Kernel WiFi logs pre-reboot ===");
-                    while (fgets(line, sizeof(line), dmesg_fp2)) {
-                        g_logger.error("  {}", line);
-                    }
-                    g_logger.error("Keepalive: === End kernel WiFi logs ===");
-                    pclose(dmesg_fp2);
-                }
-
-                // Container-safe network recovery restart — touches heartbeat and requests container restart
-                g_logger.error("Keepalive: Network recovery timed out after 3 minutes. Requesting container restart...");
-                FILE* hb = fopen("/app/logs/heartbeat", "w");
-                if (hb) { fputs("STALE_NETWORK", hb); fclose(hb); }
-                sync();
-                pitrove::safe_mode::record_crash();
-                _exit(99); // Exit with error code 99 to let Docker restart policy cleanly recreate container
-                g_keepalive_running.store(false);
-                break;
-            }
-            
-            // Attempt network recovery every 60 seconds
-            if (now - last_wifi_reset_time >= 60) {
-                last_wifi_reset_time = now;
-                g_logger.warn("Keepalive: Attempting network recovery to restore connection...");
-                
-                // Step 1: Re-associate with access point via NetworkManager (gentle — no radio hardware kill)
-                // This is safe because nmcli device connect triggers re-association without power-cycling the radio,
-                // which would sever CIFS mounts mid-flight and leave them in a permanently stale state.
-                [[maybe_unused]] int nm_res = ::system(("nmcli device connect " + escape_shell_arg(interface) + " >/dev/null 2>&1").c_str());
-                if (nm_res != 0) {
-                    nm_res = ::system(("nmcli connection up " + escape_shell_arg(interface) + " >/dev/null 2>&1").c_str());
-                }
-                if (nm_res != 0) {
-                    // Step 2: Interface cycle via raw socket ioctl (still does NOT touch radio hardware)
-                    g_logger.warn("Keepalive: nmcli reconnect failed, cycling interface {}.", interface.c_str());
-                    if (set_interface_status(interface, false)) {
-                        g_logger.info("Keepalive: Interface {} set DOWN.", interface.c_str());
-                        std::this_thread::sleep_for(std::chrono::seconds(2));
-                        if (set_interface_status(interface, true)) {
-                            g_logger.info("Keepalive: Interface {} set UP.", interface.c_str());
-                            [[maybe_unused]] int post_up = ::system(("nmcli device connect " + escape_shell_arg(interface) + " >/dev/null 2>&1").c_str());
-                        } else {
-                            g_logger.error("Keepalive: ERROR: Failed to set interface {} UP during network recovery cycle!", interface.c_str());
-                            trigger_error(521); // E521: INTERFACE_UP_FAILED
-                        }
-                    } else {
-                        g_logger.error("Keepalive: ERROR: Failed to set interface {} DOWN during network recovery cycle!", interface.c_str());
-                        trigger_error(520); // E520: NETWORK_RECOVERY_FAILED
-                    }
-                } else {
-                    g_logger.info("Keepalive: Re-associated to access point via {}.", interface.c_str());
-                }
-                // Log WiFi signal state after recovery attempt
-                WifiStats ws2 = read_wifi_stats(interface);
-                if (ws2.has_data) {
-                    g_logger.info("Keepalive: Post-recovery WiFi: quality={}/{}, signal={}dBm, noise={}dBm, missed_beacons={}u.",
-                                  ws2.quality, 255, ws2.signal_dbm, ws2.noise_dbm, ws2.missed_beacons);
-                }
+                g_logger.warn("Keepalive: Network unavailable for 3 minutes. The host watchdog handles recovery.");
             }
         }
     }
@@ -1236,14 +1162,14 @@ int main(int argc, char** argv) {
             pid_t old_pid = 0;
             if (fscanf(lf, "%d", &old_pid) == 1 && old_pid > 0 && old_pid != getpid()) {
                 printf("\033[1;33m[INFO]\033[0m Gracefully terminating running instance (PID %d)...\n", old_pid);
-                kill(old_pid, SIGTERM);
-                std::this_thread::sleep_for(std::chrono::microseconds(800000)); // Give it a moment to release sockets/files/VRAM
+                const int result = kill(old_pid, SIGTERM);
+                fclose(lf);
+                return result == 0 ? 0 : 1;
             }
             fclose(lf);
         }
-        printf("\033[1;32m[OK]\033[0m Restarting piTrove background service...\n");
-        system("sudo systemctl restart piTrove.service 2>/dev/null || true");
-        return 0;
+        std::fputs("No running piTrove instance found.\n", stderr);
+        return 1;
     }
 
     if (run_config) {
@@ -1362,17 +1288,8 @@ int main(int argc, char** argv) {
         }
     }
 
-// Warn about deprecated config keys
-    {
-        std::ifstream cfg_check(config_path);
-        if (cfg_check.is_open()) {
-            std::string line;
-            while (std::getline(cfg_check, line)) {
-                if (line.find("rotation") != std::string::npos && line.find("auto_display_rotation") == std::string::npos) {
-                    g_logger.warn("Deprecated config key 'rotation' found - KMSDRM pipeline ignores this value");
-                }
-            }
-        }
+    if (g_cfg.rotation != 0) {
+        g_logger.warn("Deprecated config key 'rotation' found - KMSDRM pipeline ignores this value");
     }
 
     // Validate that key directories exist
@@ -1408,9 +1325,6 @@ int main(int argc, char** argv) {
         log_dir = g_cfg.log_dir.empty() ? (get_exe_dir() + "/logs") : g_cfg.log_dir;
         keep_count = g_cfg.log_keep_count;
     }
-    g_crash_cache_dir = cache_dir;
-    std::strncpy(g_crash_cache_dir_safe, cache_dir.c_str(), sizeof(g_crash_cache_dir_safe) - 1);
-    g_crash_cache_dir_safe[sizeof(g_crash_cache_dir_safe) - 1] = '\0';
 
     LogLevel effective_log_level = LogLevel::INFO;
     if (g_cfg.log_level == "debug" || g_cfg.verbose) {
@@ -1614,7 +1528,6 @@ int main(int argc, char** argv) {
                 if (current_err == 401 || current_err == 413) {
                     trigger_error(0);
                 }
-                g_database_complete.store(true);
             } else {
                 g_logger.warn("Cache DB loaded 0 valid items. Scanning media.");
             }
@@ -1750,7 +1663,7 @@ int main(int argc, char** argv) {
                     mi.height = g_cfg.screen_h;
                     mi.duration = 0.0;
                 }
-                g_cache->upsert(mi, 0, 0, false);
+                g_cache->upsert(mi, 0, 0);
                 cached++;
             }
 
@@ -1763,7 +1676,7 @@ int main(int argc, char** argv) {
             }
         }
         g_cache->commit_transaction();
-        if (scan_complete) g_cache->prune_missing(g_scanned_items);
+        if (scan_complete && g_cfg.scan_window_days == 0) g_cache->prune_missing(g_scanned_items);
         g_logger.info("Cache complete: {} items", cached);
         int current_err = g_active_error_code.load();
         if (current_err == 401 || current_err == 413) {
@@ -1814,7 +1727,6 @@ int main(int argc, char** argv) {
 
         g_renderer.render_splash(3, total_scanned, total_scanned, cached, "CACHING", dot_counter, nullptr, false);
         SDL_Delay(500);
-        g_database_complete.store(true);
     }
 
     // --- Dynamic Seasonal & Cooldown filter ---
@@ -2072,13 +1984,9 @@ int main(int argc, char** argv) {
                     mark_item_shown(path_r, false);
 
                     // Update metadata
-                    g_eligible[current_idx].width = current_data->width;
-                    g_eligible[current_idx].height = current_data->height;
-                    g_eligible[current_idx].exif_rotation = current_data->exif_rotation;
+                    update_image_metadata(g_eligible[current_idx], *current_data);
 
-                    g_eligible[next_idx].width = current_twin_data->width;
-                    g_eligible[next_idx].height = current_twin_data->height;
-                    g_eligible[next_idx].exif_rotation = current_twin_data->exif_rotation;
+                    update_image_metadata(g_eligible[next_idx], *current_twin_data);
 
                     if (g_cache) {
                         g_cache->upsert(g_eligible[current_idx], 0, 1);
@@ -2124,14 +2032,10 @@ int main(int argc, char** argv) {
                     mark_item_shown(g_eligible[current_idx].path, false);
 
                     // Update in-memory item metadata with actual dimensions and EXIF rotation
-                    g_eligible[current_idx].width = current_data->width;
-                    g_eligible[current_idx].height = current_data->height;
-                    g_eligible[current_idx].exif_rotation = current_data->exif_rotation;
+                    update_image_metadata(g_eligible[current_idx], *current_data);
                     for (auto& item : g_scanned_items) {
                         if (item.path == g_eligible[current_idx].path) {
-                            item.width = current_data->width;
-                            item.height = current_data->height;
-                            item.exif_rotation = current_data->exif_rotation;
+                            update_image_metadata(item, *current_data);
                             break;
                         }
                     }
@@ -2382,6 +2286,7 @@ int main(int argc, char** argv) {
                     }
                     break;
                 case SDL_EVENT_MOUSE_BUTTON_DOWN:
+                    if (event.button.which == SDL_TOUCH_MOUSEID) break;
                     if (g_screen_blanked.exchange(false)) {
                         set_display_power(true);
                         g_last_motion_time.store(static_cast<int64_t>(std::time(nullptr)));
@@ -2604,9 +2509,35 @@ int main(int argc, char** argv) {
             current_idx = 0;
         }
         if (g_eligible[current_idx].type == "video") {
+            if ((g_video_decoder.is_running() || g_video_decoder.has_frames() ||
+                 g_video_decoder.has_start_failed()) &&
+                g_video_decoder.get_current_path() != g_eligible[current_idx].path) {
+                playlist_lock.unlock();
+                g_video_decoder.stop();
+                g_video_decoder.consume_start_failed();
+                continue;
+            }
             if (g_video_decoder.is_running() || g_video_decoder.has_frames()) {
+                if (g_video_stall_ts == 0) g_video_stall_ts = SDL_GetTicks();
+                if (SDL_GetTicks() - g_video_stall_ts < 1000 &&
+                    !g_video_decoder.presentation_started() && !g_video_decoder.is_eof() &&
+                    g_video_decoder.frame_queue_size() < std::min<size_t>(12, g_video_decoder.get_max_queued_frames())) {
+                    playlist_lock.unlock();
+                    SDL_Delay(10);
+                    continue;
+                }
                 VideoFrame frame;
                 if (g_video_decoder.get_frame(frame)) {
+                    if (!g_video_decoder.presentation_started()) {
+                        auto& item = g_eligible[current_idx];
+                        const double fps = g_video_decoder.get_fps();
+                        const double duration = g_video_decoder.get_video_duration();
+                        if (duration > 0.0 && (item.framerate != fps || item.duration != duration)) {
+                            item.framerate = fps;
+                            item.duration = duration;
+                            if (g_cache) g_cache->upsert(item, 0);
+                        }
+                    }
                     g_video_decoder.note_presentation_start(frame.pts);
                     // A frame is actually flowing: reset the stall timer so only a truly
                     // empty queue (decoder hang) accumulates toward the 30s forced recovery.
@@ -2842,7 +2773,6 @@ int main(int argc, char** argv) {
                 { std::lock_guard lock(g_config_mtx); width = g_cfg.screen_w; height = g_cfg.screen_h;
                   g_video_decoder.set_av_sync(g_cfg.av_sync); }
 
-                bool was_prewarmed = (g_video_decoder.is_running() && g_video_decoder.get_current_path() == video_path);
                 // Reset video frame pacing for new video
                 g_disp_t0 = 0;
                 g_disp_n = 0;
@@ -2858,37 +2788,8 @@ int main(int argc, char** argv) {
                     SDL_Delay(50);
                     continue;
                 }
-                // Pre-buffer before first present: buffer full dynamic lookahead queue based on 90% available RAM (or EOF for short clips)
-                {
-                    uint64_t pre_t0 = SDL_GetTicks();
-                    // Adaptive decoding can lower the cap while we wait. A saved
-                    // target can then be unreachable, forcing the full 30s timeout.
-                    // Leave the failure latch for the normal skip-file handler.
-                    while (g_running.load() &&
-                           g_video_decoder.frame_queue_size() < g_video_decoder.get_max_queued_frames() &&
-                           SDL_GetTicks() - pre_t0 < 30000 &&
-                           !g_video_decoder.is_eof() &&
-                           !g_video_decoder.has_start_failed()) {
-                        SDL_Delay(10);
-                    }
-                    g_logger.info("VIDEO: buffer ready with {} frames (prewarmed={}, target={}, wait={}ms)",
-                                  g_video_decoder.frame_queue_size(), was_prewarmed, g_video_decoder.get_max_queued_frames(), (int)(SDL_GetTicks() - pre_t0));
-                }
-                // Cache FPS from decoder to SQLite
-                double video_fps = g_video_decoder.get_fps();
-                double video_duration = g_video_decoder.get_video_duration();
-                // Only cache metadata when the video actually opened (duration > 0);
-                // otherwise get_fps() returns a stale value from the previous video.
-                if (video_duration > 0) {
-                    g_logger.info("Caching FPS={:.2f}, duration={:.1f}s for video: {}", video_fps, video_duration, g_eligible[current_idx].path.c_str());
-                    g_eligible[current_idx].framerate = video_fps;
-                    g_eligible[current_idx].duration = video_duration;
-                    if (g_cache) {
-                        g_cache->upsert(g_eligible[current_idx], 0);
-                    }
-                }
                 playlist_lock.unlock();
-                SDL_Delay(100);
+                SDL_Delay(10);
                 continue;
             }
         }
@@ -2958,14 +2859,13 @@ int main(int argc, char** argv) {
 
                 // Update metadata using path-safe lookups (indices may have shifted)
                 auto update_meta_safe = [&](const std::string& expected_path, const std::shared_ptr<ImageData>& data) {
+                    if (!data || !data->valid) return;
                     int found = -1;
                     for (int i = 0; i < std::ssize(g_eligible); i++) {
                         if (g_eligible[i].path == expected_path) { found = i; break; }
                     }
                     if (found != -1) {
-                        g_eligible[found].width = data->width;
-                        g_eligible[found].height = data->height;
-                        g_eligible[found].exif_rotation = data->exif_rotation;
+                        update_image_metadata(g_eligible[found], *data);
                         if (g_cache) g_cache->upsert(g_eligible[found], 0, 1);
                     }
                 };
@@ -3077,14 +2977,10 @@ int main(int argc, char** argv) {
 
                         // Update in-memory item metadata with actual dimensions and EXIF rotation
                         if (current_data) {
-                            g_eligible[current_idx].width = current_data->width;
-                            g_eligible[current_idx].height = current_data->height;
-                            g_eligible[current_idx].exif_rotation = current_data->exif_rotation;
+                            update_image_metadata(g_eligible[current_idx], *current_data);
                             for (auto& item : g_scanned_items) {
                                 if (item.path == g_eligible[current_idx].path) {
-                                    item.width = current_data->width;
-                                    item.height = current_data->height;
-                                    item.exif_rotation = current_data->exif_rotation;
+                                    update_image_metadata(item, *current_data);
                                     break;
                                 }
                             }
@@ -3116,14 +3012,10 @@ int main(int argc, char** argv) {
 
                         // Update metadata
                         if (current_data) {
-                            g_eligible[current_idx].width = current_data->width;
-                            g_eligible[current_idx].height = current_data->height;
-                            g_eligible[current_idx].exif_rotation = current_data->exif_rotation;
+                            update_image_metadata(g_eligible[current_idx], *current_data);
                             for (auto& item : g_scanned_items) {
                                 if (item.path == g_eligible[current_idx].path) {
-                                    item.width = current_data->width;
-                                    item.height = current_data->height;
-                                    item.exif_rotation = current_data->exif_rotation;
+                                    update_image_metadata(item, *current_data);
                                     break;
                                 }
                             }
@@ -3198,14 +3090,10 @@ int main(int argc, char** argv) {
 
                         // Update metadata
                         if (current_data) {
-                            g_eligible[current_idx].width = current_data->width;
-                            g_eligible[current_idx].height = current_data->height;
-                            g_eligible[current_idx].exif_rotation = current_data->exif_rotation;
+                            update_image_metadata(g_eligible[current_idx], *current_data);
                             for (auto& item : g_scanned_items) {
                                 if (item.path == g_eligible[current_idx].path) {
-                                    item.width = current_data->width;
-                                    item.height = current_data->height;
-                                    item.exif_rotation = current_data->exif_rotation;
+                                    update_image_metadata(item, *current_data);
                                     break;
                                 }
                             }
@@ -3288,10 +3176,10 @@ int main(int argc, char** argv) {
                 if (has_bias) {
                     int glow = snap_glow_depth;
                     int bw_l = has_border ? border_w : 0;
-                    g_renderer.draw_bias_lighting(rect_l, current_data->avg_r, current_data->avg_g, current_data->avg_b,
+                    g_renderer.draw_bias_lighting(rect_l, layout.slideshow_area, current_data->avg_r, current_data->avg_g, current_data->avg_b,
                         bias_strength, (float)item_timer, anim_speed, style, bw_l, glow);
                     int bw_r = has_border ? border_w : 0;
-                    g_renderer.draw_bias_lighting(rect_r, current_twin_data->avg_r, current_twin_data->avg_g, current_twin_data->avg_b,
+                    g_renderer.draw_bias_lighting(rect_r, layout.slideshow_area, current_twin_data->avg_r, current_twin_data->avg_g, current_twin_data->avg_b,
                         bias_strength, (float)item_timer, anim_speed, style, bw_r, glow);
                 }
 
@@ -3366,7 +3254,7 @@ int main(int argc, char** argv) {
                 // 4. Draw bias lighting if enabled
                 if (snap_bias && current_data) {
                     int bw_param = snap_border ? snap_border_width : 0;
-                    g_renderer.draw_bias_lighting(fit_rect,
+                    g_renderer.draw_bias_lighting(fit_rect, layout.slideshow_area,
                         current_data->avg_r, current_data->avg_g, current_data->avg_b,
                         snap_bias_strength, (float)item_timer, snap_anim_speed, snap_anim_style, bw_param, snap_glow_depth);
                 }
@@ -3481,12 +3369,15 @@ int main(int argc, char** argv) {
                 SDL_RenderFillRect(g_renderer.sdl_renderer, &fade_rect);
                 g_renderer.present();
             }
-            if (fade_alpha <= 0.0f) first_photo_fade = false;
+            if (fade_alpha <= 0.0f) {
+                first_photo_fade = false;
+                g_renderer.cleanup_splash();
+            }
         }
 
+        const bool is_video_active = !g_eligible.empty() && g_eligible[current_idx].type == "video";
         playlist_lock.unlock(); // Unlock before frame sleep throttling
 
-        bool is_video_active = g_video_decoder.is_running() || g_video_decoder.has_frames();
         if (is_video_active) {
             // Video pacing is handled precisely by the PTS presentation clock (due_ms).
             // Yield 1ms to allow background decode threads to run without double-delay.
@@ -3497,6 +3388,11 @@ int main(int argc, char** argv) {
                 std::shared_lock lk(g_config_mtx);
                 bool news_active = g_cfg.news_enabled && g_cfg.infopanels_enabled;
                 target_fps = news_active ? 60 : std::clamp(g_cfg.pattern_fps, 1, 60);
+            }
+            switch (pitrove::thermal::get_quality()) {
+                case pitrove::thermal::Quality::Minimal: target_fps = std::min(target_fps, 15); break;
+                case pitrove::thermal::Quality::Reduced: target_fps = std::min(target_fps, 30); break;
+                case pitrove::thermal::Quality::Normal: break;
             }
 
             static Uint64 next_target_ticks = 0;
@@ -3560,7 +3456,7 @@ int main(int argc, char** argv) {
     g_video_decoder.stop(); // EOF workers can still own audio and queued frames.
     if (g_video_tex) { SDL_DestroyTexture(g_video_tex); g_video_tex = nullptr; g_video_tex_w = 0; g_video_tex_h = 0; g_video_tex_fmt = SDL_PIXELFORMAT_UNKNOWN; }
     if (g_transition) { g_transition->reset(); delete g_transition; }
-    if (g_overlay) { g_overlay->cleanup(); delete g_overlay; }
+    if (g_overlay) { delete g_overlay; g_overlay = nullptr; }
     if (g_preload) {
         g_preload->shutdown();
         delete g_preload;
@@ -3574,7 +3470,7 @@ int main(int argc, char** argv) {
     if (next_twin_data) { next_twin_data = nullptr; }
     if (transition_prev_target) { SDL_DestroyTexture(transition_prev_target); }
     if (transition_next_target) { SDL_DestroyTexture(transition_next_target); }
-    if (g_cache) { g_cache->close(); delete g_cache; g_cache = nullptr; }
+    if (g_cache) { delete g_cache; g_cache = nullptr; }
     g_renderer.cleanup();
 
     flock(lock_fd, LOCK_UN); close(lock_fd);

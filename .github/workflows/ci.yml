@@ -10,12 +10,18 @@ jobs:
   build:
     permissions:
       contents: read
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-24.04, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.runner }}
     container:
-      image: debian:trixie
+      image: debian:trixie@sha256:4ae67669760b807c19f23902a3fd7c121a6a70cf2ae709035674b23e712e4d62
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
 
       - name: Copy Raspberry Pi archive keyring & sources (ARM64 only)
         run: |
@@ -34,13 +40,41 @@ jobs:
             libswresample-dev libavutil-dev libsqlite3-dev libexif-dev libdrm-dev \
             libgbm-dev libegl1-mesa-dev libgles2-mesa-dev libsodium-dev libstb-dev \
             libpng-dev libjpeg-dev libwebp-dev libtiff-dev libheif-dev \
-            libcurl4-openssl-dev
+            libcurl4-openssl-dev shellcheck python3 chromium python3-websocket
 
       - name: Configure CMake
-        run: cmake -S src -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
+        run: cmake -S src -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON -DENABLE_ASAN=ON
 
       - name: Build piTrove
         run: cmake --build build
 
       - name: Run regression tests
         run: ctest --test-dir build --output-on-failure
+
+      - name: Validate deployment scripts
+        run: |
+          bash -n install.sh
+          shellcheck --severity=error install.sh scripts/healthcheck.sh scripts/update.sh src/watchdog/pitrove-watchdog.sh
+          python3 src/tests/config_merge.py
+
+      - name: Run Chromium controller tests
+        shell: bash
+        run: |
+          fixture=$(mktemp -d)
+          run_browser_test() (
+            build/webui_fixture "$fixture" &
+            server=$!
+            trap 'kill "$server" 2>/dev/null || true; wait "$server" 2>/dev/null || true' EXIT
+            for attempt in {1..30}; do
+              if curl -fsS http://127.0.0.1:19030/ >/dev/null; then
+                python3 "$1"
+                exit $?
+              fi
+              sleep 1
+            done
+            exit 1
+          )
+          run_browser_test src/tests/webui_browser.py
+          rm -rf "$fixture"
+          fixture=$(mktemp -d)
+          run_browser_test src/tests/chores_browser.py

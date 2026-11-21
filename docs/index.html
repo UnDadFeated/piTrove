@@ -10,7 +10,8 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;600;700&family=Inter:wght@400;500;600;700;800&family=Outfit:wght@500;700;800&display=swap" rel="stylesheet">
     <!-- Tabler Icons -->
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/tabler-icons.min.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.46.0/dist/tabler-icons.min.css"
+        integrity="sha384-ND+q1IVc0KDElX60dZaqKc7Xl9cdxd2PpU2JfVUHcurCkFVtVLFdt9vJfxtHSL3p" crossorigin="anonymous">
     
     <style>
         :root {
@@ -511,6 +512,11 @@
             color: var(--cyan);
         }
 
+        @media (max-width: 520px) {
+            .header-inner { height: auto; flex-wrap: wrap; gap: 8px; padding-block: 10px; }
+            nav { width: 100%; flex-wrap: wrap; gap: 8px 14px; }
+        }
+
         @media (max-width: 768px) {
             .hero h1 { font-size: 2.1rem; }
             .hero p { font-size: 1rem; }
@@ -532,7 +538,7 @@
                 <a href="#install">Install</a>
                 <a href="#features">Features</a>
                 <a href="#demo">Demo</a>
-                <a href="https://github.com/UnDadFeated/piTrove" target="_blank" class="nav-btn">
+                <a href="https://github.com/UnDadFeated/piTrove" target="_blank" rel="noopener noreferrer" class="nav-btn">
                     <i class="ti ti-brand-github"></i> GitHub
                 </a>
             </nav>
@@ -697,34 +703,33 @@
         <div class="container">
             <span>&copy; 2026 piTrove &middot; Open Source GNU GPLv3</span>
             &middot;
-            <a href="https://github.com/UnDadFeated/piTrove" target="_blank">GitHub</a>
+            <a href="https://github.com/UnDadFeated/piTrove" target="_blank" rel="noopener noreferrer">GitHub</a>
             &middot;
-            <a href="https://www.reddit.com/r/piTrove/" target="_blank">Reddit</a>
+            <a href="https://www.reddit.com/r/piTrove/" target="_blank" rel="noopener noreferrer">Reddit</a>
         </div>
     </footer>
 
     <script>
-        function copyInstallCmd() {
-            const cmd = 'wget -qO- https://raw.githubusercontent.com/UnDadFeated/piTrove/main/install.sh | sudo bash';
-            navigator.clipboard.writeText(cmd).then(() => {
-                const icon = document.getElementById('copyIcon');
-                const text = document.getElementById('copyText');
-                const btn = document.getElementById('copyBtn');
-                
+        async function copyInstallCmd() {
+            const command = document.querySelector('.cmd-text span:last-child');
+            const icon = document.getElementById('copyIcon');
+            const text = document.getElementById('copyText');
+            try {
+                await navigator.clipboard.writeText(command.textContent.trim());
                 icon.className = 'ti ti-check';
-                text.textContent = 'Copied!';
-                btn.style.borderColor = 'var(--green)';
-                btn.style.color = 'var(--green)';
-                btn.style.background = 'rgba(34, 197, 94, 0.15)';
-                
-                setTimeout(() => {
-                    icon.className = 'ti ti-copy';
-                    text.textContent = 'Copy';
-                    btn.style.borderColor = '';
-                    btn.style.color = '';
-                    btn.style.background = '';
-                }, 2500);
-            });
+                text.textContent = 'Copied';
+            } catch {
+                const range = document.createRange();
+                range.selectNodeContents(command);
+                const selection = window.getSelection();
+                selection.removeAllRanges();
+                selection.addRange(range);
+                text.textContent = 'Copy selected text';
+            }
+            setTimeout(() => {
+                icon.className = 'ti ti-copy';
+                text.textContent = 'Copy';
+            }, 2500);
         }
     </script>
 </body>

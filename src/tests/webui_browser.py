@@ -4,6 +4,7 @@ Run inside pitrove-ui-test with --network host; the C++ fixture listens on 19030
 import base64
 import json
 import os
+import signal
 import subprocess
 import tempfile
 import time
@@ -20,8 +21,8 @@ def api(path, fields=None):
     with urllib.request.urlopen(req, timeout=10) as response:
         return json.load(response)
 
-with tempfile.TemporaryDirectory(prefix='pitrove-chrome-') as profile:
-    chrome = subprocess.Popen(['chromium', '--headless', '--no-sandbox', '--disable-gpu', '--disable-dev-shm-usage', '--no-first-run', '--no-default-browser-check', '--remote-allow-origins=*', '--remote-debugging-port=9223', '--user-data-dir='+profile, 'about:blank'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+with tempfile.TemporaryDirectory(prefix='pitrove-chrome-', ignore_cleanup_errors=True) as profile:
+    chrome = subprocess.Popen(['chromium', '--headless', '--no-sandbox', '--disable-gpu', '--disable-breakpad', '--disable-dev-shm-usage', '--no-first-run', '--no-default-browser-check', '--remote-allow-origins=*', '--remote-debugging-port=9223', '--user-data-dir='+profile, 'about:blank'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
     try:
         deadline = time.monotonic() + 20
         while True:
@@ -171,4 +172,17 @@ with tempfile.TemporaryDirectory(prefix='pitrove-chrome-') as profile:
         print('Chromium: authenticated playback, shared themes, 184 config options, search/review/save, lists, secrets/PIN, conflicts, access-key rotation, safe logs and 320/390/768/1280px layouts passed')
         ws.close()
     finally:
-        chrome.terminate();chrome.wait(timeout=10)
+        # Chromium subprocesses can otherwise write the temporary profile during cleanup.
+        try:
+            os.killpg(chrome.pid, signal.SIGTERM)
+            chrome.wait(timeout=10)
+        except ProcessLookupError:
+            pass
+        except subprocess.TimeoutExpired:
+            pass
+        finally:
+            try:
+                os.killpg(chrome.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            chrome.wait()

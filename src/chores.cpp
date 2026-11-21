@@ -4,6 +4,9 @@
 #include <chrono>
 #include <memory>
 #include <sys/stat.h>
+#include <unistd.h>
+#include <fcntl.h>
+#include <filesystem>
 namespace chores {
 namespace {
 using Statement = std::unique_ptr<sqlite3_stmt, decltype(&sqlite3_finalize)>;
@@ -68,7 +71,12 @@ bool valid_time(const std::string& s) {
     return s.size()==5 && s[2]==':' && digits(std::string_view(s).substr(0,2)) && digits(std::string_view(s).substr(3,2)) && s.substr(0,2)<"24" && s.substr(3,2)<"60";
 }
 bool due_today_or_overdue(const Chore& c, const std::string& today) { return valid_date(today) && (c.repeat == "daily" || c.date == today || (c.date < today && !c.completed)); }
-Store::~Store() { if (db) sqlite3_close_v2(db); }
+Store::~Store() {
+    if (db) {
+        sqlite3_wal_checkpoint_v2(db, nullptr, SQLITE_CHECKPOINT_TRUNCATE, nullptr, nullptr);
+        sqlite3_close_v2(db);
+    }
+}
 bool Store::ready() const { return available.load(std::memory_order_acquire); }
 Result Store::open(const std::string& path) {
     std::lock_guard lock(mutex);
@@ -78,7 +86,19 @@ Result Store::open(const std::string& path) {
         return bad(Code::unavailable, "Cannot open chore database");
     }
     auto guard = std::unique_ptr<sqlite3, decltype(&sqlite3_close_v2)>(candidate,sqlite3_close_v2);
-    if (path != ":memory:") chmod(path.c_str(),0600);
+    if (path != ":memory:") {
+        const int fd = ::open(path.c_str(), O_RDONLY | O_CLOEXEC | O_NOFOLLOW);
+        if (fd < 0) return bad(Code::unavailable, "Cannot secure chore database");
+        bool ok = fchmod(fd, 0600) == 0;
+        if (ok && geteuid() == 0) {
+            const auto parent = std::filesystem::path(path).parent_path();
+            struct stat directory{};
+            ok = stat(parent.empty() ? "." : parent.c_str(), &directory) == 0 &&
+                 fchown(fd, directory.st_uid, directory.st_gid) == 0;
+        }
+        close(fd);
+        if (!ok) return bad(Code::unavailable, "Cannot secure chore database");
+    }
     sqlite3_busy_timeout(candidate,2000);
     if (!exec(candidate,"PRAGMA foreign_keys=ON; PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;") ||
         !exec(candidate,"BEGIN IMMEDIATE; CREATE TABLE IF NOT EXISTS people(id INTEGER PRIMARY KEY AUTOINCREMENT,name TEXT NOT NULL,color TEXT NOT NULL); CREATE TABLE IF NOT EXISTS chores(id INTEGER PRIMARY KEY AUTOINCREMENT,person_id INTEGER NOT NULL REFERENCES people(id) ON DELETE RESTRICT,title TEXT NOT NULL,repeat TEXT NOT NULL CHECK(repeat IN ('daily','once')),date TEXT NOT NULL,time TEXT NOT NULL); CREATE TABLE IF NOT EXISTS completions(chore_id INTEGER NOT NULL REFERENCES chores(id) ON DELETE CASCADE,date TEXT NOT NULL,PRIMARY KEY(chore_id,date)); CREATE TRIGGER IF NOT EXISTS chores_schedule_changed AFTER UPDATE OF repeat,date ON chores WHEN old.repeat<>new.repeat OR old.date<>new.date BEGIN DELETE FROM completions WHERE chore_id=new.id; END; CREATE TRIGGER IF NOT EXISTS completion_retention AFTER INSERT ON completions BEGIN DELETE FROM completions WHERE chore_id=new.chore_id AND date NOT IN (SELECT date FROM completions WHERE chore_id=new.chore_id ORDER BY date DESC LIMIT 32); END; COMMIT;")) return bad(Code::unavailable,"Cannot initialize chore database");
@@ -142,11 +162,13 @@ Result Store::delete_chore(int64_t id) {
     if (std::none_of(cached.chores.begin(),cached.chores.end(),[&](auto& v){return v.id==id;})) return bad(Code::not_found,"Chore no longer exists");
     return mutate("DELETE FROM chores WHERE id=?",{std::to_string(id)},id);
 }
-Result Store::set_completed(int64_t id, const std::string& date, bool completed) {
+Result Store::set_completed(int64_t id, const std::string& date, bool completed, std::string_view today) {
     std::lock_guard lock(mutex);
     auto it=std::find_if(cached.chores.begin(),cached.chores.end(),[&](auto& c){return c.id==id;});
     if (it==cached.chores.end()) return bad(Code::not_found,"Chore no longer exists");
     if (!valid_date(date) || (it->repeat=="once" && date!=it->date)) return bad(Code::invalid,"Completion date must match the chore occurrence");
+    if (it->repeat == "daily" && !today.empty() && date != today)
+        return bad(Code::conflict, "A new local day has started. Refresh the board and try again.");
     // Keep the latest 32 completed daily occurrences per chore; once-only completion persists.
 
     return mutate(completed ? "INSERT OR IGNORE INTO completions(chore_id,date) VALUES(?,?)" : "DELETE FROM completions WHERE chore_id=? AND date=?",{std::to_string(id),date},id);

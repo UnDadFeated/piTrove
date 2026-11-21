@@ -8,6 +8,7 @@
 #include <vector>
 #include <unistd.h>
 #include <fcntl.h>
+#include <netinet/in.h>
 
 namespace http_transfer {
 bool is_google_media_url(const std::string& url) {
@@ -36,14 +37,46 @@ size_t append_text(void* data, size_t size, size_t count, void* opaque) noexcept
     try { buffer.text->append(static_cast<char*>(data), bytes); } catch (...) { return 0; }
     return bytes;
 }
+static curl_socket_t open_public_socket(void*, curlsocktype purpose, struct curl_sockaddr* address) {
+    if (purpose != CURLSOCKTYPE_IPCXN) return CURL_SOCKET_BAD;
+    if (address->family == AF_INET && address->addrlen >= sizeof(sockaddr_in)) {
+        const auto ip = ntohl(reinterpret_cast<const sockaddr_in*>(&address->addr)->sin_addr.s_addr);
+        if (ip >> 24 == 0 || ip >> 24 == 10 || ip >> 24 == 127 || ip >> 24 >= 224 ||
+            ip >> 22 == 0x191 || ip >> 16 == 0xa9fe || ip >> 20 == 0xac1 ||
+            ip >> 8 == 0xc00000 || ip >> 8 == 0xc00002 || ip >> 8 == 0xc05863 ||
+            ip >> 16 == 0xc0a8 || ip >> 17 == 0x6309 ||
+            ip >> 8 == 0xc63364 || ip >> 8 == 0xcb0071) {
+            return CURL_SOCKET_BAD;
+        }
+    } else if (address->family == AF_INET6 && address->addrlen >= sizeof(sockaddr_in6)) {
+        const auto& ip = reinterpret_cast<const sockaddr_in6*>(&address->addr)->sin6_addr.s6_addr;
+        // Global unicast, excluding transition ranges that encode IPv4 endpoints.
+        if ((ip[0] & 0xe0) != 0x20 || (ip[0] == 0x20 && ip[1] == 0x02) ||
+            (ip[0] == 0x20 && ip[1] == 0x01 && ip[2] <= 1)) {
+            return CURL_SOCKET_BAD;
+        }
+    } else {
+        return CURL_SOCKET_BAD;
+    }
+    return socket(address->family, address->socktype | SOCK_CLOEXEC, address->protocol);
+}
+
+void configure_public_https(CURL* curl) {
+    curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1L);
+    curl_easy_setopt(curl, CURLOPT_PROTOCOLS_STR, "https");
+    curl_easy_setopt(curl, CURLOPT_REDIR_PROTOCOLS_STR, "https");
+    curl_easy_setopt(curl, CURLOPT_MAXREDIRS, 5L);
+    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 1L);
+    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 2L);
+    curl_easy_setopt(curl, CURLOPT_PROXY, "");
+    curl_easy_setopt(curl, CURLOPT_OPENSOCKETFUNCTION, open_public_socket);
+}
+
 static void options(CURL* curl, const std::string& url) {
+    configure_public_https(curl);
     curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
     curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 10L);
     curl_easy_setopt(curl, CURLOPT_TIMEOUT, 30L);
-    curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1L);
-    curl_easy_setopt(curl, CURLOPT_PROTOCOLS_STR, "http,https");
-    curl_easy_setopt(curl, CURLOPT_REDIR_PROTOCOLS_STR, "http,https");
-    curl_easy_setopt(curl, CURLOPT_MAXREDIRS, 5L);
 }
 static bool successful(CURL* curl, CURLcode result) {
     long status = 0;

@@ -1,7 +1,7 @@
 #ifndef PITROVE_UTIL_H
 #define PITROVE_UTIL_H
 
-#define VERSION "18.4.3"
+#define VERSION "18.4.4"
 #define APP_NAME "piTrove"
 
 #include <format>
@@ -41,9 +41,7 @@ void trigger_error(int code_num);
 void clear_error(int code_num);
 bool is_error_active(int code_num);
 
-inline std::atomic<bool> g_database_complete{false};
-inline std::string g_crash_cache_dir = "";
-inline char g_crash_cache_dir_safe[512] = "";
+
 
 enum class LogLevel {
     DEBUG = 0,

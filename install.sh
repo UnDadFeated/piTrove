@@ -6,7 +6,8 @@ set -eo pipefail
 
 # Root check - must be first operational check
 if [[ "$(id -u)" -ne 0 ]]; then
-    fail "This script must be run as root (sudo)"
+    printf "%s\n" "This script must be run as root (sudo)" >&2
+    exit 1
 fi
 
 # ── Graphical & Color Palette (256-color and modern ANSI) ──────────────────────
@@ -252,16 +253,32 @@ run_with_spinner "Installing bootstrap tools" env DEBIAN_FRONTEND=noninteractive
 # Install QR code generator for terminal dashboard URL
 run_with_spinner "Installing QR encoder" env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends qrencode
 
-# Bootstrap Docker
+# Install signed Docker packages through APT.
+run_with_spinner "Installing network filesystem tools" env DEBIAN_FRONTEND=noninteractive apt-get install -y ca-certificates cifs-utils nfs-common
 if ! command -v docker &>/dev/null; then
-    run_with_spinner "Installing network filesystem utilities & base dependencies" env DEBIAN_FRONTEND=noninteractive apt-get install -y ca-certificates cifs-utils nfs-common
-    run_with_spinner "Installing Docker Engine" sh -c "curl -fsSL https://get.docker.com | sh"
-fi
-if ! docker compose version &>/dev/null; then
+    install -d -m 0755 /etc/apt/keyrings
+    docker_key=$(mktemp)
+    if ! curl --proto '=https' --tlsv1.2 -fsSL https://download.docker.com/linux/debian/gpg -o "$docker_key"; then
+        rm -f "$docker_key"
+        fail "Could not fetch the Docker package signing key"
+    fi
+    install -m 0644 "$docker_key" /etc/apt/keyrings/docker.asc
+    rm -f "$docker_key"
+    cat > /etc/apt/sources.list.d/docker.sources <<'EOF'
+Types: deb
+URIs: https://download.docker.com/linux/debian
+Suites: trixie
+Components: stable
+Architectures: arm64
+Signed-By: /etc/apt/keyrings/docker.asc
+EOF
+    run_with_spinner "Updating Docker package metadata" apt-get update
+    run_with_spinner "Installing Docker Engine" env DEBIAN_FRONTEND=noninteractive apt-get install -y \
+        docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+elif ! docker compose version &>/dev/null; then
     run_with_spinner "Installing Docker Compose Plugin" env DEBIAN_FRONTEND=noninteractive apt-get install -y docker-compose-plugin
 fi
-# NetworkManager is required by the piTrove keepalive thread (nmcli device connect)
-# and by the Wi-Fi power-saving override section below
+# NetworkManager manages Wi-Fi on hosts without a dedicated supplicant.
 run_with_spinner "Installing NetworkManager" env DEBIAN_FRONTEND=noninteractive apt-get install -y network-manager
 systemctl enable --now NetworkManager &>/dev/null || true
 ok "NetworkManager installed and enabled"
@@ -281,7 +298,7 @@ get_config_val() {
     val=$(awk -v sec="[$sec]" -v key="$key" '
         gsub(/^[[:space:]]+|[[:space:]]+$/, "", $0);
         tsec = sec; gsub(/^[[:space:]]+|[[:space:]]+$/, "", tsec);
-        in_sec = ($0 == tsec)
+        /^\[/ { in_sec = ($0 == tsec); next }
         in_sec && $0 ~ "^[[:space:]]*"key"[[:space:]]*=" {
             sub(/^[^=]*=[[:space:]]*/, "");
             sub(/[[:space:]]*$/, "");
@@ -736,92 +753,6 @@ rm -f "$PRIMARY_HOME/piTrove/scripts/wifi_keepalive.sh"
 rm -f "$PRIMARY_HOME/piTrove/scripts/organize.py"
 ok "Legacy scripts and cron jobs cleaned up successfully"
 
-# ── Config Merger Script Setup ───────────────────────────────────────────────
-info "Configuring settings file merger script..."
-cat > "$PRIMARY_HOME/piTrove/scripts/merge_config.py" <<'EOF'
-#!/usr/bin/env python3
-import sys
-import os
-
-def parse_toml(filepath):
-    if not os.path.exists(filepath):
-        return {}
-    config = {}
-    current_section = None
-    with open(filepath, 'r') as f:
-        for line in f:
-            line = line.strip()
-            if not line or line.startswith('#') or line.startswith(';'):
-                continue
-            if line.startswith('[') and line.endswith(']'):
-                current_section = line[1:-1].strip()
-                config[current_section] = {}
-                continue
-            if '=' in line:
-                key, val = line.split('=', 1)
-                key = key.strip()
-                val = val.strip()
-                if current_section is not None:
-                    config[current_section][key] = val
-    return config
-
-def merge_configs(template_path, user_path, output_path):
-    if not os.path.exists(template_path):
-        print(f"Error: Template config not found at {template_path}")
-        return False
-        
-    template_config = parse_toml(template_path)
-    user_config = parse_toml(user_path)
-    
-    merged_lines = []
-    current_section = None
-    
-    with open(template_path, 'r') as f:
-        for line in f:
-            stripped = line.strip()
-            if stripped.startswith('[') and stripped.endswith(']'):
-                current_section = stripped[1:-1].strip()
-                merged_lines.append(line)
-                continue
-            if '=' in stripped and not stripped.startswith('#') and not stripped.startswith(';'):
-                key, _ = stripped.split('=', 1)
-                key = key.strip()
-                
-                if current_section in user_config and key in user_config[current_section]:
-                    user_val = user_config[current_section][key]
-                    indent = line[:len(line) - len(line.lstrip())]
-                    merged_lines.append(f"{indent}{key} = {user_val}\n")
-                else:
-                    merged_lines.append(line)
-                continue
-            
-            merged_lines.append(line)
-            
-    tmp_path = output_path + ".tmp"
-    try:
-        with open(tmp_path, 'w') as f:
-            f.writelines(merged_lines)
-        os.replace(tmp_path, output_path)
-    except Exception as e:
-        if os.path.exists(tmp_path):
-            os.remove(tmp_path)
-        print(f"Error: Failed to write merged config atomically: {e}")
-        return False
-    print(f"[✓] Config merge completed: {user_path} updated with latest options.")
-    return True
-
-if __name__ == "__main__":
-    if len(sys.argv) < 3:
-        sys.exit(1)
-    success = merge_configs(sys.argv[1], sys.argv[2], sys.argv[3] if len(sys.argv) > 3 else sys.argv[2])
-    if not success:
-        sys.exit(1)
-EOF
-chmod +x "$PRIMARY_HOME/piTrove/scripts/merge_config.py"
-chown $PRIMARY_USER:$PRIMARY_USER "$PRIMARY_HOME/piTrove/scripts/merge_config.py"
-ok "Configured settings file merger script"
-
-
 # ── Storage Selection & Verification Loop ──────────────────────────────────────
 while true; do
     USE_NAS=0
@@ -997,7 +928,7 @@ $SHARE_IP:$SHARE_PATH $SHARE_MOUNT $SHARE_PROTOCOL defaults,_netdev,timeo=10,ret
         sed -i '/# piTrove /d' /etc/fstab
         sed -i '/# PiTrove /d' /etc/fstab
         # Clean any existing mount entry to the same mount point to avoid duplicates
-        sed -i "\|[[:space:]]$SHARE_MOUNT[[:space:]]|d" /etc/fstab 2>/dev/null || true
+        sed -i "\|[[:space:]]${SHARE_MOUNT}[[:space:]]|d" /etc/fstab 2>/dev/null || true
         if [[ "$SHARE_PROTOCOL" == "cifs" ]]; then
             ESCAPED_PATH=$(echo "${SHARE_PATH#/}" | sed 's/[\/]/\\&/g')
             sed -i "/^\/\/${SHARE_IP}\/${ESCAPED_PATH}/d" /etc/fstab 2>/dev/null || true
@@ -1294,176 +1225,46 @@ if [[ -z "$PROBED_INTERFACE" ]]; then
 fi
 
 CONFIG_FILE="$PRIMARY_HOME/piTrove/config/config.toml"
-
+INSTALL_ROOT="$PRIMARY_HOME/piTrove"
 if [[ -f "$CONFIG_FILE" ]]; then
-    warn "Existing config.toml detected. Preserving custom user settings..."
-    BACKUP_FILE="$CONFIG_FILE.bak.$(date +%Y%m%d%H%M%S)"
-    cp "$CONFIG_FILE" "$BACKUP_FILE"
-    info "Merging updates into existing config.toml..."
-    
-    # Run configuration updates. If any fail, restore the backup and exit.
-    # The subshell status is captured via `|| VAR=$?`: a bare `( ... )` is a simple
-    # command, so under `set -e` a non-zero exit killed the installer here and the
-    # restore below never ran (leaving config.toml half-rewritten). `error` was also
-    # never defined as a function -- `fail` is the one that exists.
-    CONFIG_MERGE_STATUS=0
-    (
-        set -e
-        python3 "$PRIMARY_HOME/piTrove/scripts/merge_config.py" "$PRIMARY_HOME/piTrove/src/config.toml" "$CONFIG_FILE" 
-        sed -i "s/^window_days = .*/window_days = $SCAN_WINDOW_DAYS/" "$CONFIG_FILE"
-
-        # Apply interactive changes if Google Photos was configured
-        if [[ "$GOOGLE_PHOTOS_ENABLED" -eq 1 ]]; then
-            sed -i "/\[google_photos\]/,/^\[/ s/^enabled = .*/enabled = $GOOGLE_PHOTOS_ENABLED/" "$CONFIG_FILE"
-            sed -i "/\[google_photos\]/,/^\[/ s/^client_id = .*/client_id = \"$GP_CLIENT_ID\"/" "$CONFIG_FILE"
-            sed -i "/\[google_photos\]/,/^\[/ s/^client_secret = .*/client_secret = \"$GP_CLIENT_SECRET\"/" "$CONFIG_FILE"
-            sed -i "/\[google_photos\]/,/^\[/ s/^album_id = .*/album_id = \"$GP_ALBUM_ID\"/" "$CONFIG_FILE"
-            sed -i "/\[google_photos\]/,/^\[/ s/^sync_interval_mins = .*/sync_interval_mins = $GP_SYNC_INTERVAL/" "$CONFIG_FILE"
-            # Ensure HTTP remote control is enabled to receive callback redirects
-            sed -i "/\[remote\]/,/^\[/ s/^http_enabled = .*/http_enabled = 1/" "$CONFIG_FILE"
-        fi
-    ) || CONFIG_MERGE_STATUS=$?
-    if [[ "$CONFIG_MERGE_STATUS" -ne 0 ]]; then
-        fail "Config updates failed! Restoring backup config from $BACKUP_FILE"
-        cp "$BACKUP_FILE" "$CONFIG_FILE"
-        exit 1
-    fi
-else
-    cat > "$CONFIG_FILE" <<EOF
-# ==========================================
-# piTrove Configuration File (auto-generated)
-# ==========================================
-
-[paths]
-media_dir = "/app/media"
-cache_dir = "/app/cache"
-log_dir = "/app/logs"
-
-[display]
-rotation = 0
-splash_file = "src/splash.png"
-splash_overlay_y = 0.5
-bg_style = "pattern"
-pattern_brightness = 45
-pattern_style = "random_animated"
-pattern_blend_count = 2
-pattern_fps = 10
-
-[slideshow]
-transition_delay = 120.0
-transition_duration = 1.5
-slideshow_fps = 30
-transition_effect = "crossfade"
-ken_burns = 0
-ken_burns_speed = 0.1
-matting = 1
-matting_size = 96
-cooldown_days = 330
-brightness_auto = 0
-brightness_auto_min = 50
-brightness_auto_max = 100
-bias_lighting = 1
-bias_anim_speed = 0.5
-bias_anim_style = "edge_glow"
-bias_color_mode = "auto"
-ken_burns_zoom = 0.15
-bias_strength = 110
-edge_glow_shadow = 1
-
-[scan]
-recursive = 1
-depth = 10
-max_concurrent = 4
-window_days = $SCAN_WINDOW_DAYS
-ignore_folders = ["@eaDir", "@Recycle", "Thumbs.db"]
-
-[sqlite]
-mmap_size = 67108864
-
-[log]
-level = "info"
-
-[overlay]
-timer_enabled = 1
-timer_x = 0.94
-timer_y = 0.03
-timer_font_size = 12
-timer_color = "yellow"
-filename_enabled = 1
-filename_x = 0.04
-filename_y = 0.966
-count_enabled = 0
-videos_per_photos = 3
-play_just_photos = 0
-play_just_videos = 0
-show_people_faces = 1
-keep_animals = 1
-sleep_time = ""
-wake_time = ""
-fan_speed = 30
-
-[date_overlay]
-enabled = 0
-text = "%Y-%m-%d"
-x = 0.1
-y = 0.08
-font_size = 20
-color = "cyan"
-
-[touch]
-enabled = 0
-
-[collage]
-enabled = 0
-cols = 2
-rows = 2
-
-[video]
-volume = 0
-probe_timeout = 5
-
-[dashboard]
-weather_enabled = 0
-weather_lat = 34.05
-weather_lon = -118.24
-
-[remote]
-http_enabled = 1
-http_port = 9000
-
-[mqtt]
-enabled = 0
-broker = "192.168.4.111"
-port = 1883
-user = ""
-pass = ""
-topic_prefix = "piTrove"
-motionsensor_topic = "home/motionsensor"
-motionsensor_cooldown = 60
-
-[google_photos]
-enabled = $GOOGLE_PHOTOS_ENABLED
-client_id = "$GP_CLIENT_ID"
-client_secret = "$GP_CLIENT_SECRET"
-refresh_token = ""
-album_id = "$GP_ALBUM_ID"
-sync_interval_mins = $GP_SYNC_INTERVAL
-cache_dir = "/app/cache/google_photos"
-
-[updates]
-auto_update = 0
-auto_update_branch = "main"
-
-[keepalive]
-enabled = 1
-interval_secs = 120
-gateway_ip = "$PROBED_GATEWAY"
-wifi_interface = "$PROBED_INTERFACE"
-EOF
+    info "Merging defaults into existing config.toml..."
 fi
+if ! printf '%s\0' "$SCAN_WINDOW_DAYS" "$PROBED_GATEWAY" "$PROBED_INTERFACE" \
+    "$GOOGLE_PHOTOS_ENABLED" "$GP_CLIENT_ID" "$GP_CLIENT_SECRET" "$GP_ALBUM_ID" "$GP_SYNC_INTERVAL" |
+    python3 -c '
+import json
+from pathlib import Path
+import sys
 
-chown -R $PRIMARY_USER:$PRIMARY_USER "$PRIMARY_HOME/piTrove/config"
-ok "Default production config.toml generated"
+root = Path(sys.argv[1])
+branch = sys.argv[2]
+sys.path.insert(0, str(root / "scripts"))
+from merge_config import merge_configs
+
+config = root / "config/config.toml"
+window, gateway, interface, photos, client, secret, album, interval = (
+    value.decode() for value in sys.stdin.buffer.read().split(b"\0")[:-1]
+)
+overrides = {"scan": {"window_days": str(int(window))}}
+if not config.exists():
+    overrides.update({
+        "remote": {"http_enabled": "1"},
+        "updates": {"auto_update_branch": json.dumps(branch)},
+        "keepalive": {"gateway_ip": json.dumps(gateway), "wifi_interface": json.dumps(interface)},
+    })
+if photos == "1":
+    overrides["remote"] = {"http_enabled": "1"}
+    overrides["google_photos"] = {
+        "enabled": "1", "client_id": json.dumps(client, ensure_ascii=False),
+        "client_secret": json.dumps(secret, ensure_ascii=False),
+        "album_id": json.dumps(album, ensure_ascii=False), "sync_interval_mins": str(int(interval)),
+    }
+sys.exit(0 if merge_configs(root / "src/config.toml", config, config, overrides) else 1)
+' "$INSTALL_ROOT" "$INSTALL_BRANCH"; then
+    fail "Could not save config.toml"
+fi
+chown "$PRIMARY_USER:$PRIMARY_USER" "$CONFIG_FILE"
+ok "Production configuration saved"
 
 # Ensure watchdog directory exists
 mkdir -p "$PRIMARY_HOME/piTrove/src/watchdog"
@@ -1489,7 +1290,7 @@ Type=simple
 User=$PRIMARY_USER
 Group=$PRIMARY_USER
 WorkingDirectory=$PRIMARY_HOME/piTrove
-ExecStartPre=-/bin/bash -c "ls /mnt/nas >/dev/null 2>&1 || true"
+ExecStartPre=-/bin/bash -c "timeout -k 2 10 ls -U /mnt/nas >/dev/null 2>&1 || true"
 ExecStartPre=-/usr/bin/docker compose down
 ExecStart=/usr/bin/docker compose up
 ExecStop=/usr/bin/docker compose down

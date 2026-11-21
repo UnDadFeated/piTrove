@@ -2,7 +2,9 @@ name: Security
 
 on:
   push:
-    branches: [ develop, main ]
+    branches: [develop, main]
+  pull_request:
+    branches: [develop, main]
   schedule:
     - cron: "0 6 * * 1"
 
@@ -10,16 +12,43 @@ jobs:
   scan:
     permissions:
       contents: read
-    runs-on: ubuntu-latest
-
+      security-events: write
+    runs-on: ubuntu-24.04-arm
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           persist-credentials: false
 
-      - name: Trivy filesystem scan
+      - name: Build ARM64 image
+        run: docker build --tag pitrove:security-scan .
+
+      - name: Verify the production controller
+        run: python3 src/tests/controller_server.py pitrove:security-scan
+
+      - name: Scan runtime image
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: image
+          image-ref: pitrove:security-scan
+          severity: HIGH,CRITICAL
+          limit-severities-for-sarif: true
+          exit-code: '1'
+          format: sarif
+          output: trivy-image.sarif
+
+      - name: Scan repository
+        if: always()
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           scan-type: fs
           severity: HIGH,CRITICAL
-          exit-code: 0
+          limit-severities-for-sarif: true
+          exit-code: '1'
+          format: sarif
+          output: trivy-repository.sarif
+
+      - name: Upload scan reports
+        if: always() && github.event_name != 'pull_request' && hashFiles('trivy-*.sarif') != ''
+        uses: github/codeql-action/upload-sarif@800a1d8701a65d150a672fef0923dbf2660a62ec # v4
+        with:
+          sarif_file: .

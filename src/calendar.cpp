@@ -27,6 +27,7 @@ std::string GoogleCalendar::execute_http_get(const std::string& url) {
         g_logger.error("CALENDAR: Failed to initialize libcurl");
         return "";
     }
+    http_transfer::configure_public_https(curl);
     std::string response;
     http_transfer::TextBuffer response_buffer{&response, 4 * 1024 * 1024};
 
@@ -50,15 +51,16 @@ std::string GoogleCalendar::execute_http_get(const std::string& url) {
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, http_transfer::append_text);
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response_buffer);
     curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
-    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 1L);
     curl_easy_setopt(curl, CURLOPT_USERAGENT, "piTrove-18.0");
 
     CURLcode res = curl_easy_perform(curl);
+    long status = 0;
+    curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &status);
     if (headers) {
         curl_slist_free_all(headers);
     }
-    if (res != CURLE_OK) {
-        g_logger.warn("CALENDAR: HTTP request failed: {}", curl_easy_strerror(res));
+    if (res != CURLE_OK || status != 200) {
+        g_logger.warn("CALENDAR: HTTP request failed: curl={}, status={}", curl_easy_strerror(res), status);
         m_last_error.store(536);
         trigger_error(536);
         curl_easy_cleanup(curl);

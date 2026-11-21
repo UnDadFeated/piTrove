@@ -27,7 +27,16 @@
 static std::atomic<bool> mock_network{false};
 extern "C" CURLcode __real_curl_easy_perform(CURL*);
 extern "C" CURLcode __wrap_curl_easy_perform(CURL* curl) {
-    return mock_network ? CURLE_ABORTED_BY_CALLBACK : __real_curl_easy_perform(curl);
+    if (mock_network) return CURLE_ABORTED_BY_CALLBACK;
+    char* url = nullptr;
+    curl_easy_getinfo(curl, CURLINFO_EFFECTIVE_URL, &url);
+    // Exercise transfer failures using the fixture's cleartext loopback server.
+    // Redirects still use the production HTTPS and redirect-limit settings.
+    if (url && std::string_view(url).starts_with("http://127.0.0.1:")) {
+        curl_easy_setopt(curl, CURLOPT_PROTOCOLS_STR, "http");
+        curl_easy_setopt(curl, CURLOPT_OPENSOCKETFUNCTION, nullptr);
+    }
+    return __real_curl_easy_perform(curl);
 }
 
 namespace fs = std::filesystem;
@@ -79,6 +88,11 @@ static void test_config() {
     config.left_panel_enabled = true; config.left_panel_max_chores = 17; config.left_panel_show_completed = true;
     config.mqtt_tls_enabled = true; config.mqtt_ca_cert = text;
     config.dashboard_pin = "4391"; config.web_dashboard_enabled = true;
+    config.video_decode_budget_enabled = true;
+    config.auto_display_rotation = true;
+    config.brightness_auto = true;
+    config.brightness_auto_min = 23;
+    config.brightness_auto_max = 89;
     check(config.save(path), "config save failed");
     check(config.dashboard_pin.empty() && !config.pin_hash.empty(), "PIN migration did not update memory");
     check(pitrove::auth::verify_configured_pin("4391", "", config.pin_hash), "saved PIN did not verify");
@@ -90,6 +104,9 @@ static void test_config() {
     check(loaded.load(path), "config reload failed");
     check(loaded.left_panel_enabled && loaded.left_panel_max_chores == 17 && loaded.left_panel_show_completed, "left panel settings dropped on save/load");
     check(loaded.media_dir == text, "media path changed on reload");
+    check(loaded.video_decode_budget_enabled && loaded.auto_display_rotation &&
+          loaded.brightness_auto && loaded.brightness_auto_min == 23 &&
+          loaded.brightness_auto_max == 89, "saved display or decode settings dropped on reload");
     check(loaded.http_api_key == text, "remote API key changed on reload");
     check(loaded.mqtt_pass == text, "MQTT password changed on reload");
     check(loaded.news_local_query == text, "news query changed on reload");
@@ -167,6 +184,10 @@ static void test_http() {
     check(query_param(raw, "value") == "a&b+c" && !query_param(raw, "fake"), "query decoding failed");
     check(url_encode("a+b &") == "a%2Bb%20%26", "form encoding failed");
     Request browser;
+    check(http_protocol::controller_host_allowed("PiTrove.local:9000"), "mDNS host rejected");
+    check(http_protocol::controller_host_allowed("192.168.1.2:9000"), "LAN IP rejected");
+    check(!http_protocol::controller_host_allowed("localhost:65536"), "invalid port accepted");
+    check(!http_protocol::controller_host_allowed("outside.example"), "untrusted domain accepted");
     browser.headers = {{"host", "frame.test:9000"}, {"origin", "http://frame.test:9000"},
                        {"referer", "http://frame.test:9000/chores"}, {"sec-fetch-site", "same-origin"}};
     check(controller_origin_allowed(browser), "same-origin controller request rejected");

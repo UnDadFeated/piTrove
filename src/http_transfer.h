@@ -1,8 +1,11 @@
 #pragma once
+#include <curl/curl.h>
 #include <string>
 #include <atomic>
 #include <cstddef>
 namespace http_transfer {
+// Require direct, verified HTTPS to public addresses, including after redirects.
+void configure_public_https(CURL* curl);
 bool is_google_media_url(const std::string& url);
 bool get(const std::string& url, std::string& response, const std::string& bearer = "", size_t limit = 4 * 1024 * 1024);
 bool post_form(const std::string& url, const std::string& body, std::string& response);

@@ -357,7 +357,7 @@ void OverlayManager::draw_all(int current_idx, int total_items, const MediaItem*
     if (geotag_enabled && item && item->has_gps && (item->latitude != 0.0 || item->longitude != 0.0)) {
         double lat = item->latitude;
         double lon = item->longitude;
-        std::string geo_str = std::format("{:.4f}Â° {}, {:.4f}Â° {}",
+        std::string geo_str = std::format("{:.4f}° {}, {:.4f}° {}",
                                           std::abs(lat), lat >= 0.0 ? "N" : "S",
                                           std::abs(lon), lon >= 0.0 ? "E" : "W");
         const auto font_owner = font_renderer->load_font(overlay_font->path, geotag_size);
@@ -544,25 +544,15 @@ void OverlayManager::draw_all(int current_idx, int total_items, const MediaItem*
             struct tm tm_now;
             struct tm* tmi = localtime_r(&now_t, &tm_now);
             if (tmi) {
-                int today_y = tmi->tm_year + 1900;
-                // Compute calendar-day difference for on-this-day range matching
-                int diff_days = 0;
-                struct tm photo_tm = {};
-                photo_tm.tm_year = y;
-                photo_tm.tm_mon = m - 1;
-                photo_tm.tm_mday = d;
-                photo_tm.tm_hour = 12;
-                photo_tm.tm_isdst = -1;
-                time_t photo_epoch = mktime(&photo_tm);
-                if (photo_epoch != (time_t)-1) {
-                    double secs = difftime(now_t, photo_epoch);
-                    diff_days = abs((int)(secs / 86400.0)) % 365;
-                }
-                if (diff_days <= on_this_day_range) {
-                    anniversary_years = today_y - y;
-                    if (anniversary_years > 0) {
-                        show_ribbon = true;
-                    }
+                using namespace std::chrono;
+                // Compare repeating calendar dates on a leap-year calendar.
+                auto today = year{2000}/month{static_cast<unsigned>(tmi->tm_mon + 1)}/day{static_cast<unsigned>(tmi->tm_mday)};
+                auto photo = year{2000}/month{static_cast<unsigned>(m)}/day{static_cast<unsigned>(d)};
+                if (today.ok() && photo.ok()) {
+                    const auto distance = abs(sys_days{today} - sys_days{photo}).count();
+                    const auto diff_days = std::min(distance, 366 - distance);
+                    anniversary_years = tmi->tm_year + 1900 - y;
+                    show_ribbon = diff_days <= on_this_day_range && anniversary_years > 0;
                 }
             }
         }

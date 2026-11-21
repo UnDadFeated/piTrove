@@ -5,6 +5,7 @@
 #include <mutex>
 #include <set>
 #include <string>
+#include <string_view>
 #include <vector>
 struct sqlite3;
 namespace chores {
@@ -33,7 +34,7 @@ public:
     Result delete_person(int64_t id);
     Result save_chore(Chore chore);
     Result delete_chore(int64_t id);
-    Result set_completed(int64_t id, const std::string& date, bool completed);
+    Result set_completed(int64_t id, const std::string& date, bool completed, std::string_view today = {});
 private:
     mutable std::mutex mutex, cached_mutex;
     std::atomic<bool> available{false};

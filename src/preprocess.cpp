@@ -5,7 +5,6 @@
 #include "media_item.h"
 #include "image_loader.h"
 #include "scanner.h"
-#include <stb_image.h>
 #include <unistd.h>
 #include <sys/stat.h>
 #include <filesystem>
@@ -16,6 +15,10 @@
 #include <mutex>
 #include <cstdio>
 #include <memory>
+#include <fstream>
+extern "C" {
+#include <libavformat/avformat.h>
+}
 
 static std::jthread g_preprocess_thread;
 static std::atomic<bool> g_preprocess_running{false};
@@ -25,17 +28,21 @@ static constexpr int MAX_METADATA_WORKERS = 2;
 struct MetadataSlot { ~MetadataSlot() { g_metadata_workers.fetch_sub(1); } };
 
 static bool get_image_metadata_fast(const std::string& path, int& out_w, int& out_h, int& out_exif, int& out_is_camera, int64_t& out_creation_time, double& out_lat, double& out_lon, bool& out_has_gps) {
-    std::vector<uint8_t> buffer = ImageLoader::read_file_to_buffer(path);
+    std::ifstream file(path, std::ios::binary);
+    if (!file) return false;
+    std::vector<uint8_t> buffer(256 * 1024);
+    file.read(reinterpret_cast<char*>(buffer.data()), static_cast<std::streamsize>(buffer.size()));
+    buffer.resize(static_cast<size_t>(file.gcount()));
     if (buffer.empty()) return false;
 
-    int w = 0, h = 0, comp = 0;
-    if (!stbi_info_from_memory(buffer.data(), std::ssize(buffer), &w, &h, &comp) || w <= 0 || h <= 0) {
+    int w = 0, h = 0;
+    if (!ImageLoader::image_dimensions(buffer, w, h)) {
         return false;
     }
-    out_w = w;
-    out_h = h;
-
     ImageMetadata meta = ImageLoader::read_metadata_from_memory(buffer);
+    const bool swap_dimensions = meta.rotation >= 5 && meta.rotation <= 8;
+    out_w = swap_dimensions ? h : w;
+    out_h = swap_dimensions ? w : h;
     out_exif = meta.rotation;
     out_is_camera = meta.is_camera ? 1 : 0;
     out_creation_time = meta.creation_time;
@@ -45,31 +52,33 @@ static bool get_image_metadata_fast(const std::string& path, int& out_w, int& ou
     return true;
 }
 
-static bool get_video_metadata_ffprobe(const std::string& path, int& out_w, int& out_h, double& out_duration) {
-    std::string cmd = "timeout -k 1 8 ffprobe -v error -select_streams v:0 -show_entries stream=width,height -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 '" + escape_shell_arg(path) + "'";
-    FILE* raw_pipe = popen((cmd + " 2>&1").c_str(), "r");
-    if (!raw_pipe) return false;
-    std::shared_ptr<FILE> pipe(raw_pipe, pclose);
-    char buffer[1024];
-    std::vector<std::string> lines;
-    while (fgets(buffer, sizeof(buffer), pipe.get()) != nullptr) {
-        std::string line = trim(buffer);
-        if (line.find("moov atom not found") != std::string::npos ||
-            line.find("Invalid data found") != std::string::npos) {
-            out_w = -1;
-            return false;
-        }
-        lines.push_back(line);
-    }
-    if (lines.size() < 3) return false;
-    try {
-        out_w = std::stoi(lines[0]);
-        out_h = std::stoi(lines[1]);
-        out_duration = std::stod(lines[2]);
-        return true;
-    } catch (...) {
-        return false;
-    }
+static bool get_video_metadata(const std::string& path, int& out_w, int& out_h, double& out_duration) {
+    AVFormatContext* context = avformat_alloc_context();
+    if (!context) return false;
+    struct Input {
+        AVFormatContext*& context;
+        ~Input() { avformat_close_input(&context); }
+    } input{context};
+    auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(8);
+    context->interrupt_callback = {
+        [](void* data) -> int {
+            return std::chrono::steady_clock::now() >=
+                   *static_cast<const std::chrono::steady_clock::time_point*>(data);
+        }, &deadline
+    };
+    AVDictionary* options = nullptr;
+    av_dict_set(&options, "protocol_whitelist", "file", 0);
+    const int opened = avformat_open_input(&context, path.c_str(), nullptr, &options);
+    av_dict_free(&options);
+    if (opened == AVERROR_INVALIDDATA) out_w = -1;
+    if (opened < 0 || avformat_find_stream_info(context, nullptr) < 0) return false;
+    const int video = av_find_best_stream(context, AVMEDIA_TYPE_VIDEO, -1, -1, nullptr, 0);
+    if (video < 0) return false;
+    const AVCodecParameters* stream = context->streams[video]->codecpar;
+    out_w = stream->width;
+    out_h = stream->height;
+    out_duration = context->duration > 0 ? static_cast<double>(context->duration) / AV_TIME_BASE : 0.0;
+    return out_w > 0 && out_h > 0;
 }
 
 static std::vector<std::pair<std::string, std::string>> fetch_preprocess_batch() {
@@ -170,7 +179,7 @@ static void preprocess_loop() {
                 } else if (type == "video") {
                     int w = 0, h = 0;
                     double dur = 0.0;
-                    if (get_video_metadata_ffprobe(path, w, h, dur)) {
+                    if (get_video_metadata(path, w, h, dur)) {
                         pr->item.width = w;
                         pr->item.height = h;
                         pr->item.duration = dur;
@@ -197,7 +206,7 @@ static void preprocess_loop() {
             if (pr->done.load()) {
                 if (pr->success) {
                     if (g_cache) {
-                        g_cache->upsert(pr->item, 0, 1, false);
+                        g_cache->upsert(pr->item, 0, 1);
                     }
                 } else {
                     if (g_cache) {

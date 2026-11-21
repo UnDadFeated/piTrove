@@ -9,7 +9,7 @@
 #include <sys/stat.h>
 #include <shared_mutex>
 #include <future>
-#include <stb_image.h>
+#include <filesystem>
 #include <algorithm>
 #include <cstring>
 #include <unordered_set>
@@ -107,7 +107,7 @@ void PreloadQueue::enqueue(const std::string& path) {
                 jt = (jt->second < cutoff) ? state->stat_failed_ts.erase(jt)
                                            : std::next(jt);
         }
-        g_logger.info("TRACE: PreloadQueue::enqueue '{}'", path.c_str());
+        g_logger.debug("PreloadQueue::enqueue '{}'", path.c_str());
         state->work_queue.push(path);
         state->active_preloads.insert(path);
     }
@@ -137,7 +137,13 @@ std::shared_ptr<ImageData> PreloadQueue::try_dequeue(const std::string& target_p
 
         if (item.raw.valid) {
             // Retrieve pre-computed EXIF rotation from worker thread
-            data->exif_rotation = item.exif_rotation;
+            data->exif_rotation = item.metadata.rotation;
+            data->is_camera = item.metadata.is_camera;
+            data->creation_time = item.metadata.creation_time;
+            data->latitude = item.metadata.latitude;
+            data->longitude = item.metadata.longitude;
+            data->has_gps = item.metadata.has_gps;
+            data->filename = std::filesystem::path(item.path).filename().string();
             data->width = item.raw.width;
             data->height = item.raw.height;
 
@@ -153,18 +159,6 @@ std::shared_ptr<ImageData> PreloadQueue::try_dequeue(const std::string& target_p
             if (item.raw.pixels) {
                 free(item.raw.pixels);
                 item.raw.pixels = nullptr;
-            }
-
-            if (data->exif_rotation >= 2 && data->exif_rotation <= 8) {
-                SDL_Surface* rotated = ImageLoader::apply_exif_rotation(data->surface, data->exif_rotation);
-                if (rotated) {
-                    SDL_DestroySurface(data->surface);
-                    data->surface = rotated;
-                }
-            }
-            if (data->surface) {
-                data->width = data->surface->w;
-                data->height = data->surface->h;
             }
 
             data->valid = data->surface != nullptr;
@@ -373,41 +367,60 @@ void PreloadQueue::worker_thread(std::shared_ptr<PreloadState> state, int thread
             continue;
         }
 
-        int w = 0, h = 0, ch = 0;
-        uint8_t* pixels = stbi_load_from_memory(buffer.data(), std::ssize(buffer), &w, &h, &ch, 4);
-        if (!pixels || w <= 0 || h <= 0) {
+        RawImage raw = ImageLoader::decode_rgba(buffer);
+        if (!raw.valid) {
             g_logger.warn("[Worker {}] Failed to decode: {}", thread_id, path.c_str());
-            stbi_image_free(pixels);
             note_failure();
             continue;
         }
+        const int w = raw.width, h = raw.height;
 
-        RawImage raw;
-        raw.width = w;
-        raw.height = h;
-        raw.channels = 4;
-        raw.format = ImageFormat::RGBA32;
-        raw.valid = true;
-
-        // stb uses malloc/free (no custom allocator in this build), matching RawImage.
-        // Transfer ownership instead of allocating and copying another full RGBA image.
-        raw.pixels = pixels;
-
-        int exif_rotation = ImageLoader::read_exif_rotation_from_memory(buffer);
-
-        g_logger.debug("[Worker {}] Decoded {}x{} (EXIF: {}): {}", thread_id, raw.width, raw.height, exif_rotation, path.c_str());
-
-        int blur_radius = 14;
+        const auto metadata = ImageLoader::read_metadata_from_memory(buffer);
+        int blur_radius;
+        int max_dim;
+        bool blurred;
         {
-            std::shared_lock<std::shared_mutex> lock(g_config_mtx);
+            std::shared_lock lock(g_config_mtx);
             blur_radius = g_renderer.scale_px(g_cfg.blur_radius);
+            max_dim = g_cfg.max_texture_dim;
+            blurred = g_cfg.blurred_background && g_cfg.bg_style == "photo";
         }
-        RawImage blur = box_blur(raw, blur_radius);
+
+        // Work with display-sized, already-oriented pixels before sampling edges.
+        if (std::max(w, h) > max_dim || metadata.rotation != 1) {
+            using Surface = std::unique_ptr<SDL_Surface, decltype(&SDL_DestroySurface)>;
+            Surface src(SDL_CreateSurfaceFrom(w, h, SDL_PIXELFORMAT_RGBA32, raw.pixels, w * 4), SDL_DestroySurface);
+            if (!src) { note_failure(); continue; }
+            if (std::max(w, h) > max_dim) {
+                const float scale = static_cast<float>(max_dim) / std::max(w, h);
+                auto* scaled = SDL_ScaleSurface(src.get(), std::max(1, static_cast<int>(w * scale)),
+                                                std::max(1, static_cast<int>(h * scale)), SDL_SCALEMODE_LINEAR);
+                if (!scaled) { note_failure(); continue; }
+                src.reset(scaled);
+            }
+            if (metadata.rotation != 1) {
+                auto* rotated = ImageLoader::apply_exif_rotation(src.get(), metadata.rotation);
+                if (!rotated) { note_failure(); continue; }
+                src.reset(rotated);
+            }
+            const size_t stride = static_cast<size_t>(src->w) * 4;
+            auto* adjusted = static_cast<uint8_t*>(malloc(stride * src->h));
+            if (!adjusted) { note_failure(); continue; }
+            auto* source = static_cast<const uint8_t*>(src->pixels);
+            for (int row = 0; row < src->h; ++row) {
+                memcpy(adjusted + row * stride, source + static_cast<size_t>(row) * src->pitch, stride);
+            }
+            free(raw.pixels);
+            raw.pixels = adjusted;
+            raw.width = src->w;
+            raw.height = src->h;
+        }
+
+        RawImage blur;
+        if (blurred) blur = box_blur(raw, blur_radius);
 
         uint8_t mr = 0, mg = 0, mb = 0;
-        if (blur.valid) {
-            compute_matte_color(raw, mr, mg, mb);
-        }
+        compute_matte_color(raw, mr, mg, mb);
 
         uint8_t ar = 220, ag = 210, ab = 195;
         compute_average_color(raw, ar, ag, ab);
@@ -432,7 +445,7 @@ void PreloadQueue::worker_thread(std::shared_ptr<PreloadState> state, int thread
             item.blur_raw = std::move(blur);
             item.path = path;
             item.valid = true;
-            item.exif_rotation = exif_rotation;
+            item.metadata = metadata;
             item.matte_r = mr;
             item.matte_g = mg;
             item.matte_b = mb;

@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(piTrove VERSION 18.4.3 LANGUAGES CXX)
+project(piTrove VERSION 18.4.4 LANGUAGES CXX)
 
 option(ENABLE_ASAN "Enable AddressSanitizer for memory safety testing" OFF)
 if(ENABLE_ASAN)
@@ -17,7 +17,7 @@ if(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|arm64")
     # -mtune (cortex-a72) removed: it is a Pi 4 core and was applied to every aarch64
     # build, so Pi 5 (cortex-a76) binaries were tuned for the wrong CPU. -march is
     # unchanged, so the instruction set is identical.
-    set(CMAKE_CXX_FLAGS_RELEASE "-O2 -march=armv8-a+crc+simd -fomit-frame-pointer -pipe")
+    set(CMAKE_CXX_FLAGS_RELEASE "-O2 -march=armv8-a+crc+simd -fno-omit-frame-pointer -pipe")
     # LTO removed in v15.6.9 to prevent FFmpeg SIMD miscompilation
 endif()
 
@@ -120,6 +120,10 @@ target_include_directories(piTrove PRIVATE
     ${CURL_INCLUDE_DIRS}
     /usr/include/drm
 )
+
+target_compile_options(piTrove PRIVATE -fstack-protector-strong -Wformat=2 -Werror=format-security)
+target_compile_definitions(piTrove PRIVATE $<$<CONFIG:Release>:_FORTIFY_SOURCE=3>)
+target_link_options(piTrove PRIVATE -Wl,-z,relro,-z,now)
 
 target_link_libraries(piTrove PRIVATE
     sodium

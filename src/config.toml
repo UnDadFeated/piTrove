@@ -36,7 +36,6 @@ matte_opacity = 0.5
 vignette_strength = 0.35
 blur_radius = 14
 glow_depth = 43
-edge_glow_shadow = 1
 
 [slideshow]
 transition_delay = 120
@@ -100,10 +99,13 @@ show_people_faces = 1
 keep_animals = 1
 progress_bar_enabled = 0
 font_path = "auto"
+fan_speed = 30
 
 [video]
 volume = 0
 probe_timeout = 3
+av_sync = 1
+decode_budget_enabled = 0
 closed_captions_enabled = 1
 drm_connector = "auto"
 drm_card = "auto"
@@ -230,5 +232,3 @@ enabled = 1
 interval_secs = 120
 gateway_ip = "192.168.4.1"
 wifi_interface = "wlan0"
-
-fan_speed = 30

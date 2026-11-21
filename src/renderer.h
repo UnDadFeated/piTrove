@@ -75,7 +75,7 @@ public:
     void draw_background(ImageData* data, const std::string& bg_style, Uint8 vignette_alpha);
 
     void draw_color_matched_matte(const SDL_Rect& fit_rect, Uint8 matte_r, Uint8 matte_g, Uint8 matte_b, float matte_opacity);
-    void draw_bias_lighting(const SDL_Rect& fit_rect, Uint8 avg_r, Uint8 avg_g, Uint8 avg_b,
+    void draw_bias_lighting(const SDL_Rect& fit_rect, const SDL_Rect& bounds, Uint8 avg_r, Uint8 avg_g, Uint8 avg_b,
         int bias_strength, float item_timer, float anim_speed, const std::string& style, int border_width, int glow_depth = 0);
     void draw_border(const SDL_Rect& fit_rect, const std::string& border_mode, Uint8 avg_r, Uint8 avg_g, Uint8 avg_b, int border_width, const std::string& filename);
     void draw_3d_border(const SDL_Rect& fit_rect, Uint8 avg_r, Uint8 avg_g, Uint8 avg_b, int border_width);
@@ -91,6 +91,17 @@ public:
 
 
 private:
+    SDL_Texture* bias_gradient{nullptr};
+    struct PatternBackground {
+        SDL_Texture* texture{nullptr};
+        std::string filename;
+        std::string style;
+        std::vector<std::string> styles;
+        int width{0}, height{0};
+        int offset{0}, blend_count{0}, fps{0};
+        Uint8 r{0}, g{0}, b{0};
+        Uint64 refresh_at{0};
+    } pattern_background;
     float read_sys_f(const char* path, float divisor);
     bool already_cleaned{false};
 

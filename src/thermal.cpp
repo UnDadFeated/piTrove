@@ -38,7 +38,9 @@ void set_fan_speed_percent(int percent) {
     for (int i = 0; i < 8; ++i) {
         std::string p = "/sys/class/hwmon/hwmon" + std::to_string(i) + "/pwm1";
         std::string e = "/sys/class/hwmon/hwmon" + std::to_string(i) + "/pwm1_enable";
-        if (std::filesystem::exists(p)) {
+        std::ifstream name("/sys/class/hwmon/hwmon" + std::to_string(i) + "/name");
+        std::string driver;
+        if ((name >> driver) && (driver == "pwmfan" || driver == "pwm-fan") && std::filesystem::exists(p)) {
             pwm_path = p;
             enable_path = e;
             break;
@@ -46,13 +48,6 @@ void set_fan_speed_percent(int percent) {
     }
 
     if (pwm_path.empty()) {
-        // Fallback: check cooling_device0
-        std::string cd = "/sys/class/thermal/cooling_device0/cur_state";
-        if (std::filesystem::exists(cd)) {
-            std::ofstream out(cd);
-            int state = (percent == 0) ? 0 : std::clamp((int)round((float)percent / 25.0f), 1, 4);
-            out << state << "\n";
-        }
         return;
     }
 

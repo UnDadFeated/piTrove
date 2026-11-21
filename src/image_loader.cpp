@@ -2,6 +2,7 @@
 #define _GNU_SOURCE
 #endif
 #include "image_loader.h"
+#include <webp/decode.h>
 #include <span>
 extern "C" {
 #include <jpeglib.h>
@@ -105,6 +106,44 @@ SDL_Surface* load_jpeg_scaled(const std::string& path, int max_w, int max_h) {
 // Public API
 // ============================================================
 
+static bool is_webp(std::span<const uint8_t> bytes) {
+    return bytes.size() >= 12 && std::memcmp(bytes.data(), "RIFF", 4) == 0 &&
+           std::memcmp(bytes.data() + 8, "WEBP", 4) == 0;
+}
+
+bool ImageLoader::image_dimensions(std::span<const uint8_t> buffer, int& width, int& height) {
+    constexpr size_t max_pixels = 64ULL * 1024 * 1024;
+    if (buffer.empty() || buffer.size() > INT_MAX) return false;
+    const bool webp = is_webp(buffer);
+    int channels = 0;
+    const bool known = webp ? WebPGetInfo(buffer.data(), buffer.size(), &width, &height) :
+        stbi_info_from_memory(buffer.data(), static_cast<int>(buffer.size()), &width, &height, &channels);
+    return known && width > 0 && height > 0 && width <= 16384 && height <= 16384 &&
+           static_cast<size_t>(width) <= max_pixels / static_cast<size_t>(height);
+}
+
+RawImage ImageLoader::decode_rgba(std::span<const uint8_t> buffer) {
+    RawImage result;
+    if (!image_dimensions(buffer, result.width, result.height)) return result;
+    if (is_webp(buffer)) {
+        const size_t stride = static_cast<size_t>(result.width) * 4;
+        const size_t size = stride * result.height;
+        result.pixels = static_cast<uint8_t*>(std::malloc(size));
+        if (!result.pixels ||
+            !WebPDecodeRGBAInto(buffer.data(), buffer.size(), result.pixels, size, static_cast<int>(stride))) {
+            return {};
+        }
+    } else {
+        int channels = 0;
+        result.pixels = stbi_load_from_memory(buffer.data(), static_cast<int>(buffer.size()),
+                                              &result.width, &result.height, &channels, 4);
+    }
+    result.channels = 4;
+    result.format = ImageFormat::RGBA32;
+    result.valid = result.pixels != nullptr;
+    return result;
+}
+
 std::vector<uint8_t> ImageLoader::read_file_to_buffer(const std::string& path) {
     std::vector<uint8_t> buffer;
     FILE* f = fopen(path.c_str(), "rb");
@@ -121,8 +160,7 @@ std::vector<uint8_t> ImageLoader::read_file_to_buffer(const std::string& path) {
         fclose(f);
         return buffer;
     }
-    // Dynamic safety limit: budget up to 25% of available RAM (100MB - 1GB)
-    size_t max_img_size = std::clamp(static_cast<size_t>(get_available_ram_bytes() * 0.25), static_cast<size_t>(100 * 1024 * 1024), static_cast<size_t>(1024 * 1024 * 1024));
+    constexpr size_t max_img_size = 128ULL * 1024 * 1024;
     if (static_cast<size_t>(size) > max_img_size) {
         fclose(f);
         return buffer;
@@ -185,27 +223,23 @@ std::shared_ptr<ImageData> ImageLoader::load(const std::string& path) {
         return result;
     }
 
-    int w = 0, h = 0, ch = 0;
-    uint8_t* pixels = stbi_load_from_memory(buffer.data(), std::ssize(buffer), &w, &h, &ch, 4);
-    [[unlikely]]
-    if (!pixels || w <= 0 || h <= 0) {
-        trigger_error(201); // E201: IMAGE_LOAD_ERROR
+    RawImage raw = decode_rgba(buffer);
+    if (!raw.valid) {
+        trigger_error(201);
         return result;
     }
 
-    SDL_Surface* surf = SDL_CreateSurface(w, h, SDL_PIXELFORMAT_RGBA32);
+    auto* surf = SDL_CreateSurface(raw.width, raw.height, SDL_PIXELFORMAT_RGBA32);
     if (!surf) {
-        stbi_image_free(pixels);
-        trigger_error(201); // E201: IMAGE_LOAD_ERROR
+        trigger_error(201);
         return result;
     }
-
-    uint8_t* dst = (uint8_t*)surf->pixels;
-    const uint8_t* src = pixels;
-    for (int y = 0; y < h; y++) {
-        memcpy(dst + y * surf->pitch, src + y * w * 4, w * 4);
+    const size_t stride = static_cast<size_t>(raw.width) * 4;
+    auto* dst = static_cast<uint8_t*>(surf->pixels);
+    for (int y = 0; y < raw.height; ++y) {
+        memcpy(dst + static_cast<size_t>(y) * surf->pitch, raw.pixels + y * stride, stride);
     }
-    stbi_image_free(pixels);
+    raw = RawImage{};
 
     ImageMetadata meta = read_metadata_from_memory(buffer);
     int exif = meta.rotation;
@@ -371,13 +405,6 @@ void ImageLoader::load_texture(ImageData* data, SDL_Renderer* renderer) {
         SDL_Surface* bsurf = SDL_CreateSurface(data->blur_raw.width, data->blur_raw.height, SDL_PIXELFORMAT_RGBA32);
         if (bsurf) {
             memcpy(bsurf->pixels, data->blur_raw.pixels, (size_t)data->blur_raw.width * data->blur_raw.height * 4);
-            if (data->exif_rotation >= 2 && data->exif_rotation <= 8) {
-                SDL_Surface* rotated = apply_exif_rotation(bsurf, data->exif_rotation);
-                if (rotated) {
-                    SDL_DestroySurface(bsurf);
-                    bsurf = rotated;
-                }
-            }
             data->blur_texture = SDL_CreateTextureFromSurface(renderer, bsurf);
             if (!data->blur_texture) {
                 g_logger.error("Failed to create blur texture from surface: {}", SDL_GetError());

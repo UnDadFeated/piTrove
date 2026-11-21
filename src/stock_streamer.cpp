@@ -22,6 +22,7 @@ static std::string http_get_json(const std::string& url, int timeout_secs = 4) {
     CURL* curl = curl_easy_init();
     if (!curl) return "";
 
+    http_transfer::configure_public_https(curl);
     std::string response;
     http_transfer::TextBuffer response_buffer{&response, 4 * 1024 * 1024};
     curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
@@ -40,9 +41,11 @@ static std::string http_get_json(const std::string& url, int timeout_secs = 4) {
     curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, tls_verify ? 2L : 0L);
 
     CURLcode res = curl_easy_perform(curl);
+    long status = 0;
+    curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &status);
     curl_easy_cleanup(curl);
 
-    if (res != CURLE_OK) {
+    if (res != CURLE_OK || status != 200) {
         return "";
     }
     return response;
@@ -296,7 +299,7 @@ void StockStreamer::fetch_sync() {
         if (fresh_stock_quote || btc_ok) {
             m_last_sync_time.store(time(nullptr));
             m_last_error.store(0);
-            g_logger.info("STOCKS: Updated quotes for the configured symbols");
+            g_logger.debug("STOCKS: Updated quotes for the configured symbols");
         } else {
             m_last_error.store(1);
             g_logger.warn("STOCKS: Quote refresh failed; retaining last known quotes");
@@ -315,7 +318,7 @@ bool StockStreamer::start() {
     m_running.store(true);
 
     if (!spawn_thread_safe(m_worker_thread, "stockstreamer", [this]() {
-        this->sync();
+        if (!g_screen_blanked.load()) this->sync();
 
         while (this->m_running.load()) {
             int refresh_secs = 10;
@@ -326,7 +329,7 @@ bool StockStreamer::start() {
             for (int i = 0; i < refresh_secs && this->m_running.load(); ++i) {
                 std::this_thread::sleep_for(std::chrono::seconds(1));
             }
-            if (this->m_running.load()) {
+            if (this->m_running.load() && !g_screen_blanked.load()) {
                 this->sync();
             }
         }

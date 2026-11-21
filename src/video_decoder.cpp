@@ -69,7 +69,7 @@ static std::string hwaccel_path = "none";
 // decode for the rest of the process lifetime — kernel M2M state is
 // degraded until the container restarts (see is_pi5() gate history).
 static bool hw_disabled_session = false;
-[[maybe_unused]] static bool is_pi5() {
+static bool is_pi5() {
     static bool detected = false;
     static bool result = false;
     if (!detected) {
@@ -120,13 +120,9 @@ size_t VideoDecoder::calculate_max_queued_frames(int target_w, int target_h) {
     size_t frame_bytes = static_cast<size_t>(target_w) * static_cast<size_t>(target_h) * 3 / 2 + 64;
 
     uint64_t avail_ram = get_available_ram_bytes();
-    // Budget 90% of available RAM for video prefill and postfill lookahead frames
-    uint64_t ram_budget = static_cast<uint64_t>(avail_ram * 0.90);
-
-    size_t max_frames = static_cast<size_t>(ram_budget / frame_bytes);
-    // Ensure safe bounds: at least 64 frames (~2s at 30fps) and max 4096 frames (~2.2m at 30fps)
-    // Allow queue up to 8192 frames (~4.5m at 30fps) budgeted within 90% available RAM
-    return std::clamp(max_frames, (size_t)128, (size_t)8192);
+    constexpr uint64_t max_lookahead_bytes = 512ULL * 1024 * 1024;
+    const uint64_t budget = std::min(avail_ram / 4, max_lookahead_bytes);
+    return std::clamp(static_cast<size_t>(budget / frame_bytes), size_t{1}, size_t{8192});
 }
 
 VideoDecoder::VideoDecoder() {}
@@ -365,6 +361,7 @@ double VideoDecoder::get_video_remaining(double fallback_duration) const {
     double total = m_video_total_duration.load(std::memory_order_relaxed);
     if (total <= 0.0) total = fallback_duration;
     if (total <= 0.0) return 0.0;
+    if (!m_anchor_set.load(std::memory_order_acquire)) return total;
 
     double displayed = m_current_displayed_pts.load(std::memory_order_relaxed);
     if (displayed >= 0.0 && m_v0_set.load(std::memory_order_acquire)) {
@@ -453,18 +450,15 @@ void VideoDecoder::decode_loop() {
         return;
     }
 
-    // Prefault the whole file into the kernel page cache using up to 90% of available RAM.
+    // Request a small read-ahead window instead of flooding the NAS with an entire video.
     {
         struct stat vst;
-        uint64_t max_prefetch = static_cast<uint64_t>(get_available_ram_bytes() * 0.90);
-        if (::stat(m_path.c_str(), &vst) == 0 && vst.st_size > 0 &&
-            static_cast<uint64_t>(vst.st_size) <= max_prefetch) {
-            int vfd = ::open(m_path.c_str(), O_RDONLY);
+        constexpr uint64_t max_prefetch = 16 * 1024 * 1024;
+        if (::stat(m_path.c_str(), &vst) == 0 && vst.st_size > 0) {
+            int vfd = ::open(m_path.c_str(), O_RDONLY | O_CLOEXEC);
             if (vfd >= 0) {
-                posix_fadvise(vfd, 0, 0, POSIX_FADV_WILLNEED);
+                posix_fadvise(vfd, 0, std::min<uint64_t>(max_prefetch, vst.st_size), POSIX_FADV_WILLNEED);
                 ::close(vfd);
-                g_logger.info("VIDEO_DEC: prefetching {} ({} MB) into page cache (90% RAM budget {} MB)",
-                              m_path.c_str(), vst.st_size / 1024 / 1024, max_prefetch / 1024 / 1024);
             }
         }
     }
@@ -572,19 +566,11 @@ void VideoDecoder::decode_loop() {
     if (!hw_dev && hw_disabled_session) {
         g_logger.warn("VIDEO_DEC: HW accel disabled for this session (crawl recovery); using software decode");
     }
-    // v4l2_m2m kernel HW decode: the M2M node (/dev/video19 rpi-hevc-dec on
-    // Pi 5) is the only real HEVC hardware decoder available here. Distro
-    // libav* builds lack the v4l2_m2m hwcontext (so distro FFmpeg has no
-    // hevc_v4l2m2m), and the DRM "hwaccel" device is a no-op for the software
-    // decoder. The custom FFmpeg build (Dockerfile, --enable-v4l2-m2m)
-    // provides hevc_v4l2m2m, which is self-contained: it auto-probes /dev for the M2M node; no external AVHWDeviceContext. H.264 keeps the previous path (DRM device +
-    // software; Pi 5 has no M2M node for H.264).
-    // hw_disabled_session (set by the [E530] frame-crawl detector) stays the
-    // safety net: if the M2M pipeline degrades, the rest of this process
-    // lifetime runs software decode.
+    // The Pi 5 decoder is stateless. The distro M2M codec is the stateful
+    // path used on Pi 4 and remains guarded by the frame-rate watchdog.
     const AVCodec* vc = avcodec_find_decoder(vp->codec_id);
     bool is_m2m = false;
-    if (vp->codec_id == AV_CODEC_ID_HEVC && !hw_disabled_session) {
+    if (vp->codec_id == AV_CODEC_ID_HEVC && !is_pi5() && !hw_disabled_session) {
         const AVCodec* m2m = avcodec_find_decoder_by_name("hevc_v4l2m2m");
         if (m2m) {
             g_logger.info("VIDEO_DEC: HEVC: using hevc_v4l2m2m kernel HW decoder ({}x{})", vp->width, vp->height);
@@ -816,10 +802,15 @@ void VideoDecoder::decode_loop() {
         if (ret >= 0) {
             last_frame_ms = av_gettime_relative(); // Reset watchdog on active demux progress
         }
+        if (ret == AVERROR(EAGAIN)) {
+            av_packet_unref(pkt);
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            continue;
+        }
         [[unlikely]]
         if (ret < 0) {
             g_logger.info("VIDEO_DEC: av_read_frame error ret={} (AVERROR_EOF={}, AVERROR(EAGAIN)={})", ret, AVERROR_EOF, AVERROR(EAGAIN));
-            if (ret != AVERROR_EOF && ret != AVERROR(EAGAIN)) {
+            if (ret != AVERROR_EOF) {
                 std::this_thread::sleep_for(std::chrono::milliseconds(10));
                 if (++consecutive_demux_fails > 100) {
                     g_logger.warn("VIDEO_DEC: Packet starvation detected (100 consecutive failed reads), triggering EOF recovery for {}", m_path.c_str());
@@ -953,10 +944,8 @@ void VideoDecoder::decode_loop() {
                 }
                 size_t cap = calculate_max_queued_frames(m_target_width, m_target_height);
                 if (m_decode_fast.load(std::memory_order_relaxed)) {
-                    size_t fb = static_cast<size_t>(std::max(m_target_width, 1920)) * static_cast<size_t>(std::max(m_target_height, 1080)) * 3 / 2 + 64;
-                    size_t byte_cap = (768ull * 1024 * 1024) / fb;
-                    size_t time_cap = m_frame_duration > 0 ? static_cast<size_t>(12.0 / m_frame_duration) : 360;
-                    cap = std::clamp(std::min(byte_cap, time_cap), (size_t)128, cap);
+                    const size_t time_cap = m_frame_duration > 0 ? static_cast<size_t>(12.0 / m_frame_duration) : 360;
+                    cap = std::min(std::max(time_cap, size_t{1}), cap);
                 }
                 m_max_queued_frames.store(cap, std::memory_order_relaxed);
             }

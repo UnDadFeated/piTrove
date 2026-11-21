@@ -295,7 +295,7 @@ static void test_cache_migration() {
     check(!cache.load_cached(replaced) && replaced.width == 0 && replaced.last_shown == 200,
           "replacement media reused stale dimensions or lost cooldown");
     original.modified_time = 0;
-    cache.upsert(original, 0, 1, false);
+    cache.upsert(original, 0, 1);
     MediaItem from_cache;
     from_cache.path = original.path;
     check(cache.load_cached(from_cache) && from_cache.modified_time == 100,

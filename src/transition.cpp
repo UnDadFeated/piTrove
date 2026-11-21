@@ -83,7 +83,8 @@ void TransitionEngine::render(SDL_Texture* prev_tex, SDL_Texture* next_tex, int 
             render_dissolve(prev_tex, next_tex, screen_w, screen_h);
             break;
         default:
-            std::unreachable();
+            SDL_RenderTexture(renderer->sdl_renderer, next_tex, nullptr, nullptr);
+            break;
     }
 }
 

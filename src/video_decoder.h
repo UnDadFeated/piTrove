@@ -64,6 +64,7 @@ public:
  bool is_running() const;
  bool is_eof() const;
  bool consume_start_failed();
+ bool presentation_started() const { return m_anchor_set.load(std::memory_order_acquire); }
  bool has_start_failed() const { return m_start_failed.load(); }
  bool get_frame(VideoFrame& out);
  bool has_frames() const;

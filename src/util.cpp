@@ -108,7 +108,6 @@ uint64_t get_total_ram_bytes() {
 #include <sys/ioctl.h>
 #include <net/if.h>
 #include <mutex>
-#include <execinfo.h>
 #include <dlfcn.h>
 
 
@@ -205,96 +204,16 @@ static void crash_display_restore(void) {
 }
 
 void crash_handler(int sig) {
-    FILE* fl = fopen("/app/events.log", "a");
-    if (fl) { fprintf(fl, "CRASH: signal=%d\n", sig); fflush(fl); fclose(fl); }
-    (void)write(STDERR_FILENO, "\n[CRITICAL ERROR] piTrove intercepted a terminal fault / crash signal.\n", 70);
-    // Print backtrace for debugging
-    void* bt[32];
-    int nptrs = backtrace(bt, 32);
-    char** symbols = backtrace_symbols(bt, nptrs);
-    if (symbols) {
-        char bt_msg[4096] = {};
-        int offset = 0;
-        offset += std::snprintf(bt_msg + offset, sizeof(bt_msg) - (size_t)offset,
-            "[CRITICAL] Backtrace (%d frames):\n", nptrs);
-        for (int i = 1; i < nptrs && (size_t)offset < (int)sizeof(bt_msg) - 256; i++) {
-            offset += std::snprintf(bt_msg + offset, sizeof(bt_msg) - (size_t)offset, "  #%d %s\n", i-1, symbols[i]);
-        }
-        (void)write(STDERR_FILENO, bt_msg, (size_t)offset);
-        free(symbols);
-    }
-
-    // Fail-safe: Restore physical display power (uses only async-signal-safe syscalls)
+    constexpr char message[] = "\n[CRITICAL ERROR] piTrove received a fatal signal.\n";
+    (void)write(STDERR_FILENO, message, sizeof(message) - 1);
     crash_display_restore();
-
-    // Signal-safe purge: construct paths into stack buffer, use unlink()
-    if (!g_database_complete.load() && g_crash_cache_dir_safe[0] != '\0') {
-        const char* purge_msg = "[CRITICAL] Database incomplete — purging partial cache.\n";
-        (void)write(STDERR_FILENO, purge_msg, strlen(purge_msg));
-
-        char path[512];
-        size_t len = 0;
-        while (len < sizeof(path) - 16 && g_crash_cache_dir_safe[len] != '\0') {
-            path[len] = g_crash_cache_dir_safe[len];
-            len++;
-        }
-        const char* suffix = "/cache.db";
-        size_t idx = 0;
-        while (suffix[idx] != '\0') {
-            path[len++] = suffix[idx++];
-        }
-        path[len] = '\0';
-
-        unlink(path);
-
-        // append "-wal"
-        path[len] = '-'; path[len+1] = 'w'; path[len+2] = 'a'; path[len+3] = 'l'; path[len+4] = '\0';
-        unlink(path);
-
-        // replace "wal" with "shm"
-        path[len+1] = 's'; path[len+2] = 'h'; path[len+3] = 'm'; path[len+4] = '\0';
-        unlink(path);
-    }
-
     signal(sig, SIG_DFL);
     raise(sig);
 }
 
 void terminate_handler() {
-    const char* msg = "\n[CRITICAL ERROR] piTrove unhandled exception.\n";
-    (void)write(STDERR_FILENO, msg, strlen(msg));
-    
-    // Fail-safe: Restore physical display power via async-signal-safe sysfs write
-    int fd = open("/sys/class/graphics/fb0/blank", O_WRONLY);
-    if (fd >= 0) {
-        (void)write(fd, "0", 1);
-        close(fd);
-    }
-
-    if (!g_database_complete.load() && g_crash_cache_dir_safe[0] != '\0') {
-        char path[512];
-        size_t len = 0;
-        while (len < sizeof(path) - 16 && g_crash_cache_dir_safe[len] != '\0') {
-            path[len] = g_crash_cache_dir_safe[len];
-            len++;
-        }
-        const char* suffix = "/cache.db";
-        size_t idx = 0;
-        while (suffix[idx] != '\0') {
-            path[len++] = suffix[idx++];
-        }
-        path[len] = '\0';
-
-        unlink(path);
-
-        // append "-wal"
-        path[len] = '-'; path[len+1] = 'w'; path[len+2] = 'a'; path[len+3] = 'l'; path[len+4] = '\0';
-        unlink(path);
-
-        // replace "wal" with "shm"
-        path[len+1] = 's'; path[len+2] = 'h'; path[len+3] = 'm'; path[len+4] = '\0';
-        unlink(path);
-    }
+    constexpr char message[] = "\n[CRITICAL ERROR] piTrove unhandled exception.\n";
+    (void)write(STDERR_FILENO, message, sizeof(message) - 1);
     std::abort();
 }
 
@@ -891,7 +810,10 @@ static bool perform_nas_online_check() {
     std::string device, mount_point, fs_type, options;
     std::string nas_host = "";
 
-    while (mounts >> device >> mount_point >> fs_type >> options) {
+    std::string mount_line;
+    while (std::getline(mounts, mount_line)) {
+        std::istringstream fields(mount_line);
+        if (!(fields >> device >> mount_point >> fs_type >> options)) continue;
         // Skip mounts that aren't network filesystems (cifs, nfs, etc.)
         if (fs_type != "cifs" && fs_type != "nfs" && fs_type != "nfs4") {
             continue;

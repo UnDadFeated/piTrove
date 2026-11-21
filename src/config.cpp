@@ -60,6 +60,8 @@ bool Config::load(const std::string& path) {
         else if (key == "log_dir")           this->log_dir = val;
         else if (key == "splash_file")       this->splash_file = val;
         else if (key == "enforce_read_only_media") this->enforce_read_only_media = (val == "1" || val == "true");
+        else if (key == "decode_budget_enabled" && section == "video") this->video_decode_budget_enabled = (val == "1" || val == "true");
+        else if (key == "auto_display_rotation" && section == "display") this->auto_display_rotation = (val == "1" || val == "true");
         else if (key == "max_width" && section == "video") this->video_max_width = safe_stoi(val, this->video_max_width);
         else if (key == "max_height" && section == "video") this->video_max_height = safe_stoi(val, this->video_max_height);
         else if (key == "max_bitrate" && section == "video") this->video_max_bitrate = safe_stoll(val, this->video_max_bitrate);
@@ -163,9 +165,9 @@ bool Config::load(const std::string& path) {
         else if (key == "bias_color_mode")   this->bias_color_mode = val;
         else if (key == "cooldown_days")     this->cooldown_days = std::clamp(safe_stoi(val, this->cooldown_days), 0, 3650);
         else if (key == "reset_cooldown_on_restart") this->reset_cooldown_on_restart = (val == "1" || val == "true");
-        else if (key == "brightness_auto") this->brightness_auto = (val == "1" || val == "true");
-        else if (key == "brightness_auto_min") this->brightness_auto_min = std::clamp(safe_stoi(val, this->brightness_auto_min), 0, 100);
-        else if (key == "brightness_auto_max") this->brightness_auto_max = std::clamp(safe_stoi(val, this->brightness_auto_max), 0, 100);
+        else if ((key == "brightness_auto" || (section == "brightness" && key == "auto"))) this->brightness_auto = (val == "1" || val == "true");
+        else if ((key == "brightness_auto_min" || (section == "brightness" && key == "auto_min"))) this->brightness_auto_min = std::clamp(safe_stoi(val, this->brightness_auto_min), 0, 100);
+        else if ((key == "brightness_auto_max" || (section == "brightness" && key == "auto_max"))) this->brightness_auto_max = std::clamp(safe_stoi(val, this->brightness_auto_max), 0, 100);
         else if (key == "border_mode")       this->border_mode = val;
         else if (key == "border_enabled") {
             if (val == "0" || val == "false") {

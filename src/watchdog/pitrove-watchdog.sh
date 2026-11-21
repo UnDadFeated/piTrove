@@ -15,6 +15,9 @@ FAIL_COUNT=0
 MAX_FAIL=12          # 12 checks * 15 seconds = 180s (3 minutes) offline trigger
 WAS_OFFLINE=false
 LAST_RECOVERY=-1
+NAS_FAILURES=0
+RECOVERY_FAILURES=0
+NEXT_BIND_PROBE=0
 
 
 log() {
@@ -24,7 +27,7 @@ log() {
 
     # Also write to local log file in logs/ folder if directory exists
     LOG_FILE="${LOG_FILE:-/home/pi/piTrove/logs/pitrove-watchdog.log}"
-    LOG_DIR=$(dirname "$LOG_FILE")
+    LOG_DIR=${LOG_FILE%/*}
     if [ -d "$LOG_DIR" ]; then
         echo "$(date '+%Y-%m-%d %H:%M:%S') pitrove-watchdog: $*" >> "$LOG_FILE" || true
     fi
@@ -46,12 +49,12 @@ network_is_ok() {
     return 1
 }
 
-# NAS mount is usable: attached AND readable within 5s (CIFS session alive).
+# NAS mount is usable: attached AND readable within 10s (CIFS session alive).
 # A dead CIFS session can leave the mount attached while reads hang (hard
 # mount), so a plain mount check is not enough — the timed read catches it.
 nas_is_healthy() {
     timeout -k 1 5 mountpoint -q "$CIFS_MOUNT" 2>/dev/null || return 1
-    timeout -k 1 5 ls -U "$CIFS_MOUNT" >/dev/null 2>&1
+    timeout -k 1 10 ls -U "$CIFS_MOUNT" >/dev/null 2>&1
 }
 
 container_health() {
@@ -60,11 +63,14 @@ container_health() {
 
 # The caller has already checked that the host NAS is readable.
 container_bind_is_stale() {
-    timeout -k 1 5 docker inspect --format='{{.State.Running}}' "$DOCKER_CONTAINER" 2>/dev/null | grep -qx true || return 1
-    local host_item
+    local host_item result=0
     host_item=$(timeout -k 1 5 find "$CIFS_MOUNT" -mindepth 1 -maxdepth 1 -print -quit 2>/dev/null) || return 1
     [[ -n "$host_item" ]] || return 1
-    ! timeout -k 1 5 docker exec "$DOCKER_CONTAINER" /bin/bash -c         'test -n "$(find /app/media -mindepth 1 -maxdepth 1 -print -quit 2>/dev/null)"' 2>/dev/null
+    timeout -k 1 5 docker exec "$DOCKER_CONTAINER" /bin/sh -c '
+        item=$(find /app/media -mindepth 1 -maxdepth 1 -print -quit) || exit 2
+        test -n "$item" || exit 3
+    ' 2>/dev/null || result=$?
+    [[ "$result" == 3 ]]
 }
 
 # Refresh only the media mount so recovery cannot mount other fstab entries.
@@ -107,40 +113,51 @@ restart_application() {
 }
 
 recover_online() {
-    # All recovery paths share a cooldown, including failed service restarts.
-    if (( LAST_RECOVERY >= 0 && SECONDS - LAST_RECOVERY < CIFS_REMOUNT_COOLDOWN )); then return; fi
+    local delay=$((CIFS_REMOUNT_COOLDOWN << RECOVERY_FAILURES))
+    if (( LAST_RECOVERY >= 0 && SECONDS - LAST_RECOVERY < delay )); then return; fi
 
-    local reason health refresh=false
+    local reason="" health refresh=false
     if ! nas_is_healthy; then
+        NAS_FAILURES=$((NAS_FAILURES + 1))
+        if (( NAS_FAILURES < 3 )); then return; fi
         reason="Media mount is unavailable."
         refresh=true
-    elif ! timeout -k 1 5 systemctl is-active --quiet piTrove.service 2>/dev/null; then
-        reason="piTrove.service is inactive."
-        refresh=true
     else
+        NAS_FAILURES=0
         health=$(container_health || true)
-        if [[ "$health" == unhealthy ]]; then
-            reason="piTrove container is unhealthy."
-            refresh=true
-        elif container_bind_is_stale; then
-            reason="Container media bind is stale."
-        elif [[ "$WAS_OFFLINE" == true && "$health" == healthy ]]; then
-            log "Network recovered and piTrove can read the media mount."
-            WAS_OFFLINE=false
-            return
+        if [[ "$health" == unhealthy ]] ||
+           { [[ -z "$health" ]] && ! timeout -k 1 5 systemctl is-active --quiet piTrove.service 2>/dev/null; }; then
+            reason="piTrove is inactive or unhealthy."
+        elif [[ "$health" == healthy ]]; then
+            if [[ "$WAS_OFFLINE" == true ]] || (( SECONDS >= NEXT_BIND_PROBE )); then
+                NEXT_BIND_PROBE=$((SECONDS + 300))
+                if container_bind_is_stale; then
+                    reason="Container media bind is stale."
+                fi
+            fi
+            if [[ -z "${reason:-}" ]]; then
+                if [[ "$WAS_OFFLINE" == true ]]; then
+                    log "Network recovered and piTrove can read the media mount."
+                    WAS_OFFLINE=false
+                fi
+                return
+            fi
         else
             return
         fi
     fi
 
-    LAST_RECOVERY=$SECONDS
     log "$reason Starting recovery."
-    if [[ "$refresh" == true ]] && ! refresh_nas_mount; then return; fi
-    if restart_application; then
+    if { [[ "$refresh" == false ]] || refresh_nas_mount; } && restart_application; then
         WAS_OFFLINE=false
+        NAS_FAILURES=0
+        RECOVERY_FAILURES=0
+        NEXT_BIND_PROBE=$((SECONDS + 300))
     else
         log "Application restart deferred or failed. Retrying after cooldown."
+        if (( RECOVERY_FAILURES < 4 )); then RECOVERY_FAILURES=$((RECOVERY_FAILURES + 1)); fi
     fi
+    LAST_RECOVERY=$SECONDS
 }
 
 main() {

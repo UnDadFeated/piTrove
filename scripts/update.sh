@@ -8,12 +8,16 @@ if [[ ! -d "$PROJECT_DIR" ]]; then
 fi
 CONTAINER="piTrove"
 SERVICE="pitrove"
+UNIT="piTrove.service"
 BACKUP_DIR="${PROJECT_DIR}/backups"
-
 cd "$PROJECT_DIR"
 
 if [[ "$(git branch --show-current)" != "develop" ]]; then
   echo "Update requires the develop branch" >&2
+  exit 1
+fi
+if ! git diff --quiet || ! git diff --cached --quiet; then
+  echo "Commit or set aside local changes before updating" >&2
   exit 1
 fi
 
@@ -24,50 +28,105 @@ if ! flock -n 9; then
   exit 1
 fi
 
-git pull --ff-only origin develop
+previous_revision="$(git rev-parse HEAD)"
+previous_image=
+previous_image_name=
 
-if [[ -d config ]]; then
-  backup="$(mktemp -d "$BACKUP_DIR/config-$(date +%Y%m%d-%H%M%S).XXXXXX")"
-  cp -a config/. "$backup/"
-fi
+managed=false
+if systemctl is-active --quiet "$UNIT" 2>/dev/null; then managed=true; fi
+service_touched=false
+config_backup=
+config_ready=false
 
-service_image="$(docker compose config --images "$SERVICE")"
-if [[ -z "$service_image" || "$service_image" == *$'\n'* ]]; then
-  echo "Could not resolve the piTrove service image" >&2
-  exit 1
-fi
-old_image_id="$(docker inspect --format='{{.Image}}' "$CONTAINER" 2>/dev/null || true)"
-if [[ -n "$old_image_id" ]]; then
-  docker image tag "$old_image_id" pitrove:rollback
-fi
+stop_service() {
+  if [[ "$managed" == true ]]; then
+    sudo -n systemctl stop "$UNIT"
+  else
+    docker compose stop "$SERVICE"
+  fi
+}
 
-env BUILDKIT_PROGRESS=plain docker compose build "$SERVICE"
-new_image_id="$(docker image inspect --format='{{.Id}}' "$service_image")"
+start_service() {
+  if [[ "$managed" == true ]]; then
+    sudo -n systemctl start "$UNIT"
+  else
+    docker compose up -d --force-recreate "$SERVICE"
+  fi
+}
 
 wait_for_health() {
   local expected="$1" state
-  for _ in {1..20}; do
+  for _ in {1..24}; do
     state="$(docker inspect --format='{{.Image}} {{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$CONTAINER" 2>/dev/null || true)"
     if [[ "$state" == "$expected healthy" ]]; then return 0; fi
-    sleep 6
+    if [[ "$state" == *' unhealthy' ]]; then return 1; fi
+    sleep 5
   done
   return 1
 }
 
-if docker compose up -d "$SERVICE" && wait_for_health "$new_image_id"; then
-  echo "Update healthy"
-  exit 0
+rollback() {
+  local prior_status=$?
+  if (( prior_status == 0 )); then return; fi
+  trap - EXIT
+  set +e
+  echo "Update failed. Restoring the previous revision." >&2
+  if [[ "$service_touched" == true ]] && ! stop_service; then
+    echo "Could not stop the service for a safe rollback" >&2
+    exit "$prior_status"
+  fi
+  git reset --keep "$previous_revision" || echo "Could not restore the previous Git revision" >&2
+  if [[ "$config_ready" == true ]]; then
+    for name in config.toml secrets.toml; do
+      if [[ -f "$config_backup/$name" ]]; then
+        cp -p -- "$config_backup/$name" "config/$name"
+      else
+        rm -f -- "config/$name"
+      fi
+    done
+  fi
+  if [[ -n "$previous_image" ]]; then
+    if docker image tag "$previous_image" "$previous_image_name" &&
+       { [[ "$service_touched" == false ]] || { start_service && wait_for_health "$previous_image"; }; }; then
+      echo "Previous image restored" >&2
+    else
+      echo "Previous image could not be restored" >&2
+    fi
+  fi
+  exit "$prior_status"
+}
+trap rollback EXIT
+
+git pull --ff-only origin develop
+previous_image="$(docker inspect --format='{{.Image}}' "$CONTAINER" 2>/dev/null || true)"
+if [[ -n "$previous_image" ]]; then
+  previous_image_name="$(docker inspect --format='{{.Config.Image}}' "$CONTAINER")"
+  if [[ -z "$previous_image_name" || "$previous_image_name" == *$'\n'* ]]; then
+    echo "Could not resolve the previous piTrove image" >&2
+    exit 1
+  fi
+  docker image tag "$previous_image" pitrove:rollback
+fi
+new_image_name="$(docker compose config --images "$SERVICE")"
+if [[ -z "$new_image_name" || "$new_image_name" == *$'\n'* ]]; then exit 1; fi
+env BUILDKIT_PROGRESS=plain docker compose build "$SERVICE"
+new_image="$(docker image inspect --format='{{.Id}}' "$new_image_name")"
+
+media_dir="$(docker inspect --format='{{range .Mounts}}{{if eq .Destination "/app/media"}}{{.Source}}{{end}}{{end}}' "$CONTAINER" 2>/dev/null || true)"
+if [[ "$media_dir" == /mnt/nas ]]; then mountpoint -q "$media_dir"; fi
+if [[ -n "$media_dir" ]]; then timeout -k 2 8 ls -U -- "$media_dir" >/dev/null; fi
+
+service_touched=true
+stop_service
+if [[ -d config ]]; then
+  config_backup="$(mktemp -d "$BACKUP_DIR/config-$(date +%Y%m%d-%H%M%S).XXXXXX")"
+  for name in config.toml secrets.toml; do
+    if [[ -f "config/$name" ]]; then cp -p -- "config/$name" "$config_backup/$name"; fi
+  done
+  config_ready=true
 fi
 
-echo "Update failed to start or become healthy" >&2
-if [[ -n "$old_image_id" ]]; then
-  echo "Restoring previous piTrove image" >&2
-  if docker image tag "$old_image_id" "$service_image" &&
-     docker compose up -d --force-recreate "$SERVICE" &&
-     wait_for_health "$old_image_id"; then
-    echo "Previous image healthy" >&2
-  else
-    echo "Rollback did not become healthy" >&2
-  fi
-fi
-exit 1
+start_service
+wait_for_health "$new_image"
+trap - EXIT
+echo "Update healthy"

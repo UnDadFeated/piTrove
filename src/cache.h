@@ -19,7 +19,7 @@ struct CacheManager {
     bool open(const std::string& dir);
     void close();
     bool load_cached(MediaItem& mi);
-    void upsert(MediaItem mi, int bad, int preprocessed = 1, bool resolve_metadata = true);
+    void upsert(const MediaItem& mi, int bad, int preprocessed = 1);
     bool mark_preprocessed(const std::string& path);
     void mark_shown(const std::string& path);
     void mark_bad(const std::string& filepath);

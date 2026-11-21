@@ -186,6 +186,7 @@ static std::string http_post(const std::string& url, const std::string& body,
                              const std::string& content_type, const std::string& bearer) {
   CURL* curl = curl_easy_init();
   if (!curl) return "";
+  http_transfer::configure_public_https(curl);
   std::string response;
   http_transfer::TextBuffer buffer{&response, 4 * 1024 * 1024};
   curl_slist* headers = curl_slist_append(nullptr, ("Content-Type: " + content_type).c_str());

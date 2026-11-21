@@ -1,4 +1,5 @@
 #include "renderer.h"
+#include <array>
 #include "util.h"
 #include "config.h"
 #include <SDL3_image/SDL_image.h>
@@ -193,6 +194,8 @@ bool Renderer::init(int w, int h, bool fullscreen) {
     g_logger.info("[TRACE] SDL_CreateRenderer OK renderer={}", (void*)sdl_renderer);
 
     SDL_SetRenderDrawBlendMode(sdl_renderer, SDL_BLENDMODE_BLEND);
+    if (!SDL_SetRenderVSync(sdl_renderer, 1))
+        g_logger.debug("Renderer VSync is unavailable: {}", SDL_GetError());
     g_logger.info("[TRACE] Renderer::init complete");
     return true;
 }
@@ -204,6 +207,10 @@ void Renderer::cleanup() {
     cleanup_splash();
 
     if (sdl_renderer) {
+        if (bias_gradient) SDL_DestroyTexture(bias_gradient);
+        bias_gradient = nullptr;
+        if (pattern_background.texture) SDL_DestroyTexture(pattern_background.texture);
+        pattern_background = {};
         SDL_DestroyRenderer(sdl_renderer);
         sdl_renderer = nullptr;
     }
@@ -360,7 +367,6 @@ void Renderer::present() {
 void Renderer::draw_blurred_background(SDL_Texture* blur_texture, Uint8 vignette_alpha) {
     if (!blur_texture || !sdl_renderer) return;
 
-    SDL_SetRenderTarget(sdl_renderer, nullptr);
     SDL_SetRenderDrawBlendMode(sdl_renderer, SDL_BLENDMODE_BLEND);
 
     // Render the blur texture fullscreen with alpha modulation for vignette darkening
@@ -377,9 +383,6 @@ void Renderer::draw_background(ImageData* data, const std::string& bg_style, Uin
         return;
     }
 
-    static ImageData* last_data = nullptr;
-    static std::vector<std::string> resolved_styles;
-
     if (bg_style == "plain") {
         float factor = (float)vignette_alpha / 255.0f * 0.7f;
         clear((Uint8)(data->avg_r * factor), (Uint8)(data->avg_g * factor), (Uint8)(data->avg_b * factor), 255);
@@ -388,24 +391,24 @@ void Renderer::draw_background(ImageData* data, const std::string& bg_style, Uin
         Uint8 base_r = (Uint8)(data->avg_r * factor);
         Uint8 base_g = (Uint8)(data->avg_g * factor);
         Uint8 base_b = (Uint8)(data->avg_b * factor);
-        clear(base_r, base_g, base_b, 255);
-
-        SDL_SetRenderDrawBlendMode(sdl_renderer, SDL_BLENDMODE_BLEND);
-        
-        // Calculate base color brightness to decide whether to make pattern lines lighter or darker
-        int snap_pattern_offset;
+        // Keep procedural animation at pattern_fps even when the ticker is at 60 Hz.
+        auto& cache = pattern_background;
+        int snap_pattern_offset, snap_blend_count, snap_pattern_fps;
         std::string snap_pattern_style;
-        int snap_blend_count;
         {
             std::shared_lock lk(g_config_mtx);
             snap_pattern_offset = g_cfg.pattern_offset;
             snap_pattern_style = g_cfg.pattern_style;
             snap_blend_count = g_cfg.pattern_blend_count;
+            snap_pattern_fps = std::clamp(g_cfg.pattern_fps, 1, 60);
         }
-
-        if (data != last_data || resolved_styles.empty()) {
-            last_data = data;
-            resolved_styles.clear();
+        const bool new_style = cache.styles.empty() || cache.filename != data->filename ||
+                               cache.style != snap_pattern_style || cache.blend_count != snap_blend_count;
+        if (new_style) {
+            cache.filename = data->filename;
+            cache.style = snap_pattern_style;
+            cache.blend_count = snap_blend_count;
+            cache.styles.clear();
             if (snap_pattern_style == "random_animated") {
                 std::vector<std::string> styles = {
                     "animated_combined", "animated_grid", "animated_waves",
@@ -417,7 +420,7 @@ void Renderer::draw_background(ImageData* data, const std::string& bg_style, Uin
                 std::vector<std::string> pool = styles;
                 for (int c = 0; c < count && !pool.empty(); ++c) {
                     int r_idx = std::rand() % pool.size();
-                    resolved_styles.push_back(pool[r_idx]);
+                    cache.styles.push_back(pool[r_idx]);
                     pool.erase(pool.begin() + r_idx);
                 }
             } else if (snap_pattern_style == "random_static") {
@@ -431,17 +434,50 @@ void Renderer::draw_background(ImageData* data, const std::string& bg_style, Uin
                 std::vector<std::string> pool = styles;
                 for (int c = 0; c < count && !pool.empty(); ++c) {
                     int r_idx = std::rand() % pool.size();
-                    resolved_styles.push_back(pool[r_idx]);
+                    cache.styles.push_back(pool[r_idx]);
                     pool.erase(pool.begin() + r_idx);
                 }
             } else {
-                resolved_styles.push_back(snap_pattern_style);
+                cache.styles.push_back(snap_pattern_style);
             }
-        } else if (snap_pattern_style != "random_animated" && snap_pattern_style != "random_static") {
-            resolved_styles.clear();
-            resolved_styles.push_back(snap_pattern_style);
         }
-        
+
+        const bool resized = cache.width != screen_w || cache.height != screen_h;
+        const bool changed = new_style || resized || cache.r != base_r || cache.g != base_g ||
+                             cache.b != base_b || cache.offset != snap_pattern_offset ||
+                             cache.fps != snap_pattern_fps;
+        const bool animated = std::any_of(cache.styles.begin(), cache.styles.end(),
+                                          [](const std::string& style) { return style.starts_with("animated_"); });
+        const Uint64 now = SDL_GetTicks();
+        if (cache.texture && !changed && (!animated || now < cache.refresh_at)) {
+            SDL_RenderTexture(sdl_renderer, cache.texture, nullptr, nullptr);
+            return;
+        }
+
+        if (resized && cache.texture) {
+            SDL_DestroyTexture(cache.texture);
+            cache.texture = nullptr;
+        }
+        if (!cache.texture) {
+            cache.texture = SDL_CreateTexture(sdl_renderer, SDL_PIXELFORMAT_RGBA32,
+                                              SDL_TEXTUREACCESS_TARGET, screen_w, screen_h);
+            if (cache.texture) SDL_SetTextureBlendMode(cache.texture, SDL_BLENDMODE_NONE);
+        }
+        SDL_Texture* previous_target = SDL_GetRenderTarget(sdl_renderer);
+        const bool using_cache = cache.texture && SDL_SetRenderTarget(sdl_renderer, cache.texture);
+        if (!using_cache && cache.texture) {
+            SDL_DestroyTexture(cache.texture);
+            cache.texture = nullptr;
+        }
+        cache.width = screen_w;
+        cache.height = screen_h;
+        cache.r = base_r; cache.g = base_g; cache.b = base_b;
+        cache.offset = snap_pattern_offset;
+        cache.fps = snap_pattern_fps;
+        cache.refresh_at = now + (1000 + snap_pattern_fps - 1) / snap_pattern_fps;
+
+        clear(base_r, base_g, base_b, 255);
+        SDL_SetRenderDrawBlendMode(sdl_renderer, SDL_BLENDMODE_BLEND);
         float brightness = 0.299f * base_r + 0.587f * base_g + 0.114f * base_b;
         Uint8 pr, pg, pb;
         if (brightness > 128.0f) {
@@ -454,7 +490,7 @@ void Renderer::draw_background(ImageData* data, const std::string& bg_style, Uin
             pb = (Uint8)std::min(255, (int)base_b + snap_pattern_offset);
         }
 
-        for (const auto& resolved_style : resolved_styles) {
+        for (const auto& resolved_style : cache.styles) {
             double time_sec = 0.0;
             if (resolved_style.rfind("animated_", 0) == 0) {
                 time_sec = (double)SDL_GetTicks() / 1000.0;
@@ -902,6 +938,10 @@ void Renderer::draw_background(ImageData* data, const std::string& bg_style, Uin
             }
         }
         }
+        if (using_cache) {
+            SDL_SetRenderTarget(sdl_renderer, previous_target);
+            SDL_RenderTexture(sdl_renderer, cache.texture, nullptr, nullptr);
+        }
     } else {
         // "photo" style (default)
         if (data->blur_texture) {
@@ -975,196 +1015,98 @@ void Renderer::draw_matte_borders(const SDL_Rect& fit_rect) {
     }
 }
 
-void Renderer::draw_bias_lighting(const SDL_Rect& fit_rect, Uint8 avg_r, Uint8 avg_g, Uint8 avg_b,
-        int bias_strength, float item_timer, float anim_speed, const std::string& style, int border_width, int glow_depth) {
-    if (!sdl_renderer) return;
-    int sw = screen_w, sh = screen_h;
-    int bw_top = border_width;
-    int bw_left = border_width;
-    int bw_right = border_width;
-    int bw_bottom = border_width;
-    std::string border_mode = "off";
+void Renderer::draw_bias_lighting(const SDL_Rect& fit_rect, const SDL_Rect& bounds,
+        Uint8 avg_r, Uint8 avg_g, Uint8 avg_b, int bias_strength, float item_timer,
+        float anim_speed, const std::string& style, int border_width, int glow_depth) {
+    if (!sdl_renderer || fit_rect.w <= 0 || fit_rect.h <= 0 || bias_strength <= 0) return;
+
+    constexpr int size = 64;
+    if (!bias_gradient) {
+        std::array<Uint8, size * size * 4> pixels;
+        for (int y = 0; y < size; ++y) {
+            for (int x = 0; x < size; ++x) {
+                float dx = 2.0f * x / (size - 1);
+                float dy = 2.0f * y / (size - 1);
+                auto offset = 4 * (y * size + x);
+                pixels[offset] = pixels[offset + 1] = pixels[offset + 2] = 255;
+                pixels[offset + 3] = static_cast<Uint8>(std::round(255 * std::exp(-2.5f * (dx * dx + dy * dy))));
+            }
+        }
+        bias_gradient = SDL_CreateTexture(sdl_renderer, SDL_PIXELFORMAT_RGBA32, SDL_TEXTUREACCESS_STATIC, size, size);
+        if (!bias_gradient) return;
+        if (!SDL_UpdateTexture(bias_gradient, nullptr, pixels.data(), size * 4) ||
+            !SDL_SetTextureBlendMode(bias_gradient, SDL_BLENDMODE_BLEND) ||
+            !SDL_SetTextureScaleMode(bias_gradient, SDL_SCALEMODE_LINEAR)) {
+            SDL_DestroyTexture(bias_gradient);
+            bias_gradient = nullptr;
+            return;
+        }
+    }
+
+    bool shadow;
+    int bottom_border = border_width;
+    float color_factor;
     {
-        std::shared_lock lk(g_config_mtx);
-        border_mode = g_cfg.border_mode;
+        std::shared_lock lock(g_config_mtx);
+        shadow = g_cfg.edge_glow_shadow;
+        color_factor = (g_cfg.bg_style == "plain" ? 0.7f : 0.35f) * g_cfg.vignette_strength * 0.65f;
+        if (g_cfg.border_mode == "polaroid") bottom_border *= 4;
     }
-    if (border_mode == "polaroid" && border_width > 0) {
-        bw_bottom = border_width * 4;
-    } // use config border_width (default 10)
-    int glow_steps = glow_depth > 0 ? glow_depth : 16; // configurable glow fade depth
-    float sf = (float)std::max(0, std::min(bias_strength, 200)) / 150.0f;
-    float pulse = 1.0f;
-    if (style == "pulse" || style == "edge_glow" || style == "breathe") {
-        float t = item_timer * anim_speed;
-        if (style == "breathe") {
-            pulse = 0.7f + 0.3f * (0.5f + 0.5f * sinf(t * 3.14159f));
-        } else {
-            pulse = 0.85f + 0.15f * (0.5f + 0.5f * sinf(t * 3.14159f * 2));
-        }
+    float strength = std::min(bias_strength, 200) / 150.0f;
+    if (shadow) {
+        avg_r = static_cast<Uint8>(avg_r * color_factor);
+        avg_g = static_cast<Uint8>(avg_g * color_factor);
+        avg_b = static_cast<Uint8>(avg_b * color_factor);
+    } else if (style == "breathe") {
+        strength *= 0.85f + 0.15f * std::sin(item_timer * anim_speed * 3.14159f);
+    } else if (style == "pulse" || style == "edge_glow") {
+        strength *= 0.925f + 0.075f * std::sin(item_timer * anim_speed * 6.28318f);
     }
+    SDL_SetTextureAlphaModFloat(bias_gradient, std::min(strength, 1.0f));
+    SDL_SetTextureColorMod(bias_gradient, avg_r, avg_g, avg_b);
 
-    // Glow: gradient strips outward from border, brightest at border edge, fading into matte
-    auto glow_up = [&](int gx, int gy, int gw, int max_depth) {
-        for (int s = 0; s <= max_depth; s++) {
-            float t2 = (float)s / glow_steps;
-            float alpha_f = std::expf(-2.5f * t2 * t2) * sf * pulse;
-            if (alpha_f < 0.01f) break;
-            Uint8 aa = (Uint8)(alpha_f * 255.0f);
-            SDL_SetRenderDrawColor(sdl_renderer, avg_r, avg_g, avg_b, aa);
-            SDL_FRect r = {(float)gx, (float)(gy - s), (float)gw, 1.0f};
-            SDL_RenderFillRect(sdl_renderer, &r);
-        }
-    };
-    auto glow_down = [&](int gx, int gy, int gw, int max_depth) {
-        for (int s = 0; s < max_depth; s++) {
-            float t2 = (float)s / glow_steps;
-            float alpha_f = std::expf(-2.5f * t2 * t2) * sf * pulse;
-            if (alpha_f < 0.01f) break;
-            Uint8 aa = (Uint8)(alpha_f * 255.0f);
-            SDL_SetRenderDrawColor(sdl_renderer, avg_r, avg_g, avg_b, aa);
-            SDL_FRect r = {(float)gx, (float)(gy + s), (float)gw, 1.0f};
-            SDL_RenderFillRect(sdl_renderer, &r);
-        }
-    };
-    auto glow_left = [&](int gx, int gy, int max_depth, int gh) {
-        for (int s = 0; s <= max_depth; s++) {
-            float t2 = (float)s / glow_steps;
-            float alpha_f = std::expf(-2.5f * t2 * t2) * sf * pulse;
-            if (alpha_f < 0.01f) break;
-            Uint8 aa = (Uint8)(alpha_f * 255.0f);
-            SDL_SetRenderDrawColor(sdl_renderer, avg_r, avg_g, avg_b, aa);
-            SDL_FRect r = {(float)(gx - s), (float)gy, 1.0f, (float)gh};
-            SDL_RenderFillRect(sdl_renderer, &r);
-        }
-    };
-    auto glow_right = [&](int gx, int gy, int max_depth, int gh) {
-        for (int s = 0; s < max_depth; s++) {
-            float t2 = (float)s / glow_steps;
-            float alpha_f = std::expf(-2.5f * t2 * t2) * sf * pulse;
-            if (alpha_f < 0.01f) break;
-            Uint8 aa = (Uint8)(alpha_f * 255.0f);
-            SDL_SetRenderDrawColor(sdl_renderer, avg_r, avg_g, avg_b, aa);
-            SDL_FRect r = {(float)(gx + s), (float)gy, 1.0f, (float)gh};
-            SDL_RenderFillRect(sdl_renderer, &r);
-        }
-    };
-
-    bool shadow_mode;
-    { std::shared_lock lk(g_config_mtx); shadow_mode = g_cfg.edge_glow_shadow; }
-        // Shadow color = 50% of background brightness (guarantees darker than bg)
-    float bg_factor = 0.35f;
-    { std::shared_lock lk(g_config_mtx);
-        float vignette_str = g_cfg.vignette_strength;
-        bg_factor = (g_cfg.bg_style == "plain") ? 0.7f : 0.35f;
-        bg_factor *= vignette_str * 0.65f;
+    SDL_Rect previous_clip{};
+    SDL_Rect clip = bounds;
+    const bool had_clip = SDL_RenderClipEnabled(sdl_renderer);
+    if (had_clip) {
+        SDL_GetRenderClipRect(sdl_renderer, &previous_clip);
+        if (!SDL_GetRectIntersection(&bounds, &previous_clip, &clip)) return;
     }
-    int shadow_r = (int)(avg_r * bg_factor);
-    int shadow_g = (int)(avg_g * bg_factor);
-    int shadow_b = (int)(avg_b * bg_factor);
-    if (shadow_mode) {
-        // 3D Shadow Look: only right and bottom glows, and bottom-right corner glow
-        auto glow_down_shadow = [&](int gx, int gy, int gw, int max_depth) {
-            for (int s = 0; s < max_depth; s++) {
-                // Draw the left corner part with fade: x from gx to gx + glow_steps
-                for (int i = 0; i < glow_steps && i < gw; i++) {
-                    int dx = glow_steps - i;
-                    float dist = std::sqrtf((float)(s * s + dx * dx));
-                    float t2 = dist / glow_steps;
-                    float alpha_f = std::expf(-2.5f * t2 * t2) * sf;
-                    if (alpha_f < 0.01f) continue;
-                    Uint8 aa = (Uint8)(alpha_f * 255.0f);
-                    SDL_SetRenderDrawColor(sdl_renderer, shadow_r, shadow_g, shadow_b, aa);
-                    SDL_FRect r = {(float)(gx + i), (float)(gy + s), 1.0f, 1.0f};
-                    SDL_RenderFillRect(sdl_renderer, &r);
-                }
-                // Draw the remaining straight part: x from gx + glow_steps to gx + gw
-                if (gw > glow_steps) {
-                    float t2 = (float)s / glow_steps;
-                    float alpha_f = std::expf(-2.5f * t2 * t2) * sf;
-                    if (alpha_f >= 0.01f) {
-                        Uint8 aa = (Uint8)(alpha_f * 255.0f);
-                        SDL_SetRenderDrawColor(sdl_renderer, shadow_r, shadow_g, shadow_b, aa);
-                        SDL_FRect r = {(float)(gx + glow_steps), (float)(gy + s), (float)(gw - glow_steps), 1.0f};
-                        SDL_RenderFillRect(sdl_renderer, &r);
-                    }
-                }
-            }
-        };
+    if (!SDL_SetRenderClipRect(sdl_renderer, &clip)) return;
 
-        auto glow_right_shadow = [&](int gx, int gy, int max_depth, int gh) {
-            for (int s = 0; s < max_depth; s++) {
-                // Draw the top corner part with fade: y from gy to gy + glow_steps
-                for (int j = 0; j < glow_steps && j < gh; j++) {
-                    int dy = glow_steps - j;
-                    float dist = std::sqrtf((float)(s * s + dy * dy));
-                    float t2 = dist / glow_steps;
-                    float alpha_f = std::expf(-2.5f * t2 * t2) * sf;
-                    if (alpha_f < 0.01f) continue;
-                    Uint8 aa = (Uint8)(alpha_f * 255.0f);
-                    SDL_SetRenderDrawColor(sdl_renderer, shadow_r, shadow_g, shadow_b, aa);
-                    SDL_FRect r = {(float)(gx + s), (float)(gy + j), 1.0f, 1.0f};
-                    SDL_RenderFillRect(sdl_renderer, &r);
-                }
-                // Draw the remaining straight part: y from gy + glow_steps to gy + gh
-                if (gh > glow_steps) {
-                    float t2 = (float)s / glow_steps;
-                    float alpha_f = std::expf(-2.5f * t2 * t2) * sf;
-                    if (alpha_f >= 0.01f) {
-                        Uint8 aa = (Uint8)(alpha_f * 255.0f);
-                        SDL_SetRenderDrawColor(sdl_renderer, shadow_r, shadow_g, shadow_b, aa);
-                        SDL_FRect r = {(float)(gx + s), (float)(gy + glow_steps), 1.0f, (float)(gh - glow_steps)};
-                        SDL_RenderFillRect(sdl_renderer, &r);
-                    }
-                }
-            }
-        };
+    const float x = static_cast<float>(fit_rect.x - border_width);
+    const float y = static_cast<float>(fit_rect.y - border_width);
+    const float w = static_cast<float>(fit_rect.w + 2 * border_width);
+    const float h = static_cast<float>(fit_rect.h + border_width + bottom_border);
+    const float depth = 2.0f * (glow_depth > 0 ? glow_depth : 16);
+    constexpr SDL_FRect horizontal{0, 0, 1, size};
+    constexpr SDL_FRect vertical{0, 0, size, 1};
+    const auto draw = [&](const SDL_FRect* src, const SDL_FRect& dst, SDL_FlipMode flip = SDL_FLIP_NONE) {
+        SDL_RenderTextureRotated(sdl_renderer, bias_gradient, src, &dst, 0.0, nullptr, flip);
+    };
 
-        { int depth = sh - (fit_rect.y + fit_rect.h + bw_bottom); if (depth > 0) glow_down_shadow(fit_rect.x - bw_left, fit_rect.y + fit_rect.h + bw_bottom, fit_rect.w + bw_left + bw_right + 1, depth); }
-        { int depth = sw - (fit_rect.x + fit_rect.w + bw_right); if (depth > 0) glow_right_shadow(fit_rect.x + fit_rect.w + bw_right, fit_rect.y - bw_top, depth, fit_rect.h + bw_top + bw_bottom + 1); }
-
-        auto glow_corner = [&](int px, int py, int dx, int dy, int region_w, int region_h) {
-            for (int i = 1; i <= region_w; i++) {
-                for (int j = 1; j <= region_h; j++) {
-                    float dist = std::sqrtf((float)(i * i + j * j));
-                    float t2 = dist / glow_steps;
-                    float alpha_f = std::expf(-2.5f * t2 * t2) * sf;
-                    if (alpha_f < 0.01f) continue;
-                    Uint8 aa = (Uint8)(alpha_f * 255.0f);
-                    SDL_SetRenderDrawColor(sdl_renderer, shadow_r, shadow_g, shadow_b, aa);
-                    SDL_FRect r = {(float)(px + i * dx), (float)(py + j * dy), 1.0f, 1.0f};
-                    SDL_RenderFillRect(sdl_renderer, &r);
-                }
-            }
-        };
-
-        { int rw = sw - (fit_rect.x + fit_rect.w + bw_right), rh = sh - (fit_rect.y + fit_rect.h + bw_bottom); if (rw > 0 && rh > 0) glow_corner(fit_rect.x + fit_rect.w + bw_right, fit_rect.y + fit_rect.h + bw_bottom, 1, 1, rw + 1, rh + 1); }
+    if (shadow) {
+        // Taper the two leading edges so the drop shadow appears offset.
+        const float taper_x = std::min(w, depth * 0.5f);
+        const float taper_y = std::min(h, depth * 0.5f);
+        constexpr SDL_FRect bottom_taper{0, 0, size / 2.0f, size};
+        constexpr SDL_FRect right_taper{0, 0, size, size / 2.0f};
+        draw(&bottom_taper, {x, y + h, taper_x, depth}, SDL_FLIP_HORIZONTAL);
+        draw(&right_taper, {x + w, y, depth, taper_y}, SDL_FLIP_VERTICAL);
+        if (w > taper_x) draw(&horizontal, {x + taper_x, y + h, w - taper_x, depth});
+        if (h > taper_y) draw(&vertical, {x + w, y + taper_y, depth, h - taper_y});
     } else {
-        // Normal 4-sided edge glow and all corners
-        { int depth = fit_rect.y - bw_top; if (depth > 0) glow_up(fit_rect.x - bw_left, fit_rect.y - bw_top, fit_rect.w + bw_left + bw_right + 1, depth); }
-        { int depth = sh - (fit_rect.y + fit_rect.h + bw_bottom); if (depth > 0) glow_down(fit_rect.x - bw_left, fit_rect.y + fit_rect.h + bw_bottom, fit_rect.w + bw_left + bw_right + 1, depth); }
-        { int depth = fit_rect.x - bw_left; if (depth > 0) glow_left(fit_rect.x - bw_left, fit_rect.y - bw_top, depth, fit_rect.h + bw_top + bw_bottom + 1); }
-        { int depth = sw - (fit_rect.x + fit_rect.w + bw_right); if (depth > 0) glow_right(fit_rect.x + fit_rect.w + bw_right, fit_rect.y - bw_top, depth, fit_rect.h + bw_top + bw_bottom + 1); }
-
-        auto glow_corner = [&](int px, int py, int dx, int dy, int region_w, int region_h) {
-            for (int i = 1; i <= region_w; i++) {
-                for (int j = 1; j <= region_h; j++) {
-                    float dist = std::sqrtf((float)(i * i + j * j));
-                    float t2 = dist / glow_steps;
-                    float alpha_f = std::expf(-2.5f * t2 * t2) * sf * pulse;
-                    if (alpha_f < 0.01f) continue;
-                    Uint8 aa = (Uint8)(alpha_f * 255.0f);
-                    SDL_SetRenderDrawColor(sdl_renderer, avg_r, avg_g, avg_b, aa);
-                    SDL_FRect r = {(float)(px + i * dx), (float)(py + j * dy), 1.0f, 1.0f};
-                    SDL_RenderFillRect(sdl_renderer, &r);
-                }
-            }
-        };
-
-        { int rw = fit_rect.x - bw_left, rh = fit_rect.y - bw_top; if (rw > 0 && rh > 0) glow_corner(fit_rect.x - bw_left, fit_rect.y - bw_top, -1, -1, rw, rh); }
-        { int rw = sw - (fit_rect.x + fit_rect.w + bw_right), rh = fit_rect.y - bw_top; if (rw > 0 && rh > 0) glow_corner(fit_rect.x + fit_rect.w + bw_right, fit_rect.y - bw_top, 1, -1, rw + 1, rh); }
-        { int rw = fit_rect.x - bw_left, rh = sh - (fit_rect.y + fit_rect.h + bw_bottom); if (rw > 0 && rh > 0) glow_corner(fit_rect.x - bw_left, fit_rect.y + fit_rect.h + bw_bottom, -1, 1, rw, rh + 1); }
-        { int rw = sw - (fit_rect.x + fit_rect.w + bw_right), rh = sh - (fit_rect.y + fit_rect.h + bw_bottom); if (rw > 0 && rh > 0) glow_corner(fit_rect.x + fit_rect.w + bw_right, fit_rect.y + fit_rect.h + bw_bottom, 1, 1, rw + 1, rh + 1); }
+        draw(&horizontal, {x, y - depth, w, depth}, SDL_FLIP_VERTICAL);
+        draw(&vertical, {x - depth, y, depth, h}, SDL_FLIP_HORIZONTAL);
+        draw(&horizontal, {x, y + h, w, depth});
+        draw(&vertical, {x + w, y, depth, h});
+        draw(nullptr, {x - depth, y - depth, depth, depth},
+             static_cast<SDL_FlipMode>(SDL_FLIP_HORIZONTAL | SDL_FLIP_VERTICAL));
+        draw(nullptr, {x + w, y - depth, depth, depth}, SDL_FLIP_VERTICAL);
+        draw(nullptr, {x - depth, y + h, depth, depth}, SDL_FLIP_HORIZONTAL);
     }
+    draw(nullptr, {x + w, y + h, depth, depth});
+    SDL_SetRenderClipRect(sdl_renderer, had_clip ? &previous_clip : nullptr);
 }
 
 void Renderer::draw_border(const SDL_Rect& fit_rect, const std::string& border_mode, Uint8 avg_r, Uint8 avg_g, Uint8 avg_b, int border_width, const std::string& filename) {
@@ -1473,6 +1415,7 @@ void Renderer::cleanup_splash() {
     if (splash_logo) {
         SDL_DestroyTexture(splash_logo);
         splash_logo = nullptr;
+        splash_logo_loaded = false;
     }
 
     crt_font.reset();
