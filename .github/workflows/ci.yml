@@ -38,7 +38,7 @@ jobs:
             build-essential cmake ninja-build pkg-config libsdl3-dev \
             libsdl3-image-dev libsdl3-ttf-dev libavcodec-dev libavformat-dev libswscale-dev \
             libswresample-dev libavutil-dev libsqlite3-dev libexif-dev libdrm-dev \
-            libgbm-dev libegl1-mesa-dev libgles2-mesa-dev libsodium-dev libstb-dev \
+            libgbm-dev libegl1-mesa-dev libgles2-mesa-dev libsodium-dev \
             libpng-dev libjpeg-dev libwebp-dev libtiff-dev libheif-dev liblcms2-dev zlib1g-dev \
             libcurl4-openssl-dev libical-dev nlohmann-json3-dev libmosquitto-dev mosquitto shellcheck python3 chromium python3-websocket
 

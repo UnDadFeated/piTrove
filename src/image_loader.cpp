@@ -8,6 +8,7 @@
 #include <tiffio.h>
 #include <zlib.h>
 #include <span>
+#include <mutex>
 #include <bit>
 extern "C" {
 #include <jpeglib.h>
@@ -25,75 +26,10 @@ static void jpeg_error_exit(j_common_ptr cinfo) {
     longjmp(err->jump, 1);
 }
 
-SDL_Surface* load_jpeg_scaled(const std::string& path, int max_w, int max_h) {
-    FILE* fp = std::fopen(path.c_str(), "rb");
-    [[unlikely]]
-    if (!fp) return nullptr;
-
-    jpeg_decompress_struct cinfo;
-    JpegErrorMgr jerr;
-    cinfo.err = jpeg_std_error(&jerr.pub);
-    jerr.pub.error_exit = jpeg_error_exit;
-
-    if (setjmp(jerr.jump)) {
-        jpeg_destroy_decompress(&cinfo);
-        std::fclose(fp);
-        return nullptr;
-    }
-
-    jpeg_create_decompress(&cinfo);
-    jpeg_stdio_src(&cinfo, fp);
-    jpeg_read_header(&cinfo, TRUE);
-
-    int den = 1;
-    while (den < 8 &&
-           (static_cast<int>(cinfo.image_width) / den > max_w ||
-            static_cast<int>(cinfo.image_height) / den > max_h)) {
-        ++den;
-    }
-
-    cinfo.scale_num = 1;
-    cinfo.scale_denom = den;
-    cinfo.out_color_space = JCS_RGB;
-    jpeg_calc_output_dimensions(&cinfo);
-
-    SDL_Surface* surface = SDL_CreateSurface(
-        static_cast<int>(cinfo.output_width),
-        static_cast<int>(cinfo.output_height),
-        SDL_PIXELFORMAT_RGBA32);
-
-    if (!surface) {
-        jpeg_destroy_decompress(&cinfo);
-        std::fclose(fp);
-        return nullptr;
-    }
-
-    jpeg_start_decompress(&cinfo);
-    std::vector<JSAMPLE> row_buffer(cinfo.output_width * cinfo.output_components);
-
-    while (cinfo.output_scanline < cinfo.output_height) {
-        JSAMPROW row = row_buffer.data();
-        jpeg_read_scanlines(&cinfo, &row, 1);
-        Uint8* dst = static_cast<Uint8*>(surface->pixels) +
-                     (cinfo.output_scanline - 1) * surface->pitch;
-        for (unsigned int x = 0; x < cinfo.output_width; ++x) {
-            dst[x * 4 + 0] = row_buffer[x * 3 + 0];
-            dst[x * 4 + 1] = row_buffer[x * 3 + 1];
-            dst[x * 4 + 2] = row_buffer[x * 3 + 2];
-            dst[x * 4 + 3] = 255;
-        }
-    }
-
-    jpeg_finish_decompress(&cinfo);
-    jpeg_destroy_decompress(&cinfo);
-    std::fclose(fp);
-    return surface;
-}
-
 #include "config.h"
 #include "renderer.h"
 #include "util.h"
-#include <stb_image.h>
+#include <SDL3_image/SDL_image.h>
 #include <algorithm>
 #include <stdexcept>
 #include <cstring>
@@ -116,6 +52,9 @@ static bool is_webp(std::span<const uint8_t> bytes) {
            std::memcmp(bytes.data() + 8, "WEBP", 4) == 0;
 }
 
+// SDL_image 3.2.x has shared codec initialization state for PNG and JPEG.
+std::mutex g_sdl_image_mutex;
+
 namespace {
 
 constexpr size_t max_icc_size = 4 * 1024 * 1024;
@@ -124,6 +63,186 @@ bool usable_dimensions(int w, int h) {
     constexpr size_t max_pixels = 64ULL * 1024 * 1024;
     return w > 0 && h > 0 && w <= 16384 && h <= 16384 &&
            static_cast<size_t>(w) <= max_pixels / static_cast<size_t>(h);
+}
+
+enum class CommonFormat { Unknown, Jpeg, Png, Gif, Bmp };
+
+CommonFormat common_format(std::span<const uint8_t> data) {
+    if (data.size() >= 3 && data[0] == 0xff && data[1] == 0xd8 && data[2] == 0xff)
+        return CommonFormat::Jpeg;
+    constexpr uint8_t png_signature[]{0x89, 'P', 'N', 'G', 13, 10, 26, 10};
+    if (data.size() >= sizeof(png_signature) &&
+        std::memcmp(data.data(), png_signature, sizeof(png_signature)) == 0) return CommonFormat::Png;
+    if (data.size() >= 6 && (std::memcmp(data.data(), "GIF87a", 6) == 0 ||
+                             std::memcmp(data.data(), "GIF89a", 6) == 0)) return CommonFormat::Gif;
+    if (data.size() >= 2 && data[0] == 'B' && data[1] == 'M') return CommonFormat::Bmp;
+    return CommonFormat::Unknown;
+}
+
+uint16_t read_le16(const uint8_t* bytes) {
+    return static_cast<uint16_t>(bytes[0] | (bytes[1] << 8));
+}
+
+uint32_t read_le32(const uint8_t* bytes) {
+    return read_le16(bytes) | (static_cast<uint32_t>(read_le16(bytes + 2)) << 16);
+}
+
+uint32_t read_be32(const uint8_t* bytes) {
+    return (static_cast<uint32_t>(bytes[0]) << 24) | (static_cast<uint32_t>(bytes[1]) << 16) |
+           (static_cast<uint32_t>(bytes[2]) << 8) | bytes[3];
+}
+
+bool jpeg_dimensions(std::span<const uint8_t> data, int& w, int& h) {
+    jpeg_decompress_struct jpeg{};
+    JpegErrorMgr error;
+    jpeg.err = jpeg_std_error(&error.pub);
+    error.pub.error_exit = jpeg_error_exit;
+    error.pub.output_message = [](j_common_ptr) {};
+    if (setjmp(error.jump)) {
+        jpeg_destroy_decompress(&jpeg);
+        return false;
+    }
+    jpeg_create_decompress(&jpeg);
+    jpeg_mem_src(&jpeg, data.data(), data.size());
+    const bool ready = jpeg_read_header(&jpeg, TRUE) == JPEG_HEADER_OK;
+    w = static_cast<int>(jpeg.image_width);
+    h = static_cast<int>(jpeg.image_height);
+    jpeg_destroy_decompress(&jpeg);
+    return ready && usable_dimensions(w, h);
+}
+
+bool common_dimensions(CommonFormat format, std::span<const uint8_t> data, int& w, int& h) {
+    switch (format) {
+        case CommonFormat::Jpeg:
+            return jpeg_dimensions(data, w, h);
+        case CommonFormat::Png:
+            if (data.size() < 33 || read_be32(data.data() + 8) != 13 ||
+                std::memcmp(data.data() + 12, "IHDR", 4) != 0) return false;
+            if (read_be32(data.data() + 16) > INT_MAX || read_be32(data.data() + 20) > INT_MAX)
+                return false;
+            w = static_cast<int>(read_be32(data.data() + 16));
+            h = static_cast<int>(read_be32(data.data() + 20));
+            break;
+        case CommonFormat::Gif:
+            if (data.size() < 13) return false;
+            w = read_le16(data.data() + 6);
+            h = read_le16(data.data() + 8);
+            break;
+        case CommonFormat::Bmp: {
+            if (data.size() < 26) return false;
+            const uint32_t header = read_le32(data.data() + 14);
+            if (header == 12) {
+                w = read_le16(data.data() + 18);
+                h = read_le16(data.data() + 20);
+            } else {
+                if (header < 16 || header > data.size() - 14) return false;
+                w = std::bit_cast<int32_t>(read_le32(data.data() + 18));
+                const auto signed_height = std::bit_cast<int32_t>(read_le32(data.data() + 22));
+                if (signed_height == INT_MIN) return false;
+                h = std::abs(signed_height);
+            }
+            break;
+        }
+        case CommonFormat::Unknown:
+            return false;
+    }
+    return usable_dimensions(w, h);
+}
+
+bool skip_gif_blocks(std::span<const uint8_t> data, size_t& pos) {
+    while (pos < data.size()) {
+        const auto length = data[pos++];
+        if (length == 0) return true;
+        if (length > data.size() - pos) return false;
+        pos += length;
+    }
+    return false;
+}
+
+bool first_gif_frame(std::span<const uint8_t>& data, SDL_Rect& frame, int w, int h) {
+    const auto color_table_size = [](uint8_t flags) -> size_t {
+        return (flags & 0x80) ? 3U << ((flags & 7) + 1) : 0;
+    };
+    size_t pos = 13 + color_table_size(data[10]);
+    while (pos < data.size()) {
+        const auto marker = data[pos++];
+        if (marker == '!') {
+            if (pos >= data.size()) return false;
+            ++pos; // Extension type.
+            if (!skip_gif_blocks(data, pos)) return false;
+            continue;
+        }
+        if (marker != ',' || data.size() - pos < 9) return false;
+        frame = {read_le16(data.data() + pos), read_le16(data.data() + pos + 2),
+                 read_le16(data.data() + pos + 4), read_le16(data.data() + pos + 6)};
+        if (!usable_dimensions(frame.w, frame.h) || frame.x + frame.w > w || frame.y + frame.h > h)
+            return false;
+        pos += 9 + color_table_size(data[pos + 8]);
+        if (pos >= data.size()) return false;
+        ++pos; // LZW minimum code size.
+        if (!skip_gif_blocks(data, pos)) return false;
+        // SDL_image should only see the first frame we checked.
+        data = data.first(pos);
+        return true;
+    }
+    return false;
+}
+
+bool decode_common(CommonFormat format, std::span<const uint8_t> data, RawImage& result) {
+    SDL_Rect frame{};
+    if (format == CommonFormat::Gif && !first_gif_frame(data, frame, result.width, result.height))
+        return false;
+    std::unique_ptr<SDL_IOStream, decltype(&SDL_CloseIO)>
+        input(SDL_IOFromConstMem(data.data(), data.size()), SDL_CloseIO);
+    if (!input) return false;
+    using Surface = std::unique_ptr<SDL_Surface, decltype(&SDL_DestroySurface)>;
+    Surface decoded(nullptr, SDL_DestroySurface);
+    {
+        std::lock_guard lock(g_sdl_image_mutex);
+        switch (format) {
+            case CommonFormat::Jpeg: decoded.reset(IMG_LoadJPG_IO(input.get())); break;
+            case CommonFormat::Png: decoded.reset(IMG_LoadPNG_IO(input.get())); break;
+            case CommonFormat::Gif: decoded.reset(IMG_LoadGIF_IO(input.get())); break;
+            case CommonFormat::Bmp: decoded.reset(IMG_LoadBMP_IO(input.get())); break;
+            case CommonFormat::Unknown: return false;
+        }
+    }
+    if (!decoded || !usable_dimensions(decoded->w, decoded->h)) return false;
+    Surface rgba = decoded->format == SDL_PIXELFORMAT_RGBA32 && !SDL_SurfaceHasColorKey(decoded.get())
+        ? std::move(decoded)
+        : Surface(SDL_ConvertSurface(decoded.get(), SDL_PIXELFORMAT_RGBA32), SDL_DestroySurface);
+    decoded.reset();
+    if (!rgba) return false;
+    if (format == CommonFormat::Gif) {
+        if (rgba->w != frame.w || rgba->h != frame.h) return false;
+        if (frame.w != result.width || frame.h != result.height) {
+            Surface canvas(SDL_CreateSurface(result.width, result.height, SDL_PIXELFORMAT_RGBA32), SDL_DestroySurface);
+            if (!canvas) return false;
+            uint32_t background = 0;
+            const auto index = data[11];
+            const auto palette_entries = 2U << (data[10] & 7);
+            if ((data[10] & 0x80) && index > 0 && index < palette_entries) {
+                const auto* rgb = data.data() + 13 + 3 * index;
+                background = SDL_MapSurfaceRGBA(canvas.get(), rgb[0], rgb[1], rgb[2], 255);
+            }
+            if (!SDL_FillSurfaceRect(canvas.get(), nullptr, background) ||
+                !SDL_SetSurfaceBlendMode(rgba.get(), SDL_BLENDMODE_NONE) ||
+                !SDL_BlitSurface(rgba.get(), nullptr, canvas.get(), &frame)) return false;
+            rgba = std::move(canvas);
+        }
+    }
+    if (rgba->w != result.width || rgba->h != result.height || !SDL_LockSurface(rgba.get())) return false;
+    const size_t stride = static_cast<size_t>(result.width) * 4;
+    if (rgba->pixels && rgba->pitch >= 0 && static_cast<size_t>(rgba->pitch) >= stride) {
+        result.pixels = static_cast<uint8_t*>(std::malloc(stride * result.height));
+        if (result.pixels) {
+            const auto* src = static_cast<const uint8_t*>(rgba->pixels);
+            for (int y = 0; y < result.height; ++y)
+                std::memcpy(result.pixels + y * stride, src + static_cast<size_t>(y) * rgba->pitch, stride);
+        }
+    }
+    SDL_UnlockSurface(rgba.get());
+    return result.pixels != nullptr;
 }
 
 bool is_tiff(std::span<const uint8_t> data) {
@@ -336,10 +455,9 @@ bool ImageLoader::image_dimensions(std::span<const uint8_t> buffer, int& width, 
         const auto [ctx, handle] = open_heif(buffer);
         return heif_dimensions(handle.get(), width, height);
     }
-    int channels = 0;
-    const bool known = is_webp(buffer) ? WebPGetInfo(buffer.data(), buffer.size(), &width, &height) :
-        stbi_info_from_memory(buffer.data(), static_cast<int>(buffer.size()), &width, &height, &channels);
-    return known && usable_dimensions(width, height);
+    if (is_webp(buffer))
+        return WebPGetInfo(buffer.data(), buffer.size(), &width, &height) && usable_dimensions(width, height);
+    return common_dimensions(common_format(buffer), buffer, width, height);
 }
 
 RawImage ImageLoader::decode_rgba(std::span<const uint8_t> buffer) {
@@ -387,20 +505,20 @@ RawImage ImageLoader::decode_rgba(std::span<const uint8_t> buffer) {
         for (int y = 0; y < result.height; ++y)
             std::memcpy(result.pixels + y * stride, plane + static_cast<size_t>(y) * pitch, stride);
         convert_heif_profile(result, handle.get());
+    } else if (is_webp(buffer)) {
+        if (!WebPGetInfo(buffer.data(), buffer.size(), &result.width, &result.height) ||
+            !usable_dimensions(result.width, result.height)) return {};
+        const size_t stride = static_cast<size_t>(result.width) * 4;
+        const size_t size = stride * result.height;
+        result.pixels = static_cast<uint8_t*>(std::malloc(size));
+        if (!result.pixels || !WebPDecodeRGBAInto(buffer.data(), buffer.size(), result.pixels, size,
+                                                 static_cast<int>(stride))) return {};
+        convert_embedded_profile(result, buffer);
     } else {
-        if (!image_dimensions(buffer, result.width, result.height)) return {};
-        if (is_webp(buffer)) {
-            const size_t stride = static_cast<size_t>(result.width) * 4;
-            const size_t size = stride * result.height;
-            result.pixels = static_cast<uint8_t*>(std::malloc(size));
-            if (!result.pixels || !WebPDecodeRGBAInto(buffer.data(), buffer.size(), result.pixels, size,
-                                                     static_cast<int>(stride))) return {};
-        } else {
-            int channels = 0;
-            result.pixels = stbi_load_from_memory(buffer.data(), static_cast<int>(buffer.size()),
-                                                  &result.width, &result.height, &channels, 4);
-        }
-        if (result.pixels) convert_embedded_profile(result, buffer);
+        const auto format = common_format(buffer);
+        if (!common_dimensions(format, buffer, result.width, result.height) ||
+            !decode_common(format, buffer, result)) return {};
+        convert_embedded_profile(result, buffer);
     }
     result.channels = 4;
     result.format = ImageFormat::RGBA32;

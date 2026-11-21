@@ -235,7 +235,7 @@ std::vector<ErrorSeed> get_all_error_seeds() {
         },
         {
             "E213",
-            "stbi_load_OUT_OF_MEMORY",
+            "IMAGE_DECODER_OUT_OF_MEMORY",
             "The image decoder ran out of memory while decompressing a large image.",
             "Reduce the resolution of the image; avoid photos larger than 50 megapixels."
         },

@@ -23,6 +23,11 @@ static std::atomic<int> input_mode{0}; // 0 real, 1 pause until cancellation, 2 
 static std::atomic<bool> entered{false}, interrupted{false}, release_input{false};
 extern "C" int __real_avformat_open_input(AVFormatContext**, const char*, const AVInputFormat*, AVDictionary**);
 extern "C" int __wrap_avformat_open_input(AVFormatContext** context, const char* path, const AVInputFormat* format, AVDictionary** options) {
+    const auto* protocol = options ? av_dict_get(*options, "protocol_whitelist", nullptr, 0) : nullptr;
+    const auto* formats = options ? av_dict_get(*options, "format_whitelist", nullptr, 0) : nullptr;
+    check(protocol && std::string_view(protocol->value) == "file", "video input must be local");
+    check(formats && std::string_view(formats->value) == "mov,matroska,avi,nut",
+          "video input must use a supported container");
     int mode = input_mode.load();
     if (!mode) return __real_avformat_open_input(context, path, format, options);
     if (mode == 1) {

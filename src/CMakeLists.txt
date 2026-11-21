@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(piTrove VERSION 18.4.7 LANGUAGES CXX)
+project(piTrove VERSION 18.4.8 LANGUAGES CXX)
 add_compile_definitions(VERSION="${PROJECT_VERSION}")
 
 option(ENABLE_ASAN "Enable AddressSanitizer for memory safety testing" OFF)
@@ -46,9 +46,6 @@ pkg_check_modules(CURL REQUIRED libcurl)
 
 # EXIF
 find_library(EXIF_LIBRARY NAMES exif REQUIRED)
-
-# STB image
-pkg_check_modules(STB stb)
 
 # FFmpeg (for in-process video decoding)
 pkg_check_modules(AVCODEC REQUIRED libavcodec)
@@ -113,7 +110,6 @@ target_include_directories(piTrove PRIVATE
     ${SDL3_IMAGE_INCLUDE_DIRS}
     ${SDL3_TTF_INCLUDE_DIRS}
     ${SQLITE3_INCLUDE_DIRS}
-    ${STB_INCLUDE_DIRS}
     ${AVCODEC_INCLUDE_DIRS}
     ${AVFORMAT_INCLUDE_DIRS}
     ${SWSCALE_INCLUDE_DIRS}
@@ -144,7 +140,6 @@ target_link_libraries(piTrove PRIVATE
     ${SQLITE3_LIBRARIES}
     ${CURL_LIBRARIES}
     ${EXIF_LIBRARY}
-    ${STB_LIBRARIES}
     png16
     jpeg
     webp

@@ -2,6 +2,7 @@
 #include <malloc.h>
 #include "cache.h"
 #include "video_decoder.h"
+#include "video_input.h"
 #include "nv12_converter.h"
 #include <span>
 #include <SDL3/SDL_timer.h>
@@ -23,7 +24,6 @@ struct AvResource {
 };
 
 extern "C" {
-#include <libavformat/avformat.h>
 #include <libavcodec/avcodec.h>
 #include <libswscale/swscale.h>
 #include <libswresample/swresample.h>
@@ -520,7 +520,7 @@ void VideoDecoder::decode_loop() {
     };
     fmt_ctx->interrupt_callback.opaque = &io_data;
 
-    if (avformat_open_input(&fmt_ctx, m_path.c_str(), nullptr, nullptr) != 0) {
+    if (open_local_video_input(&fmt_ctx, m_path.c_str()) != 0) {
         g_logger.error("VIDEO_DEC: Failed to open {}", m_path.c_str());
         trigger_error(532);
         m_start_failed.store(true);

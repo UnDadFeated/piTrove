@@ -46,7 +46,6 @@ RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-reco
     libswscale-dev \
     libswresample-dev \
     libavutil-dev \
-    libstb-dev \
     libsodium-dev \
     libcurl4-openssl-dev \
     libv4l-dev \
@@ -105,7 +104,6 @@ RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-reco
     libcurl4 \
     ca-certificates \
     iputils-ping \
-    libstb0t64 \
     libv4l-0t64 \
     libv4lconvert0t64 \
     tzdata \

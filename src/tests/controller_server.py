@@ -37,6 +37,34 @@ def tiff_fixture():
             struct.pack("<IHHH", 0, 8, 8, 8) + bytes((24, 160, 80)) * width * height)
 
 
+def common_image_fixtures():
+    jpeg = base64.b64decode(
+        "/9j/4AAQSkZJRgABAgAAAQABAAD//gAQTGF2YzYxLjE5LjEwMQD/2wBDAAgEBAQEBAUFBQUFBQYGBgYGBgYGBgYH"
+        "BwcICAgHBwcGBgcHCAgICAkJCQgICAgJCQoKCgwMCwsODg4RERT/xABMAAEBAAAAAAAAAAAAAAAAAAAABwEBAQAAAAAA"
+        "AAAAAAAAAAAABQcQAQAAAAAAAAAAAAAAAAAAAAARAQAAAAAAAAAAAAAAAAAAAAD/wAARCAAQABADASIAAhEAAxEA"
+        "/9oADAMBAAIRAxEAPwCOAL+Lf//Z"
+    )
+    png = base64.b64decode(
+        "iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAIAAACQkWg2AAAACXBIWXMAAAABAAAAAQBPJcTWAAAAFUlEQVR4"
+        "nGNgYPhLIhrVMKph2GoAAISu/QH+5zsIAAAAAElFTkSuQmCC"
+    )
+    gif = (b"GIF89a" + struct.pack("<HHBBB", 5, 4, 0x80, 0, 0) + b"\x00\x00\x00\xff\xff\xff"
+           + b"," + struct.pack("<HHHHB", 2, 1, 1, 1, 0) + b"\x02\x02\x44\x01\x00;")
+    bmp = (struct.pack("<2sIHHI", b"BM", 78, 0, 0, 54)
+           + struct.pack("<IiiHHIIiiII", 40, 4, -2, 1, 24, 0, 24, 0, 0, 0, 0)
+           + bytes((255, 0, 0)) * 8)
+    bottom_up = bytearray(bmp)
+    bottom_up[22:26] = struct.pack("<i", 2)
+    return {
+        "fixture.jpg": (jpeg, "16x16"),
+        "fixture.png": (png, "16x16"),
+        "offset-fixture.gif": (gif, "5x4"),
+        "fixture.bmp": (bottom_up, "4x2"),
+        "top-down-fixture.bmp": (bmp, "4x2"),
+        "tiff-fixture.tiff": (tiff_fixture(), "32x24"),
+    }
+
+
 def verify(port, cache, version):
     def request(path, key=None, *, source="127.0.0.1", host=None, method="GET", body=None):
         connection = http.client.HTTPConnection("127.0.0.1", port, timeout=5, source_address=(source, 0))
@@ -147,7 +175,12 @@ enabled = 0
             filename = f"{datetime.date.today():%Y%m%d}_family-fixture-{i}.webp"
             (root / "media" / filename).write_bytes(base64.b64decode(media))
 
-        (root / "media/tiff-fixture.tiff").write_bytes(tiff_fixture())
+        fixtures = common_image_fixtures()
+        for name, (data, _) in fixtures.items():
+            (root / "media" / name).write_bytes(data)
+        rejected = bytearray(fixtures["fixture.png"][0])
+        rejected[16:20] = struct.pack(">I", 20000)
+        (root / "media/oversized-fixture.png").write_bytes(rejected)
 
         command = [
             "docker", "run", "--detach", "--init", "--network", "host", "--cpus", "0.75",
@@ -161,9 +194,14 @@ enabled = 0
         container = subprocess.check_output(command + [image], text=True).strip()
         try:
             verify(port, root / "cache", version)
-            decoded = subprocess.check_output(["docker", "exec", container, "/app/piTrove",
-                                               "--selftest-media", "/app/media/tiff-fixture.tiff"], text=True)
-            assert "32x24 RGBA" in decoded
+            for name, (_, dimensions) in fixtures.items():
+                decoded = subprocess.check_output(["docker", "exec", container, "/app/piTrove",
+                                                   "--selftest-media", "/app/media/" + name], text=True)
+                assert f"{dimensions} RGBA" in decoded, (name, decoded)
+            rejected = subprocess.run(["docker", "exec", container, "/app/piTrove",
+                                       "--selftest-media", "/app/media/oversized-fixture.png"],
+                                      capture_output=True, text=True)
+            assert rejected.returncode == 1 and "Could not decode image" in rejected.stderr
             subprocess.run(["docker", "exec", container, "/app/scripts/healthcheck.sh"], check=True)
         except Exception:
             subprocess.run(["docker", "logs", "--tail", "60", container], check=False)
@@ -175,4 +213,4 @@ enabled = 0
 
 if __name__ == "__main__":
     smoke(sys.argv[1])
-    print("Production controller, access key isolation, chores, screenshot, SQLite index, Picker entry point, and TIFF decode passed")
+    print("Production controller, access key isolation, chores, screenshot, SQLite index, Picker entry point, and image decoding passed")

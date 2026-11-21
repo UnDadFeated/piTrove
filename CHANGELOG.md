@@ -1,3 +1,8 @@
+### Release v18.4.8
+
+- Remove the direct stb runtime dependency while retaining bounded decoding for JPEG, PNG, GIF, BMP, WebP, TIFF, and HEIF.
+- Apply a local-file and container allowlist to video playback and metadata probes.
+
 ### Release v18.4.7
 
 - Keep recently drawn text textures in a bounded cache without polling system memory during rendering.

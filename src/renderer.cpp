@@ -3,7 +3,6 @@
 #include "util.h"
 #include "config.h"
 #include <SDL3_image/SDL_image.h>
-#include <stb_image.h>
 #include <iostream>
 #include <fstream>
 #include <sstream>
@@ -14,6 +13,9 @@
 #include <cstring>
 #include <ctime>
 #include <format>
+#include <mutex>
+
+extern std::mutex g_sdl_image_mutex;
 
 static float read_ram_usage() {
     static float cached_val = 0.0f;
@@ -354,7 +356,10 @@ void Renderer::present() {
                 std::lock_guard lk(g_screenshot_mtx);
                 out_p = g_screenshot_out_path;
             }
-            IMG_SavePNG(surf, out_p.c_str());
+            {
+                std::lock_guard lock(g_sdl_image_mutex);
+                IMG_SavePNG(surf, out_p.c_str());
+            }
             SDL_DestroySurface(surf);
             {
                 std::lock_guard lk(g_screenshot_mtx);
@@ -1341,33 +1346,23 @@ void Renderer::load_splash(const std::string& path) {
     }
 
     if (file_exists(splash_path)) {
-        int w = 0, h = 0, ch = 0;
-        uint8_t* pixels = stbi_load(splash_path.c_str(), &w, &h, &ch, 4); // Force RGBA32
-        if (pixels) {
-            SDL_ClearError();
-            SDL_Surface* surface = SDL_CreateSurface(w, h, SDL_PIXELFORMAT_RGBA32);
-            if (surface) {
-                uint8_t* dst = (uint8_t*)surface->pixels;
-                const uint8_t* src = pixels;
-                for (int y = 0; y < h; y++) {
-                    memcpy(dst + y * surface->pitch, src + y * w * 4, w * 4);
-                }
-                splash_logo = SDL_CreateTextureFromSurface(sdl_renderer, surface);
-                if (!splash_logo) {
-                    g_logger.error("SDL_CreateTextureFromSurface failed for splash: {}", SDL_GetError());
-                } else {
-                    splash_logo_w = w;
-                    splash_logo_h = h;
-                    splash_logo_loaded = true;
-                    g_logger.info("Splash image loaded: {} ({}x{})", splash_path.c_str(), splash_logo_w, splash_logo_h);
-                }
-                SDL_DestroySurface(surface);
+        std::unique_ptr<SDL_Surface, decltype(&SDL_DestroySurface)> surface(nullptr, SDL_DestroySurface);
+        {
+            std::lock_guard lock(g_sdl_image_mutex);
+            surface.reset(IMG_Load(splash_path.c_str()));
+        }
+        if (surface) {
+            splash_logo = SDL_CreateTextureFromSurface(sdl_renderer, surface.get());
+            if (splash_logo) {
+                splash_logo_w = surface->w;
+                splash_logo_h = surface->h;
+                splash_logo_loaded = true;
+                g_logger.info("Splash image loaded: {} ({}x{})", splash_path.c_str(), splash_logo_w, splash_logo_h);
             } else {
-                g_logger.error("SDL_CreateSurface failed for splash: {}", SDL_GetError());
+                g_logger.error("SDL_CreateTextureFromSurface failed for splash: {}", SDL_GetError());
             }
-            stbi_image_free(pixels);
         } else {
-            g_logger.error("stbi_load failed for splash logo: {} {}", splash_path.c_str(), stbi_failure_reason());
+            g_logger.error("Could not decode splash logo: {} {}", splash_path.c_str(), SDL_GetError());
         }
     }
 

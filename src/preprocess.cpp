@@ -16,9 +16,7 @@
 #include <cstdio>
 #include <memory>
 #include <fstream>
-extern "C" {
-#include <libavformat/avformat.h>
-}
+#include "video_input.h"
 
 static std::jthread g_preprocess_thread;
 static std::atomic<bool> g_preprocess_running{false};
@@ -66,10 +64,7 @@ static bool get_video_metadata(const std::string& path, int& out_w, int& out_h, 
                    *static_cast<const std::chrono::steady_clock::time_point*>(data);
         }, &deadline
     };
-    AVDictionary* options = nullptr;
-    av_dict_set(&options, "protocol_whitelist", "file", 0);
-    const int opened = avformat_open_input(&context, path.c_str(), nullptr, &options);
-    av_dict_free(&options);
+    const int opened = open_local_video_input(&context, path.c_str());
     if (opened == AVERROR_INVALIDDATA) out_w = -1;
     if (opened < 0 || avformat_find_stream_info(context, nullptr) < 0) return false;
     const int video = av_find_best_stream(context, AVMEDIA_TYPE_VIDEO, -1, -1, nullptr, 0);
