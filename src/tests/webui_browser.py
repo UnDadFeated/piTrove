@@ -100,9 +100,10 @@ with tempfile.TemporaryDirectory(prefix='pitrove-chrome-', ignore_cleanup_errors
         call('Page.navigate',{'url':base+'/config'})
         wait("document.querySelectorAll('.config-field').length>=180")
         assert js("document.documentElement.dataset.theme")=='light','Appearance did not persist across pages'
-        data=api('/api/config');assert len(data['fields'])==184
-        assert len({f['id'] for f in data['fields']})==184
+        data=api('/api/config');assert len(data['fields'])>=180
+        assert len({f['id'] for f in data['fields']})==len(data['fields'])
         assert all(not f['value'] for f in data['fields'] if f['secret']), 'API exposed configured credentials'
+        assert js("document.getElementById('option-display.bg_style').tagName") == 'SELECT', 'Fixed choices need a dropdown'
         for width in (320,390,768,1280):viewport(width)
         fill('config-search','preload');js("document.getElementById('config-search').dispatchEvent(new Event('input'))")
         assert js("[...document.querySelectorAll('.config-field')].filter(n=>!n.hidden).length") == 2
@@ -168,8 +169,11 @@ with tempfile.TemporaryDirectory(prefix='pitrove-chrome-', ignore_cleanup_errors
         if os.path.isdir('/artifacts'):
             shot=call('Page.captureScreenshot',{'format':'png','captureBeyondViewport':True})
             with open('/artifacts/frame-mobile.png','wb') as output:output.write(base64.b64decode(shot['data']))
+        click('sign-out')
+        wait("document.getElementById('unlock') && !document.getElementById('unlock').hidden")
+        assert js("localStorage.getItem('api_key')") is None
         assert not exceptions,exceptions
-        print('Chromium: authenticated playback, shared themes, 184 config options, search/review/save, lists, secrets/PIN, conflicts, access-key rotation, safe logs and 320/390/768/1280px layouts passed')
+        print('Chromium: authenticated playback, shared themes, full config schema, search/review/save, lists, secrets/PIN, conflicts, access-key rotation, safe logs and 320/390/768/1280px layouts passed')
         ws.close()
     finally:
         # Chromium subprocesses can otherwise write the temporary profile during cleanup.

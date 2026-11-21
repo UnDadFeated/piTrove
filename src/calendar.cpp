@@ -6,8 +6,9 @@
 #include "util.h"
 #include "health.h"
 #include <curl/curl.h>
-#include <regex>
-#include <sstream>
+#include <libical/ical.h>
+#include <memory>
+#include <set>
 #include <algorithm>
 #include <chrono>
 #include <format>
@@ -70,195 +71,203 @@ std::string GoogleCalendar::execute_http_get(const std::string& url) {
     return response;
 }
 
-static time_t parse_ical_datetime_tz(const std::string& dt_str, const std::string& tz_name, bool& out_all_day) {
-    if (dt_str.empty()) return 0;
-    std::string zone = tz_name.empty() ? "UTC" : tz_name;
+namespace {
 
-    // All-day: YYYYMMDD (no 'T')
-    if (dt_str.find('T') == std::string::npos) {
-        out_all_day = true;
-        if (dt_str.size() < 8) return 0;
-        try {
-            int y = std::stoi(dt_str.substr(0, 4));
-            int m = std::stoi(dt_str.substr(4, 2));
-            int d = std::stoi(dt_str.substr(6, 2));
-            std::chrono::year_month_day ymd{std::chrono::year{y}, std::chrono::month{(unsigned)m}, std::chrono::day{(unsigned)d}};
-            auto local_tp = std::chrono::local_days{ymd} + std::chrono::hours{0};
-            auto zt = std::chrono::zoned_time{zone, local_tp};
-            return std::chrono::system_clock::to_time_t(zt.get_sys_time());
-        } catch (...) {
-            return 0;
-        }
-    }
-
-    // Timed appointment
-    out_all_day = false;
-    if (dt_str.back() == 'Z') {
-        struct tm tm_buf;
-        std::memset(&tm_buf, 0, sizeof(tm_buf));
-        if (strptime(dt_str.c_str(), "%Y%m%dT%H%M%SZ", &tm_buf) != nullptr) {
-            return timegm(&tm_buf);
-        }
-    } else {
-        if (dt_str.size() < 13) return 0;
-        try {
-            int y = std::stoi(dt_str.substr(0, 4));
-            int m = std::stoi(dt_str.substr(4, 2));
-            int d = std::stoi(dt_str.substr(6, 2));
-            int hh = std::stoi(dt_str.substr(9, 2));
-            int mm = std::stoi(dt_str.substr(11, 2));
-            int ss = (dt_str.size() >= 15) ? std::stoi(dt_str.substr(13, 2)) : 0;
-            std::chrono::year_month_day ymd{std::chrono::year{y}, std::chrono::month{(unsigned)m}, std::chrono::day{(unsigned)d}};
-            auto local_tp = std::chrono::local_days{ymd} + std::chrono::hours{hh} + std::chrono::minutes{mm} + std::chrono::seconds{ss};
-            auto zt = std::chrono::zoned_time{zone, local_tp};
-            return std::chrono::system_clock::to_time_t(zt.get_sys_time());
-        } catch (...) {
-            return 0;
-        }
-    }
-    return 0;
+const icaltimezone* feed_zone(icalcomponent* calendar, icalproperty* property) {
+    if (!property) return nullptr;
+    auto* parameter = icalproperty_get_first_parameter(property, ICAL_TZID_PARAMETER);
+    if (!parameter) return nullptr;
+    const char* id = icalparameter_get_tzid(parameter);
+    if (!id) return nullptr;
+    if (auto* timezone = icalcomponent_get_timezone(calendar, id)) return timezone;
+    return icaltimezone_get_builtin_timezone(id);
 }
 
-static std::string unescape_ical_text(std::string text) {
-    auto replace_all = [](std::string& str, const std::string& from, const std::string& to) {
-        size_t start_pos = 0;
-        while ((start_pos = str.find(from, start_pos)) != std::string::npos) {
-            str.replace(start_pos, from.length(), to);
-            start_pos += to.length();
-        }
-    };
-    replace_all(text, "\\,", ",");
-    replace_all(text, "\\;", ";");
-    replace_all(text, "\\n", " ");
-    replace_all(text, "\\N", " ");
-    replace_all(text, "\\\\", "\\");
-    return trim(text);
+time_t event_time(icaltimetype value, const std::string& display_tz, const char* tzid = nullptr) {
+    using namespace std::chrono;
+    if (icaltime_is_null_time(value) || !icaltime_is_valid_time(value)) return 0;
+    if (icaltime_is_utc(value)) return icaltime_as_timet(value);
+    if (value.zone && !tzid) return icaltime_as_timet_with_zone(value, value.zone);
+    const year_month_day date{year{value.year}, month{unsigned(value.month)}, day{unsigned(value.day)}};
+    if (!date.ok()) return 0;
+    const auto local = local_days{date} + hours{value.hour} + minutes{value.minute} + seconds{value.second};
+    try {
+        const auto* zone = locate_zone(tzid ? tzid : display_tz);
+        return zone->to_sys(local, choose::earliest).time_since_epoch().count();
+    } catch (...) {
+        if (value.zone) return icaltime_as_timet_with_zone(value, value.zone);
+        return local.time_since_epoch().count();
+    }
 }
+
+const char* timezone_id(icalproperty* property) {
+    if (!property) return nullptr;
+    auto* parameter = icalproperty_get_first_parameter(property, ICAL_TZID_PARAMETER);
+    return parameter ? icalparameter_get_tzid(parameter) : nullptr;
+}
+
+std::string calendar_text(const char* value, std::string_view fallback = {}) {
+    std::string result(value ? std::string_view(value) : fallback);
+    for (char& c : result) if (static_cast<unsigned char>(c) < 32) c = ' ';
+    return trim(result);
+}
+
+} // namespace
 
 void GoogleCalendar::parse_ical(const std::string& ical_data) {
-    if (ical_data.empty()) return;
-
-    // 1. Unfold lines (lines beginning with space or tab are continuation)
-    std::string unfolded;
-    unfolded.reserve(ical_data.size());
-    std::istringstream stream(ical_data);
-    std::string line;
-    while (std::getline(stream, line)) {
-        if (!line.empty() && line.back() == '\r') line.pop_back();
-        if (!line.empty() && (line.front() == ' ' || line.front() == '\t')) {
-            if (!unfolded.empty()) unfolded.append(line.substr(1));
-        } else {
-            if (!unfolded.empty()) unfolded.push_back('\n');
-            unfolded.append(line);
-        }
+    const std::unique_ptr<icalcomponent, decltype(&icalcomponent_free)>
+        calendar(icalparser_parse_string(ical_data.c_str()), icalcomponent_free);
+    if (!calendar || icalcomponent_isa(calendar.get()) != ICAL_VCALENDAR_COMPONENT) {
+        m_last_error.store(536);
+        trigger_error(536);
+        return;
     }
 
-    std::string tz = "UTC";
-    std::string cal_filter = "Family";
-    int max_events = 8;
+    std::string tz, name;
+    size_t max_events;
     {
-        std::shared_lock lk(g_config_mtx);
-        tz = g_cfg.timezone;
-        cal_filter = g_cfg.gcalendar_name;
+        std::shared_lock lock(g_config_mtx);
+        tz = g_cfg.timezone.empty() ? "UTC" : g_cfg.timezone;
+        name = g_cfg.gcalendar_name;
         max_events = std::clamp(g_cfg.gcalendar_max_events, 1, 16);
     }
-
-    time_t now = time(nullptr);
-
-    std::regex event_regex("BEGIN:VEVENT([\\s\\S]*?)END:VEVENT");
-    std::regex summary_regex("SUMMARY:(.*)");
-    std::regex dtstart_regex("DTSTART(?:;[^:]+)?:([0-9TZ]+)");
-    std::regex dtend_regex("DTEND(?:;[^:]+)?:([0-9TZ]+)");
-    std::regex loc_regex("LOCATION:(.*)");
-
-    std::vector<CalendarEvent> parsed_events;
-    auto events_begin = std::sregex_iterator(unfolded.begin(), unfolded.end(), event_regex);
-    auto events_end = std::sregex_iterator();
-
-    for (std::sregex_iterator i = events_begin; i != events_end; ++i) {
-        std::string ev_block = (*i)[1].str();
-        std::smatch m;
-
-        std::string raw_summary, raw_dtstart, raw_dtend, raw_location;
-        if (std::regex_search(ev_block, m, summary_regex)) raw_summary = m[1].str();
-        if (std::regex_search(ev_block, m, dtstart_regex)) raw_dtstart = m[1].str();
-        if (std::regex_search(ev_block, m, dtend_regex)) raw_dtend = m[1].str();
-        if (std::regex_search(ev_block, m, loc_regex)) raw_location = m[1].str();
-
-        bool all_day = false;
-        time_t start_t = parse_ical_datetime_tz(raw_dtstart, tz, all_day);
-        bool dummy = false;
-        time_t end_t = parse_ical_datetime_tz(raw_dtend, tz, dummy);
-        if (start_t == 0) continue;
-
-        // Expiration Cutoff Calculation:
-        // - All-day events expire at 1:00 AM on the day following the event (start_t + 24h + 1h)
-        // - Timed appointments expire 1 hour after the appointment ends
-        time_t cutoff_t = 0;
-        if (all_day) {
-            cutoff_t = start_t + 86400 + 3600;
-        } else {
-            time_t effective_end = (end_t > start_t) ? end_t : (start_t + 3600);
-            cutoff_t = effective_end + 3600;
+    const time_t now = time(nullptr);
+    constexpr time_t day = 86400;
+    const time_t horizon = now + 366 * day;
+    const auto today = format_epoch_tz(now, tz, "%Y-%m-%d");
+    const auto tomorrow = format_tomorrow_tz(now, tz);
+    const auto timestamp = [&](icalproperty* property, icaltimetype dt) {
+        if (const auto* zone = feed_zone(calendar.get(), property)) dt.zone = zone;
+        return event_time(dt, tz, timezone_id(property));
+    };
+    std::set<std::pair<std::string, time_t>> overrides;
+    for (auto* event = icalcomponent_get_first_component(calendar.get(), ICAL_VEVENT_COMPONENT);
+         event; event = icalcomponent_get_next_component(calendar.get(), ICAL_VEVENT_COMPONENT)) {
+        if (auto* id = icalcomponent_get_first_property(event, ICAL_RECURRENCEID_PROPERTY)) {
+            if (const char* uid = icalcomponent_get_uid(event))
+                overrides.emplace(uid, timestamp(id, icalproperty_get_recurrenceid(id)));
         }
-
-        // Skip events that have already passed their 1-hour expiration cutoff
-        if (now > cutoff_t) continue;
-
-        CalendarEvent ev;
-        ev.summary = unescape_ical_text(raw_summary.empty() ? "Calendar Event" : raw_summary);
-        ev.location = unescape_ical_text(raw_location);
-        ev.start_time = start_t;
-        ev.end_time = end_t;
-        ev.cutoff_time = cutoff_t;
-        ev.all_day = all_day;
-        ev.calendar_name = cal_filter;
-
-        // Compute relative day string in target timezone
-        std::string ev_date = format_epoch_tz(start_t, tz, "%Y-%m-%d");
-        std::string today_date = format_epoch_tz(now, tz, "%Y-%m-%d");
-        std::string tomorrow_date = format_tomorrow_tz(now, tz);
-
-        if (ev_date == today_date) {
-            ev.relative_day = "TODAY";
-        } else if (ev_date == tomorrow_date) {
-            ev.relative_day = "TOMORROW";
-        } else {
-            ev.relative_day = format_epoch_tz(start_t, tz, "%a, %b %d");
-        }
-
-        if (all_day) {
-            ev.formatted_time = "ALL DAY";
-        } else {
-            std::string start_str = format_epoch_tz(start_t, tz, "%I:%M %p");
-            if (end_t > start_t) {
-                std::string end_str = format_epoch_tz(end_t, tz, "%I:%M %p");
-                ev.formatted_time = std::format("{} - {}", start_str, end_str);
-            } else {
-                ev.formatted_time = start_str;
-            }
-        }
-
-        ev.formatted_date = format_epoch_tz(start_t, tz, "%a, %b %d");
-        parsed_events.push_back(std::move(ev));
     }
 
-    // Sort chronologically
-    std::sort(parsed_events.begin(), parsed_events.end(), [](const CalendarEvent& a, const CalendarEvent& b) {
-        return a.start_time < b.start_time;
-    });
+    std::vector<CalendarEvent> upcoming;
+    size_t iteration_budget = 100000;
+    for (auto* event = icalcomponent_get_first_component(calendar.get(), ICAL_VEVENT_COMPONENT);
+         event; event = icalcomponent_get_next_component(calendar.get(), ICAL_VEVENT_COMPONENT)) {
+        if (icalcomponent_get_status(event) == ICAL_STATUS_CANCELLED) continue;
+        auto* start_property = icalcomponent_get_first_property(event, ICAL_DTSTART_PROPERTY);
+        if (!start_property) continue;
+        auto start = icalproperty_get_dtstart(start_property);
+        if (const auto* zone = feed_zone(calendar.get(), start_property)) start.zone = zone;
+        const char* start_tzid = timezone_id(start_property);
+        const auto base_time = event_time(start, tz, start_tzid);
+        if (!base_time) continue;
+        const auto* uid = icalcomponent_get_uid(event);
+        const bool detached = icalcomponent_get_first_property(event, ICAL_RECURRENCEID_PROPERTY) != nullptr;
+        const bool all_day = start.is_date;
+        const auto* summary = icalcomponent_get_summary(event);
+        const auto* location = icalcomponent_get_location(event);
 
-    if (parsed_events.size() > (size_t)max_events) {
-        parsed_events.resize(max_events);
+        int duration = all_day ? day : 0;
+        if (auto* end_property = icalcomponent_get_first_property(event, ICAL_DTEND_PROPERTY)) {
+            const auto end = icalproperty_get_dtend(end_property);
+            if (all_day && end.is_date) {
+                auto utc_start = start;
+                auto utc_end = end;
+                utc_start.zone = utc_end.zone = icaltimezone_get_utc_timezone();
+                duration = std::clamp<time_t>(icaltime_as_timet(utc_end) - icaltime_as_timet(utc_start), day, 366 * day);
+            } else {
+                duration = std::clamp<time_t>(timestamp(end_property, end) - base_time, 0, 366 * day);
+            }
+        } else if (auto* property = icalcomponent_get_first_property(event, ICAL_DURATION_PROPERTY)) {
+            duration = std::clamp<time_t>(icaldurationtype_as_int(icalproperty_get_duration(property)), 0, 366 * day);
+        }
+
+        std::set<time_t> excluded, seen;
+        for (auto* date = icalcomponent_get_first_property(event, ICAL_EXDATE_PROPERTY);
+             date; date = icalcomponent_get_next_property(event, ICAL_EXDATE_PROPERTY)) {
+            auto value = icalproperty_get_exdate(date);
+            if (!timezone_id(date) && !icaltime_is_utc(value)) {
+                value.zone = start.zone;
+                excluded.insert(event_time(value, tz, start_tzid));
+            } else excluded.insert(timestamp(date, value));
+        }
+
+        const auto add = [&](icaltimetype instance, time_t begin, int span) {
+            if (!begin || begin > horizon || excluded.contains(begin) ||
+                (!detached && uid && overrides.contains({uid, begin}))) return;
+            const auto end = all_day ? event_time(icaltime_add(instance, icaldurationtype_from_int(span)), tz, start_tzid)
+                                     : begin + span;
+            const auto cutoff = (end > begin ? end : begin + 3600) + 3600;
+            if (cutoff < now || !seen.insert(begin).second ||
+                (upcoming.size() == max_events && begin >= upcoming.back().start_time)) return;
+
+            CalendarEvent item;
+            item.summary = calendar_text(summary, "Calendar Event");
+            item.location = calendar_text(location);
+            item.start_time = begin;
+            item.end_time = end;
+            item.cutoff_time = cutoff;
+            item.all_day = all_day;
+            item.calendar_name = name;
+            const auto date = format_epoch_tz(begin, tz, "%Y-%m-%d");
+            item.formatted_date = format_epoch_tz(begin, tz, "%a, %b %d");
+            item.relative_day = date == today ? "TODAY" : date == tomorrow ? "TOMORROW" : item.formatted_date;
+            item.formatted_time = all_day ? "ALL DAY" : format_epoch_tz(begin, tz, "%I:%M %p");
+            if (!all_day && end > begin) item.formatted_time += " - " + format_epoch_tz(end, tz, "%I:%M %p");
+            const auto position = std::upper_bound(upcoming.begin(), upcoming.end(), begin,
+                [](time_t t, const CalendarEvent& entry) { return t < entry.start_time; });
+            upcoming.insert(position, std::move(item));
+            if (upcoming.size() > max_events) upcoming.pop_back();
+        };
+
+        add(start, base_time, duration);
+        if (detached) continue;
+        for (auto* rule = icalcomponent_get_first_property(event, ICAL_RRULE_PROPERTY);
+             rule && iteration_budget; rule = icalcomponent_get_next_property(event, ICAL_RRULE_PROPERTY)) {
+            const auto recurrence = icalproperty_get_rrule(rule);
+            const std::unique_ptr<icalrecur_iterator, decltype(&icalrecur_iterator_free)>
+                iterator(icalrecur_iterator_new(recurrence, start), icalrecur_iterator_free);
+            if (!iterator) continue;
+            if (!recurrence.count && base_time < now - duration - 7200) {
+                // Start two days early so timezone transitions cannot hide ongoing events.
+                const auto earliest = icaltime_from_timet_with_zone(now - duration - 2 * day, start.is_date,
+                    start.zone ? start.zone : icaltimezone_get_utc_timezone());
+                auto first = earliest;
+                first.zone = start.zone;
+                icalrecur_iterator_set_start(iterator.get(), first);
+            }
+            for (size_t attempts = 0; attempts < 10000 && iteration_budget > 0; ++attempts) {
+                --iteration_budget;
+                const auto instance = icalrecur_iterator_next(iterator.get());
+                if (icaltime_is_null_time(instance)) break;
+                const auto begin = event_time(instance, tz, start_tzid);
+                if (begin > horizon || (upcoming.size() == max_events && begin >= upcoming.back().start_time)) break;
+                add(instance, begin, duration);
+            }
+        }
+        for (auto* date = icalcomponent_get_first_property(event, ICAL_RDATE_PROPERTY);
+             date; date = icalcomponent_get_next_property(event, ICAL_RDATE_PROPERTY)) {
+            const auto value = icalproperty_get_rdate(date);
+            auto instance = icaltime_is_null_time(value.time) ? value.period.start : value.time;
+            if (icaltime_is_null_time(instance)) continue;
+            if (!timezone_id(date) && !icaltime_is_utc(instance)) instance.zone = start.zone;
+            const auto begin = timezone_id(date) ? timestamp(date, instance) : event_time(instance, tz, start_tzid);
+            int span = duration;
+            if (!icaltime_is_null_time(value.period.end))
+                span = std::clamp<time_t>(timestamp(date, value.period.end) - begin, 0, 366 * day);
+            else if (!icaldurationtype_is_null_duration(value.period.duration))
+                span = std::clamp<time_t>(icaldurationtype_as_int(value.period.duration), 0, 366 * day);
+            add(instance, begin, span);
+        }
     }
 
     {
-        std::unique_lock lk(m_events_mtx);
-        m_events = std::move(parsed_events);
+        std::unique_lock lock(m_events_mtx);
+        m_events = std::move(upcoming);
         m_last_error.store(0);
         m_last_sync_time.store(now);
-        g_logger.info("CALENDAR: Synced {} upcoming events for calendar '{}' in timezone {}", m_events.size(), cal_filter, tz);
     }
+    clear_error(536);
 }
 
 void GoogleCalendar::sync() {
@@ -266,15 +275,14 @@ void GoogleCalendar::sync() {
     struct Guard { std::atomic<bool>& f; ~Guard() { f.store(false); } } g{m_fetching};
 
     std::string ical_url;
-    std::string api_key, calendar_name;
+    std::string calendar_name;
     {
         std::shared_lock lk(g_config_mtx);
         ical_url = g_cfg.gcalendar_ical_url;
-        api_key = g_cfg.gcalendar_api_key;
         calendar_name = g_cfg.gcalendar_name;
     }
 
-    if (ical_url.empty() && api_key.empty()) {
+    if (ical_url.empty()) {
         g_logger.info("CALENDAR: No iCal URL configured, providing default preview agenda");
         time_t now = time(nullptr);
         std::string tz = "UTC";

@@ -46,7 +46,7 @@ int main(){const auto dir=std::filesystem::temp_directory_path()/ ("pitrove-conf
  require(apply(c,{{"revision",old},{"slideshow.shuffle","0"}},path).status==409,"Stale configuration overwrote a newer edit");
  const auto good=config_editor::revision(c);require(apply(c,edit(c,{{"slideshow.shuffle","0"}}),(dir/"missing"/"config.toml").string()).status==500&&config_editor::revision(c)==good,"Failed save published config");
  require(apply(c,edit(c,{{"clear.mqtt.pass","1"}}),path).status==200&&c.mqtt_pass.empty(),"Explicit secret clear failed");
- require(apply(c,edit(c,{{"remote.api_key","new-controller-key"},{"gcalendar.api_key","new-calendar-key"}}),path).status==200&&c.http_api_key=="new-controller-key"&&c.gcalendar_api_key=="new-calendar-key","Same-named API keys crossed sections");
+ require(apply(c,edit(c,{{"remote.api_key","new-controller-key"},{"google_photos.client_secret","fixture-new-client-secret"}}),path).status==200&&c.http_api_key=="new-controller-key"&&c.gcalendar_api_key=="private-calendar-key"&&c.google_photos_client_secret=="fixture-new-client-secret","Controller key or OAuth client secret crossed sections");
  require(apply(c,edit(c,{{"dashboard.dashboard_pin","1234"}}),path).status==200&&c.dashboard_pin.empty()&&!c.pin_hash.empty()&&pitrove::auth::verify_pin("1234",c.pin_hash),"PIN was not safely hashed on save");
  const auto retained_hash=c.pin_hash;require(apply(c,edit(c,{{"dashboard.dashboard_pin",""}}),path).status==200&&c.pin_hash==retained_hash,"Blank PIN edit erased the stored hash");
  require(apply(c,edit(c,{{"clear.dashboard.dashboard_pin","1"}}),path).status==200&&c.pin_hash.empty(),"Clearing a hashed PIN did not persist");

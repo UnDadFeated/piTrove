@@ -3,7 +3,12 @@
 #endif
 #include "image_loader.h"
 #include <webp/decode.h>
+#include <libheif/heif.h>
+#include <lcms2.h>
+#include <tiffio.h>
+#include <zlib.h>
 #include <span>
+#include <bit>
 extern "C" {
 #include <jpeglib.h>
 #include <setjmp.h>
@@ -111,32 +116,291 @@ static bool is_webp(std::span<const uint8_t> bytes) {
            std::memcmp(bytes.data() + 8, "WEBP", 4) == 0;
 }
 
-bool ImageLoader::image_dimensions(std::span<const uint8_t> buffer, int& width, int& height) {
+namespace {
+
+constexpr size_t max_icc_size = 4 * 1024 * 1024;
+
+bool usable_dimensions(int w, int h) {
     constexpr size_t max_pixels = 64ULL * 1024 * 1024;
+    return w > 0 && h > 0 && w <= 16384 && h <= 16384 &&
+           static_cast<size_t>(w) <= max_pixels / static_cast<size_t>(h);
+}
+
+bool is_tiff(std::span<const uint8_t> data) {
+    return data.size() >= 4 && (
+        (data[0] == 'I' && data[1] == 'I' && (data[2] == 42 || data[2] == 43) && data[3] == 0) ||
+        (data[0] == 'M' && data[1] == 'M' && data[2] == 0 && (data[3] == 42 || data[3] == 43)));
+}
+
+bool is_heif(std::span<const uint8_t> data) {
+    return data.size() >= 12 && std::memcmp(data.data() + 4, "ftyp", 4) == 0 &&
+           heif_check_filetype(data.data(), static_cast<int>(std::min<size_t>(data.size(), 4096))) ==
+               heif_filetype_yes_supported;
+}
+
+struct TiffReader {
+    std::span<const uint8_t> data;
+    size_t offset = 0;
+};
+
+auto open_tiff(TiffReader& input) {
+    auto* options = TIFFOpenOptionsAlloc();
+    if (options) TIFFOpenOptionsSetMaxSingleMemAlloc(options, 256 * 1024 * 1024);
+    auto* tiff = TIFFClientOpenExt("image", "rm", &input,
+        [](thandle_t handle, void* out, tmsize_t count) -> tmsize_t {
+            auto& in = *static_cast<TiffReader*>(handle);
+            if (count < 0 || in.offset > in.data.size()) return 0;
+            const size_t size = std::min(static_cast<size_t>(count), in.data.size() - in.offset);
+            if (size) std::memcpy(out, in.data.data() + in.offset, size);
+            in.offset += size;
+            return size;
+        },
+        [](thandle_t, void*, tmsize_t) -> tmsize_t { return 0; },
+        [](thandle_t handle, toff_t offset, int origin) -> toff_t {
+            auto& in = *static_cast<TiffReader*>(handle);
+            const size_t base = origin == SEEK_SET ? 0 : origin == SEEK_CUR ? in.offset : in.data.size();
+            const int64_t delta = static_cast<int64_t>(offset);
+            if (origin != SEEK_SET && origin != SEEK_CUR && origin != SEEK_END) return -1;
+            if (delta >= 0) {
+                if (static_cast<uint64_t>(delta) > in.data.size() - base) return -1;
+                in.offset = base + delta;
+            } else {
+                const uint64_t magnitude = 0 - static_cast<uint64_t>(delta);
+                if (origin == SEEK_SET || magnitude > base) return -1;
+                in.offset = base - magnitude;
+            }
+            return in.offset;
+        },
+        [](thandle_t) { return 0; },
+        [](thandle_t handle) -> toff_t { return static_cast<TiffReader*>(handle)->data.size(); },
+        nullptr, nullptr, options);
+    if (options) TIFFOpenOptionsFree(options);
+    return std::unique_ptr<TIFF, decltype(&TIFFClose)>(tiff, TIFFClose);
+}
+
+bool tiff_dimensions(TIFF* tiff, int& w, int& h) {
+    uint32_t width = 0, height = 0;
+    if (!tiff || !TIFFGetField(tiff, TIFFTAG_IMAGEWIDTH, &width) ||
+        !TIFFGetField(tiff, TIFFTAG_IMAGELENGTH, &height) ||
+        width > INT_MAX || height > INT_MAX) return false;
+    w = static_cast<int>(width);
+    h = static_cast<int>(height);
+    return usable_dimensions(w, h);
+}
+
+auto open_heif(std::span<const uint8_t> data) {
+    std::unique_ptr<heif_context, decltype(&heif_context_free)> ctx(heif_context_alloc(), heif_context_free);
+    heif_image_handle* handle = nullptr;
+    if (ctx) {
+        heif_context_set_maximum_image_size_limit(ctx.get(), 16384);
+        heif_context_set_max_decoding_threads(ctx.get(), 2);
+        if (heif_context_read_from_memory_without_copy(ctx.get(), data.data(), data.size(), nullptr).code == heif_error_Ok)
+            heif_context_get_primary_image_handle(ctx.get(), &handle);
+    }
+    return std::pair(std::move(ctx), std::unique_ptr<heif_image_handle, decltype(&heif_image_handle_release)>(
+        handle, heif_image_handle_release));
+}
+
+bool heif_dimensions(const heif_image_handle* handle, int& w, int& h) {
+    if (!handle || !usable_dimensions(heif_image_handle_get_ispe_width(handle),
+                                      heif_image_handle_get_ispe_height(handle))) return false;
+    w = heif_image_handle_get_width(handle);
+    h = heif_image_handle_get_height(handle);
+    return usable_dimensions(w, h);
+}
+
+void convert_icc(RawImage& result, cmsHPROFILE source) {
+    if (!source || cmsGetColorSpace(source) != cmsSigRgbData) return;
+    auto* srgb = cmsCreate_sRGBProfile();
+    if (!srgb) return;
+    auto* transform = cmsCreateTransform(source, TYPE_RGBA_8, srgb, TYPE_RGBA_8,
+                                         INTENT_RELATIVE_COLORIMETRIC, cmsFLAGS_COPY_ALPHA);
+    if (transform) {
+        cmsDoTransform(transform, result.pixels, result.pixels,
+                       static_cast<cmsUInt32Number>(static_cast<size_t>(result.width) * result.height));
+        cmsDeleteTransform(transform);
+    }
+    cmsCloseProfile(srgb);
+}
+
+void convert_icc(RawImage& result, std::span<const uint8_t> profile) {
+    if (profile.empty() || profile.size() > max_icc_size) return;
+    auto* source = cmsOpenProfileFromMem(profile.data(), static_cast<cmsUInt32Number>(profile.size()));
+    if (!source) return;
+    convert_icc(result, source);
+    cmsCloseProfile(source);
+}
+
+uint32_t chunk_size(const uint8_t* data, bool little_endian) {
+    uint32_t value = 0;
+    for (int i = 0; i < 4; ++i) value = (value << 8) | data[little_endian ? 3 - i : i];
+    return value;
+}
+
+void convert_embedded_profile(RawImage& result, std::span<const uint8_t> data) {
+    const bool webp = is_webp(data);
+    if (webp || (data.size() >= 8 && std::memcmp(data.data(), "\x89PNG\r\n\x1a\n", 8) == 0)) {
+        size_t offset = webp ? 12 : 8;
+        while (data.size() - offset >= (webp ? 8u : 12u)) {
+            const auto* header = data.data() + offset;
+            const size_t len = chunk_size(header + (webp ? 4 : 0), webp);
+            const size_t overhead = webp ? 8 + (len & 1) : 12;
+            if (overhead > data.size() - offset || len > data.size() - offset - overhead) break;
+            const auto* type = header + (webp ? 0 : 4);
+            const auto payload = data.subspan(offset + 8, len);
+            if (webp && std::memcmp(type, "ICCP", 4) == 0) {
+                convert_icc(result, payload);
+                break;
+            }
+            if (!webp && std::memcmp(type, "iCCP", 4) == 0) {
+                const auto split = std::find(payload.begin(), payload.end(), 0);
+                const size_t start = static_cast<size_t>(split - payload.begin()) + 2;
+                if (start < payload.size() && payload[start - 1] == 0) {
+                    std::vector<uint8_t> profile(max_icc_size);
+                    uLongf size = profile.size();
+                    if (uncompress(profile.data(), &size, payload.data() + start, payload.size() - start) == Z_OK)
+                        convert_icc(result, {profile.data(), size});
+                }
+                break;
+            }
+            if (!webp && std::memcmp(type, "IDAT", 4) == 0) break;
+            offset += overhead + len;
+        }
+        return;
+    }
+    if (data.size() < 4 || data[0] != 0xff || data[1] != 0xd8) return;
+    std::array<std::span<const uint8_t>, 256> chunks{};
+    size_t count = 0, size = 0, found = 0;
+    for (size_t pos = 2; data.size() - pos >= 4 && data[pos] == 0xff;) {
+        if (data[pos + 1] == 0xff) { ++pos; continue; }
+        if (data[pos + 1] == 0xda || data[pos + 1] == 0xd9) break;
+        const size_t len = (static_cast<size_t>(data[pos + 2]) << 8) | data[pos + 3];
+        if (len < 2 || len > data.size() - pos - 2) return;
+        if (data[pos + 1] == 0xe2 && len > 16 &&
+            std::memcmp(data.data() + pos + 4, "ICC_PROFILE\0", 12) == 0) {
+            const size_t index = data[pos + 16];
+            const size_t total = data[pos + 17];
+            if (index == 0 || index > total || (count && count != total) || !chunks[index].empty()) return;
+            count = total;
+            chunks[index] = data.subspan(pos + 18, len - 16);
+            size += len - 16;
+            if (size > max_icc_size) return;
+            ++found;
+        }
+        pos += len + 2;
+    }
+    if (count == 0 || found != count) return;
+    std::vector<uint8_t> profile;
+    profile.reserve(size);
+    for (size_t i = 1; i <= count; ++i) profile.insert(profile.end(), chunks[i].begin(), chunks[i].end());
+    convert_icc(result, profile);
+}
+
+void convert_heif_profile(RawImage& result, const heif_image_handle* handle) {
+    const size_t size = heif_image_handle_get_raw_color_profile_size(handle);
+    if (size > 0 && size <= max_icc_size) {
+        std::vector<uint8_t> profile(size);
+        if (heif_image_handle_get_raw_color_profile(handle, profile.data()).code == heif_error_Ok)
+            convert_icc(result, profile);
+        return;
+    }
+    heif_color_profile_nclx* description = nullptr;
+    if (heif_image_handle_get_nclx_color_profile(handle, &description).code != heif_error_Ok) return;
+    const std::unique_ptr<heif_color_profile_nclx, decltype(&heif_nclx_color_profile_free)>
+        owner(description, heif_nclx_color_profile_free);
+    if (description->color_primaries != 12 || description->transfer_characteristics != 13) return;
+    const cmsCIExyY d65{0.3127, 0.3290, 1};
+    const cmsCIExyYTRIPLE p3{{0.680, 0.320, 1}, {0.265, 0.690, 1}, {0.150, 0.060, 1}};
+    const cmsFloat64Number parameters[]{2.4, 1.0 / 1.055, 0.055 / 1.055, 1.0 / 12.92, 0.04045};
+    auto* curve = cmsBuildParametricToneCurve(nullptr, 4, parameters);
+    if (!curve) return;
+    cmsToneCurve* curves[]{curve, curve, curve};
+    auto* source = cmsCreateRGBProfile(&d65, &p3, curves);
+    if (source) {
+        convert_icc(result, source);
+        cmsCloseProfile(source);
+    }
+    cmsFreeToneCurve(curve);
+}
+
+} // namespace
+
+bool ImageLoader::image_dimensions(std::span<const uint8_t> buffer, int& width, int& height) {
     if (buffer.empty() || buffer.size() > INT_MAX) return false;
-    const bool webp = is_webp(buffer);
+    if (is_tiff(buffer)) {
+        TiffReader reader{buffer};
+        const auto tiff = open_tiff(reader);
+        return tiff_dimensions(tiff.get(), width, height);
+    }
+    if (is_heif(buffer)) {
+        const auto [ctx, handle] = open_heif(buffer);
+        return heif_dimensions(handle.get(), width, height);
+    }
     int channels = 0;
-    const bool known = webp ? WebPGetInfo(buffer.data(), buffer.size(), &width, &height) :
+    const bool known = is_webp(buffer) ? WebPGetInfo(buffer.data(), buffer.size(), &width, &height) :
         stbi_info_from_memory(buffer.data(), static_cast<int>(buffer.size()), &width, &height, &channels);
-    return known && width > 0 && height > 0 && width <= 16384 && height <= 16384 &&
-           static_cast<size_t>(width) <= max_pixels / static_cast<size_t>(height);
+    return known && usable_dimensions(width, height);
 }
 
 RawImage ImageLoader::decode_rgba(std::span<const uint8_t> buffer) {
     RawImage result;
-    if (!image_dimensions(buffer, result.width, result.height)) return result;
-    if (is_webp(buffer)) {
-        const size_t stride = static_cast<size_t>(result.width) * 4;
-        const size_t size = stride * result.height;
-        result.pixels = static_cast<uint8_t*>(std::malloc(size));
-        if (!result.pixels ||
-            !WebPDecodeRGBAInto(buffer.data(), buffer.size(), result.pixels, size, static_cast<int>(stride))) {
-            return {};
+    if (buffer.empty() || buffer.size() > INT_MAX) return {};
+    if (is_tiff(buffer)) {
+        TiffReader reader{buffer};
+        const auto tiff = open_tiff(reader);
+        if (!tiff_dimensions(tiff.get(), result.width, result.height)) return {};
+        const size_t pixels = static_cast<size_t>(result.width) * result.height;
+        result.pixels = static_cast<uint8_t*>(std::malloc(pixels * 4));
+        if (!result.pixels || !TIFFReadRGBAImageOriented(tiff.get(), result.width, result.height,
+                reinterpret_cast<uint32_t*>(result.pixels), ORIENTATION_TOPLEFT, 1)) return {};
+        if constexpr (std::endian::native == std::endian::big) {
+            for (size_t i = 0; i < pixels; ++i) {
+                auto* rgba = result.pixels + i * 4;
+                std::reverse(rgba, rgba + 4);
+            }
         }
+        uint32_t size = 0;
+        uint8_t* profile = nullptr;
+        if (TIFFGetField(tiff.get(), TIFFTAG_ICCPROFILE, &size, &profile) && profile)
+            convert_icc(result, {profile, size});
+    } else if (is_heif(buffer)) {
+        const auto [ctx, handle] = open_heif(buffer);
+        if (!heif_dimensions(handle.get(), result.width, result.height)) return {};
+        std::unique_ptr<heif_decoding_options, decltype(&heif_decoding_options_free)>
+            options(heif_decoding_options_alloc(), heif_decoding_options_free);
+        if (!options) return {};
+        options->convert_hdr_to_8bit = 1;
+        heif_image* image = nullptr;
+        const auto status = heif_decode_image(handle.get(), &image, heif_colorspace_RGB,
+                                              heif_chroma_interleaved_RGBA, options.get());
+        const std::unique_ptr<heif_image, decltype(&heif_image_release)> owner(image, heif_image_release);
+        if (status.code != heif_error_Ok || !image) return {};
+        result.width = heif_image_get_width(image, heif_channel_interleaved);
+        result.height = heif_image_get_height(image, heif_channel_interleaved);
+        if (!usable_dimensions(result.width, result.height)) return {};
+        int pitch = 0;
+        const auto* plane = heif_image_get_plane_readonly(image, heif_channel_interleaved, &pitch);
+        const size_t stride = static_cast<size_t>(result.width) * 4;
+        if (!plane || pitch < 0 || static_cast<size_t>(pitch) < stride) return {};
+        result.pixels = static_cast<uint8_t*>(std::malloc(stride * result.height));
+        if (!result.pixels) return {};
+        for (int y = 0; y < result.height; ++y)
+            std::memcpy(result.pixels + y * stride, plane + static_cast<size_t>(y) * pitch, stride);
+        convert_heif_profile(result, handle.get());
     } else {
-        int channels = 0;
-        result.pixels = stbi_load_from_memory(buffer.data(), static_cast<int>(buffer.size()),
-                                              &result.width, &result.height, &channels, 4);
+        if (!image_dimensions(buffer, result.width, result.height)) return {};
+        if (is_webp(buffer)) {
+            const size_t stride = static_cast<size_t>(result.width) * 4;
+            const size_t size = stride * result.height;
+            result.pixels = static_cast<uint8_t*>(std::malloc(size));
+            if (!result.pixels || !WebPDecodeRGBAInto(buffer.data(), buffer.size(), result.pixels, size,
+                                                     static_cast<int>(stride))) return {};
+        } else {
+            int channels = 0;
+            result.pixels = stbi_load_from_memory(buffer.data(), static_cast<int>(buffer.size()),
+                                                  &result.width, &result.height, &channels, 4);
+        }
+        if (result.pixels) convert_embedded_profile(result, buffer);
     }
     result.channels = 4;
     result.format = ImageFormat::RGBA32;

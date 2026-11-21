@@ -8,6 +8,7 @@
 #include <mutex>
 #include <thread>
 #include <atomic>
+#include <chrono>
 #include "font_render.h"
 
 struct NewsToken {
@@ -50,7 +51,14 @@ private:
     int m_cached_global_total_w{0};
     int m_cached_font_size{0};
 
-    std::string execute_http_get(const std::string& url);
+    struct FeedState {
+        std::string url;
+        time_t modified = 0;
+    };
+    FeedState local_feed, global_feed;
+    std::chrono::steady_clock::time_point retry_after{};
+    int backoff_seconds = 30;
+    std::string execute_http_get(const std::string& url, FeedState& feed, bool& unchanged);
     std::vector<NewsItem> parse_rss(const std::string& xml_data);
 
 public:

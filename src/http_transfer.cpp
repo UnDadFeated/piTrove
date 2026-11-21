@@ -138,7 +138,7 @@ static int cancelled(void* opaque, curl_off_t, curl_off_t, curl_off_t, curl_off_
     auto* running = static_cast<const std::atomic<bool>*>(opaque);
     return running && !running->load();
 }
-bool download(const std::string& url, const std::string& path, size_t limit, const std::atomic<bool>* running) {
+bool download(const std::string& url, const std::string& path, size_t limit, const std::atomic<bool>* running, const std::string& bearer) {
     if (running && !running->load()) return false;
     std::string pattern = path + ".part.XXXXXX";
     std::vector<char> name(pattern.begin(), pattern.end()); name.push_back('\0');
@@ -153,7 +153,11 @@ bool download(const std::string& url, const std::string& path, size_t limit, con
     if (curl) {
         options(curl, url);
         curl_easy_setopt(curl, CURLOPT_TIMEOUT, 300L);
-        curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
+        curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, bearer.empty() ? 1L : 0L);
+        if (!bearer.empty()) {
+            curl_easy_setopt(curl, CURLOPT_HTTPAUTH, CURLAUTH_BEARER);
+            curl_easy_setopt(curl, CURLOPT_XOAUTH2_BEARER, bearer.c_str());
+        }
         curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_file);
         curl_easy_setopt(curl, CURLOPT_WRITEDATA, &buffer);
         curl_easy_setopt(curl, CURLOPT_XFERINFOFUNCTION, cancelled);

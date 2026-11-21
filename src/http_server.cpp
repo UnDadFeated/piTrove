@@ -144,16 +144,6 @@ static bool has_query_param(const std::string& request, const std::string& key) 
 static std::string get_query_param(const std::string& request, const std::string& key) {
     return http_protocol::query_param(request, key).value_or("");
 }
-static std::string get_host_header(const std::string& request) {
-    http_protocol::Request parsed;
-    size_t required;
-    if (http_protocol::parse(request, parsed, required) == http_protocol::Result::complete) {
-        if (auto it = parsed.headers.find("host"); it != parsed.headers.end()) return it->second;
-    }
-    std::shared_lock lock(g_config_mtx);
-    return std::format("localhost:{}", g_cfg.http_port);
-}
-
 // Escape a value for interpolation into an HTML text/attribute context. The OAuth
 // pages splice request-derived strings (?error=, the Host header) into markup, which
 // was a reflected-XSS sink.
@@ -173,266 +163,65 @@ static std::string html_escape(const std::string& s) {
     return out;
 }
 
-static std::string get_setup_html(const std::string& redirect_uri) {
-    std::string html = R"HTML(
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>piTrove - Google Photos Setup</title>
-    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&family=JetBrains+Mono&display=swap" rel="stylesheet">
-    <style>
-        :root {
-            --bg-grad: linear-gradient(135deg, #09090b 0%, #1e0b36 50%, #03001e 100%);
-            --accent: #d946ef;
-            --accent-glow: rgba(217, 70, 239, 0.4);
-            --neon-blue: #06b6d4;
-            --card-bg: rgba(255, 255, 255, 0.03);
-            --card-border: rgba(255, 255, 255, 0.08);
-            --glass-blur: blur(20px);
-            --text-main: #f8fafc;
-            --text-muted: #94a3b8;
-        }
-        * { box-sizing: border-box; margin: 0; padding: 0; }
-        body {
-            font-family: 'Outfit', sans-serif;
-            background: var(--bg-grad);
-            background-attachment: fixed;
-            color: var(--text-main);
-            min-height: 100vh;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            padding: 2rem 1rem;
-        }
-        .card {
-            width: 100%;
-            max-width: 550px;
-            background: var(--card-bg);
-            border: 1px solid var(--card-border);
-            backdrop-filter: var(--glass-blur);
-            -webkit-backdrop-filter: var(--glass-blur);
-            border-radius: 24px;
-            padding: 2.5rem;
-            box-shadow: 0 16px 40px 0 rgba(0, 0, 0, 0.45);
-            position: relative;
-            overflow: hidden;
-        }
-        .card::before {
-            content: '';
-            position: absolute;
-            top: 0; left: 0; right: 0; height: 4px;
-            background: linear-gradient(90deg, var(--accent), var(--neon-blue));
-        }
-        h2 { font-weight: 800; font-size: 2rem; margin-bottom: 0.5rem; text-align: center; }
-        .subtitle { font-size: 0.9rem; color: var(--text-muted); text-align: center; margin-bottom: 2rem; }
-        .step {
-            background: rgba(255, 255, 255, 0.02);
-            border: 1px solid rgba(255, 255, 255, 0.05);
-            border-radius: 12px;
-            padding: 1rem;
-            margin-bottom: 1.5rem;
-            font-size: 0.9rem;
-            line-height: 1.4;
-        }
-        .step code {
-            font-family: 'JetBrains Mono', monospace;
-            background: rgba(0,0,0,0.3);
-            padding: 0.2rem 0.4rem;
-            border-radius: 4px;
-            color: var(--neon-blue);
-            font-size: 0.85rem;
-        }
-        .form-group {
-            margin-bottom: 1.25rem;
-            display: flex;
-            flex-direction: column;
-            gap: 0.5rem;
-        }
-        label { font-weight: 600; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 1px; color: var(--text-muted); }
-        input[type="text"] {
-            background: rgba(0, 0, 0, 0.25);
-            border: 1px solid var(--card-border);
-            border-radius: 12px;
-            padding: 0.8rem 1rem;
-            color: var(--text-main);
-            font-family: inherit;
-            font-size: 0.95rem;
-            transition: all 0.3s ease;
-        }
-        input[type="text"]:focus {
-            outline: none;
-            border-color: var(--accent);
-            box-shadow: 0 0 10px var(--accent-glow);
-        }
-        button {
-            width: 100%;
-            background: linear-gradient(90deg, var(--accent), var(--neon-blue));
-            border: none;
-            border-radius: 12px;
-            padding: 1rem;
-            color: white;
-            font-family: inherit;
-            font-size: 1rem;
-            font-weight: 800;
-            text-transform: uppercase;
-            letter-spacing: 1px;
-            cursor: pointer;
-            transition: all 0.3s ease;
-            box-shadow: 0 4px 15px rgba(217, 70, 239, 0.3);
-            margin-top: 1rem;
-        }
-        button:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 6px 20px rgba(217, 70, 239, 0.5);
-        }
-    </style>
-</head>
-<body>
-    <div class="card">
-        <h2>Google Photos Link</h2>
-        <p class="subtitle">Step 1: Obtain Google Photos OAuth 2.0 Credentials</p>
-        
-        <div class="step">
-            1. Go to the <a href="https://console.cloud.google.com/" target="_blank" style="color:var(--accent); text-decoration:none; font-weight:600;">Google Cloud Console</a>.<br>
-            2. Create a Project, enable the <strong>Google Photos Library API</strong>.<br>
-            3. Set up OAuth Consent Screen, and create <strong>OAuth Client ID</strong> credentials for Web Application.<br>
-            4. In "Authorized redirect URIs", add exactly:<br>
-            <code style="display:block; margin-top:0.4rem; padding: 0.5rem; text-align:center;">redirect_uri</code>
-        </div>
-
-        <form action="/google_photos_setup" method="POST">
-            <div class="form-group" style="display:none;">
-                <input type="text" name="action" value="submit">
-            </div>
-            <div class="form-group">
-                <label for="client_id">OAuth Client ID</label>
-                <input type="text" id="client_id" name="client_id" placeholder="Paste Client ID here" required>
-            </div>
-            
-            <div class="form-group">
-                <label for="client_secret">OAuth Client Secret</label>
-                <input type="text" id="client_secret" name="client_secret" placeholder="Paste Client Secret here" required>
-            </div>
-            
-            <button type="submit">Configure & Authenticate</button>
-        </form>
-    </div>
-</body>
-</html>
-)HTML";
-    
-    // Replace redirect_uri
-    size_t r_pos = html.find("redirect_uri");
-    if (r_pos != std::string::npos) {
-        html.replace(r_pos, 12, html_escape(redirect_uri));
-    }
-    return html;
+static std::string get_setup_html() {
+    return webui::start("Google Photos", "settings") + R"PAGE(
+<div class="page-heading"><div><h1>Google Photos</h1><p>Choose photos and videos to add to the frame.</p></div></div>
+<div class="stack">
+  <section class="card"><div class="card-heading"><h2>Import media</h2></div>
+    <div class="row wrap"><button id="pick" class="primary">Start an import</button>
+    <a id="picker" class="button" target="_blank" rel="noopener noreferrer" hidden>Open Google Photos</a></div>
+    <p id="picker-status" class="status" role="status"></p>
+  </section>
+  <section class="card"><div class="card-heading"><h2>Link Google Photos</h2></div>
+    <p class="hint">Enable the Google Photos Picker API for your Google Cloud project. Use a web OAuth client and add the loopback redirect URI shown below.</p>
+    <p id="oauth-uri" class="hint"></p>
+    <form id="link-photos">
+      <div class="field"><label for="client-id">OAuth client ID</label><input id="client-id" required autocomplete="off" maxlength="512"></div>
+      <div class="field"><label for="client-secret">OAuth client secret</label><input type="password" id="client-secret" required autocomplete="new-password" maxlength="512"></div>
+      <button type="submit" class="primary">Link account</button>
+    </form><p id="oauth-status" class="status" role="status"></p>
+  </section>
+</div>
+<script>
+document.addEventListener('DOMContentLoaded',()=>{
+ const { $,request,onUnlock }=FrameUI;
+ const loopback=location.hostname==='localhost'||location.hostname==='127.0.0.1';
+ $('oauth-uri').textContent=loopback?location.origin+'/google_photos_callback':'Open this page through a localhost SSH tunnel to link an account.';
+ $('link-photos').hidden=!loopback;
+ let timer;
+ const update=data=>{
+   clearTimeout(timer);
+   const labels={ready:'Start an import after linking your Google account.',picking:'Open Google Photos, choose your media, and select Done.',importing:'Importing your selection…',complete:'Imported '+data.imported+' new items.',partial:'Imported '+data.imported+' new items. '+data.failed+' could not be saved.',expired:'Selection expired. Start a new import.',failed:'Import failed. Start a new import.',unlinked:'Link your Google Photos account first.',authorization_failed:'Google did not create a Picker session. Check the enabled API and relink your account.'};
+   $('picker-status').textContent=labels[data.state]||'';
+   const validLink=data.state==='picking'&&data.picker_url?.startsWith('https://photos.google.com/');
+   const open=$('picker');open.hidden=!validLink;if(validLink)open.href=data.picker_url;else open.removeAttribute('href');
+   $('pick').disabled=data.state==='picking'||data.state==='importing';
+   if($('pick').disabled)timer=setTimeout(refresh,5000);
+ };
+ const refresh=async()=>{try{update(await request('/api/google_photos/picker'));}catch(e){$('picker-status').textContent=e.message;}};
+ onUnlock(refresh);
+ $('pick').addEventListener('click',async()=>{
+   $('pick').disabled=true;$('picker-status').textContent='Starting a Google Photos selection…';
+   try{update(await request('/api/google_photos/picker',{fields:{},timeout:40000}));}catch(e){$('picker-status').textContent=e.message;$('pick').disabled=false;}
+ });
+ $('link-photos').addEventListener('submit',async e=>{
+   e.preventDefault();const secret=$('client-secret');const button=e.currentTarget.querySelector('button');
+   button.disabled=true;
+   try{const result=await request('/google_photos_setup',{fields:{client_id:$('client-id').value,client_secret:secret.value}});secret.value='';
+     if(result.authorization_url?.startsWith('https://accounts.google.com/'))location.assign(result.authorization_url);
+   }catch(error){$('oauth-status').textContent=error.message;}finally{button.disabled=false;}
+ });
+ refresh();
+});
+</script>
+)PAGE" + webui::end(VERSION);
 }
 
 static std::string get_success_html() {
-    std::string html = R"HTML(
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>piTrove - Integration Successful</title>
-    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&display=swap" rel="stylesheet">
-    <style>
-        :root {
-            --bg-grad: linear-gradient(135deg, #09090b 0%, #1e0b36 50%, #03001e 100%);
-            --accent: #22c55e;
-            --accent-glow: rgba(34, 197, 94, 0.4);
-            --neon-blue: #06b6d4;
-            --card-bg: rgba(255, 255, 255, 0.03);
-            --card-border: rgba(255, 255, 255, 0.08);
-            --glass-blur: blur(20px);
-            --text-main: #f8fafc;
-            --text-muted: #94a3b8;
-        }
-        * { box-sizing: border-box; margin: 0; padding: 0; }
-        body {
-            font-family: 'Outfit', sans-serif;
-            background: var(--bg-grad);
-            background-attachment: fixed;
-            color: var(--text-main);
-            min-height: 100vh;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            padding: 2rem 1rem;
-        }
-        .card {
-            width: 100%;
-            max-width: 500px;
-            background: var(--card-bg);
-            border: 1px solid var(--card-border);
-            backdrop-filter: var(--glass-blur);
-            -webkit-backdrop-filter: var(--glass-blur);
-            border-radius: 24px;
-            padding: 2.5rem;
-            box-shadow: 0 16px 40px 0 rgba(0, 0, 0, 0.45);
-            text-align: center;
-            position: relative;
-            overflow: hidden;
-        }
-        .card::before {
-            content: '';
-            position: absolute;
-            top: 0; left: 0; right: 0; height: 4px;
-            background: linear-gradient(90deg, var(--accent), var(--neon-blue));
-        }
-        .success-icon {
-            width: 80px; height: 80px;
-            background: rgba(34, 197, 94, 0.1);
-            border: 2px solid var(--accent);
-            border-radius: 50%;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            margin: 0 auto 1.5rem;
-            color: var(--accent);
-            font-size: 2.5rem;
-            box-shadow: 0 0 20px var(--accent-glow);
-        }
-        h2 { font-weight: 800; font-size: 1.8rem; margin-bottom: 0.5rem; }
-        p { font-size: 1rem; color: var(--text-muted); line-height: 1.5; margin-bottom: 2rem; }
-        .btn {
-            display: inline-block;
-            background: linear-gradient(90deg, var(--accent), var(--neon-blue));
-            border: none;
-            border-radius: 12px;
-            padding: 0.9rem 2rem;
-            color: white;
-            font-family: inherit;
-            font-size: 0.95rem;
-            font-weight: 800;
-            text-transform: uppercase;
-            text-decoration: none;
-            letter-spacing: 1px;
-            cursor: pointer;
-            transition: all 0.3s ease;
-            box-shadow: 0 4px 15px rgba(34, 197, 94, 0.3);
-        }
-        .btn:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 6px 20px rgba(34, 197, 94, 0.5);
-        }
-    </style>
-</head>
-<body>
-    <div class="card">
-        <div class="success-icon">✓</div>
-        <h2>Integration Successful!</h2>
-        <p>piTrove has successfully authenticated with your Google Photos account. Cloud media synchronization is now active and will download images in the background.</p>
-        <a href="/" class="btn">Go to Dashboard</a>
-    </div>
-</body>
-</html>
-)HTML";
-    return html;
+    return webui::start("Google Photos linked", "settings") +
+        R"PAGE(<section class="card stack"><h1>Google Photos linked</h1><p>Open the importer to choose the photos and videos you want on the frame.</p>
+        <div><a class="button primary" href="/google_photos_setup">Choose media</a></div></section>)PAGE" +
+        webui::end(VERSION);
 }
 
 static std::string get_error_html(const std::string& message) {
@@ -1252,39 +1041,39 @@ static void handle_client(int client_fd, uint32_t peer_ip) {
             send_response(client_fd, "HTTP/1.1 " + std::to_string(response.status) +
                           (response.status == 200 ? " OK" : " Error"), "application/json; charset=utf-8", response.body);
         }
-        else if (matches_route("GET", "/google_photos_setup") || matches_route("POST", "/google_photos_setup")) {
-            // Starts a state-bound flow; credentials become live only after a successful exchange.
-            // /google_photos_callback is left open on purpose: it is a Google-initiated
-            // redirect that cannot carry an Authorization header, and it only persists
-            // config after a successful token exchange. Opt-in via [remote] api_key.
+        else if (matches_route("GET", "/google_photos_setup")) {
+            send_response(client_fd, "HTTP/1.1 200 OK", "text/html; charset=utf-8", get_setup_html());
+        }
+        else if (matches_route("POST", "/google_photos_setup")) {
             if (!is_authorized()) return;
-            std::string action = get_query_param(request, "action");
-            if (action == "submit") {
-                std::string client_id = get_query_param(request, "client_id");
-                std::string client_secret = get_query_param(request, "client_secret");
-                
-                std::string host = get_host_header(request);
-                std::string redirect_uri = "http://" + host + "/google_photos_callback";
-                
-                std::string state = g_oauth_state.begin(client_id, client_secret, redirect_uri);
-                if (state.empty()) {
-                    send_response(client_fd, "HTTP/1.1 500 Internal Server Error", "text/plain", "Failed to initialize authorization");
-                    return;
-                }
-                std::string auth_url = "https://accounts.google.com/o/oauth2/v2/auth?client_id=" + http_protocol::url_encode(client_id) +
-                    "&redirect_uri=" + http_protocol::url_encode(redirect_uri) +
-                    "&response_type=code&scope=https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fphotoslibrary.readonly&access_type=offline&prompt=consent&state=" + state;
-
-                std::string redirect_headers = std::format(
-                    "HTTP/1.1 302 Found\r\n" 
-                    "Location: {}\r\n" 
-                    "Connection: close\r\n\r\n", auth_url);
-                http_protocol::send_all(client_fd, redirect_headers);
-            } else {
-                std::string host = get_host_header(request);
-                std::string redirect_uri = "http://" + host + "/google_photos_callback";
-                send_response(client_fd, "HTTP/1.1 200 OK", "text/html", get_setup_html(redirect_uri));
+            const auto hostname = std::string_view(host->second).substr(0, host->second.find(':'));
+            if ((hostname != "localhost" && hostname != "127.0.0.1") ||
+                parsed_request.target != parsed_request.path) {
+                send_response(client_fd, "HTTP/1.1 400 Bad Request", "text/plain",
+                              "Use the localhost controller to link Google Photos.");
+                return;
             }
+            const auto client_id = get_query_param(request, "client_id");
+            const auto client_secret = get_query_param(request, "client_secret");
+            if (client_id.empty() || client_id.size() > 512 || client_secret.empty() || client_secret.size() > 512) {
+                send_response(client_fd, "HTTP/1.1 400 Bad Request", "text/plain", "Enter both OAuth credentials.");
+                return;
+            }
+            const std::string redirect_uri = "http://" + host->second + "/google_photos_callback";
+            const auto state = g_oauth_state.begin(client_id, client_secret, redirect_uri);
+            if (state.empty()) {
+                send_response(client_fd, "HTTP/1.1 500 Internal Server Error", "text/plain", "Failed to initialize authorization");
+                return;
+            }
+            const auto url = "https://accounts.google.com/o/oauth2/v2/auth?client_id=" + http_protocol::url_encode(client_id) +
+                "&redirect_uri=" + http_protocol::url_encode(redirect_uri) +
+                "&response_type=code&scope=https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fphotospicker.mediaitems.readonly&access_type=offline&prompt=consent&state=" + state;
+            send_response(client_fd, "HTTP/1.1 200 OK", "application/json", "{\"authorization_url\":\"" + escape_json(url) + "\"}");
+        }
+        else if (matches_route("GET", "/api/google_photos/picker") || matches_route("POST", "/api/google_photos/picker")) {
+            if (!is_authorized()) return;
+            const auto response = parsed_request.method == "POST" ? g_google_photos.create_picker() : g_google_photos.picker_status();
+            send_response(client_fd, "HTTP/1.1 200 OK", "application/json", response);
         }
         else if (matches_route("GET", "/google_photos_callback")) {
             auto flow = g_oauth_state.consume(get_query_param(request, "state"));
@@ -1335,7 +1124,7 @@ static void handle_client(int client_fd, uint32_t peer_ip) {
                     }
 
                     // Clear error and restart background sync thread safely
-                    trigger_error(0);
+                    for (int code = 301; code <= 318; ++code) clear_error(code);
                     
                     g_google_photos.stop();
                     g_google_photos.start();
@@ -1883,12 +1672,7 @@ static void handle_client(int client_fd, uint32_t peer_ip) {
                 return;
             }
             last_toggle_screen_ms.store(now_ms);
-            bool expected = g_screen_blanked.load();
-            bool desired = !expected;
-            while (!g_screen_blanked.compare_exchange_weak(expected, desired)) {
-                desired = !expected;
-            }
-            set_display_power(expected);
+            toggle_display_power();
             std::string prefix, topic;
             { std::lock_guard lk(g_config_mtx); prefix = g_cfg.mqtt_topic_prefix; topic = g_cfg.mqtt_motionsensor_topic; }
             mqtt_publish(prefix + "/status/screen", g_screen_blanked.load() ? "OFF" : "ON", true);
@@ -1906,8 +1690,7 @@ static void handle_client(int client_fd, uint32_t peer_ip) {
             g_last_motion_time.store(static_cast<int64_t>(std::time(nullptr)));
             std::string prefix, sensor_topic;
             { std::lock_guard lk(g_config_mtx); prefix = g_cfg.mqtt_topic_prefix; sensor_topic = g_cfg.mqtt_motionsensor_topic; }
-            if (g_screen_blanked.exchange(false)) {
-                set_display_power(true);
+            if (set_display_power(true)) {
                 mqtt_publish(prefix + "/status/screen", "ON", true);
             }
             mqtt_publish(sensor_topic, "ON", false);

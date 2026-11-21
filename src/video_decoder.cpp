@@ -9,6 +9,8 @@
 #include "config.h"
 
 #include <fstream>
+#include <array>
+#include <limits>
 #include <fcntl.h>
 #include <sys/stat.h>
 extern Logger g_logger;
@@ -28,6 +30,7 @@ extern "C" {
 #include <libavutil/opt.h>
 #include <libavutil/imgutils.h>
 #include <libavutil/time.h>
+#include <libavutil/display.h>
 
 
 struct VideoLimits {
@@ -128,7 +131,9 @@ size_t VideoDecoder::calculate_max_queued_frames(int target_w, int target_h) {
 VideoDecoder::VideoDecoder() {}
 
 
-VideoDecoder::~VideoDecoder() { stop(); }
+VideoDecoder::~VideoDecoder() {
+    if (m_thread.joinable()) stop();
+}
 
 void VideoDecoder::init_audio() {
     std::lock_guard lk(m_audio_mtx);
@@ -171,6 +176,9 @@ void VideoDecoder::init_audio() {
 
 void VideoDecoder::shutdown_audio() {
     std::lock_guard lk(m_audio_mtx);
+    m_audio_prebuffer.clear();
+    m_audio_prebuffer_samples = 0;
+    m_audio_frames_submitted = 0;
     if (!m_audio_initialized) return;
 
     DEBUG_LOG("AUDIO: Shutting down audio device");
@@ -185,21 +193,69 @@ void VideoDecoder::shutdown_audio() {
     }
 }
 
-void VideoDecoder::push_audio_samples(std::span<const int16_t> samples, double pts_s) {
-    // A/V sync: anchor presentation clock on the first audio packet if audio starts first
-    if (m_av_sync.load(std::memory_order_relaxed) && pts_s > 0.0) {
-        note_audio_anchor(pts_s);
+namespace {
+constexpr int audio_rate = 48000;
+constexpr int audio_channels = 2;
+constexpr int max_audio_frames = audio_rate * 16;
+}
+
+void VideoDecoder::queue_audio_locked(std::span<const int16_t> samples, double pts, bool syncing) {
+    const int queued = SDL_GetAudioStreamQueued(m_audio_stream);
+    if (queued < 0) return;
+    constexpr int frame_size = sizeof(int16_t) * audio_channels;
+    int capacity = max_audio_frames - queued / frame_size;
+    if (capacity <= 0) return;
+    if (syncing && std::isfinite(pts)) {
+        const double relative = pts - m_anchor_pts.load(std::memory_order_relaxed);
+        if (std::abs(relative) > 7 * 86400) return;
+        const int64_t desired = std::llround(relative * audio_rate);
+        if (queued == 0) {
+            const auto elapsed_ms = std::max(0.0, SDL_GetTicks() - m_anchor_wall_ms.load());
+            m_audio_frames_submitted = std::max(m_audio_frames_submitted,
+                static_cast<int64_t>(elapsed_ms * audio_rate / 1000));
+        }
+        const int64_t offset = desired - m_audio_frames_submitted;
+        // Fill short audio gaps with silence; trim packets preceding the frame clock.
+        if (offset > capacity) return;
+        if (offset > 0) {
+            static constexpr std::array<int16_t, 2048> silence{};
+            for (int64_t left = offset; left > 0;) {
+                const int frames = static_cast<int>(std::min<int64_t>(left, silence.size() / audio_channels));
+                if (!SDL_PutAudioStreamData(m_audio_stream, silence.data(), frames * frame_size)) return;
+                left -= frames;
+                capacity -= frames;
+                m_audio_frames_submitted += frames;
+            }
+        } else if (offset < 0) {
+            const size_t trim = static_cast<size_t>(-offset) * audio_channels;
+            if (trim >= samples.size()) return;
+            samples = samples.subspan(trim);
+        }
     }
+    const int frames = static_cast<int>(std::min(samples.size() / audio_channels, static_cast<size_t>(capacity)));
+    if (frames > 0 && SDL_PutAudioStreamData(m_audio_stream, samples.data(), frames * frame_size))
+        m_audio_frames_submitted += frames;
+}
+
+void VideoDecoder::push_audio_samples(std::span<const int16_t> samples, double pts) {
     int volume;
     {
-        std::shared_lock lk(g_config_mtx);
+        std::shared_lock lock(g_config_mtx);
         volume = g_cfg.video_volume;
     }
-    std::lock_guard lk(m_audio_mtx);
+    std::lock_guard lock(m_audio_mtx);
     if (!m_audio_initialized || !m_audio_stream) return;
-
     SDL_SetAudioStreamGain(m_audio_stream, volume / 100.0f);
-    SDL_PutAudioStreamData(m_audio_stream, samples.data(), static_cast<int>(samples.size_bytes()));
+
+    const bool syncing = m_av_sync.load(std::memory_order_relaxed) && m_pts_valid.load();
+    if (m_av_sync.load(std::memory_order_relaxed) && !m_anchor_set.load(std::memory_order_relaxed)) {
+        if (m_audio_prebuffer_samples + samples.size() <= max_audio_frames * audio_channels) {
+            m_audio_prebuffer.push_back({{samples.begin(), samples.end()}, pts});
+            m_audio_prebuffer_samples += samples.size();
+        }
+        return;
+    }
+    queue_audio_locked(samples, pts, syncing);
 }
 
 void VideoDecoder::set_av_sync(bool on) { m_av_sync.store(on, std::memory_order_relaxed); }
@@ -233,23 +289,20 @@ void VideoDecoder::note_frame_anchor(double pts_s, bool has_pts, bool stream_eof
     }
 }
 
-void VideoDecoder::note_audio_anchor(double pts_s) {
-    // Presentation anchor is tied to visual presentation start in note_presentation_start()
-    (void)pts_s;
-}
-
 void VideoDecoder::note_presentation_start(double pts_s) {
-    // Audio must resume on visual presentation even in legacy av_sync=0 mode.
-    if (!m_anchor_set.load(std::memory_order_relaxed)) {
-        m_anchor_pts.store(pts_s, std::memory_order_relaxed);
-        m_anchor_wall_ms.store((double)SDL_GetTicks(), std::memory_order_relaxed);
-        m_anchor_set.store(true, std::memory_order_release);
-        g_logger.info("[TRACE] AV_SYNC: Presentation clock anchored to display at ticks={} (pts={:.3f})", SDL_GetTicks(), pts_s);
-        std::lock_guard lk(m_audio_mtx);
-        if (m_audio_initialized && m_audio_stream) {
-            SDL_ResumeAudioStreamDevice(m_audio_stream);
-        }
+    if (m_anchor_set.load(std::memory_order_acquire)) return;
+    std::lock_guard lock(m_audio_mtx);
+    if (m_anchor_set.load(std::memory_order_relaxed)) return;
+    m_anchor_pts.store(pts_s, std::memory_order_relaxed);
+    m_anchor_wall_ms.store(static_cast<double>(SDL_GetTicks()), std::memory_order_relaxed);
+    if (m_audio_initialized && m_audio_stream) {
+        const bool syncing = m_av_sync.load(std::memory_order_relaxed) && m_pts_valid.load();
+        for (const auto& chunk : m_audio_prebuffer) queue_audio_locked(chunk.samples, chunk.pts, syncing);
+        m_audio_prebuffer.clear();
+        m_audio_prebuffer_samples = 0;
+        SDL_ResumeAudioStreamDevice(m_audio_stream);
     }
+    m_anchor_set.store(true, std::memory_order_release);
 }
 
 std::string VideoDecoder::get_current_path() const {
@@ -390,6 +443,12 @@ bool VideoDecoder::get_frame(VideoFrame& out) {
     m_queue_cv.notify_one();
     return true;
 }
+std::optional<double> VideoDecoder::next_frame_pts() const {
+    std::lock_guard lock(m_queue_mtx);
+    if (m_frame_queue.empty()) return std::nullopt;
+    return m_frame_queue.front().pts;
+}
+
 bool VideoDecoder::has_frames() const {
     std::lock_guard lk(m_queue_mtx);
     return !m_frame_queue.empty();
@@ -681,7 +740,10 @@ void VideoDecoder::decode_loop() {
         }
     }
 
+    const size_t audio_lookahead = acc
+        ? std::max(size_t{1}, static_cast<size_t>(12.0 / std::max(0.001, m_frame_duration.load()))) : SIZE_MAX;
     if (acc) init_audio();
+    m_max_queued_frames.store(std::min(m_max_queued_frames.load(), audio_lookahead));
 
     // Swresample — FFmpeg 6 uses swr_alloc_set_opts2 with robust channel layout fallbacks
     SwrContext* swr = nullptr;
@@ -714,17 +776,50 @@ void VideoDecoder::decode_loop() {
         av_channel_layout_uninit(&src_ch);
         av_channel_layout_uninit(&dst_ch);
     }
-    // Compute scaled target dimensions maintaining video aspect ratio
-    int dst_w = vcc->width, dst_h = vcc->height;
-    if (m_target_width > 0 && m_target_height > 0) {
-        float video_ar = (float)vcc->width / (float)vcc->height;
-        float screen_ar = (float)m_target_width / (float)m_target_height;
-        if (video_ar >= screen_ar) {
-            dst_w = m_target_width;
-            dst_h = (int)(m_target_width / video_ar);
+    auto* video_stream = fmt_ctx->streams[video_stream_idx];
+    double rotation = 0.0;
+    if (const auto* display = av_packet_side_data_get(video_stream->codecpar->coded_side_data,
+            video_stream->codecpar->nb_coded_side_data, AV_PKT_DATA_DISPLAYMATRIX);
+        display && display->size >= sizeof(int32_t) * 9) {
+        const double angle = -av_display_rotation_get(reinterpret_cast<const int32_t*>(display->data));
+        if (std::isfinite(angle)) rotation = std::remainder(angle, 360.0);
+    }
+    const auto sar = av_guess_sample_aspect_ratio(fmt_ctx, video_stream, nullptr);
+    const double pixel_aspect = sar.num > 0 && sar.den > 0 ? std::clamp(av_q2d(sar), 0.1, 10.0) : 1.0;
+    const auto convert = [&](AVFrame* source, VideoFrame& output, NV12Converter& converter, int width, int height) {
+        if (!converter.convert(source, output, width, height)) return false;
+        const double frame_sar = source->sample_aspect_ratio.num > 0 && source->sample_aspect_ratio.den > 0
+            ? std::clamp(av_q2d(source->sample_aspect_ratio), 0.1, 10.0) : pixel_aspect;
+        output.aspect_ratio = static_cast<double>(source->width) * frame_sar / source->height;
+        output.rotation = rotation;
+        const auto matrix = source->colorspace != AVCOL_SPC_UNSPECIFIED ? source->colorspace : vcc->colorspace;
+        const bool full = source->color_range == AVCOL_RANGE_JPEG || source->format == AV_PIX_FMT_YUVJ420P ||
+                          (source->color_range == AVCOL_RANGE_UNSPECIFIED && vcc->color_range == AVCOL_RANGE_JPEG);
+        if (matrix == AVCOL_SPC_BT2020_NCL || matrix == AVCOL_SPC_BT2020_CL) {
+            output.colorspace = static_cast<SDL_Colorspace>(SDL_DEFINE_COLORSPACE(SDL_COLOR_TYPE_YCBCR,
+                full ? SDL_COLOR_RANGE_FULL : SDL_COLOR_RANGE_LIMITED, SDL_COLOR_PRIMARIES_BT2020,
+                source->color_trc == AVCOL_TRC_SMPTE2084 || vcc->color_trc == AVCOL_TRC_SMPTE2084
+                    ? SDL_TRANSFER_CHARACTERISTICS_PQ : SDL_TRANSFER_CHARACTERISTICS_BT2020_10BIT,
+                matrix == AVCOL_SPC_BT2020_CL ? SDL_MATRIX_COEFFICIENTS_BT2020_CL : SDL_MATRIX_COEFFICIENTS_BT2020_NCL,
+                SDL_CHROMA_LOCATION_LEFT));
+        } else if (matrix == AVCOL_SPC_BT470BG || matrix == AVCOL_SPC_SMPTE170M ||
+                   (matrix == AVCOL_SPC_UNSPECIFIED && source->height <= 576)) {
+            output.colorspace = full ? SDL_COLORSPACE_BT601_FULL : SDL_COLORSPACE_BT601_LIMITED;
         } else {
-            dst_h = m_target_height;
-            dst_w = (int)(m_target_height * video_ar);
+            output.colorspace = full ? SDL_COLORSPACE_BT709_FULL : SDL_COLORSPACE_BT709_LIMITED;
+        }
+        return true;
+    };
+    // Calculate decode dimensions in coded orientation; the renderer applies rotation.
+    int dst_w = vcc->width, dst_h = vcc->height;
+    if (dst_w > 0 && dst_h > 0 && m_target_width > 0 && m_target_height > 0) {
+        const bool sideways = std::abs(rotation) > 45 && std::abs(rotation) < 135;
+        const int max_w = sideways ? m_target_height : m_target_width;
+        const int max_h = sideways ? m_target_width : m_target_height;
+        const double scale = std::min({1.0, static_cast<double>(max_w) / dst_w, static_cast<double>(max_h) / dst_h});
+        if (scale < 1.0) {
+            dst_w = std::min(dst_w, std::max(2, static_cast<int>(dst_w * scale) & ~1));
+            dst_h = std::min(dst_h, std::max(2, static_cast<int>(dst_h * scale) & ~1));
         }
     }
     // 4K pacing fix: sources above the display target (1080p) are downscaled to
@@ -841,7 +936,7 @@ void VideoDecoder::decode_loop() {
                             int os = swr_convert(swr, outbuf, max_s,
                                                  (const uint8_t**)aframe->extended_data, aframe->nb_samples);
                             int64_t apts = (aframe->best_effort_timestamp != AV_NOPTS_VALUE) ? aframe->best_effort_timestamp : aframe->pts;
-                            double pa_s = (apts != AV_NOPTS_VALUE) ? av_q2d(fmt_ctx->streams[audio_stream_idx]->time_base) * apts : -1.0;
+                            double pa_s = (apts != AV_NOPTS_VALUE) ? av_q2d(fmt_ctx->streams[audio_stream_idx]->time_base) * apts : std::numeric_limits<double>::quiet_NaN();
                             if (os > 0) { push_audio_samples({audio_resample_buf.data(), (size_t)(os * 2)}, pa_s); af_count += os; }
                             
                         }
@@ -887,7 +982,7 @@ void VideoDecoder::decode_loop() {
                         }
                         VideoFrame vf;
                         vf.format = sw_frame2->format;
-                        if (!converter.convert(sw_frame2, vf, dst_w, dst_h)) {
+                        if (!convert(sw_frame2, vf, converter, dst_w, dst_h)) {
                             if (tmp_sw2) av_frame_free(&tmp_sw2);
                             av_frame_unref(frame);
                             continue;
@@ -947,7 +1042,7 @@ void VideoDecoder::decode_loop() {
                     const size_t time_cap = m_frame_duration > 0 ? static_cast<size_t>(12.0 / m_frame_duration) : 360;
                     cap = std::min(std::max(time_cap, size_t{1}), cap);
                 }
-                m_max_queued_frames.store(cap, std::memory_order_relaxed);
+                m_max_queued_frames.store(std::min(cap, audio_lookahead), std::memory_order_relaxed);
             }
             vcc->skip_frame = AVDISCARD_DEFAULT;
             vcc->skip_loop_filter = AVDISCARD_DEFAULT;
@@ -983,7 +1078,7 @@ void VideoDecoder::decode_loop() {
                     }
                     VideoFrame vf;
                     vf.format = sw_frame->format;
-                    if (!converter.convert(sw_frame, vf, dst_w, dst_h)) {
+                    if (!convert(sw_frame, vf, converter, dst_w, dst_h)) {
                         if (tmp_sw) av_frame_free(&tmp_sw);
                         av_frame_unref(frame);
                         continue;
@@ -1060,7 +1155,7 @@ void VideoDecoder::decode_loop() {
             }
             VideoFrame vf;
             vf.format = sw_frame->format;
-            if (!converter.convert(sw_frame, vf, dst_w, dst_h)) {
+            if (!convert(sw_frame, vf, converter, dst_w, dst_h)) {
                 if (tmp_sw) av_frame_free(&tmp_sw);
                 av_frame_unref(frame);
                 continue;
@@ -1111,7 +1206,7 @@ void VideoDecoder::decode_loop() {
                     int os = swr_convert(swr, outbuf, max_s,
                                          (const uint8_t**)aframe->extended_data, aframe->nb_samples);
                     int64_t apts = (aframe->best_effort_timestamp != AV_NOPTS_VALUE) ? aframe->best_effort_timestamp : aframe->pts;
-                    double pa_s = (apts != AV_NOPTS_VALUE) ? av_q2d(fmt_ctx->streams[audio_stream_idx]->time_base) * apts : -1.0;
+                    double pa_s = (apts != AV_NOPTS_VALUE) ? av_q2d(fmt_ctx->streams[audio_stream_idx]->time_base) * apts : std::numeric_limits<double>::quiet_NaN();
                     if (os > 0) { push_audio_samples({audio_resample_buf.data(), (size_t)(os * 2)}, pa_s); af_count += os; }
                     
                 }

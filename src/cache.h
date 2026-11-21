@@ -5,6 +5,8 @@
 #include <mutex>
 #include <atomic>
 #include <vector>
+#include <chrono>
+#include <unordered_map>
 #include <sqlite3.h>
 #include "media_item.h"
 
@@ -22,6 +24,7 @@ struct CacheManager {
     void upsert(const MediaItem& mi, int bad, int preprocessed = 1);
     bool mark_preprocessed(const std::string& path);
     void mark_shown(const std::string& path);
+    void flush_shown();
     void mark_bad(const std::string& filepath);
     void begin_transaction();
     void commit_transaction();
@@ -34,6 +37,10 @@ struct CacheManager {
     // Returns rows removed. No-ops if `live` is empty or implausibly small (failed scan).
     size_t prune_missing(const std::vector<MediaItem>& live);
     ~CacheManager();
+private:
+    std::unordered_map<std::string, int64_t> pending_shown;
+    std::chrono::steady_clock::time_point shown_due{};
+    void flush_shown_locked();
 };
 
 inline CacheManager* g_cache = nullptr;

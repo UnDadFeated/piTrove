@@ -3,7 +3,8 @@
 
 namespace pitrove { namespace safe_mode {
 
-void record_crash();
+void init();
+void record_crash() noexcept;
 bool should_enter_safe_mode();
 void clear();
 

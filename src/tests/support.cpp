@@ -24,7 +24,7 @@ std::vector<ErrorSeed> get_all_error_seeds() { return {}; }
 std::vector<uint8_t> ImageLoader::read_file_to_buffer(const std::string&) { return {}; }
 ImageMetadata ImageLoader::read_metadata_from_memory(std::span<const uint8_t>) { return {}; }
 
-void set_display_power(bool) {}
+bool set_display_power(bool power) { return g_screen_blanked.exchange(!power) != !power; }
 
 std::string trim(std::string_view text) {
     const auto first = text.find_first_not_of(" \t\r\n");

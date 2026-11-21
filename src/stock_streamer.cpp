@@ -12,46 +12,82 @@
 #include <cmath>
 #include <regex>
 #include <chrono>
-#include <future>
+#include <memory>
 
 extern Config g_cfg;
 extern std::shared_mutex g_config_mtx;
 extern Logger g_logger;
 
-static std::string http_get_json(const std::string& url, int timeout_secs = 4) {
-    CURL* curl = curl_easy_init();
-    if (!curl) return "";
+namespace {
 
-    http_transfer::configure_public_https(curl);
-    std::string response;
-    http_transfer::TextBuffer response_buffer{&response, 4 * 1024 * 1024};
-    curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
-    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, http_transfer::append_text);
-    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response_buffer);
-    curl_easy_setopt(curl, CURLOPT_TIMEOUT, (long)timeout_secs);
-    curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 3L);
-    curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
-    curl_easy_setopt(curl, CURLOPT_USERAGENT, "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36");
-    // TLS verification is on by default. Set [stockstreamer] tls_verify = 0 only if this
-    // host sits behind a TLS-intercepting proxy and you accept the MITM exposure; any
-    // value other than 0 keeps chain and hostname validation enabled.
-    long tls_verify;
-    { std::shared_lock lock(g_config_mtx); tls_verify = g_cfg.stockstreamer_tls_verify ? 1L : 0L; }
-    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, tls_verify);
-    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, tls_verify ? 2L : 0L);
-
-    CURLcode res = curl_easy_perform(curl);
-    long status = 0;
-    curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &status);
-    curl_easy_cleanup(curl);
-
-    if (res != CURLE_OK || status != 200) {
-        return "";
+bool us_market_open(std::chrono::system_clock::time_point now) {
+    using namespace std::chrono;
+    try {
+        const auto local = locate_zone("America/New_York")->to_local(now);
+        const auto date = floor<days>(local);
+        const auto weekday_num = weekday(sys_days(date.time_since_epoch())).iso_encoding();
+        const auto time = local - date;
+        return weekday_num <= 5 && time >= hours(9) + minutes(30) && time < hours(16);
+    } catch (...) {
+        return false;
     }
-    return response;
 }
 
+struct QuoteRequest {
+    std::string url;
+    std::string body;
+    http_transfer::TextBuffer buffer{&body, 256 * 1024};
+    CURL* handle = nullptr;
+    bool success = false;
+};
+
+void fetch_quotes(std::vector<QuoteRequest>& requests, bool tls_verify) {
+    const std::unique_ptr<CURLM, decltype(&curl_multi_cleanup)> multi(curl_multi_init(), curl_multi_cleanup);
+    if (!multi) return;
+    curl_multi_setopt(multi.get(), CURLMOPT_MAX_TOTAL_CONNECTIONS, 6L);
+    for (auto& request : requests) {
+        auto* curl = curl_easy_init();
+        if (!curl) continue;
+        http_transfer::configure_public_https(curl);
+        curl_easy_setopt(curl, CURLOPT_URL, request.url.c_str());
+        curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, http_transfer::append_text);
+        curl_easy_setopt(curl, CURLOPT_WRITEDATA, &request.buffer);
+        curl_easy_setopt(curl, CURLOPT_PRIVATE, &request);
+        curl_easy_setopt(curl, CURLOPT_TIMEOUT, 5L);
+        curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 3L);
+        curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
+        curl_easy_setopt(curl, CURLOPT_USERAGENT, "piTrove/" VERSION);
+        curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, tls_verify ? 1L : 0L);
+        curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, tls_verify ? 2L : 0L);
+        if (curl_multi_add_handle(multi.get(), curl) != CURLM_OK) curl_easy_cleanup(curl);
+        else request.handle = curl;
+    }
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(6);
+    int active = 0;
+    while (curl_multi_perform(multi.get(), &active) == CURLM_OK && active > 0 &&
+           std::chrono::steady_clock::now() < deadline) {
+        if (curl_multi_poll(multi.get(), nullptr, 0, 200, nullptr) != CURLM_OK) break;
+    }
+    int queued = 0;
+    while (const auto* message = curl_multi_info_read(multi.get(), &queued)) {
+        if (message->msg != CURLMSG_DONE) continue;
+        QuoteRequest* request = nullptr;
+        long status = 0;
+        curl_easy_getinfo(message->easy_handle, CURLINFO_PRIVATE, &request);
+        curl_easy_getinfo(message->easy_handle, CURLINFO_RESPONSE_CODE, &status);
+        if (request) request->success = message->data.result == CURLE_OK && status == 200;
+    }
+    for (auto& request : requests) {
+        if (!request.handle) continue;
+        curl_multi_remove_handle(multi.get(), request.handle);
+        curl_easy_cleanup(request.handle);
+    }
+}
+
+} // namespace
+
 static std::string format_currency(double val, bool is_crypto = false) {
+    if (!std::isfinite(val) || val < 0 || val > 1e15) return "—";
     if (is_crypto) {
         int64_t whole = (int64_t)val;
         int cents = (int)std::round((val - (double)whole) * 100.0);
@@ -216,26 +252,38 @@ void StockStreamer::fetch_sync() {
         }
     }
 
-    // Parallel fetch for all stocks
-    std::vector<std::future<std::pair<std::string, std::string>>> futures;
-    for (const auto& sym : symbols) {
-        std::string yahoo_sym = (sym == "BRK.B") ? "BRK-B" : sym;
-        futures.push_back(std::async(std::launch::async, [sym, yahoo_sym]() {
-            std::string url = std::format("https://query1.finance.yahoo.com/v8/finance/chart/{}?interval=1m&range=1d&includePrePost=true", http_protocol::url_encode(yahoo_sym));
-            return std::make_pair(sym, http_get_json(url, 4));
-        }));
+    const bool market_open = us_market_open(std::chrono::system_clock::now());
+    bool tls_verify;
+    {
+        std::shared_lock lock(g_config_mtx);
+        tls_verify = g_cfg.stockstreamer_tls_verify;
     }
-
-    // Parallel fetch for crypto
-    auto crypto_future = std::async(std::launch::async, [crypto_sym]() {
-        std::string url = std::format("https://query1.finance.yahoo.com/v8/finance/chart/{}?interval=1m&range=1d&includePrePost=true", http_protocol::url_encode(crypto_sym));
-        return http_get_json(url, 4);
-    });
+    std::vector<StockQuote> old_stocks;
+    {
+        std::shared_lock lock(m_quotes_mtx);
+        old_stocks = m_stocks;
+    }
+    std::vector<QuoteRequest> requests(market_open ? symbols.size() + 1 : 1);
+    const auto chart = [](const std::string& symbol) {
+        return "https://query1.finance.yahoo.com/v8/finance/chart/" +
+            http_protocol::url_encode(symbol == "BRK.B" ? "BRK-B" : symbol) +
+            "?interval=1m&range=1d";
+    };
+    for (size_t i = 0; market_open && i < symbols.size(); ++i) requests[i].url = chart(symbols[i]);
+    requests.back().url = chart(crypto_sym);
+    fetch_quotes(requests, tls_verify);
 
     std::vector<StockQuote> fetched_stocks;
     bool fresh_stock_quote = false;
-    for (auto& f : futures) {
-        auto [sym, json_resp] = f.get();
+    for (size_t i = 0; i < symbols.size(); ++i) {
+        const auto& sym = symbols[i];
+        const auto previous = std::find_if(old_stocks.begin(), old_stocks.end(),
+            [&](const StockQuote& quote) { return quote.symbol == sym; });
+        if (!market_open || !requests[i].success) {
+            if (previous != old_stocks.end()) fetched_stocks.push_back(*previous);
+            continue;
+        }
+        const auto& json_resp = requests[i].body;
         StockQuote q;
         q.symbol = sym;
         q.display_symbol = clean_display_sym(sym);
@@ -245,17 +293,12 @@ void StockStreamer::fetch_sync() {
         if (parse_yahoo_chart_meta(json_resp, q)) {
             fresh_stock_quote = true;
             fetched_stocks.push_back(std::move(q));
-        } else {
-            std::shared_lock lk(m_quotes_mtx);
-            auto it = std::find_if(m_stocks.begin(), m_stocks.end(), [&](const StockQuote& sq) { return sq.symbol == sym; });
-            if (it != m_stocks.end()) {
-                fetched_stocks.push_back(*it);
-            }
+        } else if (previous != old_stocks.end()) {
+            fetched_stocks.push_back(*previous);
         }
     }
 
-    // Process Crypto result
-    std::string btc_json = crypto_future.get();
+    const auto& btc_json = requests.back().body;
     StockQuote fetched_crypto;
     fetched_crypto.symbol = crypto_sym;
     fetched_crypto.display_symbol = crypto_sym.ends_with("-USD")
@@ -263,11 +306,14 @@ void StockStreamer::fetch_sync() {
     fetched_crypto.name = get_company_name(crypto_sym);
     fetched_crypto.is_crypto = true;
 
-    bool btc_ok = parse_yahoo_chart_meta(btc_json, fetched_crypto);
+    bool btc_ok = requests.back().success && parse_yahoo_chart_meta(btc_json, fetched_crypto);
     if (!btc_ok && (crypto_sym == "BTC-USD" || crypto_sym == "BTC")) {
         std::string cg_url = "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd&include_24hr_change=true";
-        std::string cg_json = http_get_json(cg_url, 4);
-        if (!cg_json.empty()) {
+        std::vector<QuoteRequest> fallback(1);
+        fallback.front().url = std::move(cg_url);
+        fetch_quotes(fallback, tls_verify);
+        const auto& cg_json = fallback.front().body;
+        if (fallback.front().success && !cg_json.empty()) {
             std::regex re_p("\"usd\"\\s*:\\s*([0-9]+(?:\\.[0-9]+)?)");
             std::regex re_c("\"usd_24h_change\"\\s*:\\s*(-?[0-9]+(?:\\.[0-9]+)?)");
             std::smatch mp, mc;
@@ -326,6 +372,8 @@ bool StockStreamer::start() {
                 std::shared_lock lk(g_config_mtx);
                 refresh_secs = std::clamp(g_cfg.stockstreamer_refresh_seconds, 5, 300);
             }
+            if (!us_market_open(std::chrono::system_clock::now()))
+                refresh_secs = std::max(refresh_secs, 60);
             for (int i = 0; i < refresh_secs && this->m_running.load(); ++i) {
                 std::this_thread::sleep_for(std::chrono::seconds(1));
             }

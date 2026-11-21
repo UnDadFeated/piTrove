@@ -1,7 +1,7 @@
 #ifndef PITROVE_UTIL_H
 #define PITROVE_UTIL_H
 
-#define VERSION "18.4.4"
+#define VERSION "18.4.5"
 #define APP_NAME "piTrove"
 
 #include <format>
@@ -181,7 +181,10 @@ template<typename T>
 // Signal / crash handling
 void crash_handler(int sig);
 void terminate_handler();
-void set_display_power(bool power);
+bool set_display_power(bool power);
+bool toggle_display_power();
+bool display_hardware_blanked();
+void set_display_drm_fd(int fd, std::string connector = {});
 bool set_interface_status(const std::string& iface, bool up);
 
 // WiFi diagnostics
@@ -203,15 +206,37 @@ struct WifiStats {
 [[nodiscard]] bool is_media_dir_healthy(const std::string& media_dir);
 [[nodiscard]] bool is_nas_online();
 void check_network_status();
-void prefetch_video(const std::string& path);
 void cleanup_nas_thread();
-void cleanup_prefetch_thread();
 
 
 
 // Media Classification & Date parsing utilities
 void classify_media_item(const MediaItem& item, bool& has_people, bool& has_animals, bool& is_doc);
-[[nodiscard]] std::optional<std::tuple<int,int,int>> parse_filename_date(std::string_view filename);
+[[nodiscard]] inline std::optional<std::tuple<int,int,int>> parse_filename_date(std::string_view filename) {
+    using namespace std::chrono;
+    const auto digit = [](char c) { return c >= '0' && c <= '9'; };
+    const auto number = [&](std::string_view text) {
+        int result = 0;
+        for (char c : text) {
+            if (!digit(c)) return -1;
+            result = result * 10 + c - '0';
+        }
+        return result;
+    };
+    for (size_t length : {10u, 8u}) {
+        for (size_t i = 0; i + length <= filename.size(); ++i) {
+            if ((i && digit(filename[i-1])) || (i + length < filename.size() && digit(filename[i+length]))) continue;
+            const auto date = filename.substr(i, length);
+            if (length == 10 && ((date[4] != '-' && date[4] != '_') || date[7] != date[4])) continue;
+            const int y = number(date.substr(0, 4));
+            const int m = number(date.substr(length == 10 ? 5 : 4, 2));
+            const int d = number(date.substr(length == 10 ? 8 : 6, 2));
+            if (y >= 1900 && y <= 2100 && (year{y}/month{unsigned(m)}/day{unsigned(d)}).ok())
+                return std::tuple{y, m, d};
+        }
+    }
+    return std::nullopt;
+}
 void get_modified_time_date(int64_t mtime, int& y, int& m, int& d);
 [[nodiscard]] std::optional<std::tuple<int,int,int>> get_item_date(const MediaItem& item);
 

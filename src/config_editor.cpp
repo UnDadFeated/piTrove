@@ -87,6 +87,21 @@ std::string revision(const Config& c) {
     std::array<unsigned char,32> digest{};crypto_generichash_final(&state,digest.data(),digest.size());
     std::array<char,65> out{};sodium_bin2hex(out.data(),out.size(),digest.data(),digest.size());return out.data();
 }
+std::vector<FieldView> fields(const Config& config) {
+    std::vector<FieldView> result;
+    result.reserve(schema().size());
+    for (const auto& field : schema()) {
+        auto value = field.get(config);
+        const bool configured = field.secret && (value != "\"\"" ||
+            (field.id == "dashboard.dashboard_pin" && !config.pin_hash.empty()));
+        if (field.secret) value.clear();
+        else if (field.kind == "string") value = config_text::decode(value).value_or("");
+        result.push_back({field.id, field.label, field.group, field.help, field.kind,
+                          std::move(value), field.choices, field.secret, configured});
+    }
+    return result;
+}
+
 std::string describe(const Config& c) {
     std::string out="{\"revision\":"+quote(revision(c))+",\"fields\":[";
     for(const auto& f:schema()){

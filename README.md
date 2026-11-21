@@ -180,9 +180,22 @@ Open **http://192.168.4.110:9000/** on the example Pi, or `http://<pi-ip>:9000/`
 
 The controller adapts from small phones to desktop screens. Use **Frame** for playback controls, a current-media preview, frame-image download, household progress and device status. **Chores** opens the people/chore board; **Activity** has searchable recent logs, live/follow controls and log download. The Auto/Light/Dark appearance choice is shared across pages. The interface works without external font or script services.
 
-Choose **Settings** in the navigation to open `/config`. It includes all 184 persisted/TUI settings: display, slideshow, overlays, scanning, weather, hardware, remote access, MQTT, cloud photos, panels, news, stocks, calendar, updates and recovery. Search names, help text or section-qualified keys, or select a category. Lists use one item per line. Edits remain local until **Review changes → Save configuration**; you can discard them or reload the current configuration. A revision check prevents an older browser page from overwriting a newer edit. Options requiring a restart are labeled, and a restart button appears after saving those options.
+Choose **Settings** in the navigation to open `/config`. It includes the configuration options shared with the terminal editor, covering display, slideshow, overlays, scanning, weather, hardware, remote access, MQTT, cloud photos, panels, news, stocks, calendar, updates and recovery. Search names, help text or section-qualified keys, or select a category. Lists use one item per line. Edits remain local until **Review changes → Save configuration**; you can discard them or reload the current configuration. A revision check prevents an older browser page from overwriting a newer edit. Use **Sign out** to remove the saved controller key from this browser. Options requiring a restart are labeled, and a restart button appears after saving those options.
 
 The optional controller access key protects the full configuration API as well as other private controller actions. Existing keys, passwords, tokens, calendar URLs and PIN hashes are hidden. A blank secret input preserves its configured value; **Clear saved value** explicitly removes it. Setting a four-digit touch PIN hashes it before persistence. The full editor sends changes in POST bodies and only updates edited fields. Saved configurations contain a coherent private credential snapshot (`[remote] credentials_in_config = 1`); legacy `secrets.toml` values bootstrap older configurations until their next save, then no longer override that snapshot. Keep the saved config private as usual.
+
+The terminal editor uses the same fields and validation as the LAN controller. Use the arrow keys to move through fields and sections, Page Up or Page Down to scroll, Enter to edit, and S to save. Press Q or Ctrl+C to discard staged changes and restore the terminal.
+
+### Import Google Photos
+
+Enable the Google Photos Picker API in your Google Cloud project and create a web OAuth client. For account linking, forward a localhost port to the Pi, using your Pi's access details.
+
+```bash
+ssh -N -L 9000:127.0.0.1:9000 pi@YOUR_PI_HOST
+```
+
+Open http://localhost:9000/google_photos_setup and add the redirect URI displayed on the page to the OAuth client's authorized redirect URIs. Link the account with the Picker scope, then use **Settings** → **Google Photos** → **Open Google Photos importer** from any controller on your LAN. Start an import, open the Google Picker, select your media, and finish the selection. Imported files are stored on the frame and appear on the next playlist refresh.
+
 
 ### People, chores and the left panel
 
@@ -202,3 +215,5 @@ left_panel_clock_enabled = 1
 A centered 12-hour clock with AM/PM appears above **Today's chores** by default, using the configured display timezone. It fills the column width with a small inset and leaves room for the chore list above the news ticker. Chore titles and assignee names use the same size as calendar event titles. Turn it off using **Show 12-hour clock** on the chores page, **Settings → Side panels → Chores column clock (12-hour)**, **TUI → Infopanels → Chores Clock**, or `left_panel_clock_enabled = 0` under `[infopanels]`. It is independent of the on-photo clock and its 24-hour setting. Hiding it reclaims the space for chores.
 
 The panel defaults off, shows up to the selected number of cards per page, and rotates overflow pages every 12 seconds. Completed chores can be included with **Show Done Chores**. Hiding the panel preserves the household data. People, chores and completion records live in `chores.db` beside your active config (normally the persistent `config/` directory), separately from the media cache. The existing optional controller API key also protects chores reads and updates.
+
+**Chores Clock** shows a centered MM/DD/YYYY date above the 12-hour clock in the frame’s configured time zone.

@@ -148,10 +148,11 @@ static GpuColor get_pixel_color(SDL_Surface* surface, int x, int y) {
 Renderer::Renderer() {}
 
 Renderer::~Renderer() {
-    cleanup();
+    if (!already_cleaned && (window || sdl_renderer)) cleanup();
 }
 
 bool Renderer::init(int w, int h, bool fullscreen) {
+    already_cleaned = false;
     g_logger.info("[TRACE] Renderer::init w={} h={} fullscreen={}", w, h, fullscreen);
     if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO)) {
         g_logger.error("SDL_Init failed: {}", SDL_GetError());
@@ -196,14 +197,16 @@ bool Renderer::init(int w, int h, bool fullscreen) {
     SDL_SetRenderDrawBlendMode(sdl_renderer, SDL_BLENDMODE_BLEND);
     if (!SDL_SetRenderVSync(sdl_renderer, 1))
         g_logger.debug("Renderer VSync is unavailable: {}", SDL_GetError());
+    set_display_drm_fd(static_cast<int>(SDL_GetNumberProperty(SDL_GetWindowProperties(window),
+        SDL_PROP_WINDOW_KMSDRM_DRM_FD_NUMBER, -1)), g_cfg.drm_connector);
     g_logger.info("[TRACE] Renderer::init complete");
     return true;
 }
 
 void Renderer::cleanup() {
-    g_logger.info("[TRACE] Renderer::cleanup");
     if (already_cleaned) return;
     already_cleaned = true;
+    if (window) set_display_drm_fd(-1);
     cleanup_splash();
 
     if (sdl_renderer) {

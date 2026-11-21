@@ -1,35 +1,36 @@
-#include <condition_variable>
 #ifndef PITROVE_GOOGLE_PHOTOS_H
 #define PITROVE_GOOGLE_PHOTOS_H
 
+#include <atomic>
+#include <condition_variable>
+#include <mutex>
 #include <string>
 #include <thread>
-#include <mutex>
-#include <atomic>
 
 class GooglePhotosManager {
-private:
     std::mutex lifecycle_mtx;
     std::jthread sync_thread;
-  std::condition_variable stop_cv;
-  std::mutex stop_mtx;
     std::atomic<bool> running{false};
-    std::mutex sync_mtx;
+    std::atomic<unsigned> revision{0};
+    std::mutex status_mtx;
+    std::string state = "ready";
+    std::string picker_url;
+    unsigned imported = 0;
+    unsigned failed = 0;
 
-    std::string get_access_token();
-    void download_media(const std::string& access_token);
-    std::string parse_json_value(const std::string& json, const std::string& key);
+    void import_selection(std::stop_token stop, const std::string& id, const std::string& token,
+                          const std::string& directory, int poll_seconds, int lifetime_seconds);
 
 public:
-    GooglePhotosManager() = default;
     ~GooglePhotosManager();
-
     void start();
     void stop();
-    void sync_now();
     bool is_running() const { return running.load(); }
+    unsigned media_revision() const { return revision.load(); }
+    std::string create_picker();
+    std::string picker_status();
 };
 
 inline GooglePhotosManager g_google_photos;
 
-#endif // PITROVE_GOOGLE_PHOTOS_H
+#endif

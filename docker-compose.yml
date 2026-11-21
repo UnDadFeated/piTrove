@@ -8,9 +8,14 @@ services:
     stop_grace_period: 30s
     init: true
     network_mode: host
-    cap_add:
-      - SYS_ADMIN
-      - SYS_NICE
+    user: "${PITROVE_UID:-1000}:${PITROVE_GID:-1000}"
+    group_add:
+      - "${PITROVE_VIDEO_GID:-44}"
+      - "${PITROVE_RENDER_GID:-107}"
+      - "${PITROVE_INPUT_GID:-104}"
+      - "${PITROVE_AUDIO_GID:-29}"
+    cap_drop:
+      - ALL
     devices:
       - /dev/dri:/dev/dri
       - /dev/input:/dev/input
@@ -62,8 +67,9 @@ services:
       - ./logs:/app/logs
       - ./screenshots:/app/screenshots
       - ./subtitles:/app/subtitles
-      - /sys:/sys
+      - /sys:/sys:ro
       - ${MEDIA_DIR:-/mnt/nas}:/app/media:ro,rslave
     tmpfs:
-      - /app/cache/run:size=1m,mode=0755
+      - /app/cache/run:size=1m,mode=0755,uid=${PITROVE_UID:-1000},gid=${PITROVE_GID:-1000}
     pids_limit: 256
+    mem_limit: "${PITROVE_MEMORY_LIMIT:-0}"

@@ -25,6 +25,11 @@ RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-reco
     libpng-dev \
     libtiff-dev \
     libheif-dev \
+    libical-dev \
+    nlohmann-json3-dev \
+    libmosquitto-dev \
+    liblcms2-dev \
+    zlib1g-dev \
     libwebp-dev \
     libjpeg62-turbo-dev \
     libopenjp2-7-dev \
@@ -77,6 +82,12 @@ RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-reco
     libsdl3-ttf0 \
     libsqlite3-0 \
     libexif12 \
+    libtiff6 \
+    libheif1 \
+    libical3t64 \
+    libheif-plugin-libde265 \
+    liblcms2-2 \
+    libwebp7 \
     libasound2t64 \
     libfreetype6 \
     libfontconfig1 \
@@ -89,7 +100,7 @@ RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-reco
     libswscale8 \
     libswresample5 \
     libavutil59 \
-    mosquitto-clients \
+    libmosquitto1 \
     libsodium23 \
     libcurl4 \
     ca-certificates \

@@ -25,6 +25,14 @@
 #include <sqlite3.h>
 
 static std::atomic<bool> mock_network{false};
+extern "C" CURLMcode __real_curl_multi_perform(CURLM*, int*);
+extern "C" CURLMcode __wrap_curl_multi_perform(CURLM* multi, int* running) {
+    if (mock_network) {
+        *running = 0;
+        return CURLM_OK;
+    }
+    return __real_curl_multi_perform(multi, running);
+}
 extern "C" CURLcode __real_curl_easy_perform(CURL*);
 extern "C" CURLcode __wrap_curl_easy_perform(CURL* curl) {
     if (mock_network) return CURLE_ABORTED_BY_CALLBACK;
@@ -142,8 +150,10 @@ static void test_organizer() {
     std::ofstream(a) << "first media"; std::ofstream(b) << "second media";
     check(organize_media_archive(temp.path, false), "organizer failed duplicate destinations");
     std::set<std::string> contents;
-    for (const auto& entry : fs::recursive_directory_iterator(temp.path)) if (entry.is_regular_file()) contents.insert(read_file(entry.path()));
+    for (const auto& entry : fs::recursive_directory_iterator(temp.path)) if (entry.is_regular_file() && !entry.path().filename().string().starts_with('.')) contents.insert(read_file(entry.path()));
     check(contents == std::set<std::string>{"first media", "second media"}, "organizer overwrote a duplicate destination");
+    check(undo_organize(temp.path + "/.pitrove-organizer.sqlite3"), "undo organizer move");
+    check(read_file(a) == "first media" && read_file(b) == "second media", "organizer did not persist a usable undo journal");
     std::error_code error;
     std::string src = temp.path + "/source", dest = temp.path + "/destination";
     std::ofstream(src) << "source"; std::ofstream(dest) << "destination";
@@ -161,8 +171,7 @@ static void test_organizer() {
         check(sqlite3_step(insert) == SQLITE_DONE, "journal insert failed"); sqlite3_reset(insert);
     }
     sqlite3_finalize(insert); sqlite3_close(db);
-    extern void undo_organize(const std::string&);
-    undo_organize(journal);
+    check(!undo_organize(journal), "undo did not report the retained conflicting move");
     check(read_file(successful) == "source" && read_file(dest) == "destination", "undo overwrote conflict or failed restore");
     sqlite3_open(journal.c_str(), &db);
     check(sqlite3_prepare_v2(db, "SELECT COUNT(*) FROM moves", -1, &insert, nullptr) == SQLITE_OK, "journal count failed");
@@ -272,6 +281,46 @@ static void test_transfers() {
     check(!http_transfer::post_form(url, "client_secret=fixture", text), "credential form followed a redirect"); server.join(); redirect_server.join();
     for (const auto& entry : fs::directory_iterator(temp.path)) check(entry.path().extension() == ".jpg", "failed download left a temporary file");
 }
+static void test_calendar_recurrence() {
+    const auto now = time(nullptr);
+    const auto date = [&](int offset) {
+        using namespace std::chrono;
+        return std::format("{:%Y%m%d}", year_month_day(floor<days>(system_clock::from_time_t(now)) + days(offset)));
+    };
+    const auto one = date(1), two = date(2), three = date(3), four = date(4);
+    const std::string text = "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nBEGIN:VEVENT\r\nUID:fixture\r\n"
+        "DTSTART;TZID=America/New_York:" + one + "T140000\r\n"
+        "DTEND;TZID=America/New_York:" + one + "T153000\r\n"
+        "RRULE:FREQ=DAILY;COUNT=3\r\n"
+        "EXDATE;TZID=America/New_York:" + two + "T140000\r\n"
+        "SUMMARY:Weekly\\, check-in\r\nEND:VEVENT\r\n"
+        "BEGIN:VEVENT\r\nUID:other\r\nDTSTART;VALUE=DATE:" + three + "\r\nDTEND;VALUE=DATE:" + four +
+        "\r\nSUMMARY:All day\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n";
+    std::jthread server;
+    const auto url = serve_once("HTTP/1.1 200 OK\r\nContent-Length: " + std::to_string(text.size()) + "\r\n\r\n" + text, server);
+    Config saved;
+    {
+        std::unique_lock lock(g_config_mtx);
+        saved = g_cfg;
+        g_cfg.gcalendar_ical_url = url;
+        g_cfg.timezone = "America/New_York";
+        g_cfg.gcalendar_max_events = 10;
+    }
+    GoogleCalendar calendar;
+    calendar.sync();
+    server.join();
+    {
+        std::unique_lock lock(g_config_mtx);
+        g_cfg = saved;
+    }
+    const auto events = calendar.get_events();
+    check(events.size() == 3, "calendar recurrence or EXDATE failed");
+    check(events[0].summary == "Weekly, check-in" && events[0].formatted_time == "02:00 PM - 03:30 PM",
+          "calendar TZID, DTEND, or text decoding failed");
+    check(events[1].all_day && events[1].formatted_time == "ALL DAY" &&
+          events[2].summary == events[0].summary, "calendar all-day ordering failed");
+}
+
 static void test_lifecycles() {
     mock_network = true;
     NewsTicker news; GoogleCalendar calendar; StockStreamer stocks; GooglePhotosManager photos;
@@ -309,7 +358,7 @@ static void test_lifecycles() {
 int main() {
     try {
         g_logger.level = LogLevel::ERROR;
-        test_logger(); test_config(); test_organizer(); test_http(); test_oauth(); test_transfers(); test_lifecycles();
+        test_logger(); test_config(); test_organizer(); test_http(); test_oauth(); test_transfers(); test_calendar_recurrence(); test_lifecycles();
         std::cout << "Deep config/PIN, organizer, HTTP, OAuth and download regressions passed\n";
     } catch (const std::exception& error) { std::cerr << error.what() << '\n'; return 1; }
 }

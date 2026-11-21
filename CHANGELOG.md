@@ -1,3 +1,10 @@
+### Release v18.4.5 — Media, controls, and integration reliability
+
+- Add bounded HEIF and TIFF decoding, convert embedded RGB profiles to sRGB, and honor video rotation, pixel aspect ratio, and presentation timestamps.
+- Fit a centered date above the chores clock and reuse the Settings schema in the terminal editor. Add controller sign-out and use dropdowns for fixed choices.
+- Use native MQTT with broker connection status and a retained last will. Expand iCal recurrences in their event timezones. Import explicitly selected Google Photos through the Picker.
+- Bound archive scanning, record reversible organization in SQLite, batch playback history, and preserve crash diagnostics across restarts.
+
 ### Release v18.4.4 — Playback, storage, and LAN controller hardening
 
 - Pace photo rendering during video prewarm and draw bias lighting with a reusable GPU texture clipped to the media area. Cache procedural backgrounds at their configured animation rate.

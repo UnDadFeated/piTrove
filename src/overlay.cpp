@@ -434,8 +434,8 @@ void OverlayManager::draw_all(int current_idx, int total_items, const MediaItem*
 
         if (soc_temp > 80.0f) {
             trigger_error(501); // E501: SYSTEM_OVERHEATING
-        } else if (g_active_error_code.load() == 501) {
-            trigger_error(0);
+        } else {
+            clear_error(501);
         }
 
         std::uintmax_t db_size_kb = 0;
@@ -1487,16 +1487,11 @@ bool OverlayManager::handle_touch_click(float x, float y) {
 
     // Row 5: Screen Blanking Toggles
     if (x >= menu_x + 240 && x <= menu_x + 480 && y >= start_y + 5 * row_h && y <= start_y + 5 * row_h + 26) {
-        bool expected = g_screen_blanked.load();
-        bool desired = !expected;
-        while (!g_screen_blanked.compare_exchange_weak(expected, desired)) {
-            desired = !expected;
-        }
-        set_display_power(expected);
+        toggle_display_power();
         std::string prefix;
         { std::lock_guard lk(g_config_mtx); prefix = g_cfg.mqtt_topic_prefix; }
         mqtt_publish(prefix + "/status/screen", g_screen_blanked.load() ? "OFF" : "ON", true);
-        g_logger.info("TOUCH_INPUT: Physical screen power toggled to {} via menu.", desired ? "OFF" : "ON");
+        g_logger.info("TOUCH_INPUT: Physical screen power toggled to {} via menu.", g_screen_blanked.load() ? "OFF" : "ON");
         return true;
     }
 

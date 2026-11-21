@@ -56,7 +56,7 @@ void render_chores_panel(SDL_Renderer* renderer, FontRenderer* fonts, const std:
     const auto px = [screen_w](int value) { return panel_px(value, screen_w); };
     struct State {
         uint64_t next_refresh = 0;
-        std::string zone, today, clock;
+        std::string zone, today, date, clock;
         chores::Snapshot data;
         std::vector<const chores::Chore*> rows;
         bool ready = false, show_done = false, show_clock = false;
@@ -71,6 +71,7 @@ void render_chores_panel(SDL_Renderer* renderer, FontRenderer* fonts, const std:
         state.today = format_epoch_tz(now, timezone, "%Y-%m-%d");
         state.show_clock = show_clock;
         if (show_clock) {
+            state.date = format_epoch_tz(now, timezone, "%m/%d/%Y");
             state.clock = format_epoch_tz(now, timezone, "%I:%M %p");
             if (state.clock.starts_with('0')) state.clock.erase(0, 1);
         }
@@ -116,29 +117,37 @@ void render_chores_panel(SDL_Renderer* renderer, FontRenderer* fonts, const std:
     const int footer_y = bottom - detail_step - px(8);
     const int list_bottom = state.rows.size() > 1 ? footer_y : bottom - px(8);
     int y = std::max(content_top, bounds.y) + padding;
+    bool date_drawn = false;
     if (show_clock && !state.clock.empty()) {
         const int clock_padding = px(8);
-        const int gap = px(10);
+        const int heading_gap = px(10);
         const int list_space = state.rows.empty() ? body_step : card_height;
-        const SDL_Rect clock_box{
-            bounds.x + clock_padding, y, bounds.w - 2 * clock_padding,
-            list_bottom - y - gap - heading_step - summary_step - list_space
-        };
-        if (clock_box.w > 0 && clock_box.h > 0) {
-            // Cache a large source texture and fit it to the column, including AM/PM.
-            // This fills the width without loading a different TTF face on every minute change.
+        const int header_height = list_bottom - y - heading_gap - heading_step - summary_step - list_space;
+        const int header_width = bounds.w - 2 * clock_padding;
+        if (header_width > 0 && header_height > 0) {
+            const int header_x = bounds.x + clock_padding;
+            const int date_gap = std::min(px(4), header_height / 7);
             const auto clock_font = fonts->load_font(path, px(88));
-            const int height = fonts->draw_text_fitted(clock_box, *clock_font, state.clock,
-                                                        {255, 255, 255, 255});
-            if (height > 0) y += height + gap;
+            int date_height = 0;
+            const int date_limit = (header_height - date_gap) / 3;
+            if (date_limit > 0 && !state.date.empty()) {
+                date_height = fonts->draw_text_fitted({header_x, y, header_width, date_limit},
+                                                       *clock_font, state.date, {205, 218, 236, 255});
+                date_drawn = date_height > 0;
+            }
+            const int date_space = date_drawn ? date_height + date_gap : 0;
+            const int clock_height = fonts->draw_text_fitted(
+                {header_x, y + date_space, header_width, header_height - date_space},
+                *clock_font, state.clock, {255, 255, 255, 255});
+            if (date_space + clock_height > 0) y += date_space + clock_height + heading_gap;
         }
     }
 
     fonts->draw_text(x, y, *heading, fonts->ellipsize(*heading, "Today's chores", available),
                      255, 255, 255, 255);
     y += heading_step;
-    const auto summary = std::to_string(state.done) + " of " + std::to_string(state.total) +
-                         " done • " + state.today;
+    auto summary = std::to_string(state.done) + " of " + std::to_string(state.total) + " done";
+    if (!date_drawn) summary += " • " + state.today;
     fonts->draw_text(x, y, *detail, fonts->ellipsize(*detail, summary, available), 56, 189, 248, 255);
     y += summary_step;
 

@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(piTrove VERSION 18.4.4 LANGUAGES CXX)
+project(piTrove VERSION 18.4.5 LANGUAGES CXX)
 
 option(ENABLE_ASAN "Enable AddressSanitizer for memory safety testing" OFF)
 if(ENABLE_ASAN)
@@ -69,6 +69,7 @@ set(PISTROVE_SOURCES
     http_transfer.cpp
     health.cpp
     safe_mode.cpp
+    display_power.cpp
     thermal.cpp
     config.cpp
     config_editor.cpp
@@ -118,7 +119,7 @@ target_include_directories(piTrove PRIVATE
     ${AVUTIL_INCLUDE_DIRS}
     ${SWRESAMPLE_INCLUDE_DIRS}
     ${CURL_INCLUDE_DIRS}
-    /usr/include/drm
+    /usr/include/libdrm
 )
 
 target_compile_options(piTrove PRIVATE -fstack-protector-strong -Wformat=2 -Werror=format-security)
@@ -148,6 +149,10 @@ target_link_libraries(piTrove PRIVATE
     webp
     tiff
     heif
+    lcms2
+    ical
+    mosquitto
+    z
     dl
     pthread
     atomic
@@ -172,15 +177,15 @@ if(BUILD_TESTING)
     target_include_directories(audit_regression PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} ${SDL3_INCLUDE_DIRS} ${SDL3_TTF_INCLUDE_DIRS} ${SQLITE3_INCLUDE_DIRS})
     target_compile_options(audit_regression PRIVATE -Wall -Wextra -ffunction-sections -fdata-sections)
     target_link_options(audit_regression PRIVATE -Wl,--gc-sections -Wl,--wrap=stat)
-    target_link_libraries(audit_regression PRIVATE ${SDL3_LIBRARIES} ${SDL3_TTF_LIBRARIES} ${SQLITE3_LIBRARIES} pthread atomic)
+    target_link_libraries(audit_regression PRIVATE ${SDL3_LIBRARIES} ${SDL3_TTF_LIBRARIES} ${SQLITE3_LIBRARIES} mosquitto pthread atomic)
     add_executable(nv12_regression tests/nv12.cpp nv12_converter.cpp)
     target_include_directories(nv12_regression PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} ${SDL3_INCLUDE_DIRS} ${AVUTIL_INCLUDE_DIRS} ${AVCODEC_INCLUDE_DIRS} ${SWSCALE_INCLUDE_DIRS})
     target_link_libraries(nv12_regression PRIVATE ${AVUTIL_LIBRARIES} ${SWSCALE_LIBRARIES})
-    add_executable(deep_regression tests/deep.cpp tests/deep_support.cpp config.cpp auth.cpp organizer.cpp file_ops.cpp http_protocol.cpp http_transfer.cpp util.cpp news_ticker.cpp calendar.cpp stock_streamer.cpp google_photos.cpp)
+    add_executable(deep_regression tests/deep.cpp tests/deep_support.cpp config.cpp auth.cpp organizer.cpp file_ops.cpp http_protocol.cpp http_transfer.cpp util.cpp error_db.cpp news_ticker.cpp calendar.cpp stock_streamer.cpp google_photos.cpp)
     target_include_directories(deep_regression PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} ${SDL3_INCLUDE_DIRS} ${SQLITE3_INCLUDE_DIRS} ${CURL_INCLUDE_DIRS})
     target_compile_options(deep_regression PRIVATE -Wall -Wextra -ffunction-sections -fdata-sections)
-    target_link_options(deep_regression PRIVATE -Wl,--gc-sections -Wl,--wrap=curl_easy_perform)
-    target_link_libraries(deep_regression PRIVATE ${SQLITE3_LIBRARIES} ${CURL_LIBRARIES} sodium pthread atomic)
+    target_link_options(deep_regression PRIVATE -Wl,--gc-sections -Wl,--wrap=curl_easy_perform -Wl,--wrap=curl_multi_perform)
+    target_link_libraries(deep_regression PRIVATE ${SQLITE3_LIBRARIES} ${CURL_LIBRARIES} ical sodium pthread atomic)
     add_executable(chores_regression tests/chores.cpp chores.cpp chores_http.cpp http_protocol.cpp)
     target_include_directories(chores_regression PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} ${SDL3_INCLUDE_DIRS} ${SQLITE3_INCLUDE_DIRS})
     target_compile_options(chores_regression PRIVATE -Wall -Wextra)
@@ -189,26 +194,26 @@ if(BUILD_TESTING)
     add_executable(chores_web_fixture tests/chores_web_fixture.cpp chores.cpp chores_http.cpp http_protocol.cpp)
     target_include_directories(chores_web_fixture PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
     target_link_libraries(chores_web_fixture PRIVATE ${SQLITE3_LIBRARIES} pthread)
-    add_executable(logger_shutdown_regression tests/logger_shutdown.cpp config.cpp auth.cpp util.cpp file_ops.cpp tests/deep_support.cpp)
+    add_executable(logger_shutdown_regression tests/logger_shutdown.cpp config.cpp auth.cpp util.cpp error_db.cpp file_ops.cpp tests/deep_support.cpp)
     target_include_directories(logger_shutdown_regression PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} ${SDL3_INCLUDE_DIRS} ${CURL_INCLUDE_DIRS})
     target_compile_options(logger_shutdown_regression PRIVATE -Wall -Wextra -ffunction-sections -fdata-sections)
     target_link_options(logger_shutdown_regression PRIVATE -Wl,--gc-sections)
     target_link_libraries(logger_shutdown_regression PRIVATE ${SDL3_LIBRARIES} ${CURL_LIBRARIES} sodium pthread atomic)
     add_test(NAME logger_shutdown_regression COMMAND logger_shutdown_regression)
     set_tests_properties(logger_shutdown_regression PROPERTIES TIMEOUT 15)
-    add_executable(config_editor_regression tests/config_editor.cpp config_editor.cpp config.cpp auth.cpp util.cpp file_ops.cpp tests/deep_support.cpp http_protocol.cpp)
+    add_executable(config_editor_regression tests/config_editor.cpp config_editor.cpp config.cpp auth.cpp util.cpp error_db.cpp file_ops.cpp tests/deep_support.cpp http_protocol.cpp)
     target_include_directories(config_editor_regression PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} ${SDL3_INCLUDE_DIRS} ${CURL_INCLUDE_DIRS})
     target_compile_options(config_editor_regression PRIVATE -Wall -Wextra -ffunction-sections -fdata-sections)
     target_link_options(config_editor_regression PRIVATE -Wl,--gc-sections)
     target_link_libraries(config_editor_regression PRIVATE ${SDL3_LIBRARIES} ${CURL_LIBRARIES} sodium pthread atomic)
     add_test(NAME config_editor_regression COMMAND config_editor_regression)
     set_tests_properties(config_editor_regression PROPERTIES TIMEOUT 30)
-    add_executable(webui_fixture tests/webui_fixture.cpp config_editor.cpp config.cpp auth.cpp util.cpp file_ops.cpp tests/deep_support.cpp chores.cpp chores_http.cpp http_protocol.cpp)
+    add_executable(webui_fixture tests/webui_fixture.cpp config_editor.cpp config.cpp auth.cpp util.cpp error_db.cpp file_ops.cpp tests/deep_support.cpp chores.cpp chores_http.cpp http_protocol.cpp)
     target_include_directories(webui_fixture PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} ${SDL3_INCLUDE_DIRS} ${SQLITE3_INCLUDE_DIRS} ${CURL_INCLUDE_DIRS})
     target_compile_options(webui_fixture PRIVATE -ffunction-sections -fdata-sections)
     target_link_options(webui_fixture PRIVATE -Wl,--gc-sections)
     target_link_libraries(webui_fixture PRIVATE ${SDL3_LIBRARIES} ${SQLITE3_LIBRARIES} ${CURL_LIBRARIES} sodium pthread atomic)
-    add_executable(playback_regression tests/playback.cpp tests/deep_support.cpp config.cpp auth.cpp video_decoder.cpp nv12_converter.cpp util.cpp http_transfer.cpp file_ops.cpp)
+    add_executable(playback_regression tests/playback.cpp tests/deep_support.cpp config.cpp auth.cpp video_decoder.cpp nv12_converter.cpp util.cpp error_db.cpp http_transfer.cpp file_ops.cpp)
     target_include_directories(playback_regression PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} ${SDL3_INCLUDE_DIRS} ${AVCODEC_INCLUDE_DIRS} ${AVFORMAT_INCLUDE_DIRS} ${AVUTIL_INCLUDE_DIRS} ${SWSCALE_INCLUDE_DIRS} ${SWRESAMPLE_INCLUDE_DIRS} ${CURL_INCLUDE_DIRS})
     target_compile_options(playback_regression PRIVATE -Wall -Wextra -ffunction-sections -fdata-sections)
     target_link_options(playback_regression PRIVATE -Wl,--gc-sections -Wl,--wrap=avformat_open_input -Wl,--wrap=avcodec_alloc_context3 -Wl,--wrap=SDL_OpenAudioDevice -Wl,--wrap=SDL_CloseAudioDevice -Wl,--wrap=SDL_CreateAudioStream -Wl,--wrap=SDL_DestroyAudioStream -Wl,--wrap=SDL_BindAudioStream -Wl,--wrap=SDL_PauseAudioStreamDevice -Wl,--wrap=SDL_ResumeAudioStreamDevice)

@@ -50,6 +50,7 @@ bool CacheManager::open(const std::string& dir) {
         return true;
     };
 
+    bool fresh_database = !std::filesystem::exists(path, ec) && !ec;
     if (!connect()) return false;
     const int integrity = check_cache_integrity(db);
     if (integrity != SQLITE_OK) {
@@ -66,7 +67,9 @@ bool CacheManager::open(const std::string& dir) {
             }
         }
         if (!connect()) return false;
+        fresh_database = true;
     }
+    if (fresh_database) sqlite3_exec(db, "PRAGMA auto_vacuum=INCREMENTAL", nullptr, nullptr, nullptr);
 
     char* err = nullptr;
     if (sqlite3_exec(db, "PRAGMA journal_mode=WAL;", nullptr, nullptr, &err) != SQLITE_OK) {
@@ -185,7 +188,7 @@ bool CacheManager::open(const std::string& dir) {
     }
 
     if (sqlite3_prepare_v2(db,
-        "UPDATE cache SET last_shown = ? WHERE path = ?",
+        "UPDATE cache SET last_shown = ?1 WHERE path = ?2 AND (last_shown IS NULL OR last_shown < ?1)",
         -1, &stmt_mark, nullptr) != SQLITE_OK) {
         g_logger.error("Failed to prepare mark statement.");
         close();
@@ -199,12 +202,19 @@ bool CacheManager::open(const std::string& dir) {
 
 void CacheManager::close() {
     std::lock_guard lock(db_mutex);
+    flush_shown_locked();
+    if (!pending_shown.empty()) {
+        g_logger.warn("Cache closed with {} unwritten playback timestamps.", pending_shown.size());
+        pending_shown.clear();
+    }
     if (stmt_upsert) { sqlite3_finalize(stmt_upsert); stmt_upsert = nullptr; }
     if (stmt_load) { sqlite3_finalize(stmt_load); stmt_load = nullptr; }
     if (stmt_mark) { sqlite3_finalize(stmt_mark); stmt_mark = nullptr; }
     if (db) {
-        if (sqlite3_get_autocommit(db))
+        if (sqlite3_get_autocommit(db)) {
+            sqlite3_exec(db, "PRAGMA incremental_vacuum(64)", nullptr, nullptr, nullptr);
             sqlite3_wal_checkpoint_v2(db, nullptr, SQLITE_CHECKPOINT_TRUNCATE, nullptr, nullptr);
+        }
         sqlite3_close_v2(db);
         db = nullptr;
     }
@@ -337,6 +347,8 @@ bool CacheManager::load_cached(MediaItem& mi) {
     sqlite3_bind_text(stmt_load, 1, mi.path.c_str(), -1, SQLITE_TRANSIENT);
     if (sqlite3_step(stmt_load) == SQLITE_ROW) {
         mi.last_shown = sqlite3_column_int64(stmt_load, 6);
+        if (const auto shown = pending_shown.find(mi.path); shown != pending_shown.end())
+            mi.last_shown = std::max(mi.last_shown, shown->second);
         const auto modified = sqlite3_column_int64(stmt_load, 7);
         const bool same_file = mi.modified_time == 0 || mi.modified_time == modified;
         if (same_file) {
@@ -392,10 +404,8 @@ void CacheManager::upsert(const MediaItem& mi, int bad, int preprocessed) {
         }
         g_logger.error("Failed to execute upsert for: {} (error code: {})", mi.path.c_str(), step_ret);
     } else {
-        if (g_active_error_code.load() == 402 || g_active_error_code.load() == 408) {
-    [[unlikely]]
-            trigger_error(0);
-        }
+        clear_error(402);
+        clear_error(408);
     }
     sqlite3_reset(stmt_upsert);
     sqlite3_clear_bindings(stmt_upsert);
@@ -413,29 +423,41 @@ bool CacheManager::mark_preprocessed(const std::string& path) {
 }
 
 void CacheManager::mark_shown(const std::string& path) {
-    g_logger.info("[TRACE] CacheManager::mark_shown path={}", path.c_str());
-    std::lock_guard<std::mutex> lk(db_mutex);
+    std::lock_guard lock(db_mutex);
     if (!stmt_mark) return;
-    sqlite3_bind_int64(stmt_mark, 1, time(nullptr));
-    sqlite3_bind_text(stmt_mark, 2, path.c_str(), -1, SQLITE_TRANSIENT);
-    int step_ret = sqlite3_step(stmt_mark);
-    [[unlikely]]
-    if (step_ret != SQLITE_DONE) {
-        if (step_ret == SQLITE_BUSY || step_ret == SQLITE_LOCKED) {
-    [[unlikely]]
-            trigger_error(402); // E402: SQLITE_LOCK_TIMEOUT
-        } else {
-            trigger_error(408); // E408: DISK_WRITE_FAIL
+    if (pending_shown.empty()) shown_due = std::chrono::steady_clock::now() + std::chrono::seconds(30);
+    if (pending_shown.size() >= 512) flush_shown_locked();
+    if (pending_shown.size() < 512 || pending_shown.contains(path)) pending_shown[path] = time(nullptr);
+}
+
+void CacheManager::flush_shown() {
+    std::unique_lock lock(db_mutex, std::try_to_lock);
+    if (lock && !pending_shown.empty() && std::chrono::steady_clock::now() >= shown_due) flush_shown_locked();
+}
+
+void CacheManager::flush_shown_locked() {
+    if (pending_shown.empty() || !stmt_mark || !db || !sqlite3_get_autocommit(db)) return;
+    shown_due = std::chrono::steady_clock::now() + std::chrono::seconds(30);
+    int result = sqlite3_exec(db, "BEGIN IMMEDIATE", nullptr, nullptr, nullptr);
+    if (result == SQLITE_OK) {
+        for (const auto& [path, timestamp] : pending_shown) {
+            result = sqlite3_bind_int64(stmt_mark, 1, timestamp);
+            if (result == SQLITE_OK) result = sqlite3_bind_text(stmt_mark, 2, path.c_str(), -1, SQLITE_TRANSIENT);
+            if (result == SQLITE_OK) result = sqlite3_step(stmt_mark);
+            sqlite3_reset(stmt_mark);
+            sqlite3_clear_bindings(stmt_mark);
+            if (result != SQLITE_DONE) break;
         }
-        g_logger.error("Failed to execute mark_shown for: {} (error code: {})", path.c_str(), step_ret);
-    } else {
-        if (g_active_error_code.load() == 402 || g_active_error_code.load() == 408) {
-    [[unlikely]]
-            trigger_error(0);
-        }
+        if (result == SQLITE_DONE) result = sqlite3_exec(db, "COMMIT", nullptr, nullptr, nullptr);
+        if (result != SQLITE_OK) sqlite3_exec(db, "ROLLBACK", nullptr, nullptr, nullptr);
     }
-    sqlite3_reset(stmt_mark);
-    sqlite3_clear_bindings(stmt_mark);
+    if (result == SQLITE_OK) {
+        pending_shown.clear();
+        clear_error(402);
+        clear_error(408);
+    } else {
+        trigger_error(result == SQLITE_BUSY || result == SQLITE_LOCKED ? 402 : 408);
+    }
 }
 
 void CacheManager::mark_bad(const std::string& filepath) {
@@ -486,14 +508,15 @@ void CacheManager::commit_transaction() {
 }
 
 void CacheManager::reset_all_cooldowns() {
-    if (!db) return;
     std::lock_guard<std::mutex> lk(db_mutex);
+    if (!db) return;
     char* err = nullptr;
     int rc = sqlite3_exec(db, "UPDATE cache SET last_shown = 0;", nullptr, nullptr, &err);
     if (rc != SQLITE_OK) {
         g_logger.error("Failed to reset shown history cooldowns: {}", err ? err : "unknown error");
         if (err) sqlite3_free(err);
     } else {
+        pending_shown.clear();
         g_logger.info("Successfully reset shown history cooldowns inside database.");
     }
 }

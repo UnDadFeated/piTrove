@@ -1,4 +1,6 @@
 #include "scanner.h"
+#include "safe_mode.h"
+#include "error_db.h"
 #include <curl/curl.h>
 #include "http_transfer.h"
 #include <string>
@@ -48,6 +50,8 @@ bool geocode_location_sync(const std::string& query, float& out_lat, float& out_
 }
 #include <sys/sysinfo.h>
 #include <fstream>
+#include <memory>
+#include <mntent.h>
 
 uint64_t get_available_ram_bytes() {
     std::ifstream meminfo("/proc/meminfo");
@@ -113,12 +117,58 @@ uint64_t get_total_ram_bytes() {
 
 
 
-std::string redact_secrets(const std::string& msg) {
-    static const std::regex bearer(R"(Bearer\s+[A-Za-z0-9._~+/=-]+)", std::regex::icase);
-    static const std::regex kv(R"(((api_key|password|client_secret|refresh_token|pin|token)\s*[=:]\s*)([^\s,;]+))", std::regex::icase);
-    std::string result = std::regex_replace(msg, bearer, "Bearer [REDACTED]");
-    result = std::regex_replace(result, kv, "$1[REDACTED]");
-    return result;
+std::string redact_secrets(const std::string& message) {
+    static constexpr std::string_view keys[]{"bearer", "api_key", "password", "client_secret",
+                                             "refresh_token", "pin", "token"};
+    static constexpr std::string_view spaces = " \t\r\n\v\f";
+    static constexpr std::string_view bearer_chars =
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._~+/=-";
+    const std::string_view text(message);
+    const auto matches = [](std::string_view value, std::string_view term) {
+        if (value.size() < term.size()) return false;
+        return std::ranges::equal(value.substr(0, term.size()), term, {},
+            [](char c) { return c >= 'A' && c <= 'Z' ? static_cast<char>(c + ('a' - 'A')) : c; });
+    };
+    std::string redacted;
+    size_t copied = 0;
+    size_t offset = text.find_first_of("bBaApPcCrRtT");
+    while (offset != text.npos) {
+        const auto key = std::ranges::find_if(keys, [&](auto term) { return matches(text.substr(offset), term); });
+        if (key == std::end(keys)) {
+            offset = text.find_first_of("bBaApPcCrRtT", offset + 1);
+            continue;
+        }
+        const bool bearer = *key == "bearer";
+        size_t begin = text.find_first_not_of(spaces, offset + key->size());
+        if (begin == text.npos) break;
+        if (bearer) {
+            if (begin == offset + key->size() || !bearer_chars.contains(text[begin])) {
+                offset = text.find_first_of("bBaApPcCrRtT", offset + 1);
+                continue;
+            }
+        } else {
+            if (text[begin] != '=' && text[begin] != ':') {
+                offset = text.find_first_of("bBaApPcCrRtT", offset + 1);
+                continue;
+            }
+            begin = text.find_first_not_of(spaces, begin + 1);
+            if (begin == text.npos) break;
+        }
+        size_t end = bearer ? text.find_first_not_of(bearer_chars, begin)
+                            : text.find_first_of(" \t\r\n\v\f,;", begin);
+        if (end == text.npos) end = text.size();
+        if (end == begin) {
+            offset = text.find_first_of("bBaApPcCrRtT", offset + 1);
+            continue;
+        }
+        redacted.append(text.substr(copied, (bearer ? offset : begin) - copied));
+        redacted.append(bearer ? "Bearer [REDACTED]" : "[REDACTED]");
+        copied = end;
+        offset = text.find_first_of("bBaApPcCrRtT", end);
+    }
+    if (copied == 0) return message;
+    redacted.append(text.substr(copied));
+    return redacted;
 }
 
 void Logger::log_error_code(int code_num) {
@@ -133,8 +183,13 @@ void Logger::log_error_code(int code_num) {
     std::string desc = "An undocumented system diagnostic error occurred.";
     std::string rec = "Please inspect config settings or reboot the frame.";
 
-    if (g_cache) {
-        g_cache->get_error_details(code_str, title, desc, rec);
+    // Diagnostics can originate while the media cache transaction is locked.
+    static const auto errors = get_all_error_seeds();
+    const auto entry = std::find_if(errors.begin(), errors.end(), [&](const ErrorSeed& e) { return e.code == code_str; });
+    if (entry != errors.end()) {
+        title = entry->title;
+        desc = entry->desc;
+        rec = entry->rec;
     }
 
     error("SYSTEM ERROR [{}] - {}: {} (RECOVERY: {})",
@@ -147,15 +202,10 @@ static std::set<int> g_active_errors;
 static std::mutex g_errors_mtx;
 
 void trigger_error(int code_num) {
-    if (code_num == 0) {
-        std::lock_guard<std::mutex> lk(g_errors_mtx);
-        g_active_errors.clear();
-        g_active_error_code.store(0);
-    } else {
-        {
-            std::lock_guard<std::mutex> lk(g_errors_mtx);
-            g_active_errors.insert(code_num);
-        }
+    if (code_num <= 0) return;
+    {
+        std::lock_guard lock(g_errors_mtx);
+        if (!g_active_errors.insert(code_num).second) return;
         g_active_error_code.store(code_num);
     }
     g_logger.log_error_code(code_num);
@@ -206,6 +256,7 @@ static void crash_display_restore(void) {
 void crash_handler(int sig) {
     constexpr char message[] = "\n[CRITICAL ERROR] piTrove received a fatal signal.\n";
     (void)write(STDERR_FILENO, message, sizeof(message) - 1);
+    pitrove::safe_mode::record_crash();
     crash_display_restore();
     signal(sig, SIG_DFL);
     raise(sig);
@@ -215,19 +266,6 @@ void terminate_handler() {
     constexpr char message[] = "\n[CRITICAL ERROR] piTrove unhandled exception.\n";
     (void)write(STDERR_FILENO, message, sizeof(message) - 1);
     std::abort();
-}
-
-void set_display_power(bool power) {
-    g_logger.info("DISPLAY_POWER: Setting display power to {}", power ? "ON" : "OFF");
-    int fd = open("/sys/class/graphics/fb0/blank", O_WRONLY);
-    if (fd >= 0) {
-        const char* val = power ? "0" : "1"; // "0" is unblank, "1" is blank
-        (void)write(fd, val, 1);
-        close(fd);
-    }
-    // Also try vcgencmd as fallback in case we are on standard Raspbian without sysfs permission
-    std::string cmd = "vcgencmd display_power " + std::string(power ? "1" : "0") + " >/dev/null 2>&1";
-    [[maybe_unused]] int res = ::system(cmd.c_str());
 }
 
 bool set_interface_status(const std::string& iface, bool up) {
@@ -350,6 +388,9 @@ void Logger::enqueue(LogMessage msg) {
 
 // Logger Implementation
 void Logger::flush_loop() {
+    const auto close_log = [](FILE* file) { fclose(file); };
+    std::unique_ptr<FILE, decltype(close_log)> log_file(nullptr, close_log);
+    std::string open_path;
     while (true) {
         size_t dropped = 0;
         {
@@ -363,7 +404,11 @@ void Logger::flush_loop() {
         if (!back_queue.empty()) {
             std::string current_log_path;
             { std::lock_guard<std::mutex> lk(log_path_mtx); current_log_path = log_file_path; }
-            FILE* f = fopen(current_log_path.c_str(), "a");
+            if (!log_file || open_path != current_log_path) {
+                log_file.reset(fopen(current_log_path.c_str(), "ae"));
+                open_path = current_log_path;
+            }
+            FILE* f = log_file.get();
             if (!f) {
                 static std::once_flag warn_once;
                 std::call_once(warn_once, []() {
@@ -398,10 +443,7 @@ void Logger::flush_loop() {
                     if (f) (void)fputs(line.c_str(), f);
                 }
             }
-            if (f) {
-                fclose(f);
-            }
-            fflush(stdout);
+            if (f && fflush(f) != 0) log_file.reset();
             back_queue.clear();
         }
     }
@@ -626,53 +668,7 @@ void classify_media_item(const MediaItem& item, bool& has_people, bool& has_anim
     }
 }
 
-std::optional<std::tuple<int,int,int>> parse_filename_date(std::string_view filename) {
-    if (filename.length() < 8) return std::nullopt;
-    
-    // 1. Try YYYY-MM-DD or YYYY_MM_DD
-    for (size_t i = 0; i + 9 < filename.length(); ++i) {
-        char c0 = filename[i], c1 = filename[i+1], c2 = filename[i+2], c3 = filename[i+3];
-        char sep1 = filename[i+4];
-        char c5 = filename[i+5], c6 = filename[i+6];
-        char sep2 = filename[i+7];
-        char c8 = filename[i+8], c9 = filename[i+9];
-        
-        if (std::isdigit(c0) && std::isdigit(c1) && std::isdigit(c2) && std::isdigit(c3) &&
-            (sep1 == '-' || sep1 == '_') &&
-            std::isdigit(c5) && std::isdigit(c6) &&
-            (sep2 == '-' || sep2 == '_') &&
-            std::isdigit(c8) && std::isdigit(c9)) {
-            
-            int y = (c0 - '0')*1000 + (c1 - '0')*100 + (c2 - '0')*10 + (c3 - '0');
-            int m = (c5 - '0')*10 + (c6 - '0');
-            int d = (c8 - '0')*10 + (c9 - '0');
-            if (m >= 1 && m <= 12 && d >= 1 && d <= 31) {
-                return std::tuple{y, m, d};
-            }
-        }
-    }
-    
-    // 2. Try YYYYMMDD (8 digits in a row)
-    for (size_t i = 0; i + 7 < filename.length(); ++i) {
-        bool all_digits = true;
-        for (size_t j = 0; j < 8; ++j) {
-            if (!std::isdigit(filename[i+j])) {
-                all_digits = false;
-                break;
-            }
-        }
-        if (all_digits) {
-            int ty = (filename[i] - '0')*1000 + (filename[i+1] - '0')*100 + (filename[i+2] - '0')*10 + (filename[i+3] - '0');
-            int tm = (filename[i+4] - '0')*10 + (filename[i+5] - '0');
-            int td = (filename[i+6] - '0')*10 + (filename[i+7] - '0');
-            if (ty >= 1900 && ty <= 2100 && tm >= 1 && tm <= 12 && td >= 1 && td <= 31) {
-                return std::tuple{ty, tm, td};
-            }
-        }
-    }
-    
-    return std::nullopt;
-}
+
 
 void get_modified_time_date(int64_t mtime, int& y, int& m, int& d) {
     std::time_t t = static_cast<std::time_t>(mtime);
@@ -768,6 +764,8 @@ bool is_media_dir_healthy(const std::string& media_dir) {
 #include <netdb.h>
 #include <poll.h>
 #include <fstream>
+#include <memory>
+#include <mntent.h>
 #include <shared_mutex>
 #include "config.h"
 #include <ifaddrs.h>
@@ -801,42 +799,35 @@ static bool perform_nas_online_check() {
         media_dir.pop_back();
     }
 
-    // Read /proc/mounts to find the matching mount point
-    std::ifstream mounts("/proc/mounts");
-    if (!mounts.is_open()) {
-        return true; // Fallback to true if we cannot read mounts
-    }
+    FILE* mounts = setmntent("/proc/mounts", "re");
+    if (!mounts) return true;
 
-    std::string device, mount_point, fs_type, options;
-    std::string nas_host = "";
-
-    std::string mount_line;
-    while (std::getline(mounts, mount_line)) {
-        std::istringstream fields(mount_line);
-        if (!(fields >> device >> mount_point >> fs_type >> options)) continue;
-        // Skip mounts that aren't network filesystems (cifs, nfs, etc.)
-        if (fs_type != "cifs" && fs_type != "nfs" && fs_type != "nfs4") {
-            continue;
-        }
-        // Check if mount_point is a prefix of media_dir
-        if (media_dir == mount_point || 
-            (media_dir.rfind(mount_point + "/", 0) == 0)) {
-            // Found the network mount! Extract host/IP
-            if (device.rfind("//", 0) == 0) {
-                // CIFS format: //host/share
-                size_t start = 2;
-                size_t end = device.find('/', start);
-                if (end != std::string::npos) {
-                    nas_host = device.substr(start, end - start);
-                }
-            } else if (auto colon = device.find(':'); colon != std::string::npos) {
-                // NFS format: host:/path
-                nas_host = device.substr(0, colon);
-            }
-            break;
+    std::string nas_host;
+    int port = 0;
+    size_t longest = 0;
+    struct mntent entry{};
+    char line[8192];
+    while (getmntent_r(mounts, &entry, line, sizeof(line))) {
+        const std::string_view mount(entry.mnt_dir);
+        if (mount.size() < longest ||
+            !(mount == "/" || media_dir == mount || (media_dir.starts_with(mount) &&
+                 media_dir.size() > mount.size() && media_dir[mount.size()] == '/'))) continue;
+        longest = mount.size();
+        nas_host.clear();
+        const std::string_view type(entry.mnt_type);
+        const std::string_view device(entry.mnt_fsname);
+        if ((type == "cifs" || type == "smb3") && device.starts_with("//")) {
+            nas_host = device.substr(2, device.find('/', 2) - 2);
+            port = 445;
+        } else if (type == "nfs" || type == "nfs4") {
+            const auto end = device.rfind(":/");
+            if (end != std::string_view::npos) nas_host = device.substr(0, end);
+            port = 2049;
         }
     }
-    mounts.close();
+    endmntent(mounts);
+    if (nas_host.size() > 2 && nas_host.front() == '[' && nas_host.back() == ']')
+        nas_host = nas_host.substr(1, nas_host.size() - 2);
 
     if (nas_host.empty()) {
         // No network mount found, assume it is local/always online
@@ -844,7 +835,6 @@ static bool perform_nas_online_check() {
     }
 
     // Perform non-blocking TCP socket connection check to nas_host on port 445 (SMB) or 2049 (NFS)
-    int port = (fs_type == "cifs") ? 445 : 2049;
 
     struct addrinfo hints{}, *res = nullptr;
     hints.ai_family = AF_UNSPEC;
@@ -894,8 +884,7 @@ static std::mutex g_nas_thread_mtx;
 
 bool is_nas_online() {
     check_network_status();
-    int active_err = g_active_error_code.load();
-    if (active_err == 102 || active_err == 103) {
+    if (is_error_active(102) || is_error_active(103)) {
         return false;
     }
 
@@ -968,58 +957,14 @@ void check_network_status() {
     if (!has_active_interface || (!has_valid_ip && !has_apipa)) {
     [[unlikely]]
         trigger_error(102); // E102: WIFI_DISCONNECTED
+        clear_error(103);
     } else if (has_apipa && !has_valid_ip) {
+        clear_error(102);
     [[unlikely]]
         trigger_error(103); // E103: IP_CONFIGURATION_ERROR
     } else {
         clear_error(102);
         clear_error(103);
-    }
-}
-
-static std::jthread g_prefetch_thread;
-static std::mutex g_prefetch_mtx;
-
-void prefetch_video(const std::string& path) {
-    if (path.empty()) return;
-    // Join any previous prefetch *outside* the lock. The previous code hand-unlocked the
-    // mutex behind a lock_guard's back around join(): if join() threw, the guard would
-    // unlock an already-unlocked mutex (UB), and a second caller could join the same
-    // thread concurrently. Moving the handle out under the lock avoids both.
-    {
-        std::jthread prev;
-        {
-            std::lock_guard lk(g_prefetch_mtx);
-            if (g_prefetch_thread.joinable()) {
-                prev = std::move(g_prefetch_thread);
-            }
-        }
-        if (prev.joinable()) prev.join();
-    }
-    {
-        std::lock_guard lk(g_prefetch_mtx);
-        if (!spawn_thread_safe(g_prefetch_thread, "prefetch", [path]() {
-            int fd = open(path.c_str(), O_RDONLY | O_NONBLOCK);
-            [[unlikely]]
-            if (fd < 0) return;
-            off_t file_size = lseek(fd, 0, SEEK_END);
-            if (file_size <= 0) { close(fd); return; }
-            lseek(fd, 0, SEEK_SET);
-            size_t max_budget = std::clamp(static_cast<size_t>(get_available_ram_bytes() * 0.02), static_cast<size_t>(8 * 1024 * 1024), static_cast<size_t>(64 * 1024 * 1024));
-            size_t prefetch_bytes = std::min(static_cast<size_t>(file_size), max_budget);
-            posix_fadvise(fd, 0, (off_t)prefetch_bytes, POSIX_FADV_WILLNEED);
-            readahead(fd, 0, prefetch_bytes);
-            close(fd);
-        })) {
-            // Non-critical: skip this prefetch.
-        }
-    }
-}
-
-void cleanup_prefetch_thread() {
-    std::lock_guard lk(g_prefetch_mtx);
-    if (g_prefetch_thread.joinable()) {
-        g_prefetch_thread.join();
     }
 }
 
@@ -1042,6 +987,7 @@ std::string format_epoch_tz(time_t epoch_sec, const std::string& tz_name, const 
         if (fmt_str == "%I:%M %p %Z") return std::format("{:%I:%M %p %Z}", time);
         if (fmt_str == "%Y-%m-%d %H:%M") return std::format("{:%Y-%m-%d %H:%M}", time);
         if (fmt_str == "%Y-%m-%d") return std::format("{:%Y-%m-%d}", time);
+        if (fmt_str == "%m/%d/%Y") return std::format("{:%m/%d/%Y}", time);
         if (fmt_str == "%a, %b %d") return std::format("{:%a, %b %d}", time);
         if (fmt_str == "%A") return std::format("{:%A}", time);
         if (fmt_str == "%B %d") return std::format("{:%B %d}", time);

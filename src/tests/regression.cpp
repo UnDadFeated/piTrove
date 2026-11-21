@@ -13,6 +13,12 @@
 #include <latch>
 #include <stdexcept>
 #include <cstring>
+#include <mosquitto.h>
+#include <arpa/inet.h>
+#include <spawn.h>
+#include <sys/wait.h>
+#include <signal.h>
+extern char** environ;
 
 static void check(bool ok, const char* message) {
     if (!ok) throw std::runtime_error(message);
@@ -304,75 +310,88 @@ static void test_cache_migration() {
 
 
 static void test_mqtt_lifecycle() {
-    namespace fs = std::filesystem;
-    char path[] = "/tmp/pitrove-mqtt-XXXXXX";
-    check(mkdtemp(path) != nullptr, "MQTT fixture directory creation failed");
-    const fs::path root(path);
-    const auto* environment_path = getenv("PATH");
-    const std::string original_path = environment_path ? environment_path : "";
-    struct Cleanup {
-        fs::path root;
-        std::string search_path;
-        ~Cleanup() {
+    const int probe = socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC, 0);
+    check(probe >= 0, "MQTT fixture socket");
+    sockaddr_in address{};
+    address.sin_family = AF_INET;
+    address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    socklen_t length = sizeof(address);
+    const bool bound = bind(probe, reinterpret_cast<sockaddr*>(&address), sizeof(address)) == 0 &&
+                       getsockname(probe, reinterpret_cast<sockaddr*>(&address), &length) == 0;
+    close(probe);
+    check(bound, "MQTT fixture port");
+    const int port = ntohs(address.sin_port);
+    std::string port_text = std::to_string(port);
+    char program[] = "mosquitto";
+    char port_option[] = "-p";
+    char* args[]{program, port_option, port_text.data(), nullptr};
+    struct Broker {
+        pid_t pid = 0;
+        ~Broker() {
             stop_mqtt_client();
-            setenv("PATH", search_path.c_str(), 1);
-            unsetenv("PITROVE_MQTT_FIXTURE");
-            fs::remove_all(root);
+            if (pid > 0) {
+                kill(pid, SIGTERM);
+                waitpid(pid, nullptr, 0);
+            }
         }
-    } cleanup{root, original_path};
-    const auto script = [&](const char* name, const char* body) {
-        const auto file = root / name;
-        std::ofstream(file) << "#!/bin/sh\n" << body;
-        fs::permissions(file, fs::perms::owner_all);
-    };
-    const auto read = [](const fs::path& file) {
-        std::ifstream input(file);
-        return std::string(std::istreambuf_iterator<char>(input), std::istreambuf_iterator<char>());
-    };
+    } broker;
+    check(posix_spawnp(&broker.pid, program, nullptr, nullptr, args, environ) == 0, "start fixture broker");
     const auto wait_for = [](auto condition) {
-        const auto end = std::chrono::steady_clock::now() + std::chrono::seconds(3);
-        while (!condition() && std::chrono::steady_clock::now() < end)
-            std::this_thread::sleep_for(std::chrono::milliseconds(10));
-        return condition();
+        const auto end = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+        while (std::chrono::steady_clock::now() < end) {
+            if (condition()) return true;
+            std::this_thread::sleep_for(std::chrono::milliseconds(15));
+        }
+        return false;
     };
-
-    setenv("PATH", (root.string() + ":" + original_path).c_str(), 1);
-    setenv("PITROVE_MQTT_FIXTURE", path, 1);
+    check(wait_for([&] {
+        const int fd = socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC, 0);
+        const bool available = fd >= 0 && connect(fd, reinterpret_cast<sockaddr*>(&address), sizeof(address)) == 0;
+        if (fd >= 0) close(fd);
+        return available;
+    }), "fixture broker unavailable");
     {
         std::lock_guard lock(g_config_mtx);
         g_cfg.mqtt_enabled = true;
-        g_cfg.mqtt_tls_enabled = true;
-        g_cfg.mqtt_broker = "unused.test";
-        g_cfg.mqtt_ca_cert.clear();
+        g_cfg.mqtt_broker = "127.0.0.1";
+        g_cfg.mqtt_port = port;
+        g_cfg.mqtt_tls_enabled = false;
+        g_cfg.mqtt_topic_prefix = "fixture";
+        g_cfg.mqtt_motionsensor_topic = "motion";
     }
-
-    script("mosquitto_pub", R"SH(printf '%s\n' "$@" > "$PITROVE_MQTT_FIXTURE/pub-args"
-cat > "$PITROVE_MQTT_FIXTURE/payload"
-touch "$PITROVE_MQTT_FIXTURE/pub-finished"
-)SH");
-    const std::string body(100000, 'x');
-    mqtt_publish("fixture/one", body);
-    check(wait_for([&] { return fs::exists(root / "pub-finished"); }), "publisher CLI did not finish");
-    check(read(root / "payload") == body, "publisher lost bytes in the payload");
-    check(read(root / "pub-args").find("--tls-use-os-certs") != std::string::npos,
-          "publisher did not use configured TLS");
-    stop_mqtt_client();
-
-    script("mosquitto_sub", R"SH(printf '%s\n' "$@" > "$PITROVE_MQTT_FIXTURE/sub-args"
-exec sleep 30
-)SH");
-    script("mosquitto_pub", R"SH(touch "$PITROVE_MQTT_FIXTURE/pub-blocked"
-exec sleep 30
-)SH");
     start_mqtt_client();
-    check(wait_for([&] { return fs::exists(root / "sub-args") && fs::exists(root / "pub-blocked"); }),
-          "subscriber or blocked publisher did not start");
-    check(read(root / "sub-args").find("--tls-use-os-certs") != std::string::npos,
-          "subscriber did not use configured TLS");
+    struct Received { std::string state; std::string body; } received;
+    const std::unique_ptr<mosquitto, decltype(&mosquitto_destroy)>
+        observer(mosquitto_new(nullptr, true, &received), mosquitto_destroy);
+    check(observer != nullptr, "fixture MQTT observer");
+    mosquitto_message_callback_set(observer.get(), [](mosquitto*, void* context, const mosquitto_message* m) {
+        auto& r = *static_cast<Received*>(context);
+        const std::string_view topic(m->topic);
+        if (topic == "fixture/status") r.state.assign(static_cast<const char*>(m->payload), m->payloadlen);
+        else if (topic == "fixture/one") r.body.assign(static_cast<const char*>(m->payload), m->payloadlen);
+    });
+    check(mosquitto_connect(observer.get(), "127.0.0.1", port, 10) == MOSQ_ERR_SUCCESS, "observer connect");
+    check(mosquitto_subscribe(observer.get(), nullptr, "fixture/#", 0) == MOSQ_ERR_SUCCESS, "observer subscribe");
+    check(wait_for([&] {
+        mosquitto_loop(observer.get(), 20, 1);
+        return received.state == R"({"state":"online"})";
+    }), "MQTT birth missing");
+    const std::string body(100000, 'x');
+    mqtt_publish("fixture/one", body, true);
+    check(mosquitto_publish(observer.get(), nullptr, "fixture/command/next", 5, "PRESS", 0, false)
+          == MOSQ_ERR_SUCCESS, "fixture command publish");
+    check(wait_for([&] {
+        mosquitto_loop(observer.get(), 20, 1);
+        return received.body == body && g_remote_command.load() == 1;
+    }), "MQTT publish or command failed");
     const auto started = std::chrono::steady_clock::now();
     stop_mqtt_client();
     check(std::chrono::steady_clock::now() - started < std::chrono::seconds(2),
-          "blocked MQTT child delayed shutdown");
+          "MQTT delayed shutdown");
+    check(wait_for([&] {
+        mosquitto_loop(observer.get(), 20, 1);
+        return received.state == R"({"state":"offline"})";
+    }), "MQTT shutdown status missing");
     {
         std::lock_guard lock(g_config_mtx);
         g_cfg.mqtt_enabled = false;

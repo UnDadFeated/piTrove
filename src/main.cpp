@@ -47,8 +47,10 @@
 #include <future>
 
 #include <filesystem>
+#include <unordered_set>
 #include <fstream>
 #include <glob.h>
+#include <numbers>
 #include <format>
 
 static TransitionEngine* g_transition = nullptr;
@@ -82,8 +84,8 @@ static std::string probe_connected_connector(std::string& out_card, int& out_car
                             std::string conn_part = dir_name.substr(dash + 1); // "HDMI-A-1"
                             
                             if (card_part.rfind("card", 0) == 0) {
-                                int card_idx = 0;
-                                try { card_idx = std::stoi(card_part.substr(4)); } catch(...) {}
+                                const int card_idx = safe_stoi(card_part.substr(4), -1);
+                                if (card_idx < 0) continue;
                                 out_card = "/dev/dri/" + card_part;
                                 out_card_index = card_idx;
                                 connected_connector = conn_part;
@@ -110,6 +112,7 @@ int current_idx = 0;
 SDL_Texture* g_video_tex = nullptr;
 int g_video_tex_w = 0, g_video_tex_h = 0;
 SDL_PixelFormat g_video_tex_fmt = SDL_PIXELFORMAT_UNKNOWN;
+static SDL_Colorspace g_video_colorspace = SDL_COLORSPACE_UNKNOWN;
 static std::jthread g_watchman_thread;
 // Held as a raw epoch count: the watchdog thread and the main loop both write it, and the
 // 8-byte time_point could tear. A garbage value here makes `elapsed` huge, and a large
@@ -794,6 +797,29 @@ static void advance_playlist(int step) {
     }
 }
 
+static ScanResult scan_gallery(const std::string& media_dir, int depth,
+                               std::function<void(int)> progress, std::stop_token stop) {
+    auto combined = scan_directory(media_dir, depth, std::move(progress), stop);
+    std::string cloud_dir;
+    {
+        std::shared_lock lock(g_config_mtx);
+        if (g_cfg.google_photos_enabled)
+            cloud_dir = g_cfg.google_photos_cache_dir.empty() ? "/app/cache/google_photos" : g_cfg.google_photos_cache_dir;
+    }
+    std::error_code error;
+    if (!cloud_dir.empty() && !stop.stop_requested() && std::filesystem::is_directory(cloud_dir, error) &&
+        !std::filesystem::equivalent(media_dir, cloud_dir, error)) {
+        auto selected = scan_directory(cloud_dir, 1, nullptr, stop);
+        std::unordered_set<std::string_view> seen;
+        for (const auto& item : combined.items) seen.insert(item.path);
+        std::erase_if(selected.items, [&](const auto& item) { return seen.contains(item.path); });
+        combined.items.insert(combined.items.end(), std::make_move_iterator(selected.items.begin()),
+                              std::make_move_iterator(selected.items.end()));
+        combined.complete = combined.complete && selected.complete;
+    }
+    return combined;
+}
+
 static void watchman_loop(std::stop_token stop) {
     g_logger.info("Watchman: Background watchman thread started.");
     
@@ -802,6 +828,7 @@ static void watchman_loop(std::stop_token stop) {
     struct tm tm_buf;
     struct tm* last_check_tm = localtime_r(&last_check_time, &tm_buf);
     int last_yday = last_check_tm ? last_check_tm->tm_yday : 0;
+    unsigned cloud_revision = g_google_photos.media_revision();
     
     std::mutex wait_mutex;
     std::condition_variable_any wake;
@@ -815,7 +842,8 @@ static void watchman_loop(std::stop_token stop) {
         struct tm curr_tm;
         struct tm* tm_res = localtime_r(&now, &curr_tm);
         
-        if (tm_res && curr_tm.tm_yday != last_yday) {
+        const unsigned photo_revision = g_google_photos.media_revision();
+        if (tm_res && (curr_tm.tm_yday != last_yday || photo_revision != cloud_revision)) {
             const auto attempt = std::chrono::steady_clock::now();
             if (attempt < retry_after) continue;
             retry_after = attempt + std::chrono::minutes(1);
@@ -823,7 +851,7 @@ static void watchman_loop(std::stop_token stop) {
                 g_logger.warn("Watchman: System is in Offline Recovery Mode. Skipping midnight temporal window shift.");
                 continue;
             }
-            g_logger.info("Watchman: Midnight detected! Shifting temporal window. Old day={}, New day={}", last_yday, curr_tm.tm_yday);
+            g_logger.info("Watchman: Refreshing the playlist for a date change or new cloud media.");
             
             std::string media_dir;
             int depth, screen_w, screen_h;
@@ -837,7 +865,7 @@ static void watchman_loop(std::stop_token stop) {
 
             ScanResult scan;
             try {
-                scan = scan_directory(media_dir, depth, nullptr, stop);
+                scan = scan_gallery(media_dir, depth, nullptr, stop);
             } catch (const std::exception& e) {
                 g_logger.error("Watchman: media scan failed ({}: {}); keeping the existing playlist.",
                                typeid(e).name(), e.what());
@@ -932,6 +960,7 @@ static void watchman_loop(std::stop_token stop) {
                     }
                 }
                 last_yday = curr_tm.tm_yday;
+                cloud_revision = photo_revision;
             } catch (const std::exception& e) {
                 g_logger.error("Watchman: post-scan processing failed ({}: {}); keeping the existing playlist.",
                                typeid(e).name(), e.what());
@@ -1096,6 +1125,7 @@ int main(int argc, char** argv) {
     bool run_config = false;
     bool run_restart = false;
     bool run_organize = false;
+    std::string undo_journal;
     std::string config_path;
     std::string organize_path;
     bool in_place = false;
@@ -1123,24 +1153,34 @@ int main(int argc, char** argv) {
                 organize_path = argv[i + 1];
                 i++;
             }
+        } else if (arg == "--undo-organize" && i + 1 < argc) {
+            undo_journal = argv[++i];
         } else if (arg == "--in-place") {
             in_place = true;
         } else if (arg == "--selftest-media") {
             if (i + 1 < argc) {
-                // Self-test media loading for golden tests
-                // TODO: implement selftest_load_media(argv[i+1])
-                printf("selftest-media: %s\n", argv[i+1]);
+                const auto image = ImageLoader::decode_rgba(ImageLoader::read_file_to_buffer(argv[i+1]));
+                if (!image.valid) {
+                    fputs("Could not decode image\n", stderr);
+                    return 1;
+                }
+                printf("%dx%d RGBA\n", image.width, image.height);
                 return 0;
             }
         }
     }
 
+    if (!undo_journal.empty()) {
+        return undo_organize(undo_journal) ? 0 : 1;
+    }
     if (run_organize) {
         if (organize_path.empty()) {
             fprintf(stderr, "Error: Missing target folder. Usage: piTrove --organize <folder_path> [--in-place]\n");
             return 1;
         }
-        bool success = organize_media_archive(organize_path, in_place);
+        Config archive_config;
+        if (!config_path.empty()) archive_config.load(config_path);
+        bool success = organize_media_archive(organize_path, in_place, archive_config.ignore_folders);
         return success ? 0 : 1;
     }
 
@@ -1210,20 +1250,23 @@ int main(int argc, char** argv) {
     [[maybe_unused]] auto trunc_rc = ftruncate(lock_fd, 0);
     [[maybe_unused]] auto pid_rc = dprintf(lock_fd, "%d\n", getpid());
 
-    g_event_log = fopen("/app/events.log", "a");
+    g_event_log = fopen("/app/cache/run/events.log", "ae");
     if (g_event_log) {
         fprintf(g_event_log, "=== piTrove started ===\n");
         fflush(g_event_log);
     }
+    pitrove::safe_mode::init();
+    signal(SIGBUS, crash_handler);
     signal(SIGSEGV, crash_handler);
     signal(SIGABRT, crash_handler);
     // SIGTERM and SIGINT trigger graceful shutdown — let main loop exit and cleanup
     struct sigaction sa_term = {};
     sa_term.sa_handler = [](int sig) {
         const char* sig_name = (sig == SIGTERM) ? "SIGTERM" : (sig == SIGINT ? "SIGINT" : "UNKNOWN");
-        char msg[160];
-        int len = snprintf(msg, sizeof(msg), "\n[TRACE] SHUTDOWN_TRIGGER: Caught OS Signal %d (%s) -> setting g_running=false for graceful main loop exit.\n", sig, sig_name);
-        (void)write(STDERR_FILENO, msg, len);
+        constexpr char message[] = "SHUTDOWN_TRIGGER: Caught OS signal ";
+        (void)write(STDERR_FILENO, message, sizeof(message) - 1);
+        (void)write(STDERR_FILENO, sig_name, sig == SIGTERM ? 7 : 6);
+        (void)write(STDERR_FILENO, "\n", 1);
         g_running.store(false);
     };
     sigemptyset(&sa_term.sa_mask);
@@ -1317,11 +1360,7 @@ int main(int argc, char** argv) {
     {
         std::shared_lock<std::shared_mutex> lock(g_config_mtx);
         media_dir = g_cfg.media_dir;
-        if (g_cfg.google_photos_enabled && !g_cfg.google_photos_refresh_token.empty()) {
-            cache_dir = g_cfg.google_photos_cache_dir.empty() ? (get_exe_dir() + "/cache/google_photos") : g_cfg.google_photos_cache_dir;
-        } else {
-            cache_dir = g_cfg.cache_dir.empty() ? (get_exe_dir() + "/cache") : g_cfg.cache_dir;
-        }
+        cache_dir = g_cfg.cache_dir.empty() ? (get_exe_dir() + "/cache") : g_cfg.cache_dir;
         log_dir = g_cfg.log_dir.empty() ? (get_exe_dir() + "/logs") : g_cfg.log_dir;
         keep_count = g_cfg.log_keep_count;
     }
@@ -1346,9 +1385,7 @@ int main(int argc, char** argv) {
             if (space_info.available < 50 * 1024 * 1024) {
                 trigger_error(403); // E403: DISK_SPACE_CRITICAL
             } else {
-                if (g_active_error_code.load() == 403) {
-                    trigger_error(0);
-                }
+                clear_error(403);
             }
         }
 
@@ -1359,9 +1396,7 @@ int main(int argc, char** argv) {
         } else {
             fclose(tf);
             unlink(test_file.c_str());
-            if (g_active_error_code.load() == 405) {
-                trigger_error(0);
-            }
+            clear_error(405);
         }
     }
 
@@ -1378,9 +1413,7 @@ int main(int argc, char** argv) {
     if (startup_media_empty) {
         trigger_error(101); // E101: NAS_MOUNT_FAILED
     } else {
-        if (g_active_error_code.load() == 101) {
-            trigger_error(0);
-        }
+        clear_error(101);
     }
 
     // --- Dynamic DRM Probing and Environment Setup ---
@@ -1524,10 +1557,8 @@ int main(int argc, char** argv) {
 
             if (photos > 0 || videos > 0) {
                 g_logger.info("Fast-path: skipping scan, going directly to slideshow");
-                int current_err = g_active_error_code.load();
-                if (current_err == 401 || current_err == 413) {
-                    trigger_error(0);
-                }
+                clear_error(401);
+                clear_error(413);
             } else {
                 g_logger.warn("Cache DB loaded 0 valid items. Scanning media.");
             }
@@ -1577,7 +1608,7 @@ int main(int argc, char** argv) {
         std::jthread scan_thread;
         if (!spawn_thread_safe(scan_thread, "scanner", [&](std::stop_token stop) {
             try {
-                auto result = scan_directory(media_dir, depth, safe_progress_callback, stop);
+                auto result = scan_gallery(media_dir, depth, safe_progress_callback, stop);
                 scan_complete = result.complete;
                 g_scanned_items = std::move(result.items);
             } catch (const std::exception& e) {
@@ -1678,10 +1709,8 @@ int main(int argc, char** argv) {
         g_cache->commit_transaction();
         if (scan_complete && g_cfg.scan_window_days == 0) g_cache->prune_missing(g_scanned_items);
         g_logger.info("Cache complete: {} items", cached);
-        int current_err = g_active_error_code.load();
-        if (current_err == 401 || current_err == 413) {
-            trigger_error(0);
-        }
+        clear_error(401);
+        clear_error(413);
 
         // Check for date prefixes in g_scanned_items
         bool has_prefix = false;
@@ -1720,9 +1749,7 @@ int main(int argc, char** argv) {
             trigger_error(808); // E808: SEASONAL_WINDOW_FALLBACK
             g_logger.warn("Seasonal Window: No YYYY-MM-DD_ folder or filename prefixes found. Falling back to file creation/modification dates.");
         } else {
-            if (g_active_error_code.load() == 808) {
-                trigger_error(0);
-            }
+            clear_error(808);
         }
 
         g_renderer.render_splash(3, total_scanned, total_scanned, cached, "CACHING", dot_counter, nullptr, false);
@@ -1857,9 +1884,7 @@ int main(int argc, char** argv) {
                 trigger_error(619); // E619: TOUCHSCREEN_DEVICE_NOT_FOUND
             } else {
                 g_logger.info("TOUCH_INPUT: Found {} active touch input device(s).", touch_count);
-                if (g_active_error_code.load() == 619) {
-                    trigger_error(0);
-                }
+                clear_error(619);
             }
         }
     }
@@ -1975,10 +2000,8 @@ int main(int argc, char** argv) {
                 if (current_data && current_data->valid && current_twin_data && current_twin_data->valid) {
                     ImageLoader::load_texture(current_data.get(), g_renderer.sdl_renderer);
                     ImageLoader::load_texture(current_twin_data.get(), g_renderer.sdl_renderer);
-                    int curr_err = g_active_error_code.load();
-                    if (curr_err == 201 || curr_err == 101) {
-                        trigger_error(0);
-                    }
+                    clear_error(201);
+                    clear_error(101);
                     current_tex = current_data->texture;
                     mark_item_shown(path_l, false);
                     mark_item_shown(path_r, false);
@@ -2023,10 +2046,8 @@ int main(int argc, char** argv) {
                 current_data = single_data;
                 if (current_data && current_data->valid) {
                     ImageLoader::load_texture(current_data.get(), g_renderer.sdl_renderer);
-                    int curr_err = g_active_error_code.load();
-                    if (curr_err == 201 || curr_err == 101) {
-                        trigger_error(0);
-                    }
+                    clear_error(201);
+                    clear_error(101);
                     current_tex = current_data->texture;
                     current_twin_data = nullptr;
                     mark_item_shown(g_eligible[current_idx].path, false);
@@ -2076,6 +2097,10 @@ int main(int argc, char** argv) {
     // --- Start Background Preprocess Thread ---
     start_preprocess_worker();
 
+    std::unique_ptr<SDL_Texture, decltype(&SDL_DestroyTexture)> photo_scene(nullptr, SDL_DestroyTexture);
+    std::weak_ptr<ImageData> scene_image, scene_twin;
+    std::chrono::steady_clock::time_point scene_due{};
+    int scene_width = 0, scene_height = 0;
     double fps_timer = 0.0;
     int frame_counter = 0;
     int active_fps = 60;
@@ -2108,6 +2133,7 @@ int main(int argc, char** argv) {
             if (t - last_hb_write >= 5000) {
                 last_hb_write = t;
                 pitrove::health::heartbeat_tick();
+                if (g_cache) g_cache->flush_shown();
             }
         }
 
@@ -2176,15 +2202,10 @@ int main(int argc, char** argv) {
                         trigger_error(619); // E619: TOUCHSCREEN_DEVICE_NOT_FOUND
                     }
                 } else {
-                    if (g_active_error_code.load() == 619) {
-                        g_logger.info("TOUCH_INPUT: Touch screen device reconnected.");
-                        trigger_error(0);
-                    }
+                    clear_error(619);
                 }
             } else {
-                if (g_active_error_code.load() == 619) {
-                    trigger_error(0);
-                }
+                clear_error(619);
             }
         }
 
@@ -2227,12 +2248,7 @@ int main(int argc, char** argv) {
                     break;
                 case 3:
                     {
-                        bool expected = g_screen_blanked.load();
-                        bool desired = !expected;
-                        while (!g_screen_blanked.compare_exchange_weak(expected, desired)) {
-                            desired = !expected;
-                        }
-                        set_display_power(expected);
+                        toggle_display_power();
                         std::string prefix;
                         { std::lock_guard lk(g_config_mtx); prefix = g_cfg.mqtt_topic_prefix; }
                         mqtt_publish(prefix + "/status/screen", g_screen_blanked.load() ? "OFF" : "ON", true);
@@ -2252,8 +2268,7 @@ int main(int argc, char** argv) {
             switch (event.type) {
                 case SDL_EVENT_QUIT: g_running.store(false); break;
                  case SDL_EVENT_KEY_DOWN:
-                    if (g_screen_blanked.exchange(false)) {
-                        set_display_power(true);
+                    if (set_display_power(true)) {
                         g_last_motion_time.store(static_cast<int64_t>(std::time(nullptr)));
                         std::string prefix;
                         { std::lock_guard lk(g_config_mtx); prefix = g_cfg.mqtt_topic_prefix; }
@@ -2287,8 +2302,7 @@ int main(int argc, char** argv) {
                     break;
                 case SDL_EVENT_MOUSE_BUTTON_DOWN:
                     if (event.button.which == SDL_TOUCH_MOUSEID) break;
-                    if (g_screen_blanked.exchange(false)) {
-                        set_display_power(true);
+                    if (set_display_power(true)) {
                         g_last_motion_time.store(static_cast<int64_t>(std::time(nullptr)));
                         std::string prefix;
                         { std::lock_guard lk(g_config_mtx); prefix = g_cfg.mqtt_topic_prefix; }
@@ -2338,8 +2352,7 @@ int main(int argc, char** argv) {
                     }
                     break;
                 case SDL_EVENT_FINGER_DOWN:
-                    if (g_screen_blanked.exchange(false)) {
-                        set_display_power(true);
+                    if (set_display_power(true)) {
                         g_last_motion_time.store(static_cast<int64_t>(std::time(nullptr)));
                         std::string prefix;
                         { std::lock_guard lk(g_config_mtx); prefix = g_cfg.mqtt_topic_prefix; }
@@ -2385,9 +2398,8 @@ int main(int argc, char** argv) {
                 int64_t now_ts = static_cast<int64_t>(std::time(nullptr));
                 int64_t last_motion = g_last_motion_time.load();
                 if (last_motion > 0 && now_ts - last_motion >= cooldown &&
-                    !g_screen_blanked.exchange(true)) {
+                    set_display_power(false)) {
                     g_logger.info("Motion sensor cooldown threshold reached ({} seconds). Blanking screen.", cooldown);
-                    set_display_power(false);
                     std::string prefix;
                     { std::lock_guard lk(g_config_mtx); prefix = g_cfg.mqtt_topic_prefix; }
                     mqtt_publish(prefix + "/status/screen", "OFF", true);
@@ -2396,18 +2408,23 @@ int main(int argc, char** argv) {
         }
 
         // Handle screen blanking state
+        static bool black_frame_presented = false;
         if (g_screen_blanked.load()) {
             if (g_video_decoder.is_running() || g_video_decoder.has_frames()) {
                 g_logger.info("Screen blanked: stopping video decoder.");
                 g_video_decoder.stop();
                 if (g_video_tex) { SDL_DestroyTexture(g_video_tex); g_video_tex = nullptr; g_video_tex_w = 0; g_video_tex_h = 0; g_video_tex_fmt = SDL_PIXELFORMAT_UNKNOWN; }
             }
-            g_renderer.clear(0, 0, 0, 255);
-            g_renderer.present();
+            if (!black_frame_presented && !display_hardware_blanked()) {
+                g_renderer.clear(0, 0, 0, 255);
+                g_renderer.present();
+                black_frame_presented = true;
+            }
             SDL_Delay(100);
             continue;
         }
 
+        black_frame_presented = false;
         int cmd = g_remote_command.exchange(0);
 
         // --- Mutex-Guarded playlist lookup & manipulation ---
@@ -2526,6 +2543,19 @@ int main(int argc, char** argv) {
                     SDL_Delay(10);
                     continue;
                 }
+                const auto due_time = [&](double pts) {
+                    return g_video_decoder.get_anchor_wall_ms() + (pts - g_video_decoder.get_anchor_pts()) * 1000.0;
+                };
+                if (g_video_decoder.av_sync_ready()) {
+                    if (const auto next_pts = g_video_decoder.next_frame_pts()) {
+                        const double wait = due_time(*next_pts) - SDL_GetTicks();
+                        if (wait >= 1.0) {
+                            playlist_lock.unlock();
+                            SDL_Delay(static_cast<Uint32>(std::min(wait, 10.0)));
+                            continue;
+                        }
+                    }
+                }
                 VideoFrame frame;
                 if (g_video_decoder.get_frame(frame)) {
                     if (!g_video_decoder.presentation_started()) {
@@ -2548,21 +2578,12 @@ int main(int argc, char** argv) {
                         if (transition_prev_target) { SDL_DestroyTexture(transition_prev_target); transition_prev_target = nullptr; }
                         if (transition_next_target) { SDL_DestroyTexture(transition_next_target); transition_next_target = nullptr; }
                     }
-                    // A/V Sync Catch-up: drop stale frames if video lags behind presentation clock
+                    // Skip late frames only while the successor is already due.
                     if (g_video_decoder.av_sync_ready()) {
-                        uint64_t now_ticks = SDL_GetTicks();
-                        double due_ms = g_video_decoder.get_anchor_wall_ms()
-                                       + (frame.pts - g_video_decoder.get_anchor_pts()) * 1000.0;
-                        while ((double)now_ticks > due_ms + 40.0 && g_video_decoder.has_frames()) {
-                            VideoFrame next_frame;
-                            if (g_video_decoder.get_frame(next_frame)) {
-                                frame = std::move(next_frame);
-                                due_ms = g_video_decoder.get_anchor_wall_ms()
-                                       + (frame.pts - g_video_decoder.get_anchor_pts()) * 1000.0;
-                                now_ticks = SDL_GetTicks();
-                            } else {
-                                break;
-                            }
+                        const double ticks = SDL_GetTicks();
+                        while (ticks - due_time(frame.pts) > 40.0) {
+                            const auto next_pts = g_video_decoder.next_frame_pts();
+                            if (!next_pts || due_time(*next_pts) > ticks || !g_video_decoder.get_frame(frame)) break;
                         }
                     }
                     g_video_decoder.set_displayed_pts(frame.pts);
@@ -2579,13 +2600,24 @@ int main(int argc, char** argv) {
                         }
                     }
                     SDL_PixelFormat target_fmt = frame.is_nv12 ? SDL_PIXELFORMAT_NV12 : SDL_PIXELFORMAT_RGBA32;
-                    if (!g_video_tex || g_video_tex_w != frame.width || g_video_tex_h != frame.height || g_video_tex_fmt != target_fmt) {
+                    if (!g_video_tex || g_video_tex_w != frame.width || g_video_tex_h != frame.height ||
+                        g_video_tex_fmt != target_fmt || g_video_colorspace != frame.colorspace) {
                         if (g_video_tex) SDL_DestroyTexture(g_video_tex);
-                        g_video_tex = SDL_CreateTexture(g_renderer.sdl_renderer, target_fmt,
+                        const auto props = SDL_CreateProperties();
+                        SDL_SetNumberProperty(props, SDL_PROP_TEXTURE_CREATE_FORMAT_NUMBER, target_fmt);
+                        SDL_SetNumberProperty(props, SDL_PROP_TEXTURE_CREATE_ACCESS_NUMBER, SDL_TEXTUREACCESS_STREAMING);
+                        SDL_SetNumberProperty(props, SDL_PROP_TEXTURE_CREATE_WIDTH_NUMBER, frame.width);
+                        SDL_SetNumberProperty(props, SDL_PROP_TEXTURE_CREATE_HEIGHT_NUMBER, frame.height);
+                        SDL_SetNumberProperty(props, SDL_PROP_TEXTURE_CREATE_COLORSPACE_NUMBER,
+                                              frame.is_nv12 ? frame.colorspace : SDL_COLORSPACE_SRGB);
+                        g_video_tex = SDL_CreateTextureWithProperties(g_renderer.sdl_renderer, props);
+                        SDL_DestroyProperties(props);
+                        if (!g_video_tex) g_video_tex = SDL_CreateTexture(g_renderer.sdl_renderer, target_fmt,
                             SDL_TEXTUREACCESS_STREAMING, frame.width, frame.height);
                         g_video_tex_w = frame.width;
                         g_video_tex_h = frame.height;
                         g_video_tex_fmt = target_fmt;
+                        g_video_colorspace = frame.colorspace;
                     }
                     if (g_video_tex) {
                         if (frame.is_nv12) {
@@ -2596,29 +2628,20 @@ int main(int argc, char** argv) {
                             SDL_UpdateTexture(g_video_tex, nullptr, frame.data, frame.width * 4);
                         }
                         g_renderer.clear(0, 0, 0, 255);
-                        // Scale video to fill screen while maintaining aspect ratio
-                        SDL_FRect dst_rect;
-                        // FIX: Letterbox/pillarbox - maintain video aspect ratio
-                        InfopanelLayout v_layout = calculate_infopanel_layout(g_renderer.screen_w, g_renderer.screen_h);
-                        int vw = frame.width, vh = frame.height;
-                        int sw = v_layout.slideshow_area.w, sh = v_layout.slideshow_area.h;
-                        int ox = v_layout.slideshow_area.x, oy = v_layout.slideshow_area.y;
-                        double video_ar = (double)vw / (double)vh;
-                        double screen_ar = (double)sw / (double)sh;
-                        if (video_ar > screen_ar) {
-                            // Video is wider: letterbox (black bars top/bottom)
-                            dst_rect.w = sw;
-                            dst_rect.h = (int)(sw / video_ar);
-                            dst_rect.x = ox;
-                            dst_rect.y = oy + (sh - dst_rect.h) / 2;
-                        } else {
-                            // Video is taller: pillarbox (black bars left/right)
-                            dst_rect.h = sh;
-                            dst_rect.w = (int)(sh * video_ar);
-                            dst_rect.x = ox + (sw - dst_rect.w) / 2;
-                            dst_rect.y = oy;
-                        }
-                        SDL_RenderTexture(g_renderer.sdl_renderer, g_video_tex, nullptr, &dst_rect);
+                        const auto v_layout = calculate_infopanel_layout(g_renderer.screen_w, g_renderer.screen_h);
+                        const auto& area = v_layout.slideshow_area;
+                        const double image_aspect = frame.aspect_ratio > 0 ? frame.aspect_ratio :
+                                                    static_cast<double>(frame.width) / frame.height;
+                        const double radians = frame.rotation * std::numbers::pi / 180.0;
+                        const double cosine = std::abs(std::cos(radians));
+                        const double sine = std::abs(std::sin(radians));
+                        const double h = std::min(area.w / (image_aspect * cosine + sine),
+                                                  area.h / (image_aspect * sine + cosine));
+                        const float w = static_cast<float>(h * image_aspect);
+                        const auto height = static_cast<float>(h);
+                        const SDL_FRect destination{area.x + (area.w - w) / 2, area.y + (area.h - height) / 2, w, height};
+                        SDL_RenderTextureRotated(g_renderer.sdl_renderer, g_video_tex, nullptr, &destination,
+                                                 frame.rotation, nullptr, SDL_FLIP_NONE);
                         // FIX: Overlay rendering + draw overlays BEFORE present()
                         if (g_overlay) {
                             double fallback_dur = (!g_eligible.empty() && current_idx >= 0 && current_idx < std::ssize(g_eligible)) ? g_eligible[current_idx].duration : 0.0;
@@ -2659,26 +2682,7 @@ int main(int argc, char** argv) {
                     std::string cur_path = g_eligible[current_idx].path;
                     uint64_t now_ticks_ms = SDL_GetTicks();
 
-                    if (g_video_decoder.av_sync_ready()) {
-                        static std::string avsync_paced_path = "";
-                        if (avsync_paced_path != cur_path) {
-                            avsync_paced_path = cur_path;
-                            g_logger.info("[TRACE] AV_SYNC: PTS pacing active for {}", cur_path);
-                        }
-                        // av_sync: PTS-based pacing on the shared A/V presentation clock.
-                        // This frame is due when its pts is due: anchor + (pts - anchor_pts).
-                        // Stale frames (>1s late) present immediately; the 60Hz loop
-                        // fast-forwards through them until it catches up.
-                        double due_ms = g_video_decoder.get_anchor_wall_ms()
-                                       + (frame.pts - g_video_decoder.get_anchor_pts()) * 1000.0;
-                        if ((double)now_ticks_ms < due_ms) {
-                            uint32_t sleep_ms = (uint32_t)(due_ms - (double)now_ticks_ms);
-                            if (sleep_ms > 0 && sleep_ms < 500) {
-                                SDL_Delay(sleep_ms);
-                            }
-                        }
-                    } else {
-
+                    if (!g_video_decoder.av_sync_ready()) {
                         if (pacing_video_path != cur_path) {
                             pacing_video_path = cur_path;
                             video_start_ticks_ms = now_ticks_ms;
@@ -2899,10 +2903,8 @@ int main(int argc, char** argv) {
             bool load_success = is_video_transition || (next_data && next_data->texture && (!next_is_twin || (next_twin_data && next_twin_data->texture)));
 
             if (load_success) {
-                int curr_err = g_active_error_code.load();
-                if (curr_err == 201 || curr_err == 101 || (curr_err >= 500 && curr_err <= 599)) {
-                    trigger_error(0);
-                }
+                clear_error(201);
+                clear_error(101);
                 if (g_consecutive_failures.load() > 0) {
                     g_consecutive_failures.store(0);
                 }
@@ -3108,8 +3110,30 @@ int main(int argc, char** argv) {
                 }
             }
         } else {
-            bool rendered = false;
-            if (current_twin_data && current_twin_data->texture && current_data && current_data->texture) {
+            const auto layout = calculate_infopanel_layout(g_renderer.screen_w, g_renderer.screen_h);
+            int scene_fps = 5;
+            {
+                std::shared_lock lock(g_config_mtx);
+                if ((g_cfg.bias_lighting && g_cfg.bias_anim_speed > 0) || g_cfg.bg_style == "pattern")
+                    scene_fps = std::clamp(g_cfg.pattern_fps, 5, 30);
+            }
+            const bool has_photo = current_data && (current_data->texture || current_tex);
+            if (has_photo && (!photo_scene || scene_width != g_renderer.screen_w || scene_height != g_renderer.screen_h)) {
+                scene_width = g_renderer.screen_w;
+                scene_height = g_renderer.screen_h;
+                photo_scene.reset(SDL_CreateTexture(g_renderer.sdl_renderer, SDL_PIXELFORMAT_RGBA32,
+                    SDL_TEXTUREACCESS_TARGET, scene_width, scene_height));
+                if (photo_scene) SDL_SetTextureBlendMode(photo_scene.get(), SDL_BLENDMODE_NONE);
+                scene_due = {};
+            }
+            const bool reuse_scene = has_photo && photo_scene && now < scene_due &&
+                scene_image.lock() == current_data && scene_twin.lock() == current_twin_data;
+            const bool capture_scene = has_photo && photo_scene && !reuse_scene &&
+                SDL_SetRenderTarget(g_renderer.sdl_renderer, photo_scene.get());
+            bool rendered = reuse_scene;
+            if (reuse_scene) {
+                SDL_RenderTexture(g_renderer.sdl_renderer, photo_scene.get(), nullptr, nullptr);
+            } else if (current_twin_data && current_twin_data->texture && current_data && current_data->texture) {
                 bool has_bias = false;
                 bool has_matting = false;
                 bool has_border = false;
@@ -3144,7 +3168,6 @@ int main(int argc, char** argv) {
                     g_renderer.clear(0, 0, 0, 255);
                 }
 
-                InfopanelLayout layout = calculate_infopanel_layout(g_renderer.screen_w, g_renderer.screen_h);
                 SDL_Rect rect_l, rect_r;
                 int half_w = layout.slideshow_area.w / 2;
                 calculate_fit_rect_in_area(current_data->width, current_data->height, layout.slideshow_area.x, layout.slideshow_area.y, half_w, layout.slideshow_area.h, rect_l);
@@ -3222,7 +3245,6 @@ int main(int argc, char** argv) {
                     vignette_str = g_cfg.vignette_strength;
                 }
 
-                InfopanelLayout layout = calculate_infopanel_layout(g_renderer.screen_w, g_renderer.screen_h);
                 if (current_data) {
                     calculate_fit_rect_in_area(current_data->width, current_data->height, layout.slideshow_area.x, layout.slideshow_area.y, layout.slideshow_area.w, layout.slideshow_area.h, fit_rect);
                 }
@@ -3271,23 +3293,29 @@ int main(int argc, char** argv) {
                 rendered = true;
             }
 
+            const auto font_path = g_overlay ? g_overlay->get_font_path() : std::string{};
+            auto* font = g_overlay ? g_overlay->get_font_renderer() : nullptr;
+            if (rendered && !reuse_scene && font) {
+                if (layout.show_chores)
+                    render_chores_panel(g_renderer.sdl_renderer, font, font_path, layout.chores_area, g_renderer.screen_w, layout.content_top);
+                if (layout.show_calendar)
+                    g_calendar.render(g_renderer.sdl_renderer, font, font_path, layout.calendar_area, g_renderer.screen_w);
+                if (layout.show_stocks)
+                    g_stock_streamer.render(g_renderer.sdl_renderer, font, font_path, layout.stocks_area, g_renderer.screen_w);
+            }
+            if (capture_scene) {
+                SDL_SetRenderTarget(g_renderer.sdl_renderer, nullptr);
+                if (rendered) {
+                    SDL_RenderTexture(g_renderer.sdl_renderer, photo_scene.get(), nullptr, nullptr);
+                    scene_image = current_data;
+                    scene_twin = current_twin_data;
+                    scene_due = now + std::chrono::milliseconds(1000 / scene_fps);
+                }
+            }
             if (rendered) {
                 if (g_overlay) {
-                    InfopanelLayout layout = calculate_infopanel_layout(g_renderer.screen_w, g_renderer.screen_h);
-                    std::string font_p = g_overlay->get_font_path();
-                    FontRenderer* fr = g_overlay->get_font_renderer();
-                    if (layout.show_chores) {
-                        render_chores_panel(g_renderer.sdl_renderer, fr, font_p, layout.chores_area, g_renderer.screen_w, layout.content_top);
-                    }
-                    if (layout.show_calendar) {
-                        g_calendar.render(g_renderer.sdl_renderer, fr, font_p, layout.calendar_area, g_renderer.screen_w);
-                    }
-                    if (layout.show_stocks) {
-                        g_stock_streamer.render(g_renderer.sdl_renderer, fr, font_p, layout.stocks_area, g_renderer.screen_w);
-                    }
-                    if (layout.show_news) {
-                        g_news_ticker.render(g_renderer.sdl_renderer, fr, font_p, layout.news_area, g_renderer.screen_w);
-                    }
+                    if (layout.show_news)
+                        g_news_ticker.render(g_renderer.sdl_renderer, font, font_path, layout.news_area, g_renderer.screen_w);
                     bool cur_is_video = (!g_eligible.empty() && current_idx >= 0 && current_idx < std::ssize(g_eligible) && g_eligible[current_idx].type == "video");
                     int twin_idx = (current_idx + 1) % std::ssize(g_eligible);
                     const MediaItem* twin_item_ptr = (current_twin_data && !g_eligible.empty()) ? &g_eligible[twin_idx] : nullptr;
@@ -3299,8 +3327,10 @@ int main(int argc, char** argv) {
                 g_renderer.present();
             }
 
-            // Preload next items asynchronously while resting
-            if (g_preload) {
+            // Queue lookahead at a fixed cadence instead of per refresh.
+            static auto next_lookahead = std::chrono::steady_clock::time_point{};
+            if (g_preload && now >= next_lookahead) {
+                next_lookahead = now + std::chrono::milliseconds(500);
                 int lookahead_idx = g_eligible.empty() ? 0 : (current_idx + (current_twin_data ? 2 : 1)) % std::ssize(g_eligible);
                 bool lookahead_is_twin = g_eligible.empty() ? false : should_be_twin_portrait(g_eligible, lookahead_idx);
                 
@@ -3318,13 +3348,12 @@ int main(int argc, char** argv) {
                     }
                 }
 
-                // Prefetch upcoming video files and pre-warm next video into background decode buffer
+                // Pre-warm the next eligible video with the existing decoder.
                 if (!g_eligible.empty()) {
                     int scan_start = current_idx + (current_twin_data ? 2 : 1);
                     for (int i = 0; i < 4 && i < std::ssize(g_eligible); i++) {
                         int vi = (scan_start + i) % std::ssize(g_eligible);
                         if (g_eligible[vi].type == "video") {
-                            prefetch_video(g_eligible[vi].path);
                             // Pre-warm the upcoming video into background decode queue if idle
                             if (i <= 1 && !g_video_decoder.is_running() && !g_video_decoder.has_frames()) {
                                 int sw, sh;
@@ -3463,7 +3492,6 @@ int main(int argc, char** argv) {
         g_preload = nullptr;
     }
     cleanup_nas_thread();
-    cleanup_prefetch_thread();
     if (current_data) { current_data = nullptr; }
     if (current_twin_data) { current_twin_data = nullptr; }
     if (next_data) { next_data = nullptr; }
@@ -3471,6 +3499,7 @@ int main(int argc, char** argv) {
     if (transition_prev_target) { SDL_DestroyTexture(transition_prev_target); }
     if (transition_next_target) { SDL_DestroyTexture(transition_next_target); }
     if (g_cache) { delete g_cache; g_cache = nullptr; }
+    photo_scene.reset();
     g_renderer.cleanup();
 
     flock(lock_fd, LOCK_UN); close(lock_fd);

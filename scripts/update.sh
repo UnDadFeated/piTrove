@@ -12,6 +12,22 @@ UNIT="piTrove.service"
 BACKUP_DIR="${PROJECT_DIR}/backups"
 cd "$PROJECT_DIR"
 
+if [[ "${1:-}" == --cron ]]; then
+  mode="$(python3 - <<'TOML'
+import pathlib
+import tomllib
+try:
+    config = pathlib.Path("config/config.toml").read_text()
+except FileNotFoundError:
+    print("disabled")
+else:
+    enabled = tomllib.loads(config).get("updates", {}).get("auto_update")
+    print("enabled" if enabled in (1, True, "1", "true") else "disabled")
+TOML
+)" || exit 1
+  [[ "$mode" == enabled ]] || exit 0
+fi
+
 if [[ "$(git branch --show-current)" != "develop" ]]; then
   echo "Update requires the develop branch" >&2
   exit 1
@@ -98,6 +114,11 @@ rollback() {
 trap rollback EXIT
 
 git pull --ff-only origin develop
+if [[ "${1:-}" == --cron && "$(git rev-parse HEAD)" == "$previous_revision" ]]; then
+  trap - EXIT
+  echo "piTrove is up to date"
+  exit 0
+fi
 previous_image="$(docker inspect --format='{{.Image}}' "$CONTAINER" 2>/dev/null || true)"
 if [[ -n "$previous_image" ]]; then
   previous_image_name="$(docker inspect --format='{{.Config.Image}}' "$CONTAINER")"

@@ -4,6 +4,12 @@
 #include <string>
 #include <vector>
 namespace config_editor {
+struct FieldView {
+    std::string id, label, group, help, type, value;
+    std::vector<std::string> choices;
+    bool secret, configured;
+};
+std::vector<FieldView> fields(const Config& config);
 struct Result { int status; std::string body; std::vector<std::string> changed; };
 // Call with the config lock held (exclusive for apply). Pure model + atomic persistence.
 std::string describe(const Config& config);

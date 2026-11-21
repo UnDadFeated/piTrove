@@ -15,23 +15,34 @@
 
 
 static std::string decode_html_entities(const std::string& input) {
-    std::string out = input;
-    std::vector<std::pair<std::string, std::string>> entities = {
+    static const std::pair<std::string_view, std::string_view> entities[] = {
         {"&amp;", "&"}, {"&lt;", "<"}, {"&gt;", ">"}, {"&quot;", "\""},
         {"&#39;", "'"}, {"&apos;", "'"}, {"&nbsp;", " "}, {"&mdash;", "—"},
         {"&ndash;", "–"}, {"&hellip;", "..."}
     };
-    for (const auto& [entity, rep] : entities) {
-        size_t pos = 0;
-        while ((pos = out.find(entity, pos)) != std::string::npos) {
-            out.replace(pos, entity.length(), rep);
-            pos += rep.length();
+    std::string result;
+    for (size_t offset = 0; offset < input.size();) {
+        const std::string_view rest(input.data() + offset, input.size() - offset);
+        if (rest.starts_with("<![CDATA[") && rest.ends_with("]]>")) {
+            result.append(rest.substr(9, rest.size() - 12));
+            break;
         }
+        if (rest.front() == '<') {
+            if (const auto end = rest.find('>'); end != rest.npos) { offset += end + 1; continue; }
+        }
+        bool matched = false;
+        if (rest.front() == '&') {
+            for (const auto& [entity, replacement] : entities) {
+                if (!rest.starts_with(entity)) continue;
+                result.append(replacement);
+                offset += entity.size();
+                matched = true;
+                break;
+            }
+        }
+        if (!matched) result.push_back(input[offset++]);
     }
-    // Strip any lingering HTML tags
-    std::regex tag_regex("<[^>]*>");
-    out = std::regex_replace(out, tag_regex, "");
-    return trim(out);
+    return trim(result);
 }
 
 static std::string url_encode(const std::string& value) {
@@ -74,7 +85,9 @@ NewsTicker::~NewsTicker() {
     stop();
 }
 
-std::string NewsTicker::execute_http_get(const std::string& url) {
+std::string NewsTicker::execute_http_get(const std::string& url, FeedState& feed, bool& unchanged) {
+    if (std::chrono::steady_clock::now() < retry_after) return {};
+    if (feed.url != url) feed = {url, 0};
     CURL* curl = curl_easy_init();
     if (!curl) {
         m_last_error.store(537); // E537: NEWS_NETWORK_TIMEOUT
@@ -91,18 +104,37 @@ std::string NewsTicker::execute_http_get(const std::string& url) {
     curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 4L);
     curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
     curl_easy_setopt(curl, CURLOPT_USERAGENT, "piTrove/" VERSION);
+    curl_easy_setopt(curl, CURLOPT_FILETIME, 1L);
+    if (feed.modified > 0) {
+        curl_easy_setopt(curl, CURLOPT_TIMECONDITION, CURL_TIMECOND_IFMODSINCE);
+        curl_easy_setopt(curl, CURLOPT_TIMEVALUE_LARGE, static_cast<curl_off_t>(feed.modified));
+    }
 
     CURLcode res = curl_easy_perform(curl);
     long http_code = 0;
     curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_code);
+    curl_off_t modified = -1, delay = 0;
+    curl_easy_getinfo(curl, CURLINFO_FILETIME_T, &modified);
+    curl_easy_getinfo(curl, CURLINFO_RETRY_AFTER, &delay);
     curl_easy_cleanup(curl);
 
+    if (res == CURLE_OK && http_code == 429) {
+        retry_after = std::chrono::steady_clock::now() +
+            std::chrono::seconds(std::clamp<curl_off_t>(delay, backoff_seconds, 24 * 3600));
+        backoff_seconds = std::min(backoff_seconds * 2, 3600);
+    } else if (res == CURLE_OK && http_code == 304) {
+        unchanged = true;
+        backoff_seconds = 30;
+        return {};
+    }
     if (res != CURLE_OK || http_code < 200 || http_code >= 300) {
         g_logger.warn("NEWS: HTTP GET failed: curl_res={}, http_code={}", (int)res, http_code);
         m_last_error.store(537);
         return "";
     }
 
+    backoff_seconds = 30;
+    if (!response_string.empty() && modified > 0) feed.modified = modified;
     return response_string;
 }
 
@@ -110,7 +142,6 @@ std::vector<NewsItem> NewsTicker::parse_rss(const std::string& xml_data) {
     std::vector<NewsItem> parsed_items;
     if (xml_data.empty()) return parsed_items;
 
-    std::regex item_regex("<item[ >]([\\s\\S]*?)</item>");
     std::regex title_regex("<title[^>]*>([\\s\\S]*?)</title>");
     std::regex pubdate_regex("<pubDate[^>]*>([\\s\\S]*?)</pubDate>");
     std::regex source_regex("<source[^>]*>([\\s\\S]*?)</source>");
@@ -118,8 +149,6 @@ std::vector<NewsItem> NewsTicker::parse_rss(const std::string& xml_data) {
     std::regex link_regex("<link[^>]*>([\\s\\S]*?)</link>");
     std::regex guid_regex("<guid[^>]*>([\\s\\S]*?)</guid>");
 
-    auto items_begin = std::sregex_iterator(xml_data.begin(), xml_data.end(), item_regex);
-    auto items_end = std::sregex_iterator();
 
     std::string tz = "UTC";
     std::vector<std::string> blacklist;
@@ -144,8 +173,15 @@ std::vector<NewsItem> NewsTicker::parse_rss(const std::string& xml_data) {
         return false;
     };
 
-    for (std::sregex_iterator i = items_begin; i != items_end; ++i) {
-        std::string item_xml = (*i)[1].str();
+    size_t offset = 0;
+    while ((offset = xml_data.find("<item", offset)) != std::string::npos) {
+        const auto start = xml_data.find('>', offset + 5);
+        if (start == std::string::npos) break;
+        const auto end = xml_data.find("</item>", start + 1);
+        if (end == std::string::npos) break;
+        offset = end + 7;
+        if (end - start > 8192) continue;
+        const std::string item_xml = xml_data.substr(start + 1, end - start - 1);
         std::smatch m;
         std::string raw_title, raw_pubdate, raw_source;
         std::string raw_link, raw_guid;
@@ -175,7 +211,7 @@ std::vector<NewsItem> NewsTicker::parse_rss(const std::string& xml_data) {
         // Apply Blacklist filter (checks source network, title, link, guid, and source URL)
         if (is_blacklisted(source) || is_blacklisted(title) || is_blacklisted(raw_title) ||
             is_blacklisted(link) || is_blacklisted(guid) || is_blacklisted(raw_source_url)) {
-            g_logger.info("NEWS: Filtered out blacklisted headline '{}' (source: '{}')", title, source);
+            g_logger.debug("NEWS: Filtered out blacklisted headline '{}' (source: '{}')", title, source);
             continue;
         }
 
@@ -198,7 +234,7 @@ void NewsTicker::fetch_sync() {
     if (m_fetching.exchange(true)) return;
     struct Guard { std::atomic<bool>& f; ~Guard() { f.store(false); } } g{m_fetching};
 
-    std::string local_q = "US";
+    std::string local_q;
     std::string tz = "UTC";
     {
         std::shared_lock lk(g_config_mtx);
@@ -217,7 +253,8 @@ void NewsTicker::fetch_sync() {
     }
     std::string local_url = "https://news.google.com/rss/search?q=" + url_encode(local_query_with_time) + "&hl=en-US&gl=US&ceid=US:en";
     g_logger.debug("NEWS: Fetching local headlines");
-    std::string local_xml = execute_http_get(local_url);
+    bool local_unchanged = false, global_unchanged = false;
+    std::string local_xml = local_q.empty() ? "" : execute_http_get(local_url, local_feed, local_unchanged);
     bool local_fetched = !local_xml.empty();
     
     std::vector<NewsItem> raw_local = parse_rss(local_xml);
@@ -241,7 +278,7 @@ void NewsTicker::fetch_sync() {
     // 2. Fetch World News (Google Top Stories for past 6 hours)
     std::string global_url = "https://news.google.com/rss?hl=en-US&gl=US&ceid=US:en";
     g_logger.debug("NEWS: Fetching Google top stories");
-    std::string global_xml = execute_http_get(global_url);
+    std::string global_xml = execute_http_get(global_url, global_feed, global_unchanged);
     const bool global_fetched = !global_xml.empty();
     std::vector<NewsItem> raw_global = parse_rss(global_xml);
     
@@ -273,7 +310,7 @@ void NewsTicker::fetch_sync() {
     now = time(nullptr);
     {
         std::unique_lock lk(m_items_mtx);
-        if (local_fetched) {
+        if (local_fetched || (local_q.empty() && !m_local_items.empty())) {
             m_local_items = std::move(local_items);
             m_cached_local_spans.clear();
             m_cached_local_total_w = 0;
@@ -283,10 +320,12 @@ void NewsTicker::fetch_sync() {
             m_cached_global_spans.clear();
             m_cached_global_total_w = 0;
         }
-        m_last_error.store(local_fetched && global_fetched ? 0 : 537);
-        if (!local_fetched && !global_fetched) return;
+        const bool local_ok = local_q.empty() || local_fetched || local_unchanged;
+        const bool global_ok = global_fetched || global_unchanged;
+        m_last_error.store(local_ok && global_ok ? 0 : 537);
+        if (!local_fetched && !global_fetched && !local_unchanged && !global_unchanged) return;
         m_last_fetch_time.store(now);
-        g_logger.info("NEWS: Displaying {} local ({}) and {} global headlines in timezone {}",
+        g_logger.debug("NEWS: Displaying {} local ({}) and {} global headlines in timezone {}",
                       m_local_items.size(), local_q, m_global_items.size(), tz);
     }
 }

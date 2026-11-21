@@ -24,6 +24,10 @@ std::atomic<int> g_scanner_detached_threads{0};
 #include <unistd.h>
 #include <fcntl.h>
 #include <random>
+#include <dirent.h>
+#include <deque>
+#include <set>
+#include <sys/stat.h>
 
 
 #include <ctime>
@@ -187,256 +191,165 @@ bool is_in_seasonal_window(std::string_view filename, int window_days) {
     tm tm_buf;
     tm* now = localtime_r(&t, &tm_buf);
     if (!now) return true;
-    int curr_m = now->tm_mon + 1;
-    int curr_d = now->tm_mday;
-
-    auto get_day_of_year = [](int month, int day) {
-        static const int days_before_month[] = { 0, 0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334 };
-        if (month < 1 || month > 12) return 0;
-        return days_before_month[month] + day;
-    };
-
-    int file_doy = get_day_of_year(file_m, file_d);
-    int curr_doy = get_day_of_year(curr_m, curr_d);
-
-    int diff = std::abs(curr_doy - file_doy);
-    if (diff > 365 / 2) diff = 365 - diff;
-
-    return diff <= window_days;
+    using namespace std::chrono;
+    constexpr auto reference = year{2000};
+    const auto today = sys_days{reference / unsigned(now->tm_mon + 1) / unsigned(now->tm_mday)};
+    const auto candidate = sys_days{reference / unsigned(file_m) / unsigned(file_d)};
+    const auto distance = std::abs((candidate - today).count());
+    return std::min(distance, 366 - distance) <= window_days;
 }
-
-
-
-
-
-
-
-
 
 bool MediaScanner::is_month_in_window(std::string_view dirname, int window_days) {
     if (window_days <= 0) return true;
-
-    int groups[2] = {0, 0};
-    int gc = 0;
-    size_t i = 0;
-    while (i < dirname.size() && gc < 2) {
-        while (i < dirname.size() && !std::isdigit(static_cast<unsigned char>(dirname[i]))) i++;
-        if (i >= dirname.size()) break;
-        int val = 0;
-        int digit_count = 0;
-        while (i < dirname.size() && std::isdigit(static_cast<unsigned char>(dirname[i]))) {
-            if (digit_count < 9) {
-                val = val * 10 + (dirname[i] - '0');
-            }
-            digit_count++;
-            i++;
-        }
-        if (gc == 0 && digit_count >= 6 && digit_count <= 8) {
-            int year = 0, month = 0;
-            if (digit_count == 6) {
-                year = val / 100;
-                month = val % 100;
-            } else {
-                year = val / 10000;
-                month = (val % 10000) / 100;
-            }
-            if (year >= 1900 && year <= 2100 && month >= 1 && month <= 12) {
-                groups[0] = year;
-                groups[1] = month;
-                gc = 2;
-                break;
-            }
-        }
-        groups[gc++] = val;
-        if (gc == 1 && i < dirname.size() && (dirname[i] == '-' || dirname[i] == '_')) i++;
+    std::string prefix;
+    if (dirname.size() == 7) prefix = std::string(dirname) + "-01";
+    else if (dirname.size() == 6) prefix = std::string(dirname) + "01";
+    else if (dirname.size() == 8 || dirname.size() == 10) prefix = dirname;
+    else return true;
+    if (dirname.size() == 7 && dirname[4] != '-' && dirname[4] != '_') return true;
+    if (dirname.size() == 7) prefix[7] = dirname[4];
+    auto date = parse_filename_date(prefix);
+    if (!date) return true;
+    const auto [y, m, d] = *date;
+    using namespace std::chrono;
+    for (unsigned day_number = 1; (year{2000}/unsigned(m)/day_number).ok(); ++day_number) {
+        if (is_in_seasonal_window(std::format("2000-{:02d}-{:02d}", m, day_number), window_days))
+            return true;
     }
-
-    if (gc < 2) return true;  // Non-date folders always scanned (per legacy)
-
-    int folder_m = groups[1];
-    if (folder_m < 1 || folder_m > 12) return true;
-
-    time_t t = std::time(nullptr);
-    tm tm_buf;
-    tm* now = localtime_r(&t, &tm_buf);
-    if (!now) return true;
-    int curr_m = now->tm_mon + 1;
-    int month_diff = std::abs(curr_m - folder_m);
-    if (month_diff > 6) month_diff = 12 - month_diff;
-    // With window_days=15, ±1 month passes. With 30+, ±2 months.
-    int max_spread = (window_days + 29) / 30;
-    return month_diff <= max_spread;
+    return false;
 }
 
 ScanResult MediaScanner::scan(const std::string& directory, const std::vector<std::string>& exts,
                               int window_days, int max_depth,
                               const std::vector<std::string>& ignore_folders,
                               std::function<void(int)> progress, std::stop_token stop) {
-    const auto running = [&] { return g_running.load() && !stop.stop_requested(); };
-    if (!running()) return {};
-    if (!is_nas_online()) {
-        g_logger.warn("MediaScanner: NAS/Media directory host is offline. Skipping scan.");
-        return {};
-    }
-    live_found_count.store(0);
-    std::vector<MediaItem> all_items;
-    std::mutex list_mutex;
-    std::atomic<bool> complete{true};
-    const auto list_directory = [&](const std::string& path) {
-        auto entries = read_dir_timeout(path, 15000, stop);
-        if (!entries) complete.store(false);
-        return entries ? std::move(*entries) : std::vector<std::string>{};
+    if (!g_running || stop.stop_requested() || !is_nas_online()) return {};
+    live_found_count = 0;
+    struct Work {
+        std::mutex mutex;
+        std::condition_variable_any cv;
+        std::deque<std::pair<std::string, int>> dirs;
+        std::set<std::pair<dev_t, ino_t>> visited;
+        std::vector<MediaItem> items;
+        unsigned working = 0;
+        size_t steps = 0;
+        bool cancelled = false;
+        bool complete = true;
     };
-    const auto stat_entry = [&](const std::string& path, struct stat& st) {
-        if (stat_timeout(path, st, 5000, stop)) return true;
-        complete.store(false);
-        return false;
-    };
+    auto state = std::make_shared<Work>();
+    state->dirs.emplace_back(directory, 0);
 
-    g_logger.info("TRACE: scan start dir='{}' exts={} window={} depth={} ignore={}", directory.c_str(), std::ssize(exts), window_days, max_depth, std::ssize(ignore_folders));
-    std::vector<std::string> subdirs;
-    std::vector<std::pair<std::string, struct stat>> root_files;
-
-    std::function<void(const std::string&, int)> gather_dirs;
-    gather_dirs = [&](const std::string& dir, int d) {
-        if (!running()) return;
-        if (d > 2) return;
-        const auto entries = list_directory(dir);
-        for (const auto& name : entries) {
-            if (!running()) return;
-            std::string p = dir + "/" + name;
-            struct stat st;
-            if (!stat_entry(p, st)) continue;
-            if (S_ISDIR(st.st_mode)) {
-                if (name[0] == '.') continue;
-                bool ignored = false;
-                for (const auto& ign : ignore_folders) {
-                    if (name == ign) { ignored = true; break; }
-                }
-                if (ignored) continue;
-                if (!is_month_in_window(name, window_days)) continue;
-                
-                if (name == "Photos" || name == "Videos") {
-                    gather_dirs(p, d + 1);
-                } else {
-                    subdirs.push_back(p);
-                    live_found_count.fetch_add(1, std::memory_order_relaxed);
-                    if (progress) progress(live_found_count.load());
-                }
-            } else if (S_ISREG(st.st_mode)) {
-                root_files.push_back({p, st});
-                live_found_count.fetch_add(1, std::memory_order_relaxed);
-                if (progress) progress(live_found_count.load());
+    // Copy all inputs into the worker so a stuck filesystem call can unwind
+    // after its coordinator returns the partial results.
+    auto worker = [state, exts, window_days, max_depth, ignore_folders] {
+        ScannerThreadSlot slot;
+        MediaScanner dates;
+        auto& work = *state;
+        for (;;) {
+            std::pair<std::string, int> job;
+            {
+                std::unique_lock lock(work.mutex);
+                work.cv.wait(lock, [&] { return work.cancelled || !work.dirs.empty() || !work.working; });
+                if (work.cancelled || work.dirs.empty()) return;
+                job = std::move(work.dirs.front());
+                work.dirs.pop_front();
+                ++work.working;
             }
-        }
-    };
-    gather_dirs(directory, 0);
-
-    auto worker = [&](int start_idx, int end_idx) {
-        try {
-            for (int i = start_idx; i < end_idx; i++) {
-                if (!running()) break;
-                std::string target_dir = subdirs[i];
-                std::function<void(const std::string&, int)> rec;
-                rec = [&](const std::string& dir, int d) {
-                    if (!running()) return;
-                    if (d > max_depth) return;
-                    const auto entries = list_directory(dir);
-                    for (const auto& name : entries) {
-                        if (!running()) return;
-                        std::string p = dir + "/" + name;
-                        struct stat st;
-                        if (!stat_entry(p, st)) continue;
-                        if (S_ISDIR(st.st_mode)) {
-                            if (name[0] == '.') continue;
-                            bool ignored = false;
-                            for (const auto& ign : ignore_folders) {
-                                if (name == ign) { ignored = true; break; }
-                            }
-                            if (ignored) continue;
-                            if (!is_month_in_window(name, window_days)) continue;
-                            rec(p, d + 1);
-                        } else if (S_ISREG(st.st_mode)) {
-                            process_entry(p, st, exts, list_mutex, all_items);
-                            if (progress) progress(live_found_count.load());
-                        }
+            bool ok = true;
+            try {
+                // glibc readdir buffers getdents64 results. Only possible media,
+                // directories, symlinks, and unknown types need a metadata lookup.
+                const auto close_dir = [](DIR* handle) { closedir(handle); };
+                std::unique_ptr<DIR, decltype(close_dir)> dir(opendir(job.first.c_str()), close_dir);
+                struct stat root{};
+                ok = dir && fstat(dirfd(dir.get()), &root) == 0;
+                bool first = false;
+                if (ok) {
+                    std::lock_guard lock(work.mutex);
+                    first = work.visited.emplace(root.st_dev, root.st_ino).second;
+                }
+                while (first) {
+                    errno = 0;
+                    const auto* entry = readdir(dir.get());
+                    if (!entry) { ok &= errno == 0; break; }
+                    std::string_view name(entry->d_name);
+                    if (name.starts_with('.') || std::ranges::find(ignore_folders, name) != ignore_folders.end()) continue;
+                    const auto dot = name.find_last_of('.');
+                    std::string ext(dot == name.npos ? "" : name.substr(dot));
+                    std::transform(ext.begin(), ext.end(), ext.begin(), [](unsigned char c) { return std::tolower(c); });
+                    const bool media = std::ranges::find(exts, ext) != exts.end();
+                    if (!media && entry->d_type != DT_UNKNOWN && entry->d_type != DT_DIR && entry->d_type != DT_LNK) continue;
+                    struct stat item{};
+                    if (fstatat(dirfd(dir.get()), entry->d_name, &item, 0) != 0) { ok = false; continue; }
+                    bool recurse = S_ISDIR(item.st_mode) && job.second < max_depth &&
+                                   dates.is_month_in_window(name, window_days);
+                    std::lock_guard lock(work.mutex);
+                    if (work.cancelled) break;
+                    ++work.steps;
+                    if (recurse) {
+                        work.dirs.emplace_back(job.first + "/" + std::string(name), job.second + 1);
+                    } else if (media && S_ISREG(item.st_mode)) {
+                        MediaItem file;
+                        file.path = job.first + "/" + std::string(name);
+                        file.filename = name;
+                        file.ext = ext;
+                        file.type = is_image(ext) ? "image" : "video";
+                        file.file_size = item.st_size;
+                        file.modified_time = item.st_mtime;
+                        work.items.push_back(std::move(file));
                     }
-                };
-                rec(target_dir, 2);
+                    work.cv.notify_all();
+                }
+            } catch (...) { ok = false; }
+            {
+                std::lock_guard lock(work.mutex);
+                --work.working;
+                work.complete &= ok;
+                ++work.steps;
             }
-        } catch (...) { complete.store(false); }
+            work.cv.notify_all();
+        }
     };
 
-    // Use hardware threads (like legacy) for max throughput
-    int hw_cores = std::max(1, (int)std::thread::hardware_concurrency());
-    int num_threads = std::min(hw_cores - 1, (int)std::ssize(subdirs));
-    if (num_threads < 1) num_threads = 1;
-
-    g_logger.info("Media scanner starting with {} threads (hardware={})", num_threads, hw_cores);
-
-    int chunk = std::max((int)1, (int)(std::ssize(subdirs) / num_threads));
-    std::vector<std::jthread> threads;
-    for (int t = 0; t < num_threads; t++) {
-        int start = t * chunk;
-        int end = (t == num_threads - 1) ? std::ssize(subdirs) : start + chunk;
-        std::jthread th;
-        if (spawn_thread_safe(th, "scanner_worker", worker, start, end)) {
-            threads.push_back(std::move(th));
+    unsigned started = 0;
+    for (unsigned i = 0; i < std::clamp(std::thread::hardware_concurrency(), 1u, 4u); ++i) {
+        if (!reserve_scanner_thread()) break;
+        std::jthread thread;
+        if (spawn_thread_safe(thread, "scanner_pool", worker)) {
+            ++started;
+            thread.detach();
         } else {
-            // Fallback: execute chunk synchronously if thread spawn fails
-            worker(start, end);
+            g_scanner_detached_threads.fetch_sub(1);
         }
     }
-    for (auto& th : threads) {
-        if (th.joinable()) th.join();
+    if (!started) return {};
+    std::unique_lock lock(state->mutex);
+    while (!state->dirs.empty() || state->working) {
+        const auto steps = state->steps;
+        if (!state->cv.wait_for(lock, stop, std::chrono::seconds(15), [&] { return state->steps != steps; }) ||
+            stop.stop_requested() || !g_running) break;
+        live_found_count = static_cast<int>(state->items.size());
+        if (progress) {
+            const int count = live_found_count;
+            lock.unlock();
+            progress(count);
+            lock.lock();
+        }
     }
-
-    for (const auto& [p, st] : root_files) {
-        if (!running()) break;
-        process_entry(p, st, exts, list_mutex, all_items);
-        if (progress) progress(live_found_count.load());
-    }
-
-    g_logger.info("TRACE: scan threads joined, total={}", std::ssize(all_items));
-    if (progress) progress(live_found_count.load());
-    return {std::move(all_items), complete.load() && running()};
-}
-
-
-
-void MediaScanner::process_entry(const std::string& path_str,
-                                 const struct stat& st,
-                                 const std::vector<std::string>& exts,
-                                 std::mutex& list_mutex,
-                                 std::vector<MediaItem>& all_items) {
-    std::filesystem::path path_obj(path_str);
-    if (path_obj.stem().string().empty()) return;
-
-    std::string ext = path_obj.extension().string();
-    std::transform(ext.begin(), ext.end(), ext.begin(), [](unsigned char c) {
-        return static_cast<char>(std::tolower(c));
-    });
-
-    if (std::find(exts.begin(), exts.end(), ext) != exts.end()) {
-        MediaItem mi;
-        mi.path = path_str;
-        mi.filename = path_obj.filename().string();
-        mi.ext = ext;
-        mi.file_size = st.st_size;
-        mi.modified_time = st.st_mtime;
-        mi.type = is_image(ext) ? "image" : "video";
-
-        std::lock_guard<std::mutex> lock(list_mutex);
-        all_items.push_back(std::move(mi));
-        live_found_count.fetch_add(1, std::memory_order_relaxed);
-    }
+    const bool completed = state->complete && state->dirs.empty() && !state->working && !stop.stop_requested() && g_running;
+    state->cancelled = true;
+    live_found_count = static_cast<int>(state->items.size());
+    auto results = std::move(state->items);
+    lock.unlock();
+    state->cv.notify_all();
+    return {std::move(results), completed};
 }
 
 ScanResult scan_directory(const std::string& dir, int depth,
                           std::function<void(int)> progress, std::stop_token stop) {
     g_logger.info("TRACE: scan_directory dir='{}' depth={}", dir.c_str(), depth);
     MediaScanner scanner;
-    std::vector<std::string> exts = {".jpg", ".jpeg", ".png", ".webp", ".heic", ".heif", ".gif", ".bmp", ".tiff", ".mp4", ".mov", ".mkv", ".avi", ".webm"};
+    std::vector<std::string> exts = {".jpg", ".jpeg", ".png", ".webp", ".heic", ".heif", ".gif", ".bmp", ".tiff", ".tif", ".mp4", ".mov", ".mkv", ".avi", ".webm"};
     int scan_days;
     std::vector<std::string> ignore_f;
     {

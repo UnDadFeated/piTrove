@@ -5,6 +5,9 @@
 #include <mutex>
 #include <span>
 #include <queue>
+#include <vector>
+#include <optional>
+#include <SDL3/SDL_pixels.h>
 #include <condition_variable>
 #include <SDL3/SDL_audio.h>
 #include <SDL3/SDL_timer.h>
@@ -20,6 +23,9 @@ struct VideoFrame {
     uint8_t* data_uv = nullptr; // UV-plane for NV12
     bool is_nv12 = false;
     double pts = 0.0;
+    double aspect_ratio = 0.0;
+    double rotation = 0.0;
+    SDL_Colorspace colorspace = SDL_COLORSPACE_BT709_LIMITED;
 
     VideoFrame() = default;
     ~VideoFrame() {
@@ -32,7 +38,7 @@ struct VideoFrame {
         : width(o.width), height(o.height), format(o.format),
           linesize_y(o.linesize_y), linesize_uv(o.linesize_uv),
           data_size(o.data_size), data(o.data), data_uv(o.data_uv),
-          is_nv12(o.is_nv12), pts(o.pts) {
+          is_nv12(o.is_nv12), pts(o.pts), aspect_ratio(o.aspect_ratio), rotation(o.rotation), colorspace(o.colorspace) {
         o.data = nullptr;
         o.data_uv = nullptr;
     }
@@ -44,6 +50,7 @@ struct VideoFrame {
             linesize_y = o.linesize_y; linesize_uv = o.linesize_uv;
             data_size = o.data_size; data = o.data; data_uv = o.data_uv;
             is_nv12 = o.is_nv12; pts = o.pts;
+            aspect_ratio = o.aspect_ratio; rotation = o.rotation; colorspace = o.colorspace;
             o.data = nullptr;
             o.data_uv = nullptr;
         }
@@ -68,6 +75,7 @@ public:
  bool has_start_failed() const { return m_start_failed.load(); }
  bool get_frame(VideoFrame& out);
  bool has_frames() const;
+ std::optional<double> next_frame_pts() const;
  size_t frame_queue_size() const;
  double get_frame_duration() const;
  double get_video_remaining(double fallback_duration = 0.0) const;
@@ -78,7 +86,6 @@ public:
     double get_anchor_wall_ms() const;
     double get_anchor_pts() const;
     void note_frame_anchor(double pts_s, bool has_pts, bool stream_eof = false);
-    void note_audio_anchor(double pts_s);
     void note_presentation_start(double pts_s);
     void set_displayed_pts(double pts_s);
  double get_video_duration() const { return m_video_total_duration.load(std::memory_order_relaxed); }
@@ -125,6 +132,11 @@ private:
  SDL_AudioDeviceID m_audio_device{0};
  bool m_audio_initialized{false};
  std::mutex m_audio_mtx;
+ struct AudioChunk { std::vector<int16_t> samples; double pts; };
+ std::vector<AudioChunk> m_audio_prebuffer;
+ size_t m_audio_prebuffer_samples = 0;
+ int64_t m_audio_frames_submitted = 0;
+ void queue_audio_locked(std::span<const int16_t> samples, double pts, bool syncing);
 
  void init_audio();
  void shutdown_audio();

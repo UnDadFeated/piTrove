@@ -57,13 +57,6 @@ public:
                     const std::vector<std::string>& ignore_folders,
                     std::function<void(int)> progress, std::stop_token stop);
 
-
-private:
-    void process_entry(const std::string& path_str,
-                       const struct stat& st,
-                       const std::vector<std::string>& exts,
-                       std::mutex& list_mutex,
-                       std::vector<MediaItem>& all_items);
 };
 
 // Global scanner interface
@@ -73,6 +66,6 @@ ScanResult scan_directory(const std::string& dir, int depth,
 // Triple-entropy/playlist helpers
 unsigned long long make_entropy_seed();
 
-#endif // PITROVE_SCANNER_H
-
 extern std::atomic<int> g_scanner_detached_threads;
+
+#endif // PITROVE_SCANNER_H

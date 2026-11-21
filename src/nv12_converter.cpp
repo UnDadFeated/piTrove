@@ -63,6 +63,11 @@ bool NV12Converter::convert(const AVFrame* source, VideoFrame& output, int targe
                                      static_cast<AVPixelFormat>(source->format), width, height,
                                      AV_PIX_FMT_NV12, SWS_FAST_BILINEAR, nullptr, nullptr, nullptr);
         if (!scaler) return false;
+        const bool full = source->color_range == AVCOL_RANGE_JPEG || source->format == AV_PIX_FMT_YUVJ420P;
+        const int matrix = source->colorspace == AVCOL_SPC_BT2020_NCL || source->colorspace == AVCOL_SPC_BT2020_CL
+            ? SWS_CS_BT2020 : source->colorspace == AVCOL_SPC_BT709 ? SWS_CS_ITU709 : SWS_CS_ITU601;
+        const int* coefficients = sws_getCoefficients(matrix);
+        sws_setColorspaceDetails(scaler, coefficients, full, coefficients, full, 0, 1 << 16, 1 << 16);
         // libswscale's plane arrays have four entries, even for two-plane NV12.
         uint8_t* planes[4] = {frame.data, frame.data_uv, nullptr, nullptr};
         if (sws_scale(scaler, source->data, source->linesize, 0, source->height, planes, strides) != height)

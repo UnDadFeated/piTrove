@@ -1,1236 +1,209 @@
 #include "tui.h"
-#include "config.h"
-#include "thermal.h"
+#include "config_editor.h"
+#include "config_text.h"
 #include "util.h"
-#include "news_ticker.h"
-#include "calendar.h"
-#include "stock_streamer.h"
-#include "google_photos.h"
-#include <iostream>
-#include <fstream>
-#include <string>
-#include <vector>
+
 #include <algorithm>
-#include <sys/ioctl.h>
-#include <unistd.h>
-#include <thread>
-#include <chrono>
-#include <termios.h>
-#include <cstring>
-#include <atomic>
-#include <mutex>
-#include <shared_mutex>
+#include <cstdio>
+#include <map>
+#include <optional>
 #include <poll.h>
-#include <fcntl.h>
-#include <format>
+#include <sys/ioctl.h>
+#include <termios.h>
+#include <unistd.h>
 
-// ── Message flash buffer (replaces blocking usleep) ──
-static struct {
-    const char* text;
-    uint32_t color;
-    uint32_t elapsed_ms;
-    bool active;
-    std::chrono::steady_clock::time_point msg_start;
-    int duration_ms;
-} msg_buf = {nullptr, 0, 0, false, {}, 2000};
+namespace {
 
-static void flash_msg(const char* text, uint32_t color, int duration_ms) {
-    msg_buf.text = text;
-    msg_buf.color = color;
-    msg_buf.elapsed_ms = 0;
-    msg_buf.active = true;
-    msg_buf.msg_start = std::chrono::steady_clock::now();
-    msg_buf.duration_ms = duration_ms;
+class Terminal {
+public:
+    Terminal() {
+        if (tcgetattr(STDIN_FILENO, &original) != 0) return;
+        auto raw = original;
+        // Handle Ctrl+C as a key so stack unwinding always restores the terminal.
+        raw.c_lflag &= ~(ICANON | ECHO | ISIG);
+        raw.c_iflag &= ~IXON;
+        raw.c_cc[VMIN] = 1;
+        raw.c_cc[VTIME] = 0;
+        active = tcsetattr(STDIN_FILENO, TCSAFLUSH, &raw) == 0;
+        if (active) std::fputs("\033[?1049h\033[?25l\033[0m\033[H\033[2J", stdout);
+    }
+
+    ~Terminal() {
+        if (!active) return;
+        tcsetattr(STDIN_FILENO, TCSAFLUSH, &original);
+        std::fputs("\033[0m\033[?25h\033[?1049l", stdout);
+        std::fflush(stdout);
+    }
+
+    bool active = false;
+private:
+    termios original{};
+};
+
+enum Key { Up = 256, Down, Left, Right, PageUp, PageDown };
+
+int read_key() {
+    unsigned char ch;
+    if (read(STDIN_FILENO, &ch, 1) != 1) return -1;
+    if (ch != 27) return ch;
+    pollfd fd{STDIN_FILENO, POLLIN, 0};
+    if (poll(&fd, 1, 35) < 1 || read(STDIN_FILENO, &ch, 1) != 1 || (ch != '[' && ch != 'O')) return 27;
+    if (poll(&fd, 1, 35) < 1 || read(STDIN_FILENO, &ch, 1) != 1) return 27;
+    switch (ch) {
+        case 'A': return Up;
+        case 'B': return Down;
+        case 'C': return Right;
+        case 'D': return Left;
+        case '5':
+        case '6':
+            if (poll(&fd, 1, 35) > 0) {
+                unsigned char suffix;
+                if (read(STDIN_FILENO, &suffix, 1) == 1 && suffix == '~') return ch == '5' ? PageUp : PageDown;
+            }
+            break;
+    }
+    return 27;
 }
 
-// ── Save original terminal settings once ──
-static struct termios g_orig_termios;
-static bool g_termios_saved = false;
-
-static void save_termios() {
-    if (!g_termios_saved) {
-        tcgetattr(STDIN_FILENO, &g_orig_termios);
-        g_termios_saved = true;
+void row(std::string_view text, size_t width, const char* style = "") {
+    std::fputs(style, stdout);
+    size_t used = 0;
+    for (unsigned char c : text) {
+        if (used++ >= width) break;
+        // Render controls and untrusted terminal sequences as inert text.
+        std::fputc(c < 32 || c >= 127 ? '?' : c, stdout);
     }
+    std::fputs("\033[0m\033[K\n", stdout);
 }
 
-static void set_termios_raw() {
-    save_termios();
-    struct termios raw = g_orig_termios;
-    raw.c_lflag &= ~(ICANON | ECHO);
-    raw.c_cc[VMIN] = 1;
-    raw.c_cc[VTIME] = 0;
-    tcsetattr(STDIN_FILENO, TCSANOW, &raw);
-}
+} // namespace
 
-static void restore_termios() {
-    if (g_termios_saved) {
-        tcsetattr(STDIN_FILENO, TCSANOW, &g_orig_termios);
+void config_wizard(const std::string& path) {
+    Terminal terminal;
+    if (!terminal.active) {
+        std::fputs("The configuration editor requires an interactive terminal.\n", stderr);
+        return;
     }
-}
 
-// Unused static helpers removed to prevent Wunused-function compiler warnings
-
-void config_wizard(const std::string& config_path) {
-    auto save_cfg = [&]() -> bool {
-        std::lock_guard lock(g_config_mtx);
-        return g_cfg.save(config_path);
-    };
-
-    // ── TERMINAL SIZING ──
-    struct winsize w;
-    std::memset(&w, 0, sizeof(w));
-    int term_cols = 80;
-    if (ioctl(STDIN_FILENO, TIOCGWINSZ, &w) >= 0 && w.ws_col > 0) {
-        term_cols = w.ws_col;
-    }
-    if (term_cols < 80) {
-        term_cols = 80;
-    }
-    int tui_width = std::clamp(term_cols, 80, 155);
-
-    set_termios_raw();
-    // Enter alternate screen, hide cursor, clear screen to default background
-    printf("\033[?1049h\033[?25l\033[0m\033[H\033[2J");
-
-    // ── Dirty flag system: only redraw what changed ──
-    // Row indices (0-based, matching printf output lines):
-    //   0: version header
-    //   1: separator line
-    //   2: blank
-    //   3: category bar
-    //   4: blank
-    //   5: column headers
-    //   6+: data rows
-    enum { ROW_CAT_BAR=3, ROW_COLHDR=5, ROW_ROW0=7 };
-        int last_sel = -1, last_sel_sub = -1, last_edit = -1;
-    bool dirty_full = true;
-
-    // ── DEFINITIONS WITH DESCRIPTIONS ──
-    enum IT { STR, INT, FLT, TGL, ENM, LST };
-    struct CI { const char* n; IT t; const char* desc; };
-
-    static const CI CA[] = {
-        {"Resolution", ENM, "Display resolution preset (1080p, 1440p, 2160p)"},
-        {"Rotation", INT, "Screen rotation in degrees (0, 90, 180, 270)"},
-        {"Ken Burns Zoom", FLT, "Zoom intensity for Ken Burns effect (0.0 to 1.0)"},
-        {"Auto Display Rotation", TGL, "Rotate images based on EXIF orientation"},
-        {"Brightness Auto", TGL, "Auto backlight dimming based on time of day"},
-        {"Min Brightness", INT, "Floor for auto-brightness (0-100)"},
-        {"Max Brightness", INT, "Ceiling for auto-brightness (0-100)"},
-        {"Border Mode", ENM, "Border style option (off, 3d, white, polaroid)"},
-        {"Border Width", INT, "Thickness of the border in pixels"},
-        {"Background Style", ENM, "Background style option (photo, plain, pattern)"},
-        {"Pattern Brightness", INT, "Contrast offset for animated pattern style (0 to 150)"},
-        {"Pattern Style", ENM, "Design pattern type (combined, grid, waves, dots)"},
-        {"Pattern Blend Count", INT, "Number of design patterns to blend (1 to 3)"},
-        {"Pattern Animated FPS", INT, "Frame rate limit for animated background patterns (1 to 30 FPS)"},
-        {"Display Offset X", INT, "Shift entire screen horizontally in pixels (-300 to +300)"},
-        {"Display Offset Y", INT, "Shift entire screen vertically in pixels (-300 to +300)"}
-    };
-    static const CI CC[] = {
-        {"Timer Enabled", TGL, "Show remaining photo/video duration overlay"},
-        {"Timer X Pos", FLT, "Horizontal position of timer (0.0 to 1.0)"},
-        {"Timer Y Pos", FLT, "Vertical position of timer (0.0 to 1.0)"},
-        {"Timer Size", INT, "Font size of timer text in pixels"},
-        {"Timer Color", ENM, "Color of timer text"},
-        {"Clock Enabled", TGL, "Show time overlay on screen"},
-        {"Clock X Pos", FLT, "Horizontal position of clock (0.0 to 1.0)"},
-        {"Clock Y Pos", FLT, "Vertical position of clock (0.0 to 1.0)"},
-        {"Clock Size", INT, "Font size of clock text in pixels"},
-        {"Clock Color", ENM, "Color of clock text"},
-        {"Clock 24h", TGL, "Use 24-hour format for clock"},
-        {"Count Enabled", TGL, "Show playlist progress (e.g., '14 / 2054')"},
-        {"Diagnostics HUD", TGL, "Monospace OSD overlay showing FPS, SoC temp, SQLite size, tags"},
-        {"Adaptive Text", TGL, "Color text outline dynamically based on background brightness"},
-        {"Splash Overlay Y", FLT, "Vertical position of splash UI (0.0 to 1.0)"},
-        {"Progress Bar", TGL, "Show transition progress indicator bar at bottom of screen"},
-        {"Geotag Enabled", TGL, "Show GPS location coordinates overlay on photos"},
-        {"Geotag X Pos", FLT, "Horizontal position of geotag overlay (0.0 to 1.0)"},
-        {"Geotag Y Pos", FLT, "Vertical position of geotag overlay (0.0 to 1.0)"},
-        {"Geotag Offset X", INT, "Horizontal pixel offset for geotag overlay"},
-        {"Geotag Offset Y", INT, "Vertical pixel offset for geotag overlay"},
-        {"Geotag Size", INT, "Font size of geotag overlay text in pixels"},
-        {"Geotag Color", ENM, "Color of geotag overlay text"}
-    };
-    static const CI CD[] = {
-        {"Video Volume", INT, "Volume level for video playback (0=muted)"},
-        {"Videos per Photos", INT, "Interleave ratio. E.g., '2' plays 2 vids per 10 pics"},
-        {"Probe Timeout", INT, "Max seconds for ffprobe duration extraction (0=disabled)"},
-        {"Play Just Photos", TGL, "Completely exclude videos from playback"},
-        {"Play Just Videos", TGL, "Completely exclude photos from playback"},
-        {"Closed Captions", TGL, "Enable video closed captions/subtitles by default"},
-        {"Subtitles Dir", STR, "Path to folder containing .srt files (matching video basename)"},
-        {"OSD Offset X", INT, "Horizontal offset for video OSD overlay (pixels, negative=left)"},
-        {"OSD Offset Y", INT, "Vertical offset for video OSD overlay (pixels, negative=down)"},
-        {"Max Tex Dim", INT, "Max texture dimension in pixels (256-8192)"},
-        {"Decode Budget", TGL, "Skip videos exceeding max resolution/bitrate (Disabled by default)"}
-    };
-    static const CI CE[] = {
-        {"Transition Delay", FLT, "Seconds to display photo before transitioning"},
-        {"Transition Duration", FLT, "Seconds the transition animation takes"},
-        {"Transition Effect", ENM, "Visual style when swapping (crossfade/wipe/pixelate)"},
-        {"Ken Burns", TGL, "Smoothly pan and zoom across static photos"},
-        {"Ken Burns Speed", FLT, "Speed multiplier for pan/zoom movement"},
-        {"Bias Lighting", TGL, "Enable ambient background glow derived from photo"},
-        {"Bias Anim Speed", FLT, "Speed of background glow animation (0.0 to stop)"},
-        {"Bias Anim Style", ENM, "Visual style of glow (pulsing/edge_glow/aura)"},
-        {"Bias Color Mode", ENM, "Color source for glow (auto/rainbow)"},
-        {"Matting Enabled", TGL, "Draw 3D matte border around photos"},
-        {"Matting Size", INT, "Thickness of the matte border in pixels"},
-        {"Cooldown Days", INT, "Days to wait before showing a photo again (0=off)"},
-        {"Shuffle", TGL, "Randomize photo/video order"},
-        {"Twin Portrait Split", TGL, "Render consecutive portrait images side-by-side"},
-        {"Preload Capacity", INT, "Max images to load in the background (default: 4)"},
-        {"Preload Workers", INT, "Number of background loading threads (default: 2)"},
-        {"Reset Cooldown", TGL, "Reset all shown history on app restart"},
-        {"Edge Glow Shadow", TGL, "Apply edge glow to right/bottom only for a 3D shadow look"}
-    };
-    static const CI CG[] = {
-        {"Recursive Scan", TGL, "Recursively scan subdirectories"},
-        {"Scan Depth", INT, "Max subdirectory depth to scan"},
-        {"Temporal Window", INT, "Show media from =/- X days of today, any year. 0=all"},
-        {"Ignore Folders", LST, "Comma-separated folder names to skip"},
-        {"Max Concurrent", INT, "Max threads during loading (match CPU cores)"},
-        {"Keep People", TGL, "Only show photos containing people (family, faces, friends)"},
-        {"Keep Animals", TGL, "Only show photos containing animals (pets, wildlife)"},
-        {"On This Day", TGL, "Filter playlist to pictures matching current month and day"},
-        {"On This Day Range", INT, "Match photos within +/- N days of current date (0 = exact only)"}
-    };
-    static const CI CH[] = {
-        {"Weather Enabled", TGL, "Fetch local weather via Open-Meteo API"},
-        {"ZIP or City Name", STR, "Enter ZIP code or City (e.g. 95624, Austin TX, London) to auto-fill GPS coordinates"},
-        {"Latitude", FLT, "Location latitude for weather API (auto-computed from ZIP/City)"},
-        {"Longitude", FLT, "Location longitude for weather API (auto-computed from ZIP/City)"}
-    };
-    static const CI CSEC[] = {
-        {"Touchscreen Mode", TGL, "Enable touchscreen tap-to-menu and virtual keyboard controls"},
-        {"Dashboard PIN", STR, "4-digit PIN to unlock touch dashboard"},
-        {"Auto Update", TGL, "Enable automatic background system updates"},
-        {"Auto Update Branch", ENM, "Git branch to pull updates from (main/develop)"}
-    };
-    static const CI CF[] = {
-        {"Sleep Time", STR, "Time to turn off HDMI port (HH:MM, e.g. 23:00)"},
-        {"Wake Time", STR, "Time to turn on HDMI port (HH:MM, e.g. 07:30)"},
-        {"DRM Card", STR, "Parent GPU modesetting card path (e.g. '/dev/dri/card1' or 'auto')"},
-        {"DRM Connector", STR, "Active connected display connector port (e.g. 'HDMI-A-1' or 'auto')"},
-        {"Font Path", STR, "Custom path to TTF/OTF font file (or 'auto' for default search)"},
-        {"Audio Device", STR, "Custom audio device identifier for SDL3 video player (or 'auto')"},
-        {"Fan Speed", INT, "Cooling fan speed percentage (0=auto, 1-100%, default 30%)"}
-    };
-    static const CI CI2[] = {
-        {"Log Level", ENM, "Console verbosity (debug, info, warn, error)"},
-        {"HTTP Timeout", INT, "HTTP client socket timeout in seconds (1-60)"},
-        {"HTTP Bind Atmpt", INT, "Max HTTP port binding attempts (1-100)"},
-        {"SQLite mmap Size", INT, "Bytes to allocate for DB memory mapping"},
-        {"Log Keep Count", INT, "Number of old log files to retain (default: 5)"}
-    };
-    static const CI CMQ[] = {
-        {"MQTT Enabled", TGL, "Enable MQTT features (0/1)"},
-        {"MQTT Broker", STR, "IP or domain of the MQTT broker"},
-        {"MQTT Port", INT, "Port of the MQTT broker (default 1883)"},
-        {"MQTT Username", STR, "Broker username (leave blank if none)"},
-        {"MQTT Password", STR, "Broker password (leave blank if none)"},
-        {"MQTT Topic Prefix", STR, "Base topic for state/command messages"},
-        {"Motion Topic", STR, "MQTT topic that transmits motion events"},
-        {"Motion Cooldown", INT, "Screen off delay in seconds when no motion is detected"}
-    };
-    static const CI CINFO[] = {
-        {"Timezone", ENM, "System display timezone for dates, news, and calendar"},
-        {"Infopanels Master", TGL, "Master switch for side panels and bottom news ticker"},
-        {"News Ticker", TGL, "Show live scrolling news headlines ticker at bottom of screen"},
-        {"News Source", ENM, "Live news feed type (global, local)"},
-        {"News Zipcode/Loc", STR, "Zipcode (e.g. 10001, 95624) or city query for top-line local news"},
-        {"Blacklist News", STR, "Comma-separated domains/sources to exclude (e.g. realtor.com, legacy.com, obituary, echovita.com)"},
-        {"News Refresh Mins", INT, "Minutes between background news headline updates (5-120)"},
-        {"News Scroll Speed", INT, "Horizontal scrolling speed in pixels per second (10-150)"},
-        {"News Font Size", INT, "Font size in pixels for news ticker (9-16)"},
-        {"Stock Streamer", TGL, "Show live S&P 500 stocks & Bitcoin streamer panel"},
-        {"Stock Preset", ENM, "Quick preset ticker bundle (sp500_top10, big_tech, semiconductors, dividend_kings, custom)"},
-        {"Stock Symbols", STR, "Comma-separated stock symbols (e.g. NVDA,AAPL,MSFT)"},
-        {"Crypto Symbol", STR, "Cryptocurrency ticker (e.g. BTC-USD, ETH-USD)"},
-        {"Google Calendar", TGL, "Show Google Calendar agenda sidebar panel"},
-        {"Calendar Source", ENM, "Sync method (ical, api)"},
-        {"Calendar Name", STR, "Name of the calendar to sync/display (e.g. Family)"},
-        {"Calendar iCal URL", STR, "Direct Google Calendar secret/public iCal address URL"},
-        {"Calendar API Key", STR, "Google Calendar API Key (for API source sync)"},
-        {"Calendar Refresh Mins", INT, "Minutes between background calendar syncs (5-120)"},
-        {"Max Calendar Events", INT, "Maximum number of upcoming events on sidebar (1-16)"},
-        {"Left Chores Panel", TGL, "Show assigned chores on the left; requires Infopanels Master"},
-        {"Max Visible Chores", INT, "Maximum chore cards in the left panel (1-20); overflow pages automatically"},
-        {"Show Done Chores", TGL, "Include completed chores in today's left-panel board"},
-        {"Chores Clock", TGL, "Centered 12-hour clock above today's chores, using the display timezone"}
+    auto entries = config_editor::fields(g_cfg);
+    if (entries.empty()) return;
+    const auto defaults = config_editor::fields(Config{});
+    const auto original_revision = config_editor::revision(g_cfg);
+    std::map<std::string, std::string> edits;
+    std::optional<std::string> input;
+    std::string message;
+    size_t selection = 0, first = 0;
+    const auto change = [&](const config_editor::FieldView& field, const std::string& value) {
+        edits.erase("clear." + field.id);
+        if ((!field.secret && value == field.value) || (field.secret && value.empty())) edits.erase(field.id);
+        else edits[field.id] = value;
     };
 
-    static const CI CGP[] = {
-        {"GPhotos Enabled", TGL, "Enable Google Photos synchronization (0/1)"},
-        {"Client ID", STR, "OAuth 2.0 Client ID for Google Photos API"},
-        {"Client Secret", STR, "OAuth 2.0 Client Secret for Google Photos API"},
-        {"Refresh Token", STR, "OAuth 2.0 Refresh Token"},
-        {"Album ID", STR, "Specific Google Photos Album ID (blank for all)"},
-        {"Sync Interval", INT, "Sync interval in minutes (default 60)"},
-        {"Cache Folder", STR, "Storage path for synced cloud media"}
-    };
+    while (true) {
+        winsize size{};
+        (void)ioctl(STDIN_FILENO, TIOCGWINSZ, &size);
+        const size_t width = size.ws_col > 1 ? size.ws_col - 1 : 79;
+        const size_t visible = size.ws_row > 9 ? size.ws_row - 9 : 1;
+        if (selection < first) first = selection;
+        if (selection >= first + visible) first = selection - visible + 1;
 
-    struct CAT { const char* n; const CI* i; int c; };
-    static const CAT CATS[] = {
-        {"Display", CA, sizeof(CA)/sizeof(CA[0])},
-        {"Slideshow", CE, sizeof(CE)/sizeof(CE[0])},
-        {"Overlays", CC, sizeof(CC)/sizeof(CC[0])},
-        {"Videos", CD, sizeof(CD)/sizeof(CD[0])},
-        {"Scanning", CG, sizeof(CG)/sizeof(CG[0])},
-        {"Weather", CH, sizeof(CH)/sizeof(CH[0])},
-        {"Security", CSEC, sizeof(CSEC)/sizeof(CSEC[0])},
-        {"Hardware", CF, sizeof(CF)/sizeof(CF[0])},
-        {"Advanced", CI2, sizeof(CI2)/sizeof(CI2[0])},
-        {"MQTT", CMQ, sizeof(CMQ)/sizeof(CMQ[0])},
-        {"GPhotos", CGP, sizeof(CGP)/sizeof(CGP[0])},
-        {"Infopanels", CINFO, sizeof(CINFO)/sizeof(CINFO[0])}
-    };
-    static const char* CAT_COMPACT[] = {
-        "Disp", "Slid", "Over", "Vids", "Scan", "Weath", "Sec", "HW", "Adv", "MQTT", "Cloud", "Info"
-    };
-
-    // ── DATA ACCESSORS ──
-    auto gv = [&](int c, int i) -> std::string {
-        std::shared_lock lk(g_config_mtx);
-        if (c == 0) switch(i) {
-            case 0: {
-                if (g_cfg.screen_w == 3840 && g_cfg.screen_h == 2160) return "2160p";
-                if (g_cfg.screen_w == 2560 && g_cfg.screen_h == 1440) return "1440p";
-                return "1080p";
-            }
-            case 1: return std::format("{}", g_cfg.rotation);
-            case 2: return std::format("{}", g_cfg.ken_burns_zoom);
-            case 3: return g_cfg.auto_display_rotation?"[ON]":"[OFF]";
-            case 4: return g_cfg.brightness_auto?"[ON]":"[OFF]";
-            case 5: return std::format("{}", g_cfg.brightness_auto_min);
-            case 6: return std::format("{}", g_cfg.brightness_auto_max);
-            case 7: return g_cfg.border_mode;
-            case 8: return std::format("{}", g_cfg.border_width);
-            case 9: return g_cfg.bg_style;
-            case 10: return std::format("{}", g_cfg.pattern_offset);
-            case 11: return g_cfg.pattern_style;
-            case 12: return std::format("{}", g_cfg.pattern_blend_count);
-            case 13: return std::format("{}", g_cfg.pattern_fps);
-            case 14: return std::format("{}", g_cfg.display_offset_x);
-            case 15: return std::format("{}", g_cfg.display_offset_y);
+        const auto& chosen = entries[selection];
+        std::fputs("\033[H\033[2J", stdout);
+        row("piTrove " VERSION " configuration", width, "\033[1m");
+        row(chosen.group + "  |  " + std::to_string(selection + 1) + "/" + std::to_string(entries.size()), width);
+        row("", width);
+        for (size_t index = first; index < std::min(first + visible, entries.size()); ++index) {
+            const auto& field = entries[index];
+            auto value = field.secret ? (field.configured ? "[configured]" : "[empty]") : field.value;
+            const auto edited = edits.find(field.id);
+            const bool cleared = edits.contains("clear." + field.id);
+            if (cleared) value = "[clear on save]";
+            else if (edited != edits.end()) value = field.secret ? "[new value]" : edited->second;
+            const auto label = (index == selection ? "> " : "  ") + field.label;
+            row(label + (cleared || edited != edits.end() ? " *  " : "    ") + value,
+                width, index == selection ? "\033[7m" : "");
         }
-        
-        if (c == 2) switch(i) {
-            case 0: return g_cfg.timer_enabled?"[ON]":"[OFF]";
-            case 1: return std::format("{}", g_cfg.timer_x);
-            case 2: return std::format("{}", g_cfg.timer_y);
-            case 3: return std::format("{}", g_cfg.timer_font_size);
-            case 4: return g_cfg.timer_color;
-            case 5: return g_cfg.clock_enabled?"[ON]":"[OFF]";
-            case 6: return std::format("{}", g_cfg.clock_x);
-            case 7: return std::format("{}", g_cfg.clock_y);
-            case 8: return std::format("{}", g_cfg.clock_font_size);
-            case 9: return g_cfg.clock_color;
-            case 10: return g_cfg.clock_24h?"[ON]":"[OFF]";
-            case 11: return g_cfg.count_enabled?"[ON]":"[OFF]";
-            case 12: return g_cfg.diagnostics_hud_enabled?"[ON]":"[OFF]";
-            case 13: return g_cfg.adaptive_text_enabled?"[ON]":"[OFF]";
-            case 14: return std::format("{}", g_cfg.splash_overlay_y);
-            case 15: return g_cfg.progress_bar_enabled?"[ON]":"[OFF]";
-            case 16: return g_cfg.geotag_enabled?"[ON]":"[OFF]";
-            case 17: return std::format("{}", g_cfg.geotag_x);
-            case 18: return std::format("{}", g_cfg.geotag_y);
-            case 19: return std::format("{}", g_cfg.geotag_offset_x);
-            case 20: return std::format("{}", g_cfg.geotag_offset_y);
-            case 21: return std::format("{}", g_cfg.geotag_font_size);
-            case 22: return g_cfg.geotag_color;
+        row("", width);
+        row(chosen.help, width);
+        if (input) {
+            row("Value: " + (chosen.secret ? std::string(std::min(input->size(), width), '*') : *input), width);
+            row("Enter sets value   Esc cancels", width);
+        } else {
+            row("Up/Down   PgUp/PgDn   Left/Right section   Enter edit   Space next value", width);
+            row("S save   Q quit   R reset section   X clear secret", width);
         }
-        if (c == 3) switch(i) {
-            case 0: return std::format("{}", g_cfg.video_volume);
-            case 1: return std::format("{}", g_cfg.videos_per_photos);
-            case 2: return std::format("{}", g_cfg.video_probe_timeout);
-            case 3: return g_cfg.play_just_photos?"[ON]":"[OFF]";
-            case 4: return g_cfg.play_just_videos?"[ON]":"[OFF]";
-            case 5: return g_cfg.closed_captions_enabled?"[ON]":"[OFF]";
-            case 6: return g_cfg.video_subtitles_dir;
-            case 7: return std::format("{}", g_cfg.osd_offset_x);
-            case 8: return std::format("{}", g_cfg.osd_offset_y);
-            case 9: return std::format("{}", g_cfg.max_texture_dim);
-            case 10: return g_cfg.video_decode_budget_enabled?"[ON]":"[OFF]";
-        }
-        if (c == 1) switch(i) {
-            case 0: return std::format("{}", g_cfg.transition_delay);
-            case 1: return std::format("{}", g_cfg.transition_duration);
-            case 2: return g_cfg.transition_effect;
-            case 3: return g_cfg.ken_burns?"[ON]":"[OFF]";
-            case 4: return std::format("{}", g_cfg.ken_burns_speed);
-            case 5: return g_cfg.bias_lighting?"[ON]":"[OFF]";
-            case 6: return std::format("{}", g_cfg.bias_anim_speed);
-            case 7: return g_cfg.bias_anim_style; case 8: return g_cfg.bias_color_mode;
-            case 9: return g_cfg.matting?"[ON]":"[OFF]";
-            case 10: return std::format("{}", g_cfg.matting_size);
-            case 11: return std::format("{}", g_cfg.cooldown_days);
-            case 12: return g_cfg.shuffle?"[ON]":"[OFF]";
-            case 13: return g_cfg.twin_portrait_enabled?"[ON]":"[OFF]";
-            case 14: return std::format("{}", g_cfg.preload_capacity);
-            case 15: return std::format("{}", g_cfg.preload_workers);
-            case 16: return g_cfg.reset_cooldown_on_restart?"[ON]":"[OFF]";
-            case 17: return g_cfg.edge_glow_shadow?"[ON]":"[OFF]";
-        }
-        if (c == 4) switch(i) {
-            case 0: return g_cfg.recursive?"[ON]":"[OFF]";
-            case 1: return std::format("{}", g_cfg.scan_depth);
-            case 2: return std::format("{}", g_cfg.scan_window_days);
-            case 3: { std::string s; for(size_t x=0;x<g_cfg.ignore_folders.size();x++) s+=g_cfg.ignore_folders[x]+(x<g_cfg.ignore_folders.size()-1?",":""); return s; }
-            case 4: return std::format("{}", g_cfg.max_concurrent);
-            case 5: return g_cfg.show_people_faces?"[ON]":"[OFF]";
-            case 6: return g_cfg.keep_animals?"[ON]":"[OFF]";
-            case 7: return g_cfg.on_this_day_enabled?"[ON]":"[OFF]";
-            case 8: return std::format("{}", g_cfg.on_this_day_range);
-        }
-        if (c == 5) switch(i) {
-            case 0: return g_cfg.weather_enabled?"[ON]":"[OFF]";
-            case 1: return g_cfg.weather_location.empty() ? "(none)" : g_cfg.weather_location;
-            case 2: return std::format("{}", g_cfg.weather_lat);
-            case 3: return std::format("{}", g_cfg.weather_lon);
-        }
-        if (c == 6) switch(i) {
-            case 0: return g_cfg.touch_enabled?"[ON]":"[OFF]";
-            case 1: return (g_cfg.dashboard_pin.empty() && g_cfg.pin_hash.empty())?"(not set)":"(set)";
-            case 2: return g_cfg.auto_update?"[ON]":"[OFF]";
-            case 3: return g_cfg.auto_update_branch;
-        }
-        if (c == 7) switch(i) {
-            case 0: return g_cfg.sleep_time;
-            case 1: return g_cfg.wake_time;
-            case 2: return g_cfg.drm_card;
-            case 3: return g_cfg.drm_connector;
-            case 4: return g_cfg.font_path;
-            case 5: return g_cfg.video_audio_device;
-            case 6: return std::format("{}", g_cfg.fan_speed);
-        }
-        if (c == 8) switch(i) {
-            case 0: return g_cfg.log_level;
-            case 1: return std::format("{}", g_cfg.http_socket_timeout);
-            case 2: return std::format("{}", g_cfg.http_bind_attempts);
-            case 3: return std::format("{}", g_cfg.cache_mmap_size);
-            case 4: return std::format("{}", g_cfg.log_keep_count);
-        }
-        if (c == 9) switch(i) {
-            case 0: return g_cfg.mqtt_enabled ? "[ON]" : "[OFF]";
-            case 1: return g_cfg.mqtt_broker;
-            case 2: return std::format("{}", g_cfg.mqtt_port);
-            case 3: return g_cfg.mqtt_user;
-            case 4: return g_cfg.mqtt_pass;
-            case 5: return g_cfg.mqtt_topic_prefix;
-            case 6: return g_cfg.mqtt_motionsensor_topic;
-            case 7: return std::format("{}", g_cfg.mqtt_motionsensor_cooldown);
-        }
-        if (c == 10) switch(i) {
-            case 0: return g_cfg.google_photos_enabled ? "[ON]" : "[OFF]";
-            case 1: return g_cfg.google_photos_client_id;
-            case 2: return g_cfg.google_photos_client_secret;
-            case 3: return g_cfg.google_photos_refresh_token;
-            case 4: return g_cfg.google_photos_album_id;
-            case 5: return std::format("{}", g_cfg.google_photos_sync_interval);
-            case 6: return g_cfg.google_photos_cache_dir;
-        }
-        else if (c == 11) switch(i) {
-            case 0: return g_cfg.timezone;
-            case 1: return g_cfg.infopanels_enabled ? "[ON]" : "[OFF]";
-            case 2: return g_cfg.news_enabled ? "[ON]" : "[OFF]";
-            case 3: return g_cfg.news_source;
-            case 4: return g_cfg.news_local_query;
-            case 5: {
-                std::string res;
-                for (size_t k = 0; k < g_cfg.news_blacklist.size(); ++k) {
-                    if (k > 0) res += ", ";
-                    res += g_cfg.news_blacklist[k];
-                }
-                return res;
-            }
-            case 6: return std::format("{}", g_cfg.news_refresh_minutes);
-            case 7: return std::format("{}", g_cfg.news_scroll_speed);
-            case 8: return std::format("{}", g_cfg.news_font_size);
-            case 9: return g_cfg.stockstreamer_enabled ? "[ON]" : "[OFF]";
-            case 10: return g_cfg.stockstreamer_preset;
-            case 11: {
-                std::string res;
-                for (size_t k = 0; k < g_cfg.stockstreamer_symbols.size(); ++k) {
-                    if (k > 0) res += ",";
-                    res += g_cfg.stockstreamer_symbols[k];
-                }
-                return res;
-            }
-            case 12: return g_cfg.stockstreamer_crypto;
-            case 13: return g_cfg.gcalendar_enabled ? "[ON]" : "[OFF]";
-            case 14: return g_cfg.gcalendar_source_type;
-            case 15: return g_cfg.gcalendar_name;
-            case 16: return g_cfg.gcalendar_ical_url;
-            case 17: return g_cfg.gcalendar_api_key;
-            case 18: return std::format("{}", g_cfg.gcalendar_refresh_minutes);
-            case 19: return std::format("{}", g_cfg.gcalendar_max_events);
-            case 20: return g_cfg.left_panel_enabled ? "[ON]" : "[OFF]";
-            case 21: return std::to_string(g_cfg.left_panel_max_chores);
-            case 22: return g_cfg.left_panel_show_completed ? "[ON]" : "[OFF]";
-            case 23: return g_cfg.left_panel_clock_enabled ? "[ON]" : "[OFF]";
-        }
-        return "";
-    };
+        row(message, width);
+        std::fflush(stdout);
 
-    auto sv = [&](int c, int i, const std::string& v) {
-        if(v.empty()) return;
-        bool sync_news = false, sync_calendar = false, sync_stocks = false;
-        std::unique_lock lk(g_config_mtx);
-        try {
-            if(c==0) switch(i){
-                case 0: {
-                    if (v == "2160p") {
-                        g_cfg.screen_w = 3840; g_cfg.screen_h = 2160; g_cfg.max_texture_dim = 3840;
-                    } else if (v == "1440p") {
-                        g_cfg.screen_w = 2560; g_cfg.screen_h = 1440; g_cfg.max_texture_dim = 2560;
-                    } else {
-                        g_cfg.screen_w = 1920; g_cfg.screen_h = 1080; g_cfg.max_texture_dim = 1920;
-                    }
-                    break;
-                }
-                case 1:{ try { int rot=std::stoi(v); if(rot==0||rot==90||rot==180||rot==270) g_cfg.rotation=rot; else g_cfg.rotation=0; } catch(...) {} break; }
-                case 2:{ try { float val=std::stof(v); g_cfg.ken_burns_zoom=std::clamp(val, 0.01f, 5.0f); } catch(...) {} break; }
-                case 3:g_cfg.auto_display_rotation=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
-                case 4:g_cfg.brightness_auto=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
-                case 5:{ try { int val = std::stoi(v); g_cfg.brightness_auto_min=std::clamp(val, 0, 100); } catch(...) {} break; }
-                case 6:{ try { int val = std::stoi(v); g_cfg.brightness_auto_max=std::clamp(val, 0, 100); } catch(...) {} break; }
-                case 7: {
-                    if (v == "3d" || v == "white" || v == "polaroid" || v == "off") {
-                        g_cfg.border_mode = v;
-                    }
-                    break;
-                }
-                case 8:{ try { int val = std::stoi(v); g_cfg.border_width=std::clamp(val, 0, 250); } catch(...) {} break; }
-                case 9:g_cfg.bg_style=v;break;
-                case 10:{ try { int val = std::stoi(v); g_cfg.pattern_offset=std::clamp(val, 0, 150); } catch(...) {} break; }
-                case 11:g_cfg.pattern_style=v;break;
-                case 12:{ try { int val = std::stoi(v); g_cfg.pattern_blend_count=std::clamp(val, 1, 3); } catch(...) {} break; }
-                case 13:{ try { int val = std::stoi(v); g_cfg.pattern_fps=std::clamp(val, 1, 60); } catch(...) {} break; }
-                case 14:{ try { int val = std::stoi(v); g_cfg.display_offset_x=std::clamp(val, -300, 300); } catch(...) {} break; }
-                case 15:{ try { int val = std::stoi(v); g_cfg.display_offset_y=std::clamp(val, -300, 300); } catch(...) {} break; }
-            }
-            
-            else if(c==2) switch(i){
-                case 0:g_cfg.timer_enabled=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
-                case 1:{ try { g_cfg.timer_x=std::stof(v); } catch(...) {} break; } case 2:{ try { g_cfg.timer_y=std::stof(v); } catch(...) {} break; }
-                case 3:{ try { g_cfg.timer_font_size=std::stoi(v); } catch(...) {} break; } case 4:g_cfg.timer_color=v;break;
-                case 5:g_cfg.clock_enabled=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
-                case 6:{ try { g_cfg.clock_x=std::stof(v); } catch(...) {} break; } case 7:{ try { g_cfg.clock_y=std::stof(v); } catch(...) {} break; }
-                case 8:{ try { g_cfg.clock_font_size=std::stoi(v); } catch(...) {} break; } case 9:g_cfg.clock_color=v;break;
-                case 10:g_cfg.clock_24h=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
-                case 11:g_cfg.count_enabled=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
-                case 12:g_cfg.diagnostics_hud_enabled=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
-                case 13:g_cfg.adaptive_text_enabled=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
-                case 14:{ try { g_cfg.splash_overlay_y=std::stof(v); } catch(...) {} break; }
-                case 15:g_cfg.progress_bar_enabled=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
-                case 16:g_cfg.geotag_enabled=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
-                case 17:{ try { g_cfg.geotag_x=std::clamp(std::stof(v), 0.0f, 1.0f); } catch(...) {} break; }
-                case 18:{ try { g_cfg.geotag_y=std::clamp(std::stof(v), 0.0f, 1.0f); } catch(...) {} break; }
-                case 19:{ try { g_cfg.geotag_offset_x=std::clamp(std::stoi(v), -1000, 1000); } catch(...) {} break; }
-                case 20:{ try { g_cfg.geotag_offset_y=std::clamp(std::stoi(v), -1000, 1000); } catch(...) {} break; }
-                case 21:{ try { g_cfg.geotag_font_size=std::clamp(std::stoi(v), 8, 72); } catch(...) {} break; }
-                case 22:g_cfg.geotag_color=v;break;
-            }
-            else if(c==3) switch(i){
-                case 0:{ try { int val = std::stoi(v); g_cfg.video_volume=std::clamp(val, 0, 150); } catch(...) {} break; }
-                case 1:{ try { int val = std::stoi(v); g_cfg.videos_per_photos=std::clamp(val, 1, 100); } catch(...) {} break; }
-                case 2:{ try { int val = std::stoi(v); g_cfg.video_probe_timeout=std::clamp(val, 1, 30); } catch(...) {} break; }
-                case 3:g_cfg.play_just_photos=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
-                case 4:g_cfg.play_just_videos=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
-                case 5:g_cfg.closed_captions_enabled=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
-                case 6:g_cfg.video_subtitles_dir=v;break;
-                case 7:{ try { g_cfg.osd_offset_x=std::stoi(v); } catch(...) {} break; }
-                case 8:{ try { g_cfg.osd_offset_y=std::stoi(v); } catch(...) {} break; }
-                case 10:g_cfg.video_decode_budget_enabled=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
-                case 9:{ try { g_cfg.max_texture_dim=std::clamp(std::stoi(v), 256, 8192); } catch(...) {} break; }
-            }
-            else if(c==1) switch(i){
-                case 0:{ try { float val = std::stof(v); g_cfg.transition_delay=std::max(1.0f, val); } catch(...) {} break; } case 1:{ try { float val = std::stof(v); g_cfg.transition_duration=std::clamp(val, 0.1f, 10.0f); } catch(...) {} break; }
-                case 2:g_cfg.transition_effect=v;break;
-                case 3:g_cfg.ken_burns=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
-                case 4:{ try { float val = std::stof(v); g_cfg.ken_burns_speed=std::clamp(val, 0.001f, 5.0f); } catch(...) {} break; }
-                case 5:g_cfg.bias_lighting=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
-                case 6:{ try { g_cfg.bias_anim_speed=std::stof(v); } catch(...) {} break; }
-                case 7:g_cfg.bias_anim_style=v;break; case 8:g_cfg.bias_color_mode=v;break;
-                case 9:g_cfg.matting=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
-                case 10:{ try { g_cfg.matting_size=std::stoi(v); } catch(...) {} break; }
-                case 11:{ try { g_cfg.cooldown_days=std::stoi(v); } catch(...) {} break; }
-                case 12:g_cfg.shuffle=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
-                case 13:g_cfg.twin_portrait_enabled=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
-                case 14:{ try { g_cfg.preload_capacity=std::clamp(std::stoi(v), 1, 32); } catch(...) {} break; }
-                case 15:{ try { g_cfg.preload_workers=std::clamp(std::stoi(v), 1, 16); } catch(...) {} break; }
-                case 16:g_cfg.reset_cooldown_on_restart=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
-                case 17:g_cfg.edge_glow_shadow=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
-            }
-            else if(c==4) switch(i){
-                case 0:g_cfg.recursive=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
-                case 1:{ try { int val = std::stoi(v); g_cfg.scan_depth=std::clamp(val, 1, 100); } catch(...) {} break; }
-                case 2:{ try { int val = std::stoi(v); g_cfg.scan_window_days=std::clamp(val, 0, 365); } catch(...) {} break; }
-                case 3:{
-                    g_cfg.ignore_folders.clear();
-                    std::string clean = v;
-                    clean.erase(std::remove(clean.begin(), clean.end(), '['), clean.end());
-                    clean.erase(std::remove(clean.begin(), clean.end(), ']'), clean.end());
-                    clean.erase(std::remove(clean.begin(), clean.end(), '"'), clean.end());
-                    clean.erase(std::remove(clean.begin(), clean.end(), '\''), clean.end());
-                    
-                    size_t pos = 0, f;
-                    while((f = clean.find(',', pos)) != std::string::npos) {
-                        std::string token = clean.substr(pos, f - pos);
-                        token.erase(0, token.find_first_not_of(" \t"));
-                        token.erase(token.find_last_not_of(" \t") + 1);
-                        if (!token.empty()) g_cfg.ignore_folders.push_back(token);
-                        pos = f + 1;
-                    }
-                    std::string last = clean.substr(pos);
-                    last.erase(0, last.find_first_not_of(" \t"));
-                    last.erase(last.find_last_not_of(" \t") + 1);
-                    if (!last.empty()) g_cfg.ignore_folders.push_back(last);
-                }break;
-                case 4:{ try { int val = std::stoi(v); g_cfg.max_concurrent=std::clamp(val, 1, 64); } catch(...) {} break; }
-                case 5:g_cfg.show_people_faces=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
-                case 6:g_cfg.keep_animals=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
-                case 7:g_cfg.on_this_day_enabled=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
-                case 8:{ try { int val = std::stoi(v); g_cfg.on_this_day_range=std::clamp(val, 0, 31); } catch(...) {} break; }
-            }
-            else if(c==5) switch(i){
-                case 0:g_cfg.weather_enabled=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
-                case 1:{
-                    std::string loc = trim(v);
-                    g_cfg.weather_location = loc;
-                    float lat = 0.0f, lon = 0.0f;
-                    if (geocode_location_sync(loc, lat, lon)) {
-                        g_cfg.weather_lat = lat;
-                        g_cfg.weather_lon = lon;
-                        g_logger.info("TUI: Auto-geocoded '{}' to Lat: {}, Lon: {}", loc, lat, lon);
-                    }
-                    std::string auto_tz = infer_timezone_from_zip_or_location(loc);
-                    if (!auto_tz.empty()) {
-                        g_cfg.timezone = auto_tz;
-                        g_logger.info("TUI: Auto-configured timezone to '{}' from weather location '{}'", auto_tz, loc);
-                        sync_calendar = true;
-                    }
-                    if (g_cfg.news_local_query == "10001" || g_cfg.news_local_query.empty()) {
-                        g_cfg.news_local_query = loc;
-                        sync_news = true;
-                    }
-                    break;
-                }
-                case 2:{ try { float vl=std::stof(v); if(vl>=-90.0f&&vl<=90.0f) g_cfg.weather_lat=vl; } catch(...) {} break; }
-                case 3:{ try { float vn=std::stof(v); if(vn>=-180.0f&&vn<=180.0f) g_cfg.weather_lon=vn; } catch(...) {} break; }
-            }
-            else if(c==6) switch(i){
-                case 0:g_cfg.touch_enabled=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
-                case 1:g_cfg.dashboard_pin=v;g_cfg.pin_hash.clear();g_cfg.pin_changed=!v.empty();break;
-                case 2:g_cfg.auto_update=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
-                case 3:g_cfg.auto_update_branch=v;break;
-            }
-            else if(c==7) switch(i){
-                case 0:g_cfg.sleep_time=v;break;
-                case 1:g_cfg.wake_time=v;break;
-                case 2:g_cfg.drm_card=v;break;
-                case 3:g_cfg.drm_connector=v;break;
-                case 4:g_cfg.font_path=v;break;
-                case 5:g_cfg.video_audio_device=v;break;
-                case 6:{ try { int val = std::stoi(v); g_cfg.fan_speed=std::clamp(val, 0, 100); pitrove::thermal::set_fan_speed_percent(g_cfg.fan_speed); } catch(...) {} break; }
-            }
-            else if(c==8) switch(i){
-                case 0:{
-                    g_cfg.log_level = v;
-                    g_cfg.verbose = (v == "debug");
-                    break;
-                }
-                case 1:{ try { int val = std::stoi(v); g_cfg.http_socket_timeout=std::clamp(val, 1, 60); } catch(...) {} break; }
-                case 2:{ try { int val = std::stoi(v); g_cfg.http_bind_attempts=std::clamp(val, 1, 100); } catch(...) {} break; }
-                case 3:{ try { g_cfg.cache_mmap_size = std::clamp(std::stoll(v), 0LL, 268435456LL); } catch(...) {} break; }
-                case 4:{ try { g_cfg.log_keep_count=std::clamp(std::stoi(v), 1, 100); } catch(...) {} break; }
-            }
-            else if(c==9) switch(i){
-                case 0:g_cfg.mqtt_enabled=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
-                case 1:g_cfg.mqtt_broker=v;break;
-                case 2:{ try { g_cfg.mqtt_port=std::stoi(v); } catch(...) {} break; }
-                case 3:g_cfg.mqtt_user=v;break;
-                case 4:g_cfg.mqtt_pass=v;break;
-                case 5:g_cfg.mqtt_topic_prefix=v;break;
-                case 6:g_cfg.mqtt_motionsensor_topic=v;break;
-                case 7:{ try { g_cfg.mqtt_motionsensor_cooldown=std::stoi(v); } catch(...) {} break; }
-            }
-            else if(c==10) switch(i){
-                case 0:g_cfg.google_photos_enabled=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
-                case 1:g_cfg.google_photos_client_id=v;break;
-                case 2:g_cfg.google_photos_client_secret=v;break;
-                case 3:g_cfg.google_photos_refresh_token=v;break;
-                case 4:g_cfg.google_photos_album_id=v;break;
-                case 5:{ try { g_cfg.google_photos_sync_interval=std::stoi(v); } catch(...) {} break; }
-                case 6:g_cfg.google_photos_cache_dir=v;break;
-            }
-            else if(c==11) switch(i){
-                case 0:g_cfg.timezone=v;break;
-                case 1:g_cfg.infopanels_enabled=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
-                case 2:g_cfg.news_enabled=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
-                case 3:g_cfg.news_source=v;break;
-                case 4:{
-                    std::string clean_v = trim(v);
-                    if (clean_v.empty()) clean_v = "10001";
-                    g_cfg.news_local_query = clean_v;
-                    std::string auto_tz = infer_timezone_from_zip_or_location(clean_v);
-                    if (!auto_tz.empty()) {
-                        g_cfg.timezone = auto_tz;
-                        g_logger.info("TUI: Auto-configured timezone to '{}' from news zipcode/location '{}'", auto_tz, clean_v);
-                        sync_calendar = true;
-                    }
-                    g_logger.info("TUI: Updated local news zipcode/query to '{}'", clean_v);
-                    sync_news = true;
-                    break;
-                }
-                case 5:{
-                    std::vector<std::string> bl;
-                    std::stringstream ss(v);
-                    std::string dom;
-                    while (std::getline(ss, dom, ',')) {
-                        dom = trim(dom);
-                        if (!dom.empty()) bl.push_back(dom);
-                    }
-                    g_cfg.news_blacklist = bl;
-                    g_logger.info("TUI: Updated news domain blacklist ({} entries)", bl.size());
-                    sync_news = true;
-                    break;
-                }
-                case 6:{ try { g_cfg.news_refresh_minutes=std::clamp(std::stoi(v), 5, 120); } catch(...) {} break; }
-                case 7:{ try { g_cfg.news_scroll_speed=std::clamp(std::stoi(v), 10, 150); } catch(...) {} break; }
-                case 8:{ try { g_cfg.news_font_size=std::clamp(std::stoi(v), 9, 16); } catch(...) {} break; }
-                case 9:g_cfg.stockstreamer_enabled=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
-                case 10:{
-                    g_cfg.stockstreamer_preset = v;
-                    if (v != "custom") {
-                        g_cfg.stockstreamer_symbols = get_stock_preset_symbols(v);
-                        sync_stocks = true;
-                    }
-                    break;
-                }
-                case 11:{
-                    std::vector<std::string> syms;
-                    std::stringstream ss(v);
-                    std::string s;
-                    while (std::getline(ss, s, ',')) {
-                        s = trim(s);
-                        if (!s.empty()) syms.push_back(s);
-                    }
-                    if (!syms.empty()) {
-                        g_cfg.stockstreamer_symbols = syms;
-                        g_cfg.stockstreamer_preset = "custom";
-                        sync_stocks = true;
-                    }
-                    break;
-                }
-                case 12:{
-                    g_cfg.stockstreamer_crypto = trim(v);
-                    sync_stocks = true;
-                    break;
-                }
-                case 13:g_cfg.gcalendar_enabled=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
-                case 14:g_cfg.gcalendar_source_type=v;break;
-                case 15:g_cfg.gcalendar_name=v;break;
-                case 16:{
-                    g_cfg.gcalendar_ical_url = trim(v);
-                    sync_calendar = true;
-                    break;
-                }
-                case 17:g_cfg.gcalendar_api_key=v;break;
-                case 18:{ try { g_cfg.gcalendar_refresh_minutes=std::clamp(std::stoi(v), 5, 120); } catch(...) {} break; }
-                case 19:{ try { g_cfg.gcalendar_max_events=std::clamp(std::stoi(v), 1, 16); } catch(...) {} break; }
-                case 20:g_cfg.left_panel_enabled=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
-                case 21:g_cfg.left_panel_max_chores=std::clamp(safe_stoi(v,10),1,20);break;
-                case 22:g_cfg.left_panel_show_completed=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
-                case 23:g_cfg.left_panel_clock_enabled=(v=="1"||v=="ON"||v=="true"||v=="[ON]"||v=="[  ON  ]");break;
-            }
-        } catch(...) {}
-        const bool reconfigure_photos = c == 10 && i == 0;
-        lk.unlock();
-        if (reconfigure_photos) { g_google_photos.stop(); g_google_photos.start(); }
-        // Each integration takes its own shared config lock. Never call it while
-        // this editor owns the exclusive lock on the same non-recursive mutex.
-        try {
-            if (sync_news) g_news_ticker.fetch_sync();
-            if (sync_calendar) g_calendar.sync();
-            if (sync_stocks) g_stock_streamer.sync();
-        } catch (...) { g_logger.warn("TUI: integration refresh failed after settings update"); }
-    };
-
-    auto enums = [&](int c, int i) -> std::vector<std::string> {
-        if(c==0&&i==0) return {"1080p", "1440p", "2160p"};
-        if(c==0&&i==7) return {"off", "3d", "white", "polaroid"};
-        if(c==0&&i==9) return {"photo","plain","pattern"};
-        if(c==0&&i==11) return {"random_animated", "random_static", "animated_combined", "animated_grid", "animated_waves", "animated_dots", "animated_circles", "animated_crosses", "animated_triangles", "animated_squares", "animated_hexagons", "animated_fractals", "animated_polygons", "animated_rectangles", "animated_mix", "static_grid", "static_waves", "static_dots", "static_circles", "static_crosses", "static_triangles", "static_squares", "static_hexagons", "static_fractals", "static_polygons", "static_rectangles", "static_mix"};
-        if(c==6&&i==3) return {"main","develop"};
-        if(c==1&&i==2) return {"crossfade","wipe","pixelate","dissolve","ken_burns"};
-        if(c==1&&i==7) return {"pulsing","radiating","absorbing","edge_glow","aura"};
-        if(c==1&&i==8) return {"auto","rainbow"};
-        if(c==2&&i==4) return {"yellow","white","cyan","red"};
-        if(c==2&&i==9) return {"yellow","white","cyan","red"};
-        if(c==2&&i==22) return {"white","yellow","cyan","red"};
-        if(c==8&&i==0) return {"debug","info","warn","error"};
-        if(c==11&&i==0) return get_supported_timezones();
-        if(c==11&&i==3) return {"global", "local"};
-        if(c==11&&i==10) return {"sp500_top10", "big_tech", "semiconductors", "dividend_kings", "custom"};
-        if(c==11&&i==14) return {"ical", "api"};
-        if(c==11&&i==10) return {"ical", "api"};
-        return {};
-    };
-
-    int sel = 0, sel_sub = 0;
-    bool edit_mode = false;
-    std::string ed_buf;
-    bool run = true;
-
-    // ── MAIN TUI LOOP ──
-    auto start_time = std::chrono::steady_clock::now();
-    auto last_render_time = start_time;
-    int input_buf_len = 0;
-    char input_buf[256];
-
-    while(run) {
-        // ── Update message timer ──
-        if (msg_buf.active) {
-            auto now = std::chrono::steady_clock::now();
-            msg_buf.elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(now - msg_buf.msg_start).count();
-            if (msg_buf.elapsed_ms > (uint32_t)msg_buf.duration_ms) {
-                msg_buf.active = false;
-            }
-        }
-
-        // Sizing checks
-        struct winsize w_curr;
-        std::memset(&w_curr, 0, sizeof(w_curr));
-        int cur_cols = 100;
-        int cur_rows = 24;
-        if (ioctl(STDIN_FILENO, TIOCGWINSZ, &w_curr) >= 0 && w_curr.ws_col > 0 && w_curr.ws_row > 0) {
-            cur_cols = w_curr.ws_col;
-            cur_rows = w_curr.ws_row;
-        }
-
-        tui_width = std::max(80, std::min(155, cur_cols));
-        int name_w = 22;
-        int val_w = 26;
-        int desc_w = tui_width - name_w - val_w - 6;
-
-        if (cur_cols < 80 || cur_rows < 24) {
-            int draw_cols = std::max(80, cur_cols);
-            printf("\033[0m\033[H\033[2J");
-            printf("\033[1;31m+"); for(int i=0; i<draw_cols-2; i++) printf("-"); printf("+\033[0m\n");
-            printf("\033[1;31m|\033[0m  %-*s\033[1;31m|\033[0m\n", draw_cols-6, " [ TERMINAL WINDOW TOO SMALL ]");
-            printf("\033[1;31m|\033[0m  %-*s\033[1;31m|\033[0m\n", draw_cols-6, "");
-            printf("\033[1;31m|\033[0m  %-*s\033[1;31m|\033[0m\n", draw_cols-6, " Please stretch or expand your window until the TUI");
-            printf("\033[1;31m|\033[0m  %-*s\033[1;31m|\033[0m\n", draw_cols-6, " is clearly visible.");
-            printf("\033[1;31m|\033[0m  %-*s\033[1;31m|\033[0m\n", draw_cols-6, "");
-            std::string sz_buf = std::format(" Current Terminal size:  {}x{}", cur_cols, cur_rows);
-            printf("\033[1;31m|\033[0m  %-*s\033[1;31m|\033[0m\n", draw_cols-6, sz_buf.c_str());
-            printf("\033[1;31m|\033[0m  %-*s\033[1;31m|\033[0m\n", draw_cols-6, " Minimum Required size:  80x24");
-            printf("\033[1;31m|\033[0m  %-*s\033[1;31m|\033[0m\n", draw_cols-6, "");
-            printf("\033[1;31m+"); for(int i=0; i<draw_cols-2; i++) printf("-"); printf("+\033[0m\n");
-            fflush(stdout);
-
-            struct pollfd pfd;
-            pfd.fd = STDIN_FILENO;
-            pfd.events = POLLIN;
-            int pret = poll(&pfd, 1, 100);
-            if (pret > 0 && (pfd.revents & POLLIN)) {
-                char c;
-                int n = read(STDIN_FILENO, &c, 1);
-                if (n == 1) {
-                    if (c == 'q' || c == 'Q') run = false;
-                } else if (n == 0) {
-                    run = false;
-                } else {
-                    if (errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR) {
-                        fprintf(stderr, "[TUI ERROR] Exiting configuration wizard due to read error in size check: %d (%s)\n", errno, strerror(errno));
-                        run = false;
-                    }
-                }
+        const int key = read_key();
+        if (key < 0 || key == 3 || key == 4) return;
+        message.clear();
+        if (input) {
+            if (key == 27) input.reset();
+            else if (key == '\r' || key == '\n') {
+                change(chosen, *input);
+                input.reset();
+            } else if ((key == 8 || key == 127) && !input->empty()) {
+                do {
+                    const auto last = static_cast<unsigned char>(input->back());
+                    input->pop_back();
+                    if ((last & 0xc0) != 0x80) break;
+                } while (!input->empty());
+            } else if (key >= 32 && key < 256 && input->size() < 32768) {
+                input->push_back(static_cast<char>(key));
             }
             continue;
         }
-
-        // ── Determine if we need to render this frame ──
-        auto now = std::chrono::steady_clock::now();
-        int elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(now - last_render_time).count();
-        bool has_input = input_buf_len > 0;
-        bool sel_changed = (sel != last_sel || sel_sub != last_sel_sub);
-        bool edit_changed = (edit_mode && last_edit != 1) || (!edit_mode && last_edit != 0);
-        bool msg_active = msg_buf.active;
-        bool config_changed = g_config_changed.load() && !edit_mode;
-
-        bool need_render = dirty_full || has_input || sel_changed || edit_changed || msg_active || config_changed;
-        // Also redraw every 200ms to keep time display fresh
-        if (!need_render && elapsed_ms > 200) need_render = true;
-
-        if (need_render) {
-            last_render_time = now;
-
-            // Render complete frame to top-left (0,0) without background clashes
-            printf("\033[H\033[?25l");
-
-            // 1. Header line
-            printf("  \033[1;36mpiTrove Configuration Engine v%s\033[0m\033[K\n", VERSION);
-            printf("  \033[90m");
-            for (int i = 0; i < tui_width - 4; i++) printf("=");
-            printf("\033[0m\033[K\n\n\033[K");
-
-            // 2. Category tab bar
-            printf("  ");
-            for (int i = 0; i < (int)(sizeof(CATS)/sizeof(CATS[0])); i++) {
-                const char* name = (tui_width < 115) ? CAT_COMPACT[i] : CATS[i].n;
-                if (i == sel) {
-                    printf("\033[30;43m %s \033[0m  ", name);
-                } else {
-                    printf("\033[1;37m%s\033[0m  ", name);
-                }
-            }
-            printf("\033[K\n\n\033[K");
-
-            // 3. Column headers
-            printf("  \033[1;36m%-*s %-*s %-*s\033[0m\033[K\n", name_w, "Setting", val_w, "Value", desc_w, "Description");
-            printf("  \033[90m");
-            for (int i = 0; i < tui_width - 4; i++) printf("-");
-            printf("\033[0m\033[K\n");
-
-            // 4. Data rows for current category
-            int cat_count = CATS[sel].c;
-            for (int i = 0; i < cat_count; i++) {
-                const auto& item = CATS[sel].i[i];
-                std::string val = gv(sel, i);
-                if (item.t == TGL) {
-                    val = (val == "1" || val == "[ON]" || val == "[  ON  ]") ? "[  ON  ]" : "[ OFF  ]";
-                }
-                std::string desc = item.desc;
-                if ((int)desc.length() > desc_w && desc_w >= 3) {
-                    desc.resize((size_t)(desc_w - 3));
-                    desc += "...";
-                }
-
-                if (edit_mode && i == sel_sub) {
-                    printf("  \033[1;32m%-*s \033[30;47m%-*s\033[0m \033[90m%-*s\033[0m\033[K\n", name_w, item.n, val_w, ed_buf.c_str(), desc_w, desc.c_str());
-                } else if (i == sel_sub) {
-                    printf("  \033[1;32m%-*s \033[1;37m%-*s\033[0m \033[90m%-*s\033[0m\033[K\n", name_w, item.n, val_w, val.c_str(), desc_w, desc.c_str());
-                } else {
-                    printf("  \033[37m%-*s\033[0m \033[1;37m%-*s\033[0m \033[90m%-*s\033[0m\033[K\n", name_w, item.n, val_w, val.c_str(), desc_w, desc.c_str());
-                }
-            }
-
-            // 5. Dynamic separator & footer
-            printf("  \033[90m");
-            for (int i = 0; i < tui_width - 4; i++) printf("-");
-            printf("\033[0m\033[K\n");
-
-            if (!edit_mode) {
-                printf("  \033[1;37m[^/v]\033[0m Select    \033[1;37m[</>]\033[0m Category    \033[1;37m[SPACE/ENTER]\033[0m Toggle/Edit    \033[1;32m[R]\033[0m Restore    \033[1;32m[S]\033[0m Save    \033[1;31m[Q]\033[0m Quit\033[K\n");
-            } else {
-                printf("  \033[1;32m[ENTER]\033[0m Confirm   \033[1;31m[ESC]\033[0m Cancel      \033[1;37m[^/v]\033[0m Cycle Options\033[K\n");
-            }
-
-            // 6. Flash message / Notice line
-            if (msg_buf.active) {
-                printf("  \033[1;32m%s\033[0m\033[K\n", msg_buf.text);
-            } else if (!edit_mode && g_config_changed.load()) {
-                printf("  \033[1;33m[NOTICE]\033[0m Previous changes detected. Use \033[1;32m[S]\033[0m to save, then \033[1;36mpitrove restart\033[0m to apply.\033[K\n");
-            } else {
-                printf("\033[K\n");
-            }
-
-            // Clear any trailing lines below the TUI frame
-            printf("\033[J");
-
-            // If in edit mode, place the visible cursor at the end of the input box
-            if (edit_mode) {
-                int cursor_y = ROW_ROW0 + sel_sub + 1;
-                int cursor_x = 2 + name_w + 1 + (int)ed_buf.length() + 1;
-                printf("\033[%d;%dH\033[?25h", cursor_y, cursor_x);
-            }
-
-            dirty_full = false;
-            fflush(stdout);
+        if (key == 'q' || key == 'Q') return;
+        if (key == Up && selection > 0) --selection;
+        if (key == Down && selection + 1 < entries.size()) ++selection;
+        if (key == PageUp) selection -= std::min(selection, visible);
+        if (key == PageDown) selection = std::min(selection + visible, entries.size() - 1);
+        if (key == Left) {
+            if (selection > 0) --selection;
+            while (selection > 0 && entries[selection - 1].group == entries[selection].group) --selection;
         }
-
-        // ── Input handling ──
-        struct pollfd pfd;
-        pfd.fd = STDIN_FILENO;
-        pfd.events = POLLIN;
-        int poll_ret = poll(&pfd, 1, 50);
-        if (poll_ret <= 0) {
-            continue;
-        }
-
-        // Read all available bytes
-        if (input_buf_len >= (int)sizeof(input_buf) - 1) {
-            input_buf_len = 0;
-        }
-        int n = read(STDIN_FILENO, input_buf + input_buf_len, sizeof(input_buf) - input_buf_len - 1);
-        if (n > 0) {
-            input_buf_len += n;
-            input_buf[input_buf_len] = '\0';
-        } else if (n == 0) {
-            run = false;
-        } else {
-            if (errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR) {
-                fprintf(stderr, "[TUI ERROR] Exiting configuration wizard due to read error: %d (%s)\n", errno, strerror(errno));
-                run = false;
+        if (key == Right) {
+            while (selection + 1 < entries.size() && entries[selection].group == chosen.group) {
+                if (entries[selection + 1].group != chosen.group) { ++selection; break; }
+                ++selection;
             }
         }
-
-        // Process input buffer
-        int pos = 0;
-        while (pos < input_buf_len) {
-            // Check for escape sequences
-            if (input_buf[pos] == '\033') {
-                bool complete = false;
-                int seq_len = 0;
-
-                if (pos + 1 < input_buf_len) {
-                    char second = input_buf[pos + 1];
-                    if (second == '[') {
-                        // CSI sequence: ESC [ followed by parameters and ending with a letter a-zA-Z
-                        int end_pos = pos + 2;
-                        while (end_pos < input_buf_len) {
-                            char c = input_buf[end_pos];
-                            if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')) {
-                                complete = true;
-                                seq_len = (end_pos - pos) + 1;
-                                break;
-                            }
-                            end_pos++;
-                        }
-                    } else if (second == 'O') {
-                        // SS3 sequence: ESC O <char>
-                        if (pos + 2 < input_buf_len) {
-                            complete = true;
-                            seq_len = 3;
-                        }
-                    } else {
-                        // Simple 2-byte escape sequence (ESC <char>)
-                        complete = true;
-                        seq_len = 2;
-                    }
-                } else {
-                    // ESC at the end of the buffer: wait up to 20ms for more bytes (split packet check)
-                    struct pollfd pfd_esc;
-                    pfd_esc.fd = STDIN_FILENO;
-                    pfd_esc.events = POLLIN;
-                    if (poll(&pfd_esc, 1, 20) > 0 && (pfd_esc.revents & POLLIN)) {
-                        complete = false; // more data incoming, leave in buffer
-                    } else {
-                        // standalone ESC key
-                        complete = true;
-                        seq_len = 1;
-                    }
-                }
-
-                if (!complete) {
-                    // Escape sequence is incomplete, wait for next read()
-                    break;
-                }
-
-                // Parse standard arrow keys if complete CSI or SS3 sequence matches
-                if (seq_len >= 3 && (input_buf[pos + 1] == '[' || input_buf[pos + 1] == 'O')) {
-                    char last_char = input_buf[pos + seq_len - 1];
-                    if (last_char == 'A' || last_char == 'B' || last_char == 'D' || last_char == 'C') {
-                        int action = 0;
-                        if (last_char == 'A') action = 1;  // UP
-                        else if (last_char == 'B') action = 2;  // DOWN
-                        else if (last_char == 'D') action = 3;  // LEFT
-                        else if (last_char == 'C') action = 4;  // RIGHT
-
-                        if (!edit_mode) {
-                            if (action == 1) { if(sel_sub>0) sel_sub--; else if(sel>0){ sel--; sel_sub=CATS[sel].c-1; } }
-                            else if (action == 2) { if(sel_sub<CATS[sel].c-1) sel_sub++; else if(sel<(int)(sizeof(CATS)/sizeof(CATS[0]))-1){ sel++; sel_sub=0; } }
-                            else if (action == 3) { if(sel>0) { sel--; sel_sub=0; } }
-                            else if (action == 4) { if(sel<(int)(sizeof(CATS)/sizeof(CATS[0]))-1) { sel++; sel_sub=0; } }
-                            dirty_full = true;
-                            last_sel = sel; last_sel_sub = sel_sub; last_edit = edit_mode ? 1 : 0;
-                        } else {
-                            const auto& item = CATS[sel].i[sel_sub];
-                            if (item.t == ENM) {
-                                auto opts = enums(sel, sel_sub);
-                                if (!opts.empty()) {
-                                    auto it = std::find(opts.begin(), opts.end(), ed_buf);
-                                    int idx = (it != opts.end()) ? std::distance(opts.begin(), it) : 0;
-                                    if (action == 2) idx = (idx + 1) % opts.size(); // DOWN
-                                    if (action == 1) idx = (idx - 1 + opts.size()) % opts.size(); // UP
-                                    ed_buf = opts[idx];
-                                }
-                            }
-                            last_sel = sel; last_sel_sub = sel_sub; last_edit = 1;
-                        }
-                    }
-                } else if (seq_len == 1) {
-                    // ESC key
-                    if (edit_mode) {
-                        edit_mode = false;
-                        dirty_full = true;
-                        last_sel = sel; last_sel_sub = sel_sub; last_edit = 0;
-                    }
-                }
-
-                pos += seq_len;
-                continue;
-            }
-
-            // Regular character
-            char c = input_buf[pos];
-            int consumed = 1;
-
-            if (!edit_mode) {
-                if (c == 'q' || c == 'Q') { run = false; break; }
-                else if (c == 's' || c == 'S') {
-                    if (!save_cfg()) {
-                        flash_msg("[ERROR] Failed to save config file.", 1, 2000);
-                    } else {
-                        flash_msg("[OK] Configuration saved.", 1, 2000);
-                    }
-                    run = false;
-                    dirty_full = true;
-                }
-                else if (c == 'r' || c == 'R') {
-                    // Restore current category to factory defaults
-                    {
-                        std::lock_guard lk(g_config_mtx);
-                        if (sel == 0) { // Display
-                            g_cfg.screen_w = 1920; g_cfg.screen_h = 1080;
-                            g_cfg.rotation = 0; g_cfg.ken_burns_zoom = 0.15f;
-                            g_cfg.auto_display_rotation = true; g_cfg.brightness_auto = true;
-                            g_cfg.brightness_auto_min = 30; g_cfg.brightness_auto_max = 100;
-                            g_cfg.border_mode = "white"; g_cfg.border_width = 25;
-                            g_cfg.bg_style = "pattern"; g_cfg.pattern_offset = 75;
-                            g_cfg.pattern_style = "animated_combined"; g_cfg.pattern_blend_count = 2; g_cfg.pattern_fps = 10;
-                        } else if (sel == 1) { // Slideshow
-                            g_cfg.transition_delay = 10.0f; g_cfg.transition_duration = 0.8f;
-                            g_cfg.transition_effect = "dissolve"; g_cfg.ken_burns = true;
-                            g_cfg.ken_burns_speed = 0.05f; g_cfg.bias_lighting = true;
-                            g_cfg.bias_anim_speed = 1.0f; g_cfg.bias_anim_style = "aura";
-                            g_cfg.bias_color_mode = "auto"; g_cfg.matting = true;
-                            g_cfg.matting_size = 96; g_cfg.cooldown_days = 0;
-                            g_cfg.shuffle = true; g_cfg.twin_portrait_enabled = false;
-                            g_cfg.preload_capacity = 4; g_cfg.preload_workers = 2;
-                            g_cfg.reset_cooldown_on_restart = false; g_cfg.edge_glow_shadow = true;
-                        } else if (sel == 2) { // Overlays
-                            g_cfg.timer_enabled = true; g_cfg.timer_x = 0.5f;
-                            g_cfg.timer_y = 0.02f; g_cfg.timer_font_size = 16;
-                            g_cfg.timer_color = "yellow"; g_cfg.clock_enabled = false;
-                            g_cfg.clock_x = 0.5f; g_cfg.clock_y = 0.02f;
-                            g_cfg.clock_font_size = 16; g_cfg.clock_color = "yellow";
-                            g_cfg.clock_24h = false; g_cfg.count_enabled = true;
-                            g_cfg.diagnostics_hud_enabled = false; g_cfg.adaptive_text_enabled = true;
-                            g_cfg.splash_overlay_y = 0.85f; g_cfg.progress_bar_enabled = false;
-                            g_cfg.geotag_enabled = false; g_cfg.geotag_x = 0.5f; g_cfg.geotag_y = 0.966f;
-                            g_cfg.geotag_offset_x = 0; g_cfg.geotag_offset_y = 0;
-                            g_cfg.geotag_font_size = 12; g_cfg.geotag_color = "white";
-                        } else if (sel == 3) { // Videos
-                            g_cfg.video_volume = 0; g_cfg.videos_per_photos = 3;
-                            g_cfg.video_probe_timeout = 5; g_cfg.play_just_photos = false;
-                            g_cfg.play_just_videos = false; g_cfg.closed_captions_enabled = false;
-                            g_cfg.video_subtitles_dir = "/app/subtitles";
-                            g_cfg.osd_offset_x = 0; g_cfg.osd_offset_y = 0;
-                            g_cfg.max_texture_dim = 1920;
-                        } else if (sel == 4) { // Scanning
-                            g_cfg.recursive = true; g_cfg.scan_depth = 10;
-                            g_cfg.scan_window_days = 15; g_cfg.ignore_folders.clear();
-                            g_cfg.max_concurrent = 4; g_cfg.show_people_faces = true;
-                            g_cfg.keep_animals = false; g_cfg.on_this_day_enabled = false;
-                            g_cfg.on_this_day_range = 0;
-                        } else if (sel == 5) { // Weather
-                            g_cfg.weather_enabled = false;
-                            g_cfg.weather_lat = 37.7749f; g_cfg.weather_lon = -122.4194f;
-                        } else if (sel == 6) { // Security
-                            g_cfg.touch_enabled = true; g_cfg.dashboard_pin = ""; g_cfg.pin_hash.clear(); g_cfg.pin_changed = false;
-                            g_cfg.auto_update = false; g_cfg.auto_update_branch = "main";
-                        } else if (sel == 7) { // Hardware
-                            g_cfg.sleep_time = ""; g_cfg.wake_time = "";
-                            g_cfg.drm_card = "auto"; g_cfg.drm_connector = "auto";
-                            g_cfg.font_path = ""; g_cfg.video_audio_device = "auto";
-                        } else if (sel == 8) { // Advanced
-                            g_cfg.verbose = false; g_cfg.log_level = "info"; g_cfg.http_socket_timeout = 10;
-                            g_cfg.http_bind_attempts = 10;
-                            g_cfg.cache_mmap_size = 67108864; g_cfg.log_keep_count = 3;
-                        } else if (sel == 9) { // MQTT
-                            g_cfg.mqtt_enabled = false; g_cfg.mqtt_broker = "";
-                            g_cfg.mqtt_port = 1883; g_cfg.mqtt_user = "";
-                            g_cfg.mqtt_pass = ""; g_cfg.mqtt_topic_prefix = "pitrove";
-                            g_cfg.mqtt_motionsensor_topic = ""; g_cfg.mqtt_motionsensor_cooldown = 60;
-                        } else if (sel == 10) { // GPhotos
-                            g_cfg.google_photos_enabled = false; g_cfg.google_photos_client_id = "";
-                            g_cfg.google_photos_client_secret = ""; g_cfg.google_photos_refresh_token = "";
-                            g_cfg.google_photos_album_id = ""; g_cfg.google_photos_sync_interval = 60;
-                            g_cfg.google_photos_cache_dir = "";
-                        }
-                    }
-                    flash_msg("[OK] Category restored to defaults.", 1, 2000);
-                    dirty_full = true;
-                }
-                else if (c == '\n' || c == '\r' || c == ' ') {
-                    if (CATS[sel].i[sel_sub].t == TGL) {
-                        std::string v = gv(sel, sel_sub);
-                        sv(sel, sel_sub, (v=="1"||v=="[ON]"||v=="[  ON  ]") ? "0" : "1");
-                    } else if (CATS[sel].i[sel_sub].t == ENM && c == ' ') {
-                        auto opts = enums(sel, sel_sub);
-                        if (!opts.empty()) {
-                            std::string curr = gv(sel, sel_sub);
-                            auto it = std::find(opts.begin(), opts.end(), curr);
-                            int idx = (it != opts.end()) ? std::distance(opts.begin(), it) : 0;
-                            sv(sel, sel_sub, opts[(idx + 1) % opts.size()]);
-                        }
-                    } else if (c != ' ') {
-                        edit_mode = true;
-                        ed_buf = gv(sel, sel_sub);
-                    }
-                    dirty_full = true;
-                    last_sel = sel; last_sel_sub = sel_sub; last_edit = 1;
-                }
-            } else {
-                if (c == '\n' || c == '\r') {
-                    sv(sel, sel_sub, ed_buf);
-                    edit_mode = false;
-                    dirty_full = true;
-                    last_sel = sel; last_sel_sub = sel_sub; last_edit = 0;
-                }
-                else if (c == 127 || c == 8) {
-                    if (!ed_buf.empty()) ed_buf.pop_back();
-                    last_sel = sel; last_sel_sub = sel_sub; last_edit = 1;
-                }
-                else if (c >= 32 && c <= 126) {
-                    const auto& item = CATS[sel].i[sel_sub];
-                    if (item.t == FLT && !isdigit(c) && c != '.' && c != '-') {
-                        pos += consumed;
-                        continue;
-                    }
-                    if (item.t == INT && !isdigit(c) && c != '-') {
-                        pos += consumed;
-                        continue;
-                    }
-                    ed_buf += c;
-                    last_sel = sel; last_sel_sub = sel_sub; last_edit = 1;
-                }
-            }
-
-            pos += consumed;
+        if (key == 'x' && chosen.secret) {
+            edits.erase(chosen.id);
+            if (chosen.configured) edits["clear." + chosen.id] = "1";
         }
-
-        // Drain remaining buffer
-        if (pos > 0 && pos < input_buf_len) {
-            input_buf_len -= pos;
-            memmove(input_buf, input_buf + pos, input_buf_len);
-        } else if (pos == 0 && input_buf_len > 0) {
-            if (input_buf_len >= (int)sizeof(input_buf) - 1) {
-                input_buf_len = 0;
+        if (key == 'r' || key == 'R') {
+            for (size_t index = 0; index < entries.size(); ++index) {
+                const auto& field = entries[index];
+                if (field.group == chosen.group && !field.secret) change(field, defaults[index].value);
             }
-        } else {
-            input_buf_len = 0;
+            message = "Defaults staged for this section. Save to apply.";
+        }
+        if (key == '\r' || key == '\n' || key == ' ') {
+            const auto found = edits.find(chosen.id);
+            const std::string value = found == edits.end() ? chosen.value : found->second;
+            if (chosen.type == "boolean") change(chosen, value == "true" ? "false" : "true");
+            else if (key == ' ' && !chosen.choices.empty()) {
+                const auto old = std::find(chosen.choices.begin(), chosen.choices.end(), value);
+                const auto next = old == chosen.choices.end() ? old : std::next(old);
+                change(chosen, next == chosen.choices.end() ? chosen.choices.front() : *next);
+            } else if (key != ' ') input = chosen.secret ? "" : value;
+        }
+        if (key == 's' || key == 'S') {
+            if (edits.empty()) return;
+            std::lock_guard lock(g_config_mtx);
+            edits["revision"] = original_revision;
+            const auto result = config_editor::apply(g_cfg, edits, path);
+            edits.erase("revision");
+            if (result.status == 200) {
+                g_config_changed.store(!result.changed.empty());
+                return;
+            }
+            const auto quote = result.body.find(':');
+            message = quote != result.body.npos && result.body.ends_with('}')
+                ? config_text::decode(std::string_view(result.body).substr(quote + 1, result.body.size() - quote - 2)).value_or(result.body)
+                : result.body;
         }
     }
-
-    restore_termios();
-    tcflush(STDIN_FILENO, TCIFLUSH);
-    printf("\033[0m\033[?25h\033[?1049l\r\n");
-    fflush(stdout);
 }

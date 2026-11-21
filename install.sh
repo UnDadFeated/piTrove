@@ -284,32 +284,6 @@ systemctl enable --now NetworkManager &>/dev/null || true
 ok "NetworkManager installed and enabled"
 
 # Parse a value from config.toml
-# Usage: get_config_val "section" "key" "default"
-get_config_val() {
-    local sec="$1"
-    local key="$2"
-    local default="$3"
-    local file="$PRIMARY_HOME/piTrove/config/config.toml"
-    if [[ ! -f "$file" ]]; then
-        echo "$default"
-        return
-    fi
-    local val
-    val=$(awk -v sec="[$sec]" -v key="$key" '
-        gsub(/^[[:space:]]+|[[:space:]]+$/, "", $0);
-        tsec = sec; gsub(/^[[:space:]]+|[[:space:]]+$/, "", tsec);
-        /^\[/ { in_sec = ($0 == tsec); next }
-        in_sec && $0 ~ "^[[:space:]]*"key"[[:space:]]*=" {
-            sub(/^[^=]*=[[:space:]]*/, "");
-            sub(/[[:space:]]*$/, "");
-            gsub(/^"|"$/, "");
-            print;
-            exit;
-        }
-    ' "$file")
-    echo "${val:-$default}"
-}
-
 # ── Handle Organize Archive Command Line Option ────────────────────────────────
 if [[ "$1" == "--organize" ]]; then
     if [[ -z "$2" ]]; then
@@ -335,7 +309,8 @@ if [[ "$1" == "--organize" ]]; then
     echo -e "   ${BOLD}${GREEN}4)${NC} ${BOLD}Abort${NC}"
     echo
     
-    safe_read -p "▸ Enter choice [1-4]: " STRATEGY
+    echo -e "   ${BOLD}${GREEN}5)${NC} ${BOLD}Undo journaled moves${NC}"
+    safe_read -p "▸ Enter choice [1-5]: " STRATEGY
     
     if [[ "$STRATEGY" == "3" ]]; then
         info "Disabling seasonal scanning window in config.toml..."
@@ -353,25 +328,32 @@ if [[ "$1" == "--organize" ]]; then
     elif [[ "$STRATEGY" == "4" ]] || [[ -z "$STRATEGY" ]]; then
         info "Aborted by user."
         exit 0
-    elif [[ "$STRATEGY" != "1" && "$STRATEGY" != "2" ]]; then
+    elif [[ "$STRATEGY" != "1" && "$STRATEGY" != "2" && "$STRATEGY" != "5" ]]; then
         fail "Invalid strategy selected."
     fi
     
-    MOUNT_POINT=$(df --output=target "$TARGET_DIR" | tail -n 1)
+    MOUNT_POINT=$(findmnt --noheadings --output TARGET --target "$TARGET_DIR") || fail "Could not identify the archive mount."
+    MOUNT_OPTIONS=$(findmnt --noheadings --output OPTIONS --target "$TARGET_DIR") || fail "Could not read archive mount options."
+    CURRENT_IMAGE=$(docker inspect --format '{{.Image}}' piTrove) || fail "Could not identify the installed piTrove image."
+    CFG_DIR="$PRIMARY_HOME/piTrove/config"
+    [[ -d "$CFG_DIR" ]] || fail "Cannot find the installed piTrove configuration."
     
     echo -e "${RED}[!] WARNING: The target archive is located on $MOUNT_POINT.${NC}"
     echo -e "    This operation will:"
-    echo -e "    1. Temporarily remount '$MOUNT_POINT' from Read-Only (ro) to Read-Write (rw)."
+    if [[ ",$MOUNT_OPTIONS," == *,ro,* ]]; then
+        echo -e "    Temporarily remount '$MOUNT_POINT' from Read-Only (ro) to Read-Write (rw)."
+    fi
     if [[ "$STRATEGY" == "1" ]]; then
         echo -e "    2. Scan, rename, and group all photos and videos under:"
         echo -e "       - $TARGET_DIR/Photos/YYYY-MM/YYYY-MM-DD_filename.ext"
         echo -e "       - $TARGET_DIR/Videos/YYYY-MM/YYYY-MM-DD_filename.ext"
-    else
+    elif [[ "$STRATEGY" == "2" ]]; then
         echo -e "    2. Scan and rename all files in-place with the 'YYYY-MM-DD_' prefix"
         echo -e "       within their current directories."
+    else
+        echo -e "    Restore journaled names without overwriting existing files."
     fi
     echo -e "    3. Retain original file timestamps and resolve naming conflicts."
-    echo -e "    4. Restore '$MOUNT_POINT' to Read-Only (ro) mount mode on completion."
     echo ""
     
     safe_read -p "▸ Are you sure you want to proceed? (y/N): " CONF1
@@ -386,120 +368,46 @@ if [[ "$1" == "--organize" ]]; then
         exit 0
     fi
     
-    IS_RO=0
-    if findmnt -n -o OPTIONS "$MOUNT_POINT" | grep -q "ro"; then
-        IS_RO=1
-        info "Remounting $MOUNT_POINT as Read-Write (rw)..."
-        # Only remount if it's a cifs or nfs mount
-        if mountpoint -q "$MOUNT_POINT" 2>/dev/null && (findmnt -n -o FSTYPE "$MOUNT_POINT" | grep -qiE "cifs|nfs"); then
-            mount -o remount,rw "$MOUNT_POINT"
-            if [[ $? -ne 0 ]]; then
-                fail "Failed to remount $MOUNT_POINT as read-write."
+    if [[ ",$MOUNT_OPTIONS," == *,ro,* ]]; then
+        MOUNT_TYPE=$(findmnt --noheadings --output FSTYPE --target "$TARGET_DIR")
+        case "$MOUNT_TYPE" in
+            cifs|smb3|nfs|nfs4) ;;
+            *) fail "A writable archive is required on $MOUNT_TYPE." ;;
+        esac
+        restore_archive_mount() {
+            local result=$?
+            trap - EXIT
+            if ! mount -o remount,ro "$MOUNT_POINT"; then
+                fail "Failed to restore $MOUNT_POINT to read-only."
             fi
-        else
-            warn "Mount point $MOUNT_POINT is not a cifs/nfs mount, skipping remount."
-        fi
-    fi
-    
-    # Map host target directory to container path
-    HOST_MEDIA_DIR="${MEDIA_DIR:-/mnt/nas}"
-    CONTAINER_DIR="$TARGET_DIR"
-    if [[ "$CONTAINER_DIR" == "$HOST_MEDIA_DIR"* ]]; then
-        CONTAINER_DIR="/app/media${CONTAINER_DIR#$HOST_MEDIA_DIR}"
+            exit "$result"
+        }
+        mount -o remount,rw "$MOUNT_POINT" || fail "Could not remount the archive read-write."
+        trap restore_archive_mount EXIT
+        trap 'exit 130' INT
+        trap 'exit 143' TERM
     fi
 
-    # Use -it only if a TTY is available (non-interactive contexts like cron would fail)
-    DOCKER_IT="-i"
-    if [[ -t 0 ]] || { true < /dev/tty; } 2>/dev/null; then
-        DOCKER_IT="-it"
+    ORGANIZE_ARGS=(--organize /archive)
+    if [[ "$STRATEGY" == "2" ]]; then
+        ORGANIZE_ARGS+=(--in-place)
+    elif [[ "$STRATEGY" == "5" ]]; then
+        ORGANIZE_ARGS=(--undo-organize /archive/.pitrove-organizer.sqlite3)
     fi
-
-    if [[ "$STRATEGY" == "1" ]]; then
-        info "Organizing media archive (Chronological Folders) inside docker at $CONTAINER_DIR..."
-        docker exec $DOCKER_IT piTrove /app/piTrove --organize "$CONTAINER_DIR"
-    else
-        info "Organizing media archive (In-Place Prefix) inside docker at $CONTAINER_DIR..."
-        docker exec $DOCKER_IT piTrove /app/piTrove --organize "$CONTAINER_DIR" --in-place
-    fi
-    
-    if [[ "$IS_RO" -eq 1 ]]; then
-        info "Restoring $MOUNT_POINT mount mode to Read-Only (ro)..."
-        mount -o remount,ro "$MOUNT_POINT"
-        if [[ $? -ne 0 ]]; then
-            fail "Failed to restore $MOUNT_POINT to read-only mount. Please restore manually!"
-        fi
-        ok "$MOUNT_POINT successfully restored to Read-Only mode."
-    fi
-    exit 0
+    docker run --rm --network none --entrypoint /app/piTrove \
+        --mount "type=bind,source=$TARGET_DIR,target=/archive" \
+        --mount "type=bind,source=$CFG_DIR,target=/app/config,readonly" \
+        "$CURRENT_IMAGE" --config /app/config/config.toml "${ORGANIZE_ARGS[@]}"
+    exit $?
 fi
 
 # ── Handle Update Command Line Option ──────────────────────────────────────────
 if [[ "$1" == "--update" ]]; then
-    # Change directory to the repository to run git commands
-    cd "$PRIMARY_HOME/piTrove" || fail "Failed to enter repository directory: $PRIMARY_HOME/piTrove"
-
-    IS_CRON=0
-    if [[ "$2" == "--cron" ]]; then
-        IS_CRON=1
-    fi
-
-    CONFIG_FILE="$PRIMARY_HOME/piTrove/config/config.toml"
-    
-    AUTO_UPD_ENABLED=$(get_config_val "updates" "auto_update" "0")
-    CONFIG_BRANCH=$(get_config_val "updates" "auto_update_branch" "main")
-    
-    if [[ "$IS_CRON" -eq 1 ]]; then
-        if [[ "$AUTO_UPD_ENABLED" != "1" && "$AUTO_UPD_ENABLED" != "true" ]]; then
-            # Auto-update not enabled in config, skip cron execution silently
-            exit 0
-        fi
-    fi
-
-    info "Initiating piTrove Update Checker (Branch: $CONFIG_BRANCH)..."
-    
-    # Verify we are inside a git repository
-    if ! sudo -u "$PRIMARY_USER" git rev-parse --is-inside-work-tree &>/dev/null; then
-        fail "Not in a valid Git repository. Please run --update from within the piTrove repository folder."
-    fi
-    
-    # Perform git fetch safely as the primary user
-    run_with_spinner "Fetching latest repository states from origin" sudo -u "$PRIMARY_USER" git fetch --all --prune
-    
-    # The update path preserves the installed branch and tracked local work.
-    CURRENT_BRANCH=$(sudo -u "$PRIMARY_USER" git branch --show-current)
-    if [[ "$CURRENT_BRANCH" != "$CONFIG_BRANCH" ]]; then
-        fail "The checkout is on '$CURRENT_BRANCH'. Set auto_update_branch to the installed branch before updating."
-    fi
-    if ! sudo -u "$PRIMARY_USER" git diff --quiet -- ||
-       ! sudo -u "$PRIMARY_USER" git diff --cached --quiet --; then
-        fail "The checkout has local changes. Save them before updating piTrove."
-    fi
-
-    LOCAL_COMMIT=$(sudo -u "$PRIMARY_USER" git rev-parse HEAD)
-    REMOTE_COMMIT=$(sudo -u "$PRIMARY_USER" git rev-parse --verify "refs/remotes/origin/$CONFIG_BRANCH^{commit}" 2>/dev/null) ||
-        fail "No origin branch is available for '$CONFIG_BRANCH'."
-
-    if [[ "$LOCAL_COMMIT" == "$REMOTE_COMMIT" ]]; then
-        ok "piTrove is already up-to-date at the latest version!"
-        exit 0
-    fi
-    
-    info "Updates discovered! Upgrading repository from commit ${CYAN}${LOCAL_COMMIT:0:7}${NC} to ${GREEN}${REMOTE_COMMIT:0:7}${NC}..."
-    
-    run_with_spinner "Fast-forwarding the installed branch" sudo -u "$PRIMARY_USER" git merge --ff-only "$REMOTE_COMMIT"
-    
-    # Rebuild docker compose container image
-    run_with_spinner "Rebuilding container image" env BUILDKIT_PROGRESS=plain docker compose build --pull
-    
-    # Restart systemd service if it exists and is active
-    if systemctl list-unit-files | grep -q piTrove.service; then
-        run_with_spinner "Restarting background daemon (piTrove.service)" systemctl restart piTrove.service
-    fi
-    
-    echo
-    echo -e " ${BOLD}${GREEN}✔  piTrove Updated and Deployed Successfully${NC}"
-    echo
-    exit 0
+    project="$PRIMARY_HOME/piTrove"
+    [[ -x "$project/scripts/update.sh" ]] || fail "Cannot find the installed update script."
+    args=()
+    if [[ "${2:-}" == "--cron" ]]; then args+=(--cron); fi
+    exec sudo -u "$PRIMARY_USER" env PITROVE_DIR="$project" "$project/scripts/update.sh" "${args[@]}"
 fi
 
 # ── Kill Conflicting Display Servers ───────────────────────────────────────────
@@ -622,6 +530,9 @@ if [[ ! -f "$CMD_FILE" && -f "/boot/cmdline.txt" ]]; then
 fi
 
 if [[ -f "$CMD_FILE" ]]; then
+    if ! grep -qE '(^|[[:space:]])cgroup_enable=memory([[:space:]]|$)' "$CMD_FILE"; then
+        sed -i '1s/[[:space:]]*$/ cgroup_enable=memory/' "$CMD_FILE"
+    fi
     if ! grep -q "brcmfmac.feature_disable" "$CMD_FILE"; then
         sed -i 's/$/ brcmfmac.feature_disable=0x2282000 brcmfmac.roamoff=1/' "$CMD_FILE"
         ok "Added brcmfmac.feature_disable=0x2282000 to $CMD_FILE"
@@ -1130,6 +1041,20 @@ PROBED_INDEX=${PROBED_CARD#card}
 echo "SDL_VIDEO_KMSDRM_DEVICE=/dev/dri/$PROBED_CARD" > .env
 echo "SDL_KMSDRM_DEVICE_INDEX=$PROBED_INDEX" >> .env
 echo "MEDIA_DIR=$SHARE_MOUNT" >> .env
+{
+    echo "PITROVE_UID=$(id -u "$PRIMARY_USER")"
+    echo "PITROVE_GID=$(id -g "$PRIMARY_USER")"
+    memory_kib=$(awk '$1=="MemTotal:" {print $2; exit}' /proc/meminfo)
+    if [[ "$memory_kib" =~ ^[0-9]+$ ]] && (( memory_kib >= 3000000 )); then
+        echo "PITROVE_MEMORY_LIMIT=1536m"
+    elif [[ "$memory_kib" =~ ^[0-9]+$ ]] && (( memory_kib >= 1000000 )); then
+        echo "PITROVE_MEMORY_LIMIT=768m"
+    fi
+    for group in video render input audio; do
+        gid=$(getent group "$group" | cut -d: -f3)
+        if [[ -n "$gid" ]]; then echo "PITROVE_${group^^}_GID=$gid"; fi
+    done
+} >> .env
 chown $PRIMARY_USER:$PRIMARY_USER .env
 
 run_with_spinner "Building piTrove container image" env BUILDKIT_PROGRESS=plain docker compose build --pull
@@ -1155,60 +1080,12 @@ else
 fi
 ok "Scan window initialized to $SCAN_WINDOW_DAYS days"
 
-# ── Google Photos Interactive Setup ──────────────────────────────────────────────
+# ── Google Photos Picker ──────────────────────────────────────────────────────
 echo
 GOOGLE_PHOTOS_ENABLED=0
-GP_CLIENT_ID=""
-GP_CLIENT_SECRET=""
-GP_ALBUM_ID=""
-GP_SYNC_INTERVAL=60
-
-if yesno "Configure Google Photos cloud integration?"; then
+if yesno "Enable Google Photos Picker imports?"; then
     GOOGLE_PHOTOS_ENABLED=1
-    
-    # Validate Client ID
-    while true; do
-        echo -n -e "   ${BOLD}${YELLOW}▸ Google Photos Client ID:${NC} "
-        safe_read -r GP_CLIENT_ID
-        if [[ -z "$GP_CLIENT_ID" ]]; then
-            warn "Client ID cannot be empty. Please enter your Google Cloud OAuth Client ID."
-        elif [[ ! "$GP_CLIENT_ID" =~ \.apps\.googleusercontent\.com$ ]]; then
-            warn "Client ID does not end with '.apps.googleusercontent.com'. Double check your credential entry."
-            if yesno "Use this Client ID anyway?"; then
-                break
-            fi
-        else
-            break
-        fi
-    done
-
-    # Validate Client Secret
-    while true; do
-        echo -n -e "   ${BOLD}${YELLOW}▸ Google Photos Client Secret:${NC} "
-        safe_read -r GP_CLIENT_SECRET
-        if [[ -z "$GP_CLIENT_SECRET" ]]; then
-            warn "Client Secret cannot be empty. Please enter your Google Cloud OAuth Client Secret."
-        else
-            break
-        fi
-    done
-
-    echo -n -e "   ${BOLD}${YELLOW}▸ Google Photos Album ID (optional, press Enter for all):${NC} "
-    safe_read -r GP_ALBUM_ID
-
-    # Validate Sync Interval
-    while true; do
-        echo -n -e "   ${BOLD}${YELLOW}▸ Sync Interval in minutes [default: 60]:${NC} "
-        safe_read -r GP_SYNC_INT_INPUT
-        GP_SYNC_INTERVAL="${GP_SYNC_INT_INPUT:-60}"
-        if [[ "$GP_SYNC_INTERVAL" =~ ^[0-9]+$ ]] && [[ "$GP_SYNC_INTERVAL" -ge 1 ]] && [[ "$GP_SYNC_INTERVAL" -le 1440 ]]; then
-            break
-        else
-            warn "Invalid interval. Please specify an integer between 1 and 1440 minutes."
-        fi
-    done
-
-    ok "Google Photos configured (will require browser authorization at http://<IP>:9000/google_photos_setup)"
+    info "Link Google Photos from the LAN controller using the localhost tunnel described in README.md."
 fi
 
 # ── Configuration TOML ─────────────────────────────────────────────────────────
@@ -1230,7 +1107,7 @@ if [[ -f "$CONFIG_FILE" ]]; then
     info "Merging defaults into existing config.toml..."
 fi
 if ! printf '%s\0' "$SCAN_WINDOW_DAYS" "$PROBED_GATEWAY" "$PROBED_INTERFACE" \
-    "$GOOGLE_PHOTOS_ENABLED" "$GP_CLIENT_ID" "$GP_CLIENT_SECRET" "$GP_ALBUM_ID" "$GP_SYNC_INTERVAL" |
+    "$GOOGLE_PHOTOS_ENABLED" |
     python3 -c '
 import json
 from pathlib import Path
@@ -1242,7 +1119,7 @@ sys.path.insert(0, str(root / "scripts"))
 from merge_config import merge_configs
 
 config = root / "config/config.toml"
-window, gateway, interface, photos, client, secret, album, interval = (
+window, gateway, interface, photos = (
     value.decode() for value in sys.stdin.buffer.read().split(b"\0")[:-1]
 )
 overrides = {"scan": {"window_days": str(int(window))}}
@@ -1254,11 +1131,7 @@ if not config.exists():
     })
 if photos == "1":
     overrides["remote"] = {"http_enabled": "1"}
-    overrides["google_photos"] = {
-        "enabled": "1", "client_id": json.dumps(client, ensure_ascii=False),
-        "client_secret": json.dumps(secret, ensure_ascii=False),
-        "album_id": json.dumps(album, ensure_ascii=False), "sync_interval_mins": str(int(interval)),
-    }
+    overrides["google_photos"] = {"enabled": "1"}
 sys.exit(0 if merge_configs(root / "src/config.toml", config, config, overrides) else 1)
 ' "$INSTALL_ROOT" "$INSTALL_BRANCH"; then
     fail "Could not save config.toml"
@@ -1310,10 +1183,14 @@ ok "piTrove.service registered (starts on first launch)"
 
 # ── Configure Auto-Update Cron Job ─────────────────────────────────────────────
 info "Configuring auto-update cron job..."
-CRON_JOB="0 3 * * * $PRIMARY_HOME/piTrove/install.sh --update --cron >/dev/null 2>&1"
-CURRENT_CRON=$(crontab -l 2>/dev/null | grep -v "piTrove/install.sh --update" || true)
-(echo "$CURRENT_CRON"; echo "$CRON_JOB") | crontab -
-ok "Auto-update cron job configured persistently (runs daily at 3:00 AM)"
+CURRENT_CRON=$(crontab -l 2>/dev/null | awk '!/piTrove\/install.sh --update/ && !/piTrove\/scripts\/update.sh --cron/' || true)
+if [[ "$INSTALL_BRANCH" == develop ]]; then
+    CRON_JOB="0 3 * * * sudo -u '$PRIMARY_USER' env PITROVE_DIR='$PRIMARY_HOME/piTrove' '$PRIMARY_HOME/piTrove/scripts/update.sh' --cron 2>&1 | logger -t pitrove-update"
+    printf '%s\n%s\n' "$CURRENT_CRON" "$CRON_JOB" | crontab -
+else
+    printf '%s\n' "$CURRENT_CRON" | crontab -
+fi
+ok "Update schedule configured for the $INSTALL_BRANCH checkout."
 
 # ── pitrove CLI Command Wrapper ─────────────────────────────────────────────────
 info "Installing 'pitrove' CLI management tool..."
