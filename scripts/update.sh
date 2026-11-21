@@ -10,20 +10,31 @@ CONTAINER="piTrove"
 SERVICE="pitrove"
 UNIT="piTrove.service"
 BACKUP_DIR="${PROJECT_DIR}/backups"
+SCRIPT_DIR="$(cd -- "$(dirname -- "$0")" && pwd)"
 cd "$PROJECT_DIR"
 
 if [[ "${1:-}" == --cron ]]; then
-  mode="$(python3 - <<'TOML'
-import pathlib
-import tomllib
+  mode="$(python3 -B - "$SCRIPT_DIR" <<'CONFIG'
+from pathlib import Path
+import re
+import sys
+
+sys.path.insert(0, sys.argv[1])
+from merge_config import SETTING, split_sections
+
 try:
-    config = pathlib.Path("config/config.toml").read_text()
+    config = Path("config/config.toml").read_text(encoding="utf-8")
 except FileNotFoundError:
-    print("disabled")
-else:
-    enabled = tomllib.loads(config).get("updates", {}).get("auto_update")
-    print("enabled" if enabled in (1, True, "1", "true") else "disabled")
-TOML
+    config = ""
+updates = split_sections(config).get("updates", ())
+enabled = False
+for line in updates:
+    key = SETTING.match(line)
+    if key and key[1] == "auto_update":
+        value = line.split("=", 1)[1].strip()
+        enabled = re.fullmatch(r"""(?:(["'])(1|true)\1|(1|true))\s*(?:[#;].*)?""", value) is not None
+print("enabled" if enabled else "disabled")
+CONFIG
 )" || exit 1
   [[ "$mode" == enabled ]] || exit 0
 fi

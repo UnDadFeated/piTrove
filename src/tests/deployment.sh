@@ -79,6 +79,18 @@ for scenario in success pull-failure start-failure stale-container; do
 done
 [[ "$(stat -c '%a' "$work/project/backups")" == 700 ]]
 
+# Older frame configurations use an unquoted resolution value.
+export CASE=success
+: > "$work/docker"
+printf '[display]\nresolution = 1920,1080\n[updates]\nauto_update = "true" # scheduled\n' > "$work/project/config/config.toml"
+bash "$update" --cron > "$work/update.log"
+grep -qx 'piTrove is up to date' "$work/update.log"
+[[ ! -s "$work/docker" ]]
+export CASE=pull-failure
+printf '[updates]\nauto_update = false\n' > "$work/project/config/config.toml"
+bash "$update" --cron
+[[ ! -s "$work/docker" ]]
+
 export PITROVE_HEARTBEAT="$work/heartbeat"
 up=$(awk '{print int($1)}' /proc/uptime)
 printf '%s\n' "$up" > "$PITROVE_HEARTBEAT"
