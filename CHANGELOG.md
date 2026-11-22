@@ -1,3 +1,8 @@
+### Release v18.4.10
+
+- Refresh the pinned Debian Trixie base and install available Debian security updates.
+- Build the runtime libxml2 package with Ubuntu Noble security backports while Debian Trixie awaits a release update.
+
 ### Release v18.4.9
 
 - Keep playback timestamps out of slideshow metadata updates and coalesce history writes across multiple slides.

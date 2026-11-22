@@ -1,0 +1,93 @@
+{
+  "@context": "https://openvex.dev/ns/v0.2.0",
+  "@id": "https://github.com/UnDadFeated/piTrove/blob/main/.github/libxml2-backports.openvex.json",
+  "author": "piTrove",
+  "timestamp": "2026-11-22T00:00:00Z",
+  "version": 1,
+  "statements": [
+    {
+      "vulnerability": {
+        "name": "CVE-2026-6653"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/debian/libxml2@2.12.7%2Bdfsg%2Breally2.9.14-2.1%2Bdeb13u3%2Bpitrove1"
+        }
+      ],
+      "status": "fixed",
+      "status_notes": "The Dockerfile builds this Debian package with the matching Ubuntu Noble security patch."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-74860"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/debian/libxml2@2.12.7%2Bdfsg%2Breally2.9.14-2.1%2Bdeb13u3%2Bpitrove1"
+        }
+      ],
+      "status": "fixed",
+      "status_notes": "The Dockerfile builds this Debian package with the matching Ubuntu Noble security patch."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-86138"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/debian/libxml2@2.12.7%2Bdfsg%2Breally2.9.14-2.1%2Bdeb13u3%2Bpitrove1"
+        }
+      ],
+      "status": "fixed",
+      "status_notes": "The Dockerfile builds this Debian package with the matching Ubuntu Noble security patch."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-86140"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/debian/libxml2@2.12.7%2Bdfsg%2Breally2.9.14-2.1%2Bdeb13u3%2Bpitrove1"
+        }
+      ],
+      "status": "fixed",
+      "status_notes": "The Dockerfile builds this Debian package with the matching Ubuntu Noble security patch."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-86142"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/debian/libxml2@2.12.7%2Bdfsg%2Breally2.9.14-2.1%2Bdeb13u3%2Bpitrove1"
+        }
+      ],
+      "status": "fixed",
+      "status_notes": "The Dockerfile builds this Debian package with the matching Ubuntu Noble security patch."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-86143"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/debian/libxml2@2.12.7%2Bdfsg%2Breally2.9.14-2.1%2Bdeb13u3%2Bpitrove1"
+        }
+      ],
+      "status": "fixed",
+      "status_notes": "The Dockerfile builds this Debian package with the matching Ubuntu Noble security patch."
+    },
+    {
+      "vulnerability": {
+        "name": "CVE-2026-86144"
+      },
+      "products": [
+        {
+          "@id": "pkg:deb/debian/libxml2@2.12.7%2Bdfsg%2Breally2.9.14-2.1%2Bdeb13u3%2Bpitrove1"
+        }
+      ],
+      "status": "fixed",
+      "status_notes": "The Dockerfile builds this Debian package with the matching Ubuntu Noble security patch."
+    }
+  ]
+}

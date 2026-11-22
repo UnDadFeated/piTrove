@@ -1,10 +1,39 @@
-# ============================================================
-# Stage 1: Build stage
-# ============================================================
-FROM debian:trixie@sha256:4ae67669760b807c19f23902a3fd7c121a6a70cf2ae709035674b23e712e4d62 AS builder
-
-# Prevent interactive prompts
+FROM debian:trixie@sha256:9c6e381421d0f48d1b8133e573f33c185ee16cbf505eda9c4a8a4791b25ea8a6 AS debian-base
 ENV DEBIAN_FRONTEND=noninteractive
+ARG LIBXML2_DEBIAN_VERSION=2.12.7+dfsg+really2.9.14-2.1+deb13u3
+
+# Build a Debian package using the published Ubuntu Noble security backports.
+# Debian Trixie has no release update for these advisories yet.
+FROM debian-base AS libxml2-backport
+ARG PITROVE_BUILD_JOBS
+WORKDIR /build-libxml2
+RUN set -eu; \
+    sed -i 's/^Types: deb$/Types: deb deb-src/' /etc/apt/sources.list.d/debian.sources; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends build-essential ca-certificates curl dpkg-dev xz-utils; \
+    apt-get build-dep -y --arch-only --no-install-recommends "libxml2=$LIBXML2_DEBIAN_VERSION"; \
+    apt-get source "libxml2=$LIBXML2_DEBIAN_VERSION"; \
+    curl --fail --silent --show-error --location --retry 3 \
+        https://archive.ubuntu.com/ubuntu/pool/main/libx/libxml2/libxml2_2.9.14+dfsg-1.3ubuntu3.10.debian.tar.xz \
+        --output ubuntu.tar.xz; \
+    printf '%s  ubuntu.tar.xz\n' d2d821830eb60edbcfcbe30e2827420e9e439e98c85c812352969cdda764d60b | sha256sum -c -; \
+    cd libxml2-*/; \
+    for cve in 6653 86140 74860 86138 86142 86143 86144; do \
+        patch_name="CVE-2026-$cve.patch"; \
+        tar -xOf ../ubuntu.tar.xz "debian/patches/$patch_name" > "debian/patches/$patch_name"; \
+        printf '%s\n' "$patch_name" >> debian/patches/series; \
+    done; \
+    deb_version="$LIBXML2_DEBIAN_VERSION+pitrove1"; \
+    printf 'libxml2 (%s) trixie; urgency=high\n\n  * Apply Ubuntu Noble security backports.\n\n -- piTrove <UnDadFeated@piTrove>  Sun, 22 Nov 2026 00:00:00 +0000\n\n' \
+        "$deb_version" > /tmp/libxml2-changelog; \
+    cat debian/changelog >> /tmp/libxml2-changelog; \
+    cp /tmp/libxml2-changelog debian/changelog; \
+    DEB_BUILD_OPTIONS="parallel=${PITROVE_BUILD_JOBS:-$(nproc)}" dpkg-buildpackage -B -us -uc; \
+    mkdir /out; \
+    cp "../libxml2_${deb_version}_$(dpkg --print-architecture).deb" /out/libxml2.deb
+
+# Compile the piTrove executable.
+FROM debian-base AS builder
 
 # Copy Raspberry Pi repository keyring and sources for hardware acceleration
 COPY raspberrypi-archive-keyring.pgp /usr/share/keyrings/raspberrypi-archive-keyring.pgp
@@ -65,17 +94,15 @@ RUN cmake .. -DCMAKE_BUILD_TYPE=Release && \
 # ============================================================
 # Stage 2: Runtime stage
 # ============================================================
-FROM debian:trixie@sha256:4ae67669760b807c19f23902a3fd7c121a6a70cf2ae709035674b23e712e4d62
-
-# Prevent interactive prompts
-ENV DEBIAN_FRONTEND=noninteractive
+FROM debian-base
 
 # Copy Raspberry Pi repository keyring and sources for hardware acceleration
 COPY raspberrypi-archive-keyring.pgp /usr/share/keyrings/raspberrypi-archive-keyring.pgp
 COPY raspi.sources /etc/apt/sources.list.d/raspi.sources
 
-# Install only the runtime libraries, fonts, and utilities
-RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-recommends \
+# Keep the rebuilt .deb out of the final image layers.
+RUN --mount=type=bind,from=libxml2-backport,source=/out/libxml2.deb,target=/tmp/libxml2.deb \
+    apt-get update && apt-get upgrade -y && apt-get install -y --no-install-recommends \
     libsdl3-0 \
     libsdl3-image0 \
     libsdl3-ttf0 \
@@ -107,10 +134,13 @@ RUN apt-get update && apt-get upgrade -y && apt-get install -y --no-install-reco
     libv4l-0t64 \
     libv4lconvert0t64 \
     tzdata \
-    && rm -rf /var/lib/apt/lists/*
-
-# SDL loads these libraries and drivers dynamically for KMSDRM and headless rendering.
-RUN apt-get update && apt-get install -y --no-install-recommends libgl1 libgl1-mesa-dri \
+    libgl1 \
+    libgl1-mesa-dri \
+    && if [ "$(dpkg-query -W -f='${Version}' libxml2)" != "$LIBXML2_DEBIAN_VERSION" ]; then \
+        printf '%s\n' 'Review the libxml2 backport for the current Debian package version.' >&2; \
+        exit 1; \
+    fi \
+    && dpkg -i /tmp/libxml2.deb \
     && rm -rf /var/lib/apt/lists/*
 
 # Establish runtime directory tree
