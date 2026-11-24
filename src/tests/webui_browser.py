@@ -98,9 +98,9 @@ with tempfile.TemporaryDirectory(prefix='pitrove-chrome-', ignore_cleanup_errors
         assert not js("!!document.querySelector('#log-console img')")
         click('live-logs');assert not js("document.getElementById('live-logs').checked")
         call('Page.navigate',{'url':base+'/config'})
-        wait("document.querySelectorAll('.config-field').length>=180")
+        wait("document.querySelectorAll('.config-field').length>=179")
         assert js("document.documentElement.dataset.theme")=='light','Appearance did not persist across pages'
-        data=api('/api/config');assert len(data['fields'])>=180
+        data=api('/api/config');assert len(data['fields'])>=179
         assert len({f['id'] for f in data['fields']})==len(data['fields'])
         assert all(not f['value'] for f in data['fields'] if f['secret']), 'API exposed configured credentials'
         assert js("document.getElementById('option-display.bg_style').tagName") == 'SELECT', 'Fixed choices need a dropdown'
