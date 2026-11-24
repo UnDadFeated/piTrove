@@ -31,6 +31,7 @@ private:
     std::jthread m_worker_thread;
     std::mutex m_lifecycle_mtx;
     std::atomic<bool> m_running{false};
+    std::atomic<bool> m_allow_io{true};
     std::atomic<bool> m_fetching{false};
     std::atomic<int> m_last_error{0};
     std::atomic<time_t> m_last_sync_time{0};

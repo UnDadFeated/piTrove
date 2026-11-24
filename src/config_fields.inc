@@ -162,7 +162,6 @@ make("stockstreamer.preset","Stock Preset","Stocks & crypto","Quick preset ticke
 make("stockstreamer.refresh_seconds","Stockstreamer refresh seconds","Stocks & crypto","Configure stockstreamer refresh seconds.",&Config::stockstreamer_refresh_seconds,5,86400,{},true,false),
 make("stockstreamer.symbols","Stock Symbols","Stocks & crypto","Comma-separated stock symbols (e.g. NVDA,AAPL,MSFT) Enter one item per line; commas inside an item are preserved.",&Config::stockstreamer_symbols,-2147483648,2147483647,{},false,false),
 make("stockstreamer.crypto","Crypto Symbol","Stocks & crypto","Cryptocurrency ticker (e.g. BTC-USD, ETH-USD)",&Config::stockstreamer_crypto,-2147483648,2147483647,{},false,false),
-make("stockstreamer.tls_verify","Stockstreamer tls verify","Stocks & crypto","Configure stockstreamer tls verify.",&Config::stockstreamer_tls_verify,-2147483648,2147483647,{},false,false),
 make("gcalendar.enabled","Google Calendar","Calendar","Show Google Calendar agenda sidebar panel",&Config::gcalendar_enabled,-2147483648,2147483647,{},false,false),
 make("gcalendar.ical_url","Calendar iCal URL","Calendar","Direct Google Calendar secret/public iCal address URL Existing secret values are hidden.",&Config::gcalendar_ical_url,-2147483648,2147483647,{},false,true),
 make("gcalendar.calendar_name","Calendar Name","Calendar","Name of the calendar to sync/display (e.g. Family)",&Config::gcalendar_name,-2147483648,2147483647,{},false,false),

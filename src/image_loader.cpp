@@ -35,6 +35,9 @@ static void jpeg_error_exit(j_common_ptr cinfo) {
 #include <cstring>
 #include <cstdio>
 #include <memory>
+#include <fcntl.h>
+#include <sys/stat.h>
+#include <unistd.h>
 
 // EXIF tags and library
 #include <libexif/exif-data.h>
@@ -63,6 +66,14 @@ bool usable_dimensions(int w, int h) {
     constexpr size_t max_pixels = 64ULL * 1024 * 1024;
     return w > 0 && h > 0 && w <= 16384 && h <= 16384 &&
            static_cast<size_t>(w) <= max_pixels / static_cast<size_t>(h);
+}
+
+// High-megapixel smartphone JPEGs (108MP-200MP) can be DCT-downscaled directly by
+// libjpeg-turbo into a small RGBA buffer; keep a strict upper bound against bombs.
+bool jpeg_scalable_dimensions(int w, int h) {
+    constexpr size_t max_source_pixels = 256ULL * 1024 * 1024;
+    return w > 0 && h > 0 && w <= 32768 && h <= 32768 &&
+           static_cast<size_t>(w) <= max_source_pixels / static_cast<size_t>(h);
 }
 
 enum class CommonFormat { Unknown, Jpeg, Png, Gif, Bmp };
@@ -108,7 +119,99 @@ bool jpeg_dimensions(std::span<const uint8_t> data, int& w, int& h) {
     w = static_cast<int>(jpeg.image_width);
     h = static_cast<int>(jpeg.image_height);
     jpeg_destroy_decompress(&jpeg);
-    return ready && usable_dimensions(w, h);
+    return ready && jpeg_scalable_dimensions(w, h);
+}
+
+bool decode_jpeg_libjpeg(std::span<const uint8_t> data, RawImage& result, int max_dim) {
+    jpeg_decompress_struct jpeg{};
+    JpegErrorMgr error;
+    jpeg.err = jpeg_std_error(&error.pub);
+    error.pub.error_exit = jpeg_error_exit;
+    error.pub.output_message = [](j_common_ptr) {};
+    uint8_t* pixels = nullptr;
+    if (setjmp(error.jump)) {
+        std::free(pixels);
+        jpeg_destroy_decompress(&jpeg);
+        return false;
+    }
+    jpeg_create_decompress(&jpeg);
+    jpeg_mem_src(&jpeg, data.data(), data.size());
+    if (jpeg_read_header(&jpeg, TRUE) != JPEG_HEADER_OK) {
+        jpeg_destroy_decompress(&jpeg);
+        return false;
+    }
+    const int src_w = static_cast<int>(jpeg.image_width);
+    const int src_h = static_cast<int>(jpeg.image_height);
+    if (!jpeg_scalable_dimensions(src_w, src_h)) {
+        jpeg_destroy_decompress(&jpeg);
+        return false;
+    }
+
+    int target_dim = max_dim;
+    if (target_dim <= 0 && !usable_dimensions(src_w, src_h)) {
+        target_dim = 4096;
+    }
+    unsigned int scale_num = 8;
+    const unsigned int scale_denom = 8;
+    if (target_dim > 0 && (src_w > target_dim || src_h > target_dim)) {
+        scale_num = 1;
+        for (unsigned int num = 1; num <= 8; ++num) {
+            const int sw = static_cast<int>((static_cast<uint64_t>(src_w) * num + 7) / 8);
+            const int sh = static_cast<int>((static_cast<uint64_t>(src_h) * num + 7) / 8);
+            scale_num = num;
+            if (sw >= target_dim || sh >= target_dim) break;
+        }
+    }
+    jpeg.scale_num = scale_num;
+    jpeg.scale_denom = scale_denom;
+    jpeg_calc_output_dimensions(&jpeg);
+    while (scale_num > 1 && !usable_dimensions(static_cast<int>(jpeg.output_width), static_cast<int>(jpeg.output_height))) {
+        --scale_num;
+        jpeg.scale_num = scale_num;
+        jpeg_calc_output_dimensions(&jpeg);
+    }
+    const bool is_cmyk = (jpeg.jpeg_color_space == JCS_CMYK || jpeg.jpeg_color_space == JCS_YCCK);
+    jpeg.out_color_space = is_cmyk ? JCS_CMYK : JCS_EXT_RGBA;
+    jpeg_calc_output_dimensions(&jpeg);
+
+    const int out_w = static_cast<int>(jpeg.output_width);
+    const int out_h = static_cast<int>(jpeg.output_height);
+    if (!usable_dimensions(out_w, out_h) || jpeg.output_components != 4) {
+        jpeg_destroy_decompress(&jpeg);
+        return false;
+    }
+
+    const size_t stride = static_cast<size_t>(out_w) * 4;
+    pixels = static_cast<uint8_t*>(std::malloc(stride * static_cast<size_t>(out_h)));
+    if (!pixels) {
+        jpeg_destroy_decompress(&jpeg);
+        return false;
+    }
+
+    jpeg_start_decompress(&jpeg);
+    while (jpeg.output_scanline < jpeg.output_height) {
+        JSAMPROW row = pixels + static_cast<size_t>(jpeg.output_scanline) * stride;
+        jpeg_read_scanlines(&jpeg, &row, 1);
+        if (is_cmyk) {
+            for (int x = 0; x < out_w; ++x) {
+                const uint8_t c = row[x * 4 + 0];
+                const uint8_t m = row[x * 4 + 1];
+                const uint8_t y = row[x * 4 + 2];
+                const uint8_t k = row[x * 4 + 3];
+                row[x * 4 + 0] = static_cast<uint8_t>((static_cast<unsigned>(c) * k) / 255U);
+                row[x * 4 + 1] = static_cast<uint8_t>((static_cast<unsigned>(m) * k) / 255U);
+                row[x * 4 + 2] = static_cast<uint8_t>((static_cast<unsigned>(y) * k) / 255U);
+                row[x * 4 + 3] = 255;
+            }
+        }
+    }
+    jpeg_finish_decompress(&jpeg);
+    jpeg_destroy_decompress(&jpeg);
+
+    result.width = out_w;
+    result.height = out_h;
+    result.pixels = pixels;
+    return true;
 }
 
 bool common_dimensions(CommonFormat format, std::span<const uint8_t> data, int& w, int& h) {
@@ -460,7 +563,7 @@ bool ImageLoader::image_dimensions(std::span<const uint8_t> buffer, int& width, 
     return common_dimensions(common_format(buffer), buffer, width, height);
 }
 
-RawImage ImageLoader::decode_rgba(std::span<const uint8_t> buffer) {
+RawImage ImageLoader::decode_rgba(std::span<const uint8_t> buffer, int max_dim) {
     RawImage result;
     if (buffer.empty() || buffer.size() > INT_MAX) return {};
     if (is_tiff(buffer)) {
@@ -516,8 +619,12 @@ RawImage ImageLoader::decode_rgba(std::span<const uint8_t> buffer) {
         convert_embedded_profile(result, buffer);
     } else {
         const auto format = common_format(buffer);
-        if (!common_dimensions(format, buffer, result.width, result.height) ||
-            !decode_common(format, buffer, result)) return {};
+        if (format == CommonFormat::Jpeg) {
+            if (!decode_jpeg_libjpeg(buffer, result, max_dim)) return {};
+        } else {
+            if (!common_dimensions(format, buffer, result.width, result.height) ||
+                !decode_common(format, buffer, result)) return {};
+        }
         convert_embedded_profile(result, buffer);
     }
     result.channels = 4;
@@ -528,35 +635,46 @@ RawImage ImageLoader::decode_rgba(std::span<const uint8_t> buffer) {
 
 std::vector<uint8_t> ImageLoader::read_file_to_buffer(const std::string& path) {
     std::vector<uint8_t> buffer;
-    FILE* f = fopen(path.c_str(), "rb");
+    const int fd = ::open(path.c_str(), O_RDONLY | O_NOFOLLOW | O_CLOEXEC);
     [[unlikely]]
-    if (!f) {
+    if (fd < 0) {
         return buffer;
     }
-    if (fseek(f, 0, SEEK_END) != 0) {
-        fclose(f);
-        return buffer;
-    }
-    long size = ftell(f);
-    if (size <= 0) {
-        fclose(f);
+    struct stat st{};
+    if (::fstat(fd, &st) != 0 || !S_ISREG(st.st_mode) || st.st_size <= 0) {
+        const int saved_err = S_ISREG(st.st_mode) ? errno : EINVAL;
+        ::close(fd);
+        errno = saved_err;
         return buffer;
     }
     constexpr size_t max_img_size = 128ULL * 1024 * 1024;
-    if (static_cast<size_t>(size) > max_img_size) {
-        fclose(f);
+    const size_t total = static_cast<size_t>(st.st_size);
+    if (total > max_img_size) {
+        ::close(fd);
+        errno = EFBIG;
         return buffer;
     }
-    if (fseek(f, 0, SEEK_SET) != 0) {
-        fclose(f);
-        return buffer;
+    buffer.resize(total);
+    size_t offset = 0;
+    while (offset < total) {
+        const ssize_t n = ::read(fd, buffer.data() + offset, total - offset);
+        if (n < 0) {
+            if (errno == EINTR) continue;
+            const int saved_err = errno;
+            ::close(fd);
+            buffer.clear();
+            errno = saved_err;
+            return buffer;
+        }
+        if (n == 0) {
+            ::close(fd);
+            buffer.clear();
+            errno = 0;
+            return buffer;
+        }
+        offset += static_cast<size_t>(n);
     }
-    buffer.resize(size);
-    size_t read_bytes = fread(buffer.data(), 1, size, f);
-    if (read_bytes != (size_t)size) {
-        buffer.clear(); // Truncated read or read error, reject
-    }
-    fclose(f);
+    ::close(fd);
     return buffer;
 }
 
@@ -595,7 +713,7 @@ std::shared_ptr<ImageData> ImageLoader::load(const std::string& path) {
     std::vector<uint8_t> buffer = read_file_to_buffer(path);
     if (buffer.empty()) {
         int err = errno;
-        if (err != 0 && err != ENOENT) {
+        if (err != 0 && err != ENOENT && err != ELOOP && err != EINVAL && err != EFBIG) {
             result->transient_error = true;
             g_logger.warn("ImageLoader: Detected network/IO error (errno={}: {}) for path: {}", err, strerror(err), path.c_str());
             trigger_error(101); // E101: NAS_MOUNT_FAILED
@@ -605,7 +723,9 @@ std::shared_ptr<ImageData> ImageLoader::load(const std::string& path) {
         return result;
     }
 
-    RawImage raw = decode_rgba(buffer);
+    int max_dim = 1920;
+    { std::shared_lock lk(g_config_mtx); max_dim = g_cfg.max_texture_dim; }
+    RawImage raw = decode_rgba(buffer, max_dim);
     if (!raw.valid) {
         trigger_error(201);
         return result;
@@ -753,7 +873,7 @@ void ImageLoader::load_texture(ImageData* data, SDL_Renderer* renderer) {
     if (!data || !data->surface || !renderer || data->texture || data->width <= 0 || data->height <= 0) return;
 
     int max_dim = 1920;
-    { std::lock_guard lk(g_config_mtx); max_dim = g_cfg.max_texture_dim; }
+    { std::shared_lock lk(g_config_mtx); max_dim = g_cfg.max_texture_dim; }
     if (data->width > max_dim || data->height > max_dim) {
         float scale = (float)max_dim / (float)std::max(data->width, data->height);
         int nw = std::max(1, (int)(data->width * scale));
@@ -786,7 +906,15 @@ void ImageLoader::load_texture(ImageData* data, SDL_Renderer* renderer) {
     if (data->blur_raw.valid && data->blur_raw.pixels) {
         SDL_Surface* bsurf = SDL_CreateSurface(data->blur_raw.width, data->blur_raw.height, SDL_PIXELFORMAT_RGBA32);
         if (bsurf) {
-            memcpy(bsurf->pixels, data->blur_raw.pixels, (size_t)data->blur_raw.width * data->blur_raw.height * 4);
+            const size_t bstride = static_cast<size_t>(data->blur_raw.width) * 4;
+            if (bsurf->pixels && bsurf->pitch >= 0 && static_cast<size_t>(bsurf->pitch) >= bstride && SDL_LockSurface(bsurf)) {
+                auto* dst_px = static_cast<uint8_t*>(bsurf->pixels);
+                for (int y = 0; y < data->blur_raw.height; ++y) {
+                    memcpy(dst_px + static_cast<size_t>(y) * bsurf->pitch,
+                           data->blur_raw.pixels + static_cast<size_t>(y) * bstride, bstride);
+                }
+                SDL_UnlockSurface(bsurf);
+            }
             data->blur_texture = SDL_CreateTextureFromSurface(renderer, bsurf);
             if (!data->blur_texture) {
                 g_logger.error("Failed to create blur texture from surface: {}", SDL_GetError());
@@ -870,10 +998,15 @@ SDL_Surface* ImageLoader::apply_exif_rotation(SDL_Surface* surface, int exif) {
         case 4: {
             SDL_Surface* dst = SDL_CreateSurface(surface->w, surface->h, surface->format);
             if (dst) {
+                const int bpp = SDL_BYTESPERPIXEL(surface->format);
+                const size_t row_bytes = std::min<size_t>(
+                    static_cast<size_t>(surface->w) * static_cast<size_t>(bpp),
+                    std::min<size_t>(static_cast<size_t>(surface->pitch), static_cast<size_t>(dst->pitch)));
                 uint8_t* src_px = (uint8_t*)surface->pixels;
                 uint8_t* dst_px = (uint8_t*)dst->pixels;
                 for (int y = 0; y < surface->h; y++) {
-                    memcpy(dst_px + y * dst->pitch, src_px + (surface->h - 1 - y) * surface->pitch, surface->pitch);
+                    memcpy(dst_px + static_cast<size_t>(y) * dst->pitch,
+                           src_px + static_cast<size_t>(surface->h - 1 - y) * surface->pitch, row_bytes);
                 }
                 rotated = dst;
             }

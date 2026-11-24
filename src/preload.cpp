@@ -74,6 +74,7 @@ void PreloadQueue::start() {
 void PreloadQueue::shutdown() {
     if (!state->running.load()) return;
     state->running.store(false);
+    for (auto& th : threads) th.request_stop();
 
     state->work_cv.notify_all();
     threads.clear();
@@ -321,7 +322,7 @@ static void compute_edge_data(const RawImage& raw,
     }
 }
 
-void PreloadQueue::worker_thread(std::shared_ptr<PreloadState> state, int thread_id) {
+void PreloadQueue::worker_thread(std::stop_token stop, std::shared_ptr<PreloadState> state, int thread_id) {
     g_logger.info("Preload worker {}: I/O throttle enabled (50ms between reads, capacity={})", thread_id, state->max_size);
     g_logger.info("  Throttle ACTIVE: I/O spread to protect CIFS session");
     g_logger.debug("Preload worker thread {} starting", thread_id);
@@ -354,7 +355,7 @@ void PreloadQueue::worker_thread(std::shared_ptr<PreloadState> state, int thread
         };
 
         struct stat st;
-        if (!stat_timeout(path, st, 5000)) {
+        if (!stat_timeout(path, st, 5000, stop)) {
             g_logger.warn("[Worker {}] stat_timeout: '{}' inaccessible, skipping.", thread_id, path.c_str());
             note_failure();
             continue;
@@ -367,15 +368,6 @@ void PreloadQueue::worker_thread(std::shared_ptr<PreloadState> state, int thread
             continue;
         }
 
-        RawImage raw = ImageLoader::decode_rgba(buffer);
-        if (!raw.valid) {
-            g_logger.warn("[Worker {}] Failed to decode: {}", thread_id, path.c_str());
-            note_failure();
-            continue;
-        }
-        const int w = raw.width, h = raw.height;
-
-        const auto metadata = ImageLoader::read_metadata_from_memory(buffer);
         int blur_radius;
         int max_dim;
         bool blurred;
@@ -385,6 +377,16 @@ void PreloadQueue::worker_thread(std::shared_ptr<PreloadState> state, int thread
             max_dim = g_cfg.max_texture_dim;
             blurred = g_cfg.blurred_background && g_cfg.bg_style == "photo";
         }
+
+        RawImage raw = ImageLoader::decode_rgba(buffer, max_dim);
+        if (!raw.valid) {
+            g_logger.warn("[Worker {}] Failed to decode: {}", thread_id, path.c_str());
+            note_failure();
+            continue;
+        }
+        const int w = raw.width, h = raw.height;
+
+        const auto metadata = ImageLoader::read_metadata_from_memory(buffer);
 
         // Work with display-sized, already-oriented pixels before sampling edges.
         if (std::max(w, h) > max_dim || metadata.rotation != 1) {

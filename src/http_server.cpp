@@ -225,108 +225,10 @@ static std::string get_success_html() {
 }
 
 static std::string get_error_html(const std::string& message) {
-    std::string html = R"HTML(
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>piTrove - Integration Error</title>
-    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&display=swap" rel="stylesheet">
-    <style>
-        :root {
-            --bg-grad: linear-gradient(135deg, #09090b 0%, #1e0b36 50%, #03001e 100%);
-            --accent: #ef4444;
-            --accent-glow: rgba(239, 68, 68, 0.4);
-            --neon-blue: #06b6d4;
-            --card-bg: rgba(255, 255, 255, 0.03);
-            --card-border: rgba(255, 255, 255, 0.08);
-            --glass-blur: blur(20px);
-            --text-main: #f8fafc;
-            --text-muted: #94a3b8;
-        }
-        * { box-sizing: border-box; margin: 0; padding: 0; }
-        body {
-            font-family: 'Outfit', sans-serif;
-            background: var(--bg-grad);
-            background-attachment: fixed;
-            color: var(--text-main);
-            min-height: 100vh;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            padding: 2rem 1rem;
-        }
-        .card {
-            width: 100%;
-            max-width: 500px;
-            background: var(--card-bg);
-            border: 1px solid var(--card-border);
-            backdrop-filter: var(--glass-blur);
-            -webkit-backdrop-filter: var(--glass-blur);
-            border-radius: 24px;
-            padding: 2.5rem;
-            box-shadow: 0 16px 40px 0 rgba(0, 0, 0, 0.45);
-            text-align: center;
-            position: relative;
-            overflow: hidden;
-        }
-        .card::before {
-            content: '';
-            position: absolute;
-            top: 0; left: 0; right: 0; height: 4px;
-            background: linear-gradient(90deg, var(--accent), var(--neon-blue));
-        }
-        .error-icon {
-            width: 80px; height: 80px;
-            background: rgba(239, 68, 68, 0.1);
-            border: 2px solid var(--accent);
-            border-radius: 50%;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            margin: 0 auto 1.5rem;
-            color: var(--accent);
-            font-size: 2.5rem;
-            box-shadow: 0 0 20px var(--accent-glow);
-        }
-        h2 { font-weight: 800; font-size: 1.8rem; margin-bottom: 0.5rem; }
-        p { font-size: 1rem; color: var(--text-muted); line-height: 1.5; margin-bottom: 2rem; }
-        .btn {
-            display: inline-block;
-            background: linear-gradient(90deg, var(--accent), var(--neon-blue));
-            border: none;
-            border-radius: 12px;
-            padding: 0.9rem 2rem;
-            color: white;
-            font-family: inherit;
-            font-size: 0.95rem;
-            font-weight: 800;
-            text-transform: uppercase;
-            text-decoration: none;
-            letter-spacing: 1px;
-            cursor: pointer;
-            transition: all 0.3s ease;
-        }
-    </style>
-</head>
-<body>
-    <div class="card">
-        <div class="error-icon">✗</div>
-        <h2>Integration Failed</h2>
-        <p>errorMessage</p>
-        <a href="/google_photos_setup" class="btn">Try Again</a>
-    </div>
-</body>
-</html>
-)HTML";
-    
-    // Replace error message
-    size_t m_pos = html.find("errorMessage");
-    if (m_pos != std::string::npos) {
-        html.replace(m_pos, 12, html_escape(message));
-    }
-    return html;
+    return webui::start("Integration error", "settings") +
+        "<section class=\"card stack\"><h1>Integration failed</h1><p>" + html_escape(message) +
+        "</p><div><a class=\"button primary\" href=\"/google_photos_setup\">Try again</a></div></section>" +
+        webui::end(VERSION);
 }
 
 static std::string escape_json(const std::string& s) {
@@ -377,7 +279,7 @@ static std::string get_api_status(bool include_private_details) {
     double transition_delay = 15.0;
 
     {
-        std::lock_guard lk(g_config_mtx);
+        std::shared_lock lk(g_config_mtx);
         shuffle = g_cfg.shuffle;
         mqtt_enabled = g_cfg.mqtt_enabled;
         if (include_private_details) mqtt_broker = g_cfg.mqtt_broker;
@@ -402,7 +304,7 @@ static std::string get_api_status(bool include_private_details) {
     double db_mb = 0.0;
     try {
         std::string cache_dir;
-        { std::lock_guard lk(g_config_mtx); cache_dir = g_cfg.cache_dir; }
+        { std::shared_lock lk(g_config_mtx); cache_dir = g_cfg.cache_dir; }
         std::string db_path = cache_dir + "/cache.db";
         if (std::filesystem::exists(db_path)) {
             db_mb = std::filesystem::file_size(db_path) / (1024.0 * 1024.0);
@@ -501,7 +403,7 @@ static std::string get_api_status(bool include_private_details) {
 }
 
 static std::string get_api_settings() {
-    std::lock_guard lk(g_config_mtx);
+    std::shared_lock lk(g_config_mtx);
     return std::format(R"JSON({{
   "transition_delay": {},
   "transition_duration": {},
@@ -655,6 +557,45 @@ static bool valid_screenshot_name(std::string_view name) {
            name.find('\0') == name.npos;
 }
 
+static bool stream_regular_file(int fd, const std::string& path, std::string_view mime, const char* not_found_msg) {
+    const int file_fd = ::open(path.c_str(), O_RDONLY | O_NOFOLLOW | O_CLOEXEC);
+    if (file_fd < 0) {
+        send_response(fd, "HTTP/1.1 404 Not Found", "text/plain", not_found_msg);
+        return false;
+    }
+    struct FdGuard {
+        int f;
+        ~FdGuard() { if (f >= 0) ::close(f); }
+    } guard{file_fd};
+
+    struct stat st{};
+    if (::fstat(file_fd, &st) != 0 || !S_ISREG(st.st_mode) || st.st_size < 0) {
+        send_response(fd, "HTTP/1.1 404 Not Found", "text/plain", not_found_msg);
+        return false;
+    }
+    auto remaining = static_cast<uintmax_t>(st.st_size);
+    const auto headers = std::format(
+        "HTTP/1.1 200 OK\r\nContent-Type: {}\r\nContent-Length: {}\r\n"
+        "Cache-Control: no-store\r\nX-Content-Type-Options: nosniff\r\nConnection: close\r\n\r\n",
+        mime, remaining);
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(response_timeout_ms);
+    if (!http_protocol::send_until(fd, headers, deadline)) return false;
+
+    char buffer[8192];
+    while (remaining && std::chrono::steady_clock::now() < deadline) {
+        const size_t want = static_cast<size_t>(std::min<uintmax_t>(sizeof(buffer), remaining));
+        const ssize_t bytes = ::read(file_fd, buffer, want);
+        if (bytes < 0) {
+            if (errno == EINTR) continue;
+            break;
+        }
+        if (bytes == 0) break;
+        if (!http_protocol::send_until(fd, std::string_view(buffer, static_cast<size_t>(bytes)), deadline)) break;
+        remaining -= static_cast<uintmax_t>(bytes);
+    }
+    return remaining == 0;
+}
+
 static void handle_screenshot(int fd) {
     std::unique_lock capture(g_capture_request_mtx, std::try_to_lock);
     if (!capture.owns_lock()) {
@@ -676,7 +617,8 @@ static void handle_screenshot(int fd) {
 
     {
         std::lock_guard lk(g_screenshot_mtx);
-        g_screenshot_ready.store(false);
+        g_screenshot_ready.store(false, std::memory_order_release);
+        g_screenshot_ok.store(false, std::memory_order_release);
         g_screenshot_out_path = shot_path;
     }
     g_screenshot_requested.store(true, std::memory_order_release);
@@ -687,11 +629,18 @@ static void handle_screenshot(int fd) {
     });
 
     if (!ready) {
+        g_screenshot_requested.store(false, std::memory_order_release);
+        lk.unlock();
         send_response(fd, "HTTP/1.1 504 Gateway Timeout", "text/plain", "Screenshot capture timed out");
         return;
     }
-
+    const bool ok = g_screenshot_ok.load(std::memory_order_acquire);
     lk.unlock(); // File I/O and socket writes must not hold the renderer's state mutex.
+
+    if (!ok) {
+        send_response(fd, "HTTP/1.1 500 Internal Server Error", "text/plain", "Failed to capture screenshot");
+        return;
+    }
 
     // Auto-prune older screenshots keeping the latest 50
     try {
@@ -712,49 +661,7 @@ static void handle_screenshot(int fd) {
         }
     } catch (...) {}
 
-    std::ifstream file(shot_path, std::ios::binary | std::ios::ate);
-    if (!file.is_open()) {
-        send_response(fd, "HTTP/1.1 500 Internal Server Error", "text/plain", "Failed to open screenshot file");
-        return;
-    }
-
-    std::streamsize size = file.tellg();
-    if (size < 0) { // tellg() returns -1 on failure; std::string(-1) would request a huge allocation
-        send_response(fd, "HTTP/1.1 500 Internal Server Error", "text/plain", "Failed to determine screenshot size");
-        return;
-    }
-    file.seekg(0, std::ios::beg);
-
-    std::string buffer(static_cast<size_t>(size), '\0');
-    if (file.read(&buffer[0], size)) {
-        send_response(fd, "HTTP/1.1 200 OK", "image/png", buffer);
-    } else {
-        send_response(fd, "HTTP/1.1 500 Internal Server Error", "text/plain", "Failed to read screenshot data");
-    }
-}
-
-static void stream_image(int fd, std::ifstream& file, std::string_view mime) {
-    file.seekg(0, std::ios::end);
-    const auto end = file.tellg();
-    if (end < 0 || !file.seekg(0, std::ios::beg)) {
-        send_response(fd, "HTTP/1.1 500 Internal Server Error", "text/plain", "Could not read the image");
-        return;
-    }
-    auto remaining = static_cast<uintmax_t>(end);
-    const auto headers = std::format(
-        "HTTP/1.1 200 OK\r\nContent-Type: {}\r\nContent-Length: {}\r\n"
-        "Cache-Control: no-store\r\nX-Content-Type-Options: nosniff\r\nConnection: close\r\n\r\n",
-        mime, remaining);
-    const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(response_timeout_ms);
-    if (!http_protocol::send_until(fd, headers, deadline)) return;
-
-    char buffer[8192];
-    while (remaining && std::chrono::steady_clock::now() < deadline) {
-        file.read(buffer, std::min<uintmax_t>(sizeof(buffer), remaining));
-        const size_t bytes = file.gcount();
-        if (!bytes || !http_protocol::send_until(fd, std::string_view(buffer, bytes), deadline)) break;
-        remaining -= bytes;
-    }
+    stream_regular_file(fd, shot_path, "image/png", "Failed to open screenshot file");
 }
 
 static void handle_screenshots_list(int fd) {
@@ -795,17 +702,7 @@ static void handle_screenshot_file(int fd, const std::string& filename) {
         return;
     }
     const std::string path = "/app/screenshots/" + filename;
-    std::error_code ec;
-    if (!std::filesystem::is_regular_file(std::filesystem::symlink_status(path, ec))) {
-        send_response(fd, "HTTP/1.1 404 Not Found", "text/plain", "Screenshot not found");
-        return;
-    }
-    std::ifstream file(path, std::ios::binary);
-    if (!file.is_open()) {
-        send_response(fd, "HTTP/1.1 404 Not Found", "text/plain", "Screenshot not found");
-        return;
-    }
-    stream_image(fd, file, "image/png");
+    stream_regular_file(fd, path, "image/png", "Screenshot not found");
 }
 
 static void handle_preview(int fd) {
@@ -826,13 +723,6 @@ static void handle_preview(int fd) {
         return;
     }
 
-    // Dynamic Image File Streaming
-    std::ifstream file(path, std::ios::binary);
-    if (!file.is_open()) {
-        send_response(fd, "HTTP/1.1 404 Not Found", "text/plain", "File not found on disk");
-        return;
-    }
-
     // Determine MIME type
     std::string mime = "image/jpeg";
     std::string lower_path = path;
@@ -844,7 +734,7 @@ static void handle_preview(int fd) {
     else if (ext == ".webp") mime = "image/webp";
     else if (ext == ".gif") mime = "image/gif";
 
-    stream_image(fd, file, mime);
+    stream_regular_file(fd, path, mime, "File not found on disk");
 }
 
 static void handle_client(int client_fd, uint32_t peer_ip) {
@@ -855,22 +745,13 @@ static void handle_client(int client_fd, uint32_t peer_ip) {
     };
     ClientFdGuard guard(client_fd);
 
-    // Set client socket timeout to prevent slowloris hangs
-    struct timeval client_tv;
-    { std::lock_guard lk(g_config_mtx); client_tv.tv_sec = g_cfg.http_socket_timeout; }
-    client_tv.tv_usec = 0;
-    response_timeout_ms = std::clamp<int>(client_tv.tv_sec, 1, 60) * 1000;
-    if (setsockopt(client_fd, SOL_SOCKET, SO_RCVTIMEO, &client_tv, sizeof(client_tv)) < 0) {
-        g_logger.warn("HTTP: Failed to set SO_RCVTIMEO on client socket.");
-    }
-    if (setsockopt(client_fd, SOL_SOCKET, SO_SNDTIMEO, &client_tv, sizeof(client_tv)) < 0) {
-        g_logger.warn("HTTP: Failed to set SO_SNDTIMEO on client socket.");
-    }
+    int socket_timeout_secs = 5;
+    { std::shared_lock lk(g_config_mtx); socket_timeout_secs = g_cfg.http_socket_timeout; }
+    response_timeout_ms = std::clamp<int>(socket_timeout_secs, 2, 60) * 1000;
 
     std::string request;
     http_protocol::Request parsed_request;
-    auto received = http_protocol::receive(client_fd, request, parsed_request,
-                                          std::max(1L, client_tv.tv_sec) * 1000);
+    auto received = http_protocol::receive(client_fd, request, parsed_request, response_timeout_ms);
     if (received != http_protocol::Result::complete) {
         const char* status = received == http_protocol::Result::too_large ? "HTTP/1.1 413 Payload Too Large" :
                              received == http_protocol::Result::timeout ? "HTTP/1.1 408 Request Timeout" :
@@ -1204,6 +1085,45 @@ static void handle_client(int client_fd, uint32_t peer_ip) {
                         err_msg = "google_photos_sync_interval must be >= 1";
                     }
                 }
+                if (!validation_failed && has_query_param(request, "gcalendar_ical_url")) {
+                    validation_failed = true;
+                    err_msg = "Use POST /api/config to update secret URLs";
+                }
+                if (!validation_failed && has_query_param(request, "timezone")) {
+                    const std::string tz_val = get_query_param(request, "timezone");
+                    if (!config_editor::is_valid_timezone(tz_val)) {
+                        validation_failed = true;
+                        err_msg = "Choose an installed display timezone, such as America/Los_Angeles";
+                    }
+                }
+                if (!validation_failed && has_query_param(request, "log_level")) {
+                    const std::string lvl = get_query_param(request, "log_level");
+                    if (lvl != "debug" && lvl != "trace" && lvl != "info" &&
+                        lvl != "warn" && lvl != "warning" && lvl != "error") {
+                        validation_failed = true;
+                        err_msg = "Invalid log_level";
+                    }
+                }
+                auto valid_text_param = [](const std::string& v, size_t max_len) {
+                    return v.size() <= max_len &&
+                           std::none_of(v.begin(), v.end(), [](unsigned char ch) { return ch < 32 || ch == 127; });
+                };
+                for (const auto* key : {"transition_effect", "news_source", "news_local_query",
+                                        "gcalendar_name", "mqtt_broker", "mqtt_topic_prefix",
+                                        "google_photos_album_id"}) {
+                    if (!validation_failed && has_query_param(request, key)) {
+                        if (!valid_text_param(get_query_param(request, key), 512)) {
+                            validation_failed = true;
+                            err_msg = std::string("Invalid characters or length for ") + key;
+                        }
+                    }
+                }
+                if (!validation_failed && has_query_param(request, "news_blacklist")) {
+                    if (!valid_text_param(get_query_param(request, "news_blacklist"), 4096)) {
+                        validation_failed = true;
+                        err_msg = "Invalid characters or length for news_blacklist";
+                    }
+                }
                 
                 // 2. Apply updates if validation succeeded
                 if (!validation_failed) {
@@ -1378,10 +1298,7 @@ static void handle_client(int client_fd, uint32_t peer_ip) {
                             reconfigure_panels = true;
                         }
                     }
-                    if (has_query_param(request, "gcalendar_ical_url")) {
-                        std::string val = get_query_param(request, "gcalendar_ical_url");
-                        if (g_cfg.gcalendar_ical_url != val) { g_cfg.gcalendar_ical_url = val; changed = true; }
-                    }
+
                     if (has_query_param(request, "gcalendar_refresh_minutes")) {
                         std::string val = get_query_param(request, "gcalendar_refresh_minutes");
                         try {
@@ -1409,6 +1326,10 @@ static void handle_client(int client_fd, uint32_t peer_ip) {
                         if (!val.empty() && g_cfg.log_level != val) {
                             g_cfg.log_level = val;
                             g_cfg.verbose = (val == "debug" || val == "trace");
+                            if (val == "debug" || val == "trace") g_logger.level = LogLevel::DEBUG;
+                            else if (val == "warn" || val == "warning") g_logger.level = LogLevel::WARN;
+                            else if (val == "error") g_logger.level = LogLevel::ERROR;
+                            else g_logger.level = LogLevel::INFO;
                             changed = true;
                         }
                     }
@@ -1447,6 +1368,11 @@ static void handle_client(int client_fd, uint32_t peer_ip) {
                         bool desired = (val == "true" || val == "1");
                         if (g_cfg.touch_enabled != desired) { g_cfg.touch_enabled = desired; changed = true; }
                     }
+                }
+                if (!validation_failed && g_cfg.play_just_photos && g_cfg.play_just_videos) {
+                    g_cfg = std::move(previous);
+                    validation_failed = true;
+                    err_msg = "Choose photos only or videos only, not both";
                 }
                 if (!validation_failed && changed) {
                     std::string save_path = g_cfg.loaded_path.empty() ? "/app/config/config.toml" : g_cfg.loaded_path;
@@ -1499,7 +1425,7 @@ static void handle_client(int client_fd, uint32_t peer_ip) {
         else if (matches_route("GET", "/api/logs")) {
             if (is_authorized()) {
             std::string log_content = "";
-            std::string path = g_logger.log_file_path;
+            std::string path = g_logger.get_log_file_path();
             bool read_success = false;
             
             if (!path.empty() && std::filesystem::exists(path)) {
@@ -1541,10 +1467,13 @@ static void handle_client(int client_fd, uint32_t peer_ip) {
         }
         else if (matches_route("GET", "/api/calendar/sync") || matches_route("POST", "/api/calendar/sync")) {
             if (is_authorized()) {
-                spawn_tracked_thread([]() {
+                if (spawn_tracked_thread([]() {
                     g_calendar.sync();
-                });
-                send_response(client_fd, "HTTP/1.1 200 OK", "application/json", "{\"status\":\"ok\",\"message\":\"Calendar sync triggered\"}");
+                })) {
+                    send_response(client_fd, "HTTP/1.1 200 OK", "application/json", "{\"status\":\"ok\",\"message\":\"Calendar sync triggered\"}");
+                } else {
+                    send_response(client_fd, "HTTP/1.1 503 Service Unavailable", "application/json", "{\"status\":\"error\",\"message\":\"Failed to start calendar sync\"}");
+                }
             }
         }
         else if (matches_route("GET", "/api/calendar")) {
@@ -1674,7 +1603,7 @@ static void handle_client(int client_fd, uint32_t peer_ip) {
             last_toggle_screen_ms.store(now_ms);
             toggle_display_power();
             std::string prefix, topic;
-            { std::lock_guard lk(g_config_mtx); prefix = g_cfg.mqtt_topic_prefix; topic = g_cfg.mqtt_motionsensor_topic; }
+            { std::shared_lock lk(g_config_mtx); prefix = g_cfg.mqtt_topic_prefix; topic = g_cfg.mqtt_motionsensor_topic; }
             mqtt_publish(prefix + "/status/screen", g_screen_blanked.load() ? "OFF" : "ON", true);
             send_response(client_fd, "HTTP/1.1 200 OK", "application/json", "{\"status\":\"ok\"}");
         }
@@ -1689,20 +1618,22 @@ static void handle_client(int client_fd, uint32_t peer_ip) {
             last_motion_ms.store(now_ms);
             g_last_motion_time.store(static_cast<int64_t>(std::time(nullptr)));
             std::string prefix, sensor_topic;
-            { std::lock_guard lk(g_config_mtx); prefix = g_cfg.mqtt_topic_prefix; sensor_topic = g_cfg.mqtt_motionsensor_topic; }
+            { std::shared_lock lk(g_config_mtx); prefix = g_cfg.mqtt_topic_prefix; sensor_topic = g_cfg.mqtt_motionsensor_topic; }
             if (set_display_power(true)) {
                 mqtt_publish(prefix + "/status/screen", "ON", true);
             }
-            mqtt_publish(sensor_topic, "ON", false);
-            std::string topic_copy = sensor_topic;
-            spawn_tracked_thread([topic_copy]() {
-                for (int i = 0; i < 20 && g_server_running.load(); i++) {
-                    std::this_thread::sleep_for(std::chrono::milliseconds(100));
-                }
-                if (g_server_running.load()) {
-                    mqtt_publish(topic_copy, "OFF", false);
-                }
-            });
+            if (!sensor_topic.empty()) {
+                mqtt_publish(sensor_topic, "ON", false);
+                std::string topic_copy = sensor_topic;
+                spawn_tracked_thread([topic_copy]() {
+                    for (int i = 0; i < 20 && g_server_running.load(); i++) {
+                        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+                    }
+                    if (g_server_running.load()) {
+                        mqtt_publish(topic_copy, "OFF", false);
+                    }
+                });
+            }
             send_response(client_fd, "HTTP/1.1 200 OK", "application/json", "{\"status\":\"ok\"}");
         }
         else if (matches_route("GET", "/api/play_video")) {
@@ -1727,7 +1658,7 @@ static void server_loop(int port) {
     struct sockaddr_in server_addr;
     int current_port = port;
     int max_attempts;
-    { std::lock_guard lk(g_config_mtx); max_attempts = g_cfg.http_bind_attempts; }
+    { std::shared_lock lk(g_config_mtx); max_attempts = g_cfg.http_bind_attempts; }
     bool bound = false;
 
     for (int attempt = 0; attempt < max_attempts && current_port <= 65535; attempt++) {
@@ -1832,7 +1763,7 @@ static void server_loop(int port) {
         // Set a socket read/write timeout to prevent slow/hanging clients from starving the connection pool
         struct timeval timeout;
         {
-            std::lock_guard lk(g_config_mtx);
+            std::shared_lock lk(g_config_mtx);
             timeout.tv_sec = std::max(2, g_cfg.http_socket_timeout);
         }
         timeout.tv_usec = 0;

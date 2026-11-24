@@ -823,9 +823,9 @@ while true; do
                     safe_read -rs nas_pass 
                     echo
                 fi
-                printf 'username=%s\npassword=%s\n' "$nas_user" "$nas_pass" > "$CRED_FILE"
+                (umask 077; printf 'username=%s\npassword=%s\n' "$nas_user" "$nas_pass" > "$CRED_FILE")
                 chmod 600 "$CRED_FILE"
-                chown $PRIMARY_USER:$PRIMARY_USER "$CRED_FILE"
+                chown "$PRIMARY_USER:$PRIMARY_USER" "$CRED_FILE"
                 ok "Created credentials configuration file: $CRED_FILE"
             else
                 info "NAS credential file already exists at $CRED_FILE"
@@ -833,9 +833,9 @@ while true; do
                     nas_user="$NAS_USER"
                     nas_pass="$NAS_PASS"
                     info "Updating NAS credentials from environment"
-                    printf 'username=%s\npassword=%s\n' "$nas_user" "$nas_pass" > "$CRED_FILE"
+                    (umask 077; printf 'username=%s\npassword=%s\n' "$nas_user" "$nas_pass" > "$CRED_FILE")
                     chmod 600 "$CRED_FILE"
-                    chown $PRIMARY_USER:$PRIMARY_USER "$CRED_FILE"
+                    chown "$PRIMARY_USER:$PRIMARY_USER" "$CRED_FILE"
                 elif ! grep -q "^username=" "$CRED_FILE" 2>/dev/null || ! grep -q "^password=" "$CRED_FILE" 2>/dev/null; then
                     warn "Credential file is incomplete. Re-entering credentials..."
                     echo -n -e "   ${BOLD}${YELLOW}▸ Username:${NC} "
@@ -843,18 +843,21 @@ while true; do
                     echo -n -e "   ${BOLD}${YELLOW}▸ Password:${NC} "
                     safe_read -rs nas_pass 
                     echo
-                    printf 'username=%s\npassword=%s\n' "$nas_user" "$nas_pass" > "$CRED_FILE"
+                    (umask 077; printf 'username=%s\npassword=%s\n' "$nas_user" "$nas_pass" > "$CRED_FILE")
                     chmod 600 "$CRED_FILE"
-                    chown $PRIMARY_USER:$PRIMARY_USER "$CRED_FILE"
+                    chown "$PRIMARY_USER:$PRIMARY_USER" "$CRED_FILE"
                 fi
             fi
         fi
 
         # Format fstab configuration row
         generate_fstab_line() {
+            local primary_uid primary_gid
+            primary_uid=$(id -u "$PRIMARY_USER" 2>/dev/null || echo 1000)
+            primary_gid=$(id -g "$PRIMARY_USER" 2>/dev/null || echo 1000)
             if [[ "$SHARE_PROTOCOL" == "cifs" ]]; then
                 FSTAB_LINE="# piTrove Network Share
-//$SHARE_IP/${SHARE_PATH#/} $SHARE_MOUNT cifs credentials=$PRIMARY_HOME/nas.cred,ro,uid=1000,gid=1000,vers=3.0,_netdev,nofail,x-systemd.mount-timeout=30,hard,echo_interval=60,actimeo=30 0 0"
+//$SHARE_IP/${SHARE_PATH#/} $SHARE_MOUNT cifs credentials=$PRIMARY_HOME/nas.cred,ro,uid=${primary_uid},gid=${primary_gid},vers=3.0,_netdev,nofail,x-systemd.mount-timeout=30,hard,echo_interval=60,actimeo=30 0 0"
             elif [[ "$SHARE_PROTOCOL" == "nfs" ]]; then
                 FSTAB_LINE="# piTrove Network Share
 $SHARE_IP:$SHARE_PATH $SHARE_MOUNT $SHARE_PROTOCOL defaults,_netdev,timeo=10,retrans=3,nofail,x-systemd.mount-timeout=30,hard 0 0"
@@ -942,9 +945,9 @@ $SHARE_IP:$SHARE_PATH $SHARE_MOUNT $SHARE_PROTOCOL defaults,_netdev,timeo=10,ret
                                 echo -n -e "      ${BOLD}${YELLOW}▸ Password:${NC} "
                                 safe_read -rs nas_pass 
                                 echo
-                                printf 'username=%s\npassword=%s\n' "$nas_user" "$nas_pass" > "$PRIMARY_HOME/nas.cred"
+                                (umask 077; printf 'username=%s\npassword=%s\n' "$nas_user" "$nas_pass" > "$PRIMARY_HOME/nas.cred")
                                 chmod 600 "$PRIMARY_HOME/nas.cred"
-                                chown $PRIMARY_USER:$PRIMARY_USER "$PRIMARY_HOME/nas.cred"
+                                chown "$PRIMARY_USER:$PRIMARY_USER" "$PRIMARY_HOME/nas.cred"
                             fi
                             MOUNT_ATTEMPTS=0
                             continue

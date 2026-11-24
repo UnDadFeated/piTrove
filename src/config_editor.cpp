@@ -2,6 +2,7 @@
 #include "config_text.h"
 #include "http_protocol.h"
 #include "stock_presets.h"
+#include "util.h"
 #include <sodium.h>
 #include <algorithm>
 #include <array>
@@ -80,8 +81,20 @@ bool time_valid(const std::string& s) {
     return s.empty()||(s.size()==5&&s[2]==':'&&s[0]>='0'&&s[0]<='2'&&s[1]>='0'&&s[1]<='9'&&s[3]>='0'&&s[3]<='5'&&s[4]>='0'&&s[4]<='9'&&s.substr(0,2)<="23");
 }
 }
+bool is_valid_timezone(const std::string& tz) {
+    if (tz.empty() || tz.find("..") != std::string::npos || tz.front() == '/' || tz.size() > 128) return false;
+    std::ifstream zone("/usr/share/zoneinfo/" + tz, std::ios::binary);
+    char header[4]{};
+    zone.read(header, 4);
+    return static_cast<bool>(zone) && std::string_view(header, 4) == "TZif";
+}
 std::string revision(const Config& c) {
-    static const auto key=[] {std::array<unsigned char,32> key{};randombytes_buf(key.data(),key.size());return key;}();
+    static const auto key=[] {
+      if (sodium_init() < 0) throw std::runtime_error("libsodium initialization failed");
+      std::array<unsigned char,32> key{};
+      randombytes_buf(key.data(),key.size());
+      return key;
+    }();
     crypto_generichash_state state;crypto_generichash_init(&state,key.data(),key.size(),32);
     for(const auto& f:schema()){const auto data=f.id+"="+f.get(c)+"\n";crypto_generichash_update(&state,reinterpret_cast<const unsigned char*>(data.data()),data.size());}
     std::array<unsigned char,32> digest{};crypto_generichash_final(&state,digest.data(),digest.size());
@@ -129,11 +142,9 @@ Result apply(Config& config,const std::map<std::string,std::string>& values,cons
     if(candidate.play_just_photos&&candidate.play_just_videos)return error(400,"Choose photos only or videos only, not both.");
     if(!time_valid(candidate.sleep_time)||!time_valid(candidate.wake_time))return error(400,"Sleep and wake times use HH:MM (24-hour time), or leave them empty.");
     if(candidate.rotation!=0&&candidate.rotation!=90&&candidate.rotation!=180&&candidate.rotation!=270)return error(400,"Rotation must be 0, 90, 180 or 270 degrees.");
-    if(!candidate.timezone.empty()){
-      if(candidate.timezone.find("..")!=std::string::npos||candidate.timezone.front()=='/'||candidate.timezone.size()>128)return error(400,"Choose a valid display timezone.");
-      // The production image carries tzdata; reject misspelled zone IDs rather than silently using UTC.
-      std::ifstream zone("/usr/share/zoneinfo/"+candidate.timezone,std::ios::binary);char header[4]{};zone.read(header,4);if(!zone||std::string_view(header,4)!="TZif")return error(400,"Choose an installed display timezone, such as America/Los_Angeles.");
-    }else return error(400,"Display timezone cannot be empty.");
+    if(candidate.timezone.empty())return error(400,"Display timezone cannot be empty.");
+    if(!is_valid_timezone(candidate.timezone))return error(400,"Choose an installed display timezone, such as America/Los_Angeles.");
+    if(!candidate.keepalive_gateway.empty()&&!is_valid_host_or_ip(candidate.keepalive_gateway))return error(400,"Keepalive gateway must be a valid IP address or hostname.");
     const auto has=[&](const std::string& id){
       if(values.contains("clear."+id))return true;
       const auto value=values.find(id);if(value==values.end())return false;

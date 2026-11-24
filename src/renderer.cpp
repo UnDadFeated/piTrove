@@ -348,7 +348,8 @@ void Renderer::clear(uint8_t r, uint8_t g, uint8_t b, uint8_t a) {
 }
 
 void Renderer::present() {
-    if (g_screenshot_requested.load(std::memory_order_acquire)) {
+    if (g_screenshot_requested.exchange(false, std::memory_order_acq_rel)) {
+        bool saved = false;
         SDL_Surface* surf = SDL_RenderReadPixels(sdl_renderer, NULL);
         if (surf) {
             std::string out_p;
@@ -356,18 +357,27 @@ void Renderer::present() {
                 std::lock_guard lk(g_screenshot_mtx);
                 out_p = g_screenshot_out_path;
             }
-            {
-                std::lock_guard lock(g_sdl_image_mutex);
-                IMG_SavePNG(surf, out_p.c_str());
+            if (!out_p.empty()) {
+                const std::string tmp_p = out_p + ".tmp";
+                bool wrote = false;
+                {
+                    std::lock_guard lock(g_sdl_image_mutex);
+                    wrote = IMG_SavePNG(surf, tmp_p.c_str());
+                }
+                if (wrote && std::rename(tmp_p.c_str(), out_p.c_str()) == 0) {
+                    saved = true;
+                } else {
+                    std::remove(tmp_p.c_str());
+                }
             }
             SDL_DestroySurface(surf);
-            {
-                std::lock_guard lk(g_screenshot_mtx);
-                g_screenshot_ready.store(true, std::memory_order_release);
-            }
-            g_screenshot_cv.notify_all();
         }
-        g_screenshot_requested.store(false, std::memory_order_release);
+        {
+            std::lock_guard lk(g_screenshot_mtx);
+            g_screenshot_ok.store(saved, std::memory_order_release);
+            g_screenshot_ready.store(true, std::memory_order_release);
+        }
+        g_screenshot_cv.notify_all();
     }
     SDL_RenderPresent(sdl_renderer);
 }

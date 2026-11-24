@@ -6,6 +6,7 @@
 #include "image_loader.h"
 #include "scanner.h"
 #include <unistd.h>
+#include <fcntl.h>
 #include <sys/stat.h>
 #include <filesystem>
 #include <thread>
@@ -26,11 +27,27 @@ static constexpr int MAX_METADATA_WORKERS = 2;
 struct MetadataSlot { ~MetadataSlot() { g_metadata_workers.fetch_sub(1); } };
 
 static bool get_image_metadata_fast(const std::string& path, int& out_w, int& out_h, int& out_exif, int& out_is_camera, int64_t& out_creation_time, double& out_lat, double& out_lon, bool& out_has_gps) {
-    std::ifstream file(path, std::ios::binary);
-    if (!file) return false;
+    const int fd = ::open(path.c_str(), O_RDONLY | O_NOFOLLOW | O_CLOEXEC);
+    if (fd < 0) return false;
+    struct stat st{};
+    if (::fstat(fd, &st) != 0 || !S_ISREG(st.st_mode)) {
+        ::close(fd);
+        return false;
+    }
     std::vector<uint8_t> buffer(256 * 1024);
-    file.read(reinterpret_cast<char*>(buffer.data()), static_cast<std::streamsize>(buffer.size()));
-    buffer.resize(static_cast<size_t>(file.gcount()));
+    size_t got = 0;
+    while (got < buffer.size()) {
+        const ssize_t n = ::read(fd, buffer.data() + got, buffer.size() - got);
+        if (n < 0) {
+            if (errno == EINTR) continue;
+            ::close(fd);
+            return false;
+        }
+        if (n == 0) break;
+        got += static_cast<size_t>(n);
+    }
+    ::close(fd);
+    buffer.resize(got);
     if (buffer.empty()) return false;
 
     int w = 0, h = 0;
@@ -98,7 +115,7 @@ static std::vector<std::pair<std::string, std::string>> fetch_preprocess_batch()
     return batch;
 }
 
-static void preprocess_loop() {
+static void preprocess_loop(std::stop_token stop) {
     g_logger.info("Preprocess: Background preprocessing thread started.");
     g_preprocess_finished.store(false);
 
@@ -125,7 +142,7 @@ static void preprocess_loop() {
             if (!g_preprocess_running.load() || !g_running.load()) break;
 
             struct stat st;
-            if (!stat_timeout(path, st, 5000)) {
+            if (!stat_timeout(path, st, 5000, stop)) {
                 g_logger.debug("Preprocess: File '{}' inaccessible; deferring metadata.", path);
                 stat_failed = true;
                 continue;
@@ -240,6 +257,7 @@ void start_preprocess_worker() {
 
 void stop_preprocess_worker() {
     g_preprocess_running.store(false);
+    g_preprocess_thread.request_stop();
     if (g_preprocess_thread.joinable()) {
         int timeout_ms = 2500;
         while (timeout_ms > 0 && !g_preprocess_finished.load()) {

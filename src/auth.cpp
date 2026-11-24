@@ -1,8 +1,5 @@
 #include "auth.h"
 #include <sodium.h>
-#include <chrono>
-#include <mutex>
-#include <unordered_map>
 
 namespace pitrove { namespace auth {
 
@@ -37,35 +34,6 @@ bool verify_configured_pin(const std::string& input, const std::string& plaintex
     if (!hash.empty()) return verify_pin(input, hash);
     if (plaintext.empty()) return true; // Preserve the deliberate no-PIN mode.
     return input.size() == plaintext.size() && sodium_memcmp(input.data(), plaintext.data(), input.size()) == 0;
-}
-
-struct Attempt {
-    int count = 0;
-    std::time_t window_start = 0;
-};
-
-static std::mutex rate_mutex;
-static std::unordered_map<std::string, Attempt> attempts;
-
-bool pin_rate_limit_allowed(const std::string& ip,
-                            int max_attempts,
-                            int window_seconds) {
-    std::lock_guard<std::mutex> lock(rate_mutex);
-
-    const std::time_t now = std::time(nullptr);
-    Attempt& a = attempts[ip];
-
-    if (a.window_start == 0 || now - a.window_start >= window_seconds) {
-        a.count = 0;
-        a.window_start = now;
-    }
-
-    if (a.count >= max_attempts) {
-        return false;
-    }
-
-    ++a.count;
-    return true;
 }
 
 }} // namespace pitrove::auth

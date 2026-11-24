@@ -108,6 +108,10 @@ def verify(port, cache, version):
     settings = json.loads(request("/api/settings", KEY)[2])
     assert settings["gcalendar_ical_url_set"] is True and "gcalendar_ical_url" not in settings
     assert request("/api/settings/update?transition_delay=nan", KEY)[0] == 400
+    assert request("/api/settings/update?gcalendar_ical_url=https://evil.test/x.ics", KEY)[0] == 400
+    assert request("/api/settings/update?play_just_photos=1&play_just_videos=1", KEY)[0] == 400
+    assert request("/api/settings/update?timezone=Mars/Olympus", KEY)[0] == 400
+    assert request("/api/settings/update?news_local_query=hello%0Aworld", KEY)[0] == 400
     assert "revision" in json.loads(request("/api/config", KEY)[2])
     board = json.loads(request("/api/chores", KEY)[2])
     assert "today" in board and not board["people"]

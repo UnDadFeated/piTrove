@@ -74,5 +74,9 @@ int main(){const auto dir=std::filesystem::temp_directory_path()/ ("pitrove-conf
  auto raw=form("revision="+config_editor::revision(c));raw.replace(raw.find("Origin: http://frame.local"),25,"Origin: http://elsewhere");
  require(config_editor::handle(c,"POST",raw,path).status==403,"Cross-origin config update accepted");
  require(config_editor::handle(c,"PUT","",path).status==405,"Invalid method accepted");
+ require(config_editor::apply(c,{{"revision",config_editor::revision(c)},{"keepalive.gateway_ip","-c 1"}},path).status==400,"Flag-injection keepalive gateway accepted");
+ require(config_editor::apply(c,{{"revision",config_editor::revision(c)},{"keepalive.gateway_ip","192.168.4.1;id"}},path).status==400,"Shell-injection keepalive gateway accepted");
+ require(config_editor::apply(c,{{"revision",config_editor::revision(c)},{"keepalive.gateway_ip","192.168.4.1"}},path).status==200,"Valid IPv4 keepalive gateway rejected");
+ require(config_editor::apply(c,{{"revision",config_editor::revision(c)},{"keepalive.gateway_ip","router.local"}},path).status==200,"Valid hostname keepalive gateway rejected");
  std::filesystem::remove_all(dir);std::cout<<"Complete configuration: validation, atomic save, revision conflicts, secret/PIN preservation, presets and request protections passed\n";return 0;
  }catch(const std::exception& e){std::filesystem::remove_all(dir);std::cerr<<e.what()<<'\n';return 1;}}

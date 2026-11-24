@@ -198,9 +198,13 @@ static void test_scan_result() {
     const auto missing = scan_directory((root / "absent").string(), 10);
     check(!missing.complete, "missing directory reported a complete scan");
     std::ofstream(root / "good.JPG").put('x');
+    std::ofstream(root / "secret.txt") << "secret";
+    fs::create_symlink(root / "secret.txt", root / "escape.jpg");
     fs::create_symlink(root / "absent", root / "disappeared");
-    const auto partial = scan_directory(path, 10);
-    check(!partial.complete && partial.items.size() == 1, "failed stat lost partial-scan status");
+    const auto filtered = scan_directory(path, 10);
+    check(filtered.complete && filtered.items.size() == 1 && filtered.items[0].filename == "good.JPG",
+          "scanner must ignore symlinks without failing the scan");
+    fs::remove(root / "escape.jpg");
     fs::remove(root / "disappeared");
     const auto recovered = scan_directory(path, 10);
     check(recovered.complete && recovered.items.size() == 1, "recovered scan did not complete");

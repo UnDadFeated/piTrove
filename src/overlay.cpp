@@ -1327,25 +1327,42 @@ bool OverlayManager::handle_touch_click(float x, float y) {
                 std::string key = keys[i];
                 if (key == "OK") {
                     int val = safe_stoi(keyboard_input, 0);
+                    auto save_cfg_locked = [&](const Config& prev) -> bool {
+                        const std::string p = g_cfg.loaded_path.empty() ? "/app/config/config.toml" : g_cfg.loaded_path;
+                        if (!g_cfg.save(p)) {
+                            g_cfg = prev;
+                            g_logger.error("TOUCH_INPUT: Failed to save configuration to {}", p);
+                            return false;
+                        }
+                        return true;
+                    };
                     if (keyboard_target == 0) {
                         if (val < 1) val = 1;
+                        bool saved = false;
                         {
                             std::lock_guard lk(g_config_mtx);
+                            Config prev = g_cfg;
                             g_cfg.transition_delay = (double)val;
-                            g_cfg.save(g_cfg.loaded_path.c_str());
+                            saved = save_cfg_locked(prev);
                         }
-                        g_config_changed.store(true);
-                        g_logger.info("TOUCH_INPUT: Set transition delay to {} seconds.", val);
+                        if (saved) {
+                            g_config_changed.store(true);
+                            g_logger.info("TOUCH_INPUT: Set transition delay to {} seconds.", val);
+                        }
                     } else if (keyboard_target == 1) {
                         if (val < 0) val = 0;
                         if (val > 100) val = 100;
+                        bool saved = false;
                         {
                             std::lock_guard lk(g_config_mtx);
+                            Config prev = g_cfg;
                             g_cfg.video_volume = val;
-                            g_cfg.save(g_cfg.loaded_path.c_str());
+                            saved = save_cfg_locked(prev);
                         }
-                        g_config_changed.store(true);
-                        g_logger.info("TOUCH_INPUT: Set video volume to {}%%.", val);
+                        if (saved) {
+                            g_config_changed.store(true);
+                            g_logger.info("TOUCH_INPUT: Set video volume to {}%%.", val);
+                        }
                     }
                     keyboard_active = false;
                     keyboard_input = "";
@@ -1386,17 +1403,31 @@ bool OverlayManager::handle_touch_click(float x, float y) {
         return true;
     }
 
+    auto save_menu_cfg_locked = [](const Config& prev) -> bool {
+        const std::string p = g_cfg.loaded_path.empty() ? "/app/config/config.toml" : g_cfg.loaded_path;
+        if (!g_cfg.save(p)) {
+            g_cfg = prev;
+            g_logger.error("TOUCH_INPUT: Failed to save configuration to {}", p);
+            return false;
+        }
+        return true;
+    };
+
     // Row 1: Shuffle Toggle
     if (x >= menu_x + 240 && x <= menu_x + 480 && y >= start_y + 1 * row_h && y <= start_y + 1 * row_h + 26) {
-        bool curr;
+        bool curr = false;
+        bool saved = false;
         {
             std::lock_guard lk(g_config_mtx);
+            Config prev = g_cfg;
             g_cfg.shuffle = !g_cfg.shuffle;
-            g_cfg.save(g_cfg.loaded_path.c_str());
+            saved = save_menu_cfg_locked(prev);
             curr = g_cfg.shuffle;
         }
-        g_config_changed.store(true);
-        g_logger.info("TOUCH_INPUT: Shuffle state set to {}.", curr ? "ON" : "OFF");
+        if (saved) {
+            g_config_changed.store(true);
+            g_logger.info("TOUCH_INPUT: Shuffle state set to {}.", curr ? "ON" : "OFF");
+        }
         return true;
     }
 
@@ -1404,26 +1435,30 @@ bool OverlayManager::handle_touch_click(float x, float y) {
     int r2_y = start_y + 2 * row_h;
     if (y >= r2_y && y <= r2_y + 26) {
         double current_val;
-        { std::lock_guard lk(g_config_mtx); current_val = g_cfg.transition_delay; }
+        { std::shared_lock lk(g_config_mtx); current_val = g_cfg.transition_delay; }
         
         if (x >= menu_x + 240 && x <= menu_x + 280) {
             current_val = std::max(5.0, current_val - 5.0);
+            bool saved = false;
             {
                 std::lock_guard lk(g_config_mtx);
+                Config prev = g_cfg;
                 g_cfg.transition_delay = current_val;
-                g_cfg.save(g_cfg.loaded_path.c_str());
+                saved = save_menu_cfg_locked(prev);
             }
-            g_config_changed.store(true);
+            if (saved) g_config_changed.store(true);
             return true;
         }
         if (x >= menu_x + 440 && x <= menu_x + 480) {
             current_val = std::min(3600.0, current_val + 5.0);
+            bool saved = false;
             {
                 std::lock_guard lk(g_config_mtx);
+                Config prev = g_cfg;
                 g_cfg.transition_delay = current_val;
-                g_cfg.save(g_cfg.loaded_path.c_str());
+                saved = save_menu_cfg_locked(prev);
             }
-            g_config_changed.store(true);
+            if (saved) g_config_changed.store(true);
             return true;
         }
         if (x >= menu_x + 290 && x <= menu_x + 430) {
@@ -1438,26 +1473,30 @@ bool OverlayManager::handle_touch_click(float x, float y) {
     int r3_y = start_y + 3 * row_h;
     if (y >= r3_y && y <= r3_y + 26) {
         int current_val;
-        { std::lock_guard lk(g_config_mtx); current_val = g_cfg.video_volume; }
+        { std::shared_lock lk(g_config_mtx); current_val = g_cfg.video_volume; }
 
         if (x >= menu_x + 240 && x <= menu_x + 280) {
             current_val = std::max(0, current_val - 5);
+            bool saved = false;
             {
                 std::lock_guard lk(g_config_mtx);
+                Config prev = g_cfg;
                 g_cfg.video_volume = current_val;
-                g_cfg.save(g_cfg.loaded_path.c_str());
+                saved = save_menu_cfg_locked(prev);
             }
-            g_config_changed.store(true);
+            if (saved) g_config_changed.store(true);
             return true;
         }
         if (x >= menu_x + 440 && x <= menu_x + 480) {
             current_val = std::min(100, current_val + 5);
+            bool saved = false;
             {
                 std::lock_guard lk(g_config_mtx);
+                Config prev = g_cfg;
                 g_cfg.video_volume = current_val;
-                g_cfg.save(g_cfg.loaded_path.c_str());
+                saved = save_menu_cfg_locked(prev);
             }
-            g_config_changed.store(true);
+            if (saved) g_config_changed.store(true);
             return true;
         }
         if (x >= menu_x + 290 && x <= menu_x + 430) {
@@ -1475,12 +1514,14 @@ bool OverlayManager::handle_touch_click(float x, float y) {
         if (pct < 0.0f) pct = 0.0f;
         if (pct > 1.0f) pct = 1.0f;
         int val = (int)(pct * 100);
+        bool saved = false;
         {
             std::lock_guard lk(g_config_mtx);
+            Config prev = g_cfg;
             g_cfg.video_volume = val;
-            g_cfg.save(g_cfg.loaded_path.c_str());
+            saved = save_menu_cfg_locked(prev);
         }
-        g_config_changed.store(true);
+        if (saved) g_config_changed.store(true);
         return true;
     }
 
@@ -1488,7 +1529,7 @@ bool OverlayManager::handle_touch_click(float x, float y) {
     if (x >= menu_x + 240 && x <= menu_x + 480 && y >= start_y + 5 * row_h && y <= start_y + 5 * row_h + 26) {
         toggle_display_power();
         std::string prefix;
-        { std::lock_guard lk(g_config_mtx); prefix = g_cfg.mqtt_topic_prefix; }
+        { std::shared_lock lk(g_config_mtx); prefix = g_cfg.mqtt_topic_prefix; }
         mqtt_publish(prefix + "/status/screen", g_screen_blanked.load() ? "OFF" : "ON", true);
         g_logger.info("TOUCH_INPUT: Physical screen power toggled to {} via menu.", g_screen_blanked.load() ? "OFF" : "ON");
         return true;

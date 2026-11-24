@@ -66,21 +66,16 @@ static bool video_within_budget(AVFormatContext* fmt, const VideoLimits& limits)
     return true;
 }
 
-// Runtime Pi 4/5 detection
-static std::string hwaccel_path = "none";
 // Set when the HW M2M pipeline stalls (frame crawl): stay on software
 // decode for the rest of the process lifetime — kernel M2M state is
 // degraded until the container restarts (see is_pi5() gate history).
-static bool hw_disabled_session = false;
+static std::atomic<bool> hw_disabled_session{false};
 static bool is_pi5() {
-    static bool detected = false;
-    static bool result = false;
-    if (!detected) {
+    static const bool result = []() {
         std::ifstream f("/proc/cpuinfo");
         std::string m((std::istreambuf_iterator<char>(f)), {});
-        result = m.find("Cortex-A76") != std::string::npos || m.find("0xd0b") != std::string::npos;
-        detected = true;
-    }
+        return m.find("Cortex-A76") != std::string::npos || m.find("0xd0b") != std::string::npos;
+    }();
     return result;
 }
 static enum AVPixelFormat get_hw_format(AVCodecContext* ctx, const enum AVPixelFormat* pix_fmts) {
@@ -93,19 +88,12 @@ static enum AVPixelFormat get_hw_format(AVCodecContext* ctx, const enum AVPixelF
 }
 
 static AVBufferRef* create_hw_device() {
-    if (hw_disabled_session) return nullptr; // session-wide SW fallback after crawl
+    if (hw_disabled_session.load(std::memory_order_relaxed)) return nullptr; // session-wide SW fallback after crawl
     AVBufferRef* hw_device_ctx = nullptr;
     if (av_hwdevice_ctx_create(&hw_device_ctx,
                                AV_HWDEVICE_TYPE_DRM,
                                nullptr, nullptr, 0) >= 0) {
-        hwaccel_path = "drm";
         return hw_device_ctx;
-    }
-    // V4L2 M2M fallback: only if DRM hwaccel failed (Pi 4)
-    if (!hw_device_ctx &&
-        (avcodec_find_decoder_by_name("hevc_v4l2m2m") ||
-         avcodec_find_decoder_by_name("h264_v4l2m2m"))) {
-        hwaccel_path = "v4l2m2m";
     }
     return nullptr;
 }
@@ -345,7 +333,10 @@ bool VideoDecoder::start_impl(const std::string& path, int target_width, int tar
         if (m_path == path && (m_running.load(std::memory_order_relaxed) || has_frames())) {
             g_logger.info("VIDEO_DEC: Using pre-warmed video context for: {}", path.c_str());
             m_anchor_set.store(false, std::memory_order_release);
-            m_v0_set.store(false, std::memory_order_release);
+            if (!prewarm) {
+                m_prewarm_limit.store(0, std::memory_order_relaxed);
+                m_queue_cv.notify_one();
+            }
             return true;
         }
     }
@@ -478,31 +469,11 @@ size_t VideoDecoder::frame_queue_size() const {
     return m_frame_queue.size();
 }
 
-// TEMP DIAG: push-rate instrumentation (locate 4K60 bottleneck)
-static uint64_t s_n = 0;
-static uint64_t s_t0 = 0;
-static void log_push_rate(const char* site) {
-    uint64_t now = av_gettime_relative();
-    if (s_t0 == 0) s_t0 = now;
-    s_n++;
-    if (s_n % 200 == 0) {
-        double secs = (now - s_t0) / 1e6;
-        if (secs > 0.0) g_logger.info("[TRACE] VIDEO_DEC: push_rate site={} n={} last200 rate={:.1f}fps", site, (int)s_n, 200.0 / secs);
-        s_t0 = now;
-    }
-}
 void VideoDecoder::decode_loop() {
-    s_n = 0;
-    s_t0 = 0;
     static constexpr int MAX_AUDIO_SAMPLES = 8192;
     std::vector<int16_t> audio_resample_buf(MAX_AUDIO_SAMPLES * 2);
     try {
     DEBUG_LOG("VIDEO_DEC: Starting decode thread for {}", m_path);
-
-    avformat_network_init();
-    struct NetworkDeinitGuard {
-        ~NetworkDeinitGuard() { avformat_network_deinit(); }
-    } network_guard;
 
     AVFormatContext* fmt_ctx = avformat_alloc_context();
     if (!fmt_ctx) { m_start_failed.store(true); m_running.store(false); return; }
@@ -642,14 +613,14 @@ void VideoDecoder::decode_loop() {
     // DRM hwaccel for V4L2 stateless decode (Pi 4/5 H264, Pi 4 HEVC)
     AVBufferRef* hw_dev = create_hw_device();
     AvResource<AVBufferRef, av_buffer_unref> hw_guard{hw_dev};
-    if (!hw_dev && hw_disabled_session) {
+    if (!hw_dev && hw_disabled_session.load(std::memory_order_relaxed)) {
         g_logger.warn("VIDEO_DEC: HW accel disabled for this session (crawl recovery); using software decode");
     }
     // The Pi 5 decoder is stateless. The distro M2M codec is the stateful
     // path used on Pi 4 and remains guarded by the frame-rate watchdog.
     const AVCodec* vc = avcodec_find_decoder(vp->codec_id);
     bool is_m2m = false;
-    if (vp->codec_id == AV_CODEC_ID_HEVC && !is_pi5() && !hw_disabled_session) {
+    if (vp->codec_id == AV_CODEC_ID_HEVC && !is_pi5() && !hw_disabled_session.load(std::memory_order_relaxed)) {
         const AVCodec* m2m = avcodec_find_decoder_by_name("hevc_v4l2m2m");
         if (m2m) {
             g_logger.info("VIDEO_DEC: HEVC: using hevc_v4l2m2m kernel HW decoder ({}x{})", vp->width, vp->height);
@@ -707,6 +678,7 @@ void VideoDecoder::decode_loop() {
         // M2M decoders carry no hw_device_ctx (the kernel M2M node is the
         // device), so is_hw alone misses them: fall back to software when
         // the M2M open fails, or the main loop livelocks on the file.
+        bool fallback_opened = false;
         if (is_hw || is_m2m) {
             g_logger.warn("VIDEO_DEC: {} failed to open ({}) - falling back to software decoder",
                           vc->name, ebuf);
@@ -721,9 +693,10 @@ void VideoDecoder::decode_loop() {
                 vcc->flags2 |= AV_CODEC_FLAG2_FAST;
                 vcc->thread_count = (threads > 1) ? std::max(1, threads - 1) : 1;
                 vcc->thread_type = FF_THREAD_FRAME | FF_THREAD_SLICE;
+                fallback_opened = (avcodec_open2(vcc, vc, nullptr) >= 0);
             }
         }
-        if (!vc || avcodec_open2(vcc, vc, nullptr) < 0) {
+        if (!fallback_opened) {
             g_logger.error("VIDEO_DEC: Failed to open video codec for {} ({})",
                            m_path.c_str(), ebuf);
             m_start_failed.store(true); // main loop skips the file instead of retrying forever
@@ -873,10 +846,12 @@ void VideoDecoder::decode_loop() {
     int crawl_count = 0;
     int crawl_strikes = 0;
     int consecutive_demux_fails = 0;
-    // Decode-speed probe: measured over the first 120 frames (queue is far from its cap
-    // then, so the push rate is the true decode rate). Slower-than-realtime clips keep
-    // the deep RAM lookahead; clips that decode comfortably faster get a bounded one.
-    const long long loop_start_us = av_gettime_relative();
+    // Decode-speed probe: measured over 120 active decode frames after playback starts
+    // (m_prewarm_limit == 0), excluding time spent sleeping on a full frame queue.
+    long long probe_start_us = 0;
+    long long probe_wait_start_us = 0;
+    long long queue_wait_us = 0;
+    int probe_start_vf = 0;
     bool rate_probed = false;
     m_decode_fast.store(false, std::memory_order_relaxed);
     while (is_running() && !eof) {
@@ -901,7 +876,7 @@ void VideoDecoder::decode_loop() {
                 if (++crawl_strikes >= 2) {
                     g_logger.error("VIDEO_DEC: [E530] Frame crawl detected ({} frames/3s window, queue_size={}): HW M2M pipeline stalled, disabling HW accel for this session, advancing item", crawl_count, q_sz);
                     trigger_error(530);
-                    hw_disabled_session = true;
+                    hw_disabled_session.store(true, std::memory_order_relaxed);
                     m_eof.store(true);
                     eof = true;
                     break;
@@ -1027,7 +1002,6 @@ void VideoDecoder::decode_loop() {
                         }
                         last_frame_ms = av_gettime_relative();
                         g_logger.debug("[TRACE] VIDEO_DEC: Pushed frame #{}, queue_size={}", vf_count, frame_queue_size());
-                        log_push_rate("flush");
                         av_frame_unref(frame);
                         if (vf_count % 100 == 0) g_logger.debug("VIDEO_DEC: queue_depth={}", frame_queue_size());
                     }
@@ -1038,20 +1012,28 @@ void VideoDecoder::decode_loop() {
             break;
         }
         if (pkt->stream_index == video_stream_idx) {
-            // Periodically refresh available RAM budget as played frames are freed from memory
-            if (vf_count % 60 == 0) {
-                if (!rate_probed && vf_count >= 120) {
+            // Start speed probe once active playback begins (prewarm cap lifted).
+            if (!rate_probed && m_prewarm_limit.load(std::memory_order_relaxed) == 0) {
+                if (probe_start_us == 0) {
+                    probe_start_us = av_gettime_relative();
+                    probe_wait_start_us = queue_wait_us;
+                    probe_start_vf = vf_count;
+                } else if (vf_count - probe_start_vf >= 120) {
                     rate_probed = true;
-                    double secs = (av_gettime_relative() - loop_start_us) / 1000000.0;
-                    double play_fps = m_frame_duration > 0 ? 1.0 / m_frame_duration : 30.0;
+                    const long long active_us = (av_gettime_relative() - probe_start_us) - (queue_wait_us - probe_wait_start_us);
+                    const double secs = active_us / 1000000.0;
+                    const double play_fps = m_frame_duration > 0 ? 1.0 / m_frame_duration : 30.0;
                     if (secs > 0.0) {
-                        double dec_fps = vf_count / secs;
-                        bool fast = dec_fps >= play_fps * 1.5;
+                        const double dec_fps = (vf_count - probe_start_vf) / secs;
+                        const bool fast = dec_fps >= play_fps * 1.5;
                         m_decode_fast.store(fast, std::memory_order_relaxed);
                         g_logger.info("VIDEO_DEC: decode speed {:.1f}fps vs {:.1f}fps playback -> {} lookahead",
                                       dec_fps, play_fps, fast ? "bounded" : "deep");
                     }
                 }
+            }
+            // Periodically refresh available RAM budget as played frames are freed from memory
+            if (vf_count % 60 == 0) {
                 size_t cap = calculate_max_queued_frames(m_target_width, m_target_height);
                 if (m_decode_fast.load(std::memory_order_relaxed)) {
                     const size_t time_cap = m_frame_duration > 0 ? static_cast<size_t>(12.0 / m_frame_duration) : 360;
@@ -1103,13 +1085,14 @@ void VideoDecoder::decode_loop() {
                     if (pts_raw2 != AV_NOPTS_VALUE) vf.pts = av_q2d(fmt_ctx->streams[video_stream_idx]->time_base) * pts_raw2;
                     note_frame_anchor(vf.pts, pts_raw2 != AV_NOPTS_VALUE, eof);
                     {
+                        const long long wait_t0 = av_gettime_relative();
                         std::unique_lock<std::mutex> lk(m_queue_mtx);
                         m_queue_cv.wait(lk, [this] { return m_frame_queue.size() < get_max_queued_frames() || !m_running.load(); });
+                        queue_wait_us += av_gettime_relative() - wait_t0;
                         if (!m_running.load()) break;
                         m_frame_queue.push(std::move(vf));
                         m_produced_frame = true;
                     }
-                        log_push_rate("drain");
                     last_frame_ms = av_gettime_relative();
                 }
                 // Retry sending the packet after GPU buffer space freed up
@@ -1185,17 +1168,18 @@ void VideoDecoder::decode_loop() {
             note_frame_anchor(vf.pts, pts_raw != AV_NOPTS_VALUE, eof);
 
             {
+                const long long wait_t0 = av_gettime_relative();
                 std::unique_lock<std::mutex> lk(m_queue_mtx);
                 m_queue_cv.wait(lk, [this] {
                     return m_frame_queue.size() < get_max_queued_frames() || !m_running.load();
                 });
+                queue_wait_us += av_gettime_relative() - wait_t0;
                 if (!m_running.load()) break;
                 m_frame_queue.push(std::move(vf));
                 m_produced_frame = true;
             }
             last_frame_ms = av_gettime_relative();
                 crawl_count++;
-                log_push_rate("main");
             av_frame_unref(frame);
             } // end while drain
             if (ret < 0 && ret != AVERROR(EAGAIN) && ret != AVERROR_EOF) {

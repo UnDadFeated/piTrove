@@ -33,6 +33,9 @@
 #include <SDL3_ttf/SDL_ttf.h>
 #include <sys/file.h>
 #include <unistd.h>
+#include <spawn.h>
+#include <sys/wait.h>
+extern char** environ;
 #include <cstdlib>
 #include <ctime>
 #include <csignal>
@@ -219,7 +222,7 @@ static bool is_item_in_seasonal_window(const MediaItem& item, int window_days) {
 static bool should_be_twin_portrait(std::vector<MediaItem>& eligible, int idx) {
     bool twin_enabled = false;
     {
-        std::lock_guard lock(g_config_mtx);
+        std::shared_lock lock(g_config_mtx);
         twin_enabled = g_cfg.twin_portrait_enabled && g_cfg.collage_enabled;
     }
     int size = std::ssize(eligible);
@@ -279,7 +282,7 @@ static void calculate_fit_rect_in_area(int img_w, int img_h, int area_x, int are
     std::string border_mode = "off";
     int border_w = 0;
     {
-        std::lock_guard lock(g_config_mtx);
+        std::shared_lock lock(g_config_mtx);
         border_mode = g_cfg.border_mode;
         border_w = g_renderer.scale_px(g_cfg.border_width);
     }
@@ -328,7 +331,7 @@ static SDL_Texture* render_state_to_texture(
 
     bool snap_matte_color = false;
     {
-        std::lock_guard lock(g_config_mtx);
+        std::shared_lock lock(g_config_mtx);
         snap_matte_color = g_cfg.color_matched_matte;
     }
     if (snap_matte_color && primary) {
@@ -358,7 +361,7 @@ static SDL_Texture* render_state_to_texture(
         int snap_glow_depth;
         float matte_op, vignette_str;
         {
-            std::lock_guard lock(g_config_mtx);
+            std::shared_lock lock(g_config_mtx);
             has_bias = g_cfg.bias_lighting;
             has_matting = g_cfg.matting;
             snap_border_mode = g_cfg.border_mode;
@@ -376,7 +379,7 @@ static SDL_Texture* render_state_to_texture(
 
         // 1. Draw background based on style
         std::string snap_bg_style;
-        { std::lock_guard lk(g_config_mtx); snap_bg_style = g_cfg.bg_style; }
+        { std::shared_lock lk(g_config_mtx); snap_bg_style = g_cfg.bg_style; }
         if (snap_blurred || snap_bg_style != "photo") {
             g_renderer.draw_background(primary.get(), snap_bg_style, (Uint8)(255.0f * vignette_str));
         }
@@ -434,7 +437,7 @@ static SDL_Texture* render_state_to_texture(
         int snap_glow_depth;
         float matte_op, vignette_str;
         {
-            std::lock_guard lock(g_config_mtx);
+            std::shared_lock lock(g_config_mtx);
             has_bias = g_cfg.bias_lighting;
             has_matting = g_cfg.matting;
             snap_border_mode = g_cfg.border_mode;
@@ -452,7 +455,7 @@ static SDL_Texture* render_state_to_texture(
 
         // 1. Draw background based on style
         std::string snap_bg_style;
-        { std::lock_guard lk(g_config_mtx); snap_bg_style = g_cfg.bg_style; }
+        { std::shared_lock lk(g_config_mtx); snap_bg_style = g_cfg.bg_style; }
         if (snap_blurred || snap_bg_style != "photo") {
             g_renderer.draw_background(primary.get(), snap_bg_style, (Uint8)(255.0f * vignette_str));
         }
@@ -493,7 +496,7 @@ static SDL_Texture* render_state_to_texture(
 static std::vector<MediaItem> filter_playlist(const std::vector<MediaItem>& items, int cooldown_days, int window_days) {
     bool on_this_day = false;
     {
-        std::lock_guard lock(g_config_mtx);
+        std::shared_lock lock(g_config_mtx);
         on_this_day = g_cfg.on_this_day_enabled;
     }
 
@@ -525,7 +528,7 @@ static std::vector<MediaItem> filter_playlist(const std::vector<MediaItem>& item
                     
                     bool filter_people, filter_animals;
                     {
-                        std::lock_guard lk(g_config_mtx);
+                        std::shared_lock lk(g_config_mtx);
                         filter_people = g_cfg.show_people_faces;
                         filter_animals = g_cfg.keep_animals;
                     }
@@ -567,7 +570,7 @@ static std::vector<MediaItem> filter_playlist(const std::vector<MediaItem>& item
     // 60Hz render loop stalls with it.
     bool snap_show_people = true, snap_keep_animals = true;
     {
-        std::lock_guard lk(g_config_mtx);
+        std::shared_lock lk(g_config_mtx);
         snap_show_people = g_cfg.show_people_faces;
         snap_keep_animals = g_cfg.keep_animals;
     }
@@ -766,7 +769,7 @@ static void advance_playlist(int step) {
             int videos_per_photos = 10;
             bool shuffle_enabled = true;
             {
-                std::lock_guard lock(g_config_mtx);
+                std::shared_lock lock(g_config_mtx);
                 cooldown_days = g_cfg.cooldown_days;
                 window_days = g_cfg.scan_window_days;
                 play_just_photos = g_cfg.play_just_photos;
@@ -921,7 +924,7 @@ static void watchman_loop(std::stop_token stop) {
                 int cooldown_days, window_days, videos_per_photos;
                 bool shuffle_enabled, play_just_photos, play_just_videos;
                 {
-                    std::lock_guard lk(g_config_mtx);
+                    std::shared_lock lk(g_config_mtx);
                     cooldown_days = g_cfg.cooldown_days;
                     window_days = g_cfg.scan_window_days;
                     videos_per_photos = g_cfg.videos_per_photos;
@@ -985,9 +988,26 @@ static std::jthread g_watchdog_thread;
 static std::atomic<bool> g_watchdog_running{false};
 
 static FILE* g_event_log = nullptr;
+static std::mutex g_event_log_mtx;
+static size_t g_event_log_bytes = 0;
+static constexpr size_t MAX_EVENT_LOG_BYTES = 64 * 1024;
 static int64_t g_video_stall_ts = 0;
-static uint32_t g_disp_t0 = 0;
-static int g_disp_n = 0;
+
+static void write_event_log(std::string_view line) {
+    std::lock_guard lk(g_event_log_mtx);
+    if (!g_event_log) return;
+    if (g_event_log_bytes + line.size() > MAX_EVENT_LOG_BYTES) {
+        if (ftruncate(fileno(g_event_log), 0) == 0) {
+            rewind(g_event_log);
+            g_event_log_bytes = 0;
+        } else {
+            return;
+        }
+    }
+    const size_t written = fwrite(line.data(), 1, line.size(), g_event_log);
+    g_event_log_bytes += written;
+    fflush(g_event_log);
+}
 static void watchdog_loop() {
     g_logger.info("Watchdog: Software watchdog thread active.");
     g_watchdog_last_time.store(steady_now_ms());
@@ -1017,7 +1037,7 @@ static void watchdog_loop() {
 
         double delay = 15.0;
         {
-            std::lock_guard<std::shared_mutex> lk(g_config_mtx);
+            std::shared_lock<std::shared_mutex> lk(g_config_mtx);
             delay = g_cfg.transition_delay;
         }
 
@@ -1026,10 +1046,7 @@ static void watchdog_loop() {
         int64_t max_silent_time = std::max((int64_t)45, (int64_t)(delay * 3));
         if (elapsed > max_silent_time) {
             g_logger.error("[WATCHDOG] CRITICAL: Slideshow loop frozen! Last heartbeat was {} seconds ago. Forcing restart...", (int)elapsed);
-            if (g_event_log) {
-                fprintf(g_event_log, "WATCHDOG_TRIP: elapsed=%lds item=%d\n", (long)elapsed, current_idx);
-                fflush(g_event_log);
-            }
+            write_event_log(std::format("WATCHDOG_TRIP: elapsed={}s item={}\n", (long)elapsed, current_idx));
             trigger_error(809); // E809: WATCHDOG_FORCED_RESTART
             // Restore physical display power before exiting
             set_display_power(true);
@@ -1076,8 +1093,47 @@ static void keepalive_loop() {
         }
         if (!g_keepalive_running.load() || !g_running.load()) break;
         
-        std::string cmd = "ping -c 2 -W 3 '" + escape_shell_arg(gateway) + "' >/dev/null 2>&1";
-        int res = ::system(cmd.c_str());
+        int res = -1;
+        if (!is_valid_host_or_ip(gateway)) {
+            g_logger.warn("Keepalive: Ignoring invalid gateway address '{}'", gateway);
+        } else {
+            posix_spawn_file_actions_t actions;
+            if (posix_spawn_file_actions_init(&actions) == 0) {
+                posix_spawn_file_actions_addopen(&actions, STDIN_FILENO, "/dev/null", O_RDONLY, 0);
+                posix_spawn_file_actions_addopen(&actions, STDOUT_FILENO, "/dev/null", O_WRONLY, 0);
+                posix_spawn_file_actions_addopen(&actions, STDERR_FILENO, "/dev/null", O_WRONLY, 0);
+                char arg0[] = "ping";
+                char arg1[] = "-c";
+                char arg2[] = "2";
+                char arg3[] = "-W";
+                char arg4[] = "3";
+                char arg5[] = "--";
+                std::string gw_copy = gateway;
+                char* const argv[] = {arg0, arg1, arg2, arg3, arg4, arg5, gw_copy.data(), nullptr};
+                pid_t pid = -1;
+                if (posix_spawn(&pid, "/bin/ping", &actions, nullptr, argv, environ) == 0 && pid > 0) {
+                    int status = 0;
+                    for (;;) {
+                        const pid_t w = waitpid(pid, &status, WNOHANG);
+                        if (w == pid) {
+                            res = (WIFEXITED(status) && WEXITSTATUS(status) == 0) ? 0 : 1;
+                            break;
+                        }
+                        if (w < 0) {
+                            if (errno == EINTR) continue;
+                            break;
+                        }
+                        if (!g_keepalive_running.load() || !g_running.load()) {
+                            kill(pid, SIGTERM);
+                            waitpid(pid, &status, 0);
+                            break;
+                        }
+                        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+                    }
+                }
+                posix_spawn_file_actions_destroy(&actions);
+            }
+        }
         
         // Also check if NAS mount is reachable — gateway may be up but NAS down
         bool nas_ok = is_nas_online();
@@ -1244,10 +1300,10 @@ int main(int argc, char** argv) {
     }
 
     // --- Single-instance lock ---
-    int lock_fd = open(lock_path.c_str(), O_CREAT | O_RDWR, 0644);
+    int lock_fd = open(lock_path.c_str(), O_CREAT | O_RDWR | O_NOFOLLOW | O_CLOEXEC, 0600);
     if (lock_fd < 0) {
         lock_path = "/tmp/piTrove.lock";
-        lock_fd = open(lock_path.c_str(), O_CREAT | O_RDWR, 0644);
+        lock_fd = open(lock_path.c_str(), O_CREAT | O_RDWR | O_NOFOLLOW | O_CLOEXEC, 0600);
     }
     if (lock_fd < 0) { fprintf(stderr, "Failed to open lock file %s\n", lock_path.c_str()); return 1; }
     if (flock(lock_fd, LOCK_EX | LOCK_NB) != 0) {
@@ -1259,10 +1315,24 @@ int main(int argc, char** argv) {
     [[maybe_unused]] auto trunc_rc = ftruncate(lock_fd, 0);
     [[maybe_unused]] auto pid_rc = dprintf(lock_fd, "%d\n", getpid());
 
-    g_event_log = fopen("/app/cache/run/events.log", "ae");
-    if (g_event_log) {
-        fprintf(g_event_log, "=== piTrove started ===\n");
-        fflush(g_event_log);
+    {
+        int ev_fd = open("/app/cache/run/events.log", O_WRONLY | O_CREAT | O_APPEND | O_NOFOLLOW | O_CLOEXEC, 0600);
+        if (ev_fd >= 0) {
+            struct stat ev_st{};
+            if (fstat(ev_fd, &ev_st) == 0 && S_ISREG(ev_st.st_mode)) {
+                if (ev_st.st_size > 32 * 1024 && ftruncate(ev_fd, 0) == 0) {
+                    lseek(ev_fd, 0, SEEK_SET);
+                    g_event_log_bytes = 0;
+                } else {
+                    g_event_log_bytes = static_cast<size_t>(std::max<off_t>(0, ev_st.st_size));
+                }
+                g_event_log = fdopen(ev_fd, "ae");
+                if (!g_event_log) close(ev_fd);
+            } else {
+                close(ev_fd);
+            }
+        }
+        write_event_log("=== piTrove started ===\n");
     }
     pitrove::safe_mode::init();
     signal(SIGBUS, crash_handler);
@@ -1486,23 +1556,6 @@ int main(int argc, char** argv) {
     g_logger.info("Initializing EGL page flipping sweeps...");
     for (int i = 0; i < 3; i++) {
         g_renderer.clear(0, 0, 0, 255);
-                        // Draw overlay on video frame BEFORE present
-                        if (g_overlay) {
-                            double fallback_dur = (!g_eligible.empty() && current_idx >= 0 && current_idx < std::ssize(g_eligible)) ? g_eligible[current_idx].duration : 0.0;
-                            double remaining = g_video_decoder.get_video_remaining(fallback_dur);
-                            std::string remaining_str = "0:00";
-                            static int rem_cnt2=0; if(++rem_cnt2%60==0) g_logger.info("REM_TRACE2: remaining={:.1f} is_run={} has_f={}", remaining, g_video_decoder.is_running(), g_video_decoder.has_frames());
-                            if (remaining > 0.0 && (g_video_decoder.is_running() || g_video_decoder.has_frames())) {
-                                int total_secs = (int)std::ceil(remaining);
-                                int mins = total_secs / 60;
-                                int secs = total_secs % 60;
-                                remaining_str = std::format("{}:{:02d}", mins, secs);
-                            }
-                            g_overlay->draw_all(current_idx, std::ssize(g_eligible),
-                                &g_eligible[current_idx],
-                                nullptr,
-                                0.0, true, 0.0, nullptr, nullptr, remaining_str);
-                        }
         g_renderer.present();
         SDL_Delay(16);
     }
@@ -1612,7 +1665,7 @@ int main(int argc, char** argv) {
         };
 
         int depth = 10;
-        { std::lock_guard lk(g_config_mtx); depth = g_cfg.scan_depth; }
+        { std::shared_lock lk(g_config_mtx); depth = g_cfg.scan_depth; }
 
         std::jthread scan_thread;
         if (!spawn_thread_safe(scan_thread, "scanner", [&](std::stop_token stop) {
@@ -1773,7 +1826,7 @@ int main(int argc, char** argv) {
     int cooldown_days = 330;
     int window_days = 5;
     {
-        std::lock_guard lock(g_config_mtx);
+        std::shared_lock lock(g_config_mtx);
         cooldown_days = g_cfg.cooldown_days;
         window_days = g_cfg.scan_window_days;
     }
@@ -1798,7 +1851,7 @@ int main(int argc, char** argv) {
         int videos_per_photos = 10;
         bool shuffle_enabled = true;
         {
-            std::lock_guard lock(g_config_mtx);
+            std::shared_lock lock(g_config_mtx);
             play_just_photos = g_cfg.play_just_photos;
             play_just_videos = g_cfg.play_just_videos;
             videos_per_photos = g_cfg.videos_per_photos;
@@ -1821,7 +1874,7 @@ int main(int argc, char** argv) {
         bool http_srv = false;
         int http_prt;
         {
-            std::lock_guard lock(g_config_mtx);
+            std::shared_lock lock(g_config_mtx);
             http_srv = g_cfg.http_enabled && g_cfg.web_dashboard_enabled;
             http_prt = g_cfg.http_port;
         }
@@ -1883,7 +1936,7 @@ int main(int argc, char** argv) {
     {
         bool touch_enabled = false;
         {
-            std::lock_guard lk(g_config_mtx);
+            std::shared_lock lk(g_config_mtx);
             touch_enabled = g_cfg.touch_enabled;
         }
         if (touch_enabled) {
@@ -1927,6 +1980,7 @@ int main(int argc, char** argv) {
     SDL_Texture* transition_next_target = nullptr;
     SDL_Rect fit_rect{0, 0, 0, 0};
 
+    auto current_media_dir = []() { std::shared_lock lk(g_config_mtx); return g_cfg.media_dir; };
     // Find the first valid item to display, skipping and removing bad/missing files
     int load_attempts = 0;
     std::unique_lock<std::mutex> playlist_lock(g_playlist_mtx);
@@ -1937,7 +1991,7 @@ int main(int argc, char** argv) {
         playlist_lock.lock();
         if (!exists) {
             g_logger.warn("MISSING_FILE: First media file is missing/deleted from disk: {}", path.c_str());
-            if (is_media_dir_healthy(g_cfg.media_dir)) {
+            if (is_media_dir_healthy(current_media_dir())) {
 
                 // Erase from g_scanned_items and g_eligible
                 auto it_scanned = std::remove_if(g_scanned_items.begin(), g_scanned_items.end(),
@@ -1988,7 +2042,7 @@ int main(int argc, char** argv) {
 
                 if (!exists_l) {
                     g_logger.warn("MISSING_FILE: Left twin file missing: {}", path_l.c_str());
-                    if (is_media_dir_healthy(g_cfg.media_dir)) {
+                    if (is_media_dir_healthy(current_media_dir())) {
                         g_eligible.erase(g_eligible.begin() + current_idx);
                     }
                     if (g_eligible.empty()) break;
@@ -1998,7 +2052,7 @@ int main(int argc, char** argv) {
                 }
                 if (!exists_r) {
                     g_logger.warn("MISSING_FILE: Right twin file missing: {}", path_r.c_str());
-                    if (is_media_dir_healthy(g_cfg.media_dir)) {
+                    if (is_media_dir_healthy(current_media_dir())) {
                         g_eligible.erase(g_eligible.begin() + next_idx);
                     }
                     if (g_eligible.empty()) break;
@@ -2033,11 +2087,11 @@ int main(int argc, char** argv) {
                     break;
                 } else {
                     if (!current_data || !current_data->valid) {
-                        if (is_media_dir_healthy(g_cfg.media_dir) && (!current_data || !current_data->transient_error)) {
+                        if (is_media_dir_healthy(current_media_dir()) && (!current_data || !current_data->transient_error)) {
                             g_eligible.erase(g_eligible.begin() + current_idx);
                         }
                     } else if (!current_twin_data || !current_twin_data->valid) {
-                        if (is_media_dir_healthy(g_cfg.media_dir) && (!current_twin_data || !current_twin_data->transient_error)) {
+                        if (is_media_dir_healthy(current_media_dir()) && (!current_twin_data || !current_twin_data->transient_error)) {
                             g_eligible.erase(g_eligible.begin() + next_idx);
                         }
                     }
@@ -2082,7 +2136,7 @@ int main(int argc, char** argv) {
                     g_logger.info("First item is an image, loaded successfully: {} ({}x{})", g_eligible[current_idx].path.c_str(), g_eligible[current_idx].width, g_eligible[current_idx].height);
                     break;
                 } else {
-                    if (is_media_dir_healthy(g_cfg.media_dir) && (!single_data || !single_data->transient_error)) {
+                    if (is_media_dir_healthy(current_media_dir()) && (!single_data || !single_data->transient_error)) {
                         g_logger.warn("Bad first image, skipping: {}", g_eligible[current_idx].path.c_str());
                         g_eligible.erase(g_eligible.begin() + current_idx);
                     } else {
@@ -2099,7 +2153,7 @@ int main(int argc, char** argv) {
 
     bool transitioning = false;
     std::string transition_effect;
-    { std::lock_guard lk(g_config_mtx); transition_effect = g_cfg.transition_effect;
+    { std::shared_lock lk(g_config_mtx); transition_effect = g_cfg.transition_effect;
                 pitrove::thermal::set_fan_speed_percent(g_cfg.fan_speed); }
 
     // --- Start Background Watchman Thread ---
@@ -2124,14 +2178,17 @@ int main(int argc, char** argv) {
 
     while (g_running.load()) {
         if (g_config_changed.exchange(false)) {
-            g_logger.info("MAIN_LOOP: Dynamic configuration reload triggered!");
+            g_logger.info("MAIN_LOOP: Applying updated configuration in memory.");
+            int fan_speed = 30;
             {
-                std::lock_guard lk(g_config_mtx);
-                int active_port = g_cfg.http_port;
-                g_cfg.load(config_path);
-                g_cfg.http_port = active_port;
+                std::shared_lock lk(g_config_mtx);
                 transition_effect = g_cfg.transition_effect;
+                fan_speed = g_cfg.fan_speed;
             }
+            pitrove::thermal::set_fan_speed_percent(fan_speed);
+            scene_due = {};
+            scene_image.reset();
+            scene_twin.reset();
         }
         auto now = std::chrono::steady_clock::now();
         double dt = std::chrono::duration<double>(now - last_frame_time).count();
@@ -2156,19 +2213,20 @@ int main(int argc, char** argv) {
         sleep_schedule_timer += dt;
         if (sleep_schedule_timer >= 5.0) {
             sleep_schedule_timer = 0.0;
-            std::string s_time, w_time;
+            std::string s_time, w_time, tz_name;
             {
                 std::shared_lock lk(g_config_mtx);
                 s_time = g_cfg.sleep_time;
                 w_time = g_cfg.wake_time;
+                tz_name = g_cfg.timezone;
             }
             if (!s_time.empty() && !w_time.empty()) {
                 int s_h = 0, s_m = 0, w_h = 0, w_m = 0;
+                int now_h = 0, now_m = 0;
                 if (sscanf(s_time.c_str(), "%d:%d", &s_h, &s_m) == 2 &&
-                    sscanf(w_time.c_str(), "%d:%d", &w_h, &w_m) == 2) {
-                    std::time_t t_now = std::time(nullptr);
-                    std::tm* tm_local = std::localtime(&t_now);
-                    int now_mins = tm_local->tm_hour * 60 + tm_local->tm_min;
+                    sscanf(w_time.c_str(), "%d:%d", &w_h, &w_m) == 2 &&
+                    display_local_hm(std::time(nullptr), tz_name, now_h, now_m)) {
+                    int now_mins = now_h * 60 + now_m;
                     int sleep_mins = s_h * 60 + s_m;
                     int wake_mins = w_h * 60 + w_m;
 
@@ -2200,7 +2258,7 @@ int main(int argc, char** argv) {
             touch_check_timer = 0.0;
             bool touch_enabled = false;
             {
-                std::lock_guard lk(g_config_mtx);
+                std::shared_lock lk(g_config_mtx);
                 touch_enabled = g_cfg.touch_enabled;
             }
             if (touch_enabled) {
@@ -2238,32 +2296,56 @@ int main(int argc, char** argv) {
                     break;
                 case 1:
                     {
-                        std::lock_guard lk(g_config_mtx);
-                        g_cfg.shuffle = !g_cfg.shuffle;
-                        g_cfg.save(config_path);
+                        bool saved = false;
+                        {
+                            std::lock_guard lk(g_config_mtx);
+                            Config prev = g_cfg;
+                            g_cfg.shuffle = !g_cfg.shuffle;
+                            const std::string target = !config_path.empty() ? config_path : (g_cfg.loaded_path.empty() ? "/app/config/config.toml" : g_cfg.loaded_path);
+                            if (g_cfg.save(target)) {
+                                saved = true;
+                            } else {
+                                g_cfg = std::move(prev);
+                                g_logger.error("SLIDESHOW: Failed to save shuffle toggle to {}", target);
+                            }
+                        }
+                        if (saved) {
+                            g_config_changed.store(true);
+                            g_logger.info("SLIDESHOW: Shuffle toggled via pop-up menu.");
+                        }
                     }
-                    g_config_changed.store(true);
-                    g_logger.info("SLIDESHOW: Shuffle toggled via pop-up menu.");
                     break;
                 case 2:
                     {
-                        std::lock_guard lk(g_config_mtx);
-                        double curr = g_cfg.transition_delay;
-                        if (curr < 15.0) g_cfg.transition_delay = 30.0;
-                        else if (curr < 45.0) g_cfg.transition_delay = 60.0;
-                        else if (curr < 90.0) g_cfg.transition_delay = 120.0;
-                        else if (curr < 210.0) g_cfg.transition_delay = 300.0;
-                        else g_cfg.transition_delay = 10.0;
-                        g_cfg.save(config_path);
+                        bool saved = false;
+                        {
+                            std::lock_guard lk(g_config_mtx);
+                            Config prev = g_cfg;
+                            double curr = g_cfg.transition_delay;
+                            if (curr < 15.0) g_cfg.transition_delay = 30.0;
+                            else if (curr < 45.0) g_cfg.transition_delay = 60.0;
+                            else if (curr < 90.0) g_cfg.transition_delay = 120.0;
+                            else if (curr < 210.0) g_cfg.transition_delay = 300.0;
+                            else g_cfg.transition_delay = 10.0;
+                            const std::string target = !config_path.empty() ? config_path : (g_cfg.loaded_path.empty() ? "/app/config/config.toml" : g_cfg.loaded_path);
+                            if (g_cfg.save(target)) {
+                                saved = true;
+                            } else {
+                                g_cfg = std::move(prev);
+                                g_logger.error("SLIDESHOW: Failed to save interval change to {}", target);
+                            }
+                        }
+                        if (saved) {
+                            g_config_changed.store(true);
+                            g_logger.info("SLIDESHOW: Interval changed via pop-up menu.");
+                        }
                     }
-                    g_config_changed.store(true);
-                    g_logger.info("SLIDESHOW: Interval changed via pop-up menu.");
                     break;
                 case 3:
                     {
                         toggle_display_power();
                         std::string prefix;
-                        { std::lock_guard lk(g_config_mtx); prefix = g_cfg.mqtt_topic_prefix; }
+                        { std::shared_lock lk(g_config_mtx); prefix = g_cfg.mqtt_topic_prefix; }
                         mqtt_publish(prefix + "/status/screen", g_screen_blanked.load() ? "OFF" : "ON", true);
                         g_logger.info("SLIDESHOW: Screen power toggled via pop-up menu.");
                     }
@@ -2284,7 +2366,7 @@ int main(int argc, char** argv) {
                     if (set_display_power(true)) {
                         g_last_motion_time.store(static_cast<int64_t>(std::time(nullptr)));
                         std::string prefix;
-                        { std::lock_guard lk(g_config_mtx); prefix = g_cfg.mqtt_topic_prefix; }
+                        { std::shared_lock lk(g_config_mtx); prefix = g_cfg.mqtt_topic_prefix; }
                         mqtt_publish(prefix + "/status/screen", "ON", true);
                     }
                     if (g_overlay && g_overlay->menu_active) {
@@ -2318,7 +2400,7 @@ int main(int argc, char** argv) {
                     if (set_display_power(true)) {
                         g_last_motion_time.store(static_cast<int64_t>(std::time(nullptr)));
                         std::string prefix;
-                        { std::lock_guard lk(g_config_mtx); prefix = g_cfg.mqtt_topic_prefix; }
+                        { std::shared_lock lk(g_config_mtx); prefix = g_cfg.mqtt_topic_prefix; }
                         mqtt_publish(prefix + "/status/screen", "ON", true);
                     }
                     if (event.button.button == SDL_BUTTON_RIGHT) {
@@ -2336,7 +2418,7 @@ int main(int argc, char** argv) {
                             float my = event.button.y;
                             bool touch_mode = false;
                             {
-                                std::lock_guard lk(g_config_mtx);
+                                std::shared_lock lk(g_config_mtx);
                                 touch_mode = g_cfg.touch_enabled;
                             }
                             // Route clicks to active overlays (menu, keyboard, nav, PIN keypad)
@@ -2368,7 +2450,7 @@ int main(int argc, char** argv) {
                     if (set_display_power(true)) {
                         g_last_motion_time.store(static_cast<int64_t>(std::time(nullptr)));
                         std::string prefix;
-                        { std::lock_guard lk(g_config_mtx); prefix = g_cfg.mqtt_topic_prefix; }
+                        { std::shared_lock lk(g_config_mtx); prefix = g_cfg.mqtt_topic_prefix; }
                         mqtt_publish(prefix + "/status/screen", "ON", true);
                     }
                     if (g_overlay) {
@@ -2376,7 +2458,7 @@ int main(int argc, char** argv) {
                         float my = event.tfinger.y * g_renderer.screen_h;
                         bool touch_mode = false;
                         {
-                            std::lock_guard lk(g_config_mtx);
+                            std::shared_lock lk(g_config_mtx);
                             touch_mode = g_cfg.touch_enabled;
                         }
                         if (g_overlay->menu_active || g_overlay->keyboard_active || g_overlay->nav_overlay_active || g_overlay->pin_active) {
@@ -2406,7 +2488,7 @@ int main(int argc, char** argv) {
         {
             bool mqtt_on = false;
             int cooldown = 0;
-            { std::lock_guard lk(g_config_mtx); mqtt_on = g_cfg.mqtt_enabled; cooldown = g_cfg.mqtt_motionsensor_cooldown; }
+            { std::shared_lock lk(g_config_mtx); mqtt_on = g_cfg.mqtt_enabled; cooldown = g_cfg.mqtt_motionsensor_cooldown; }
             if (mqtt_on && cooldown > 0) {
                 int64_t now_ts = static_cast<int64_t>(std::time(nullptr));
                 int64_t last_motion = g_last_motion_time.load();
@@ -2414,7 +2496,7 @@ int main(int argc, char** argv) {
                     set_display_power(false)) {
                     g_logger.info("Motion sensor cooldown threshold reached ({} seconds). Blanking screen.", cooldown);
                     std::string prefix;
-                    { std::lock_guard lk(g_config_mtx); prefix = g_cfg.mqtt_topic_prefix; }
+                    { std::shared_lock lk(g_config_mtx); prefix = g_cfg.mqtt_topic_prefix; }
                     mqtt_publish(prefix + "/status/screen", "OFF", true);
                 }
             }
@@ -2524,7 +2606,7 @@ int main(int argc, char** argv) {
             else if (transition_effect == "crossfade") effect = TransitionEffect::Fade;
 
             float duration = 0.0f, kb_zoom = 0.1f;
-            { std::lock_guard lk(g_config_mtx); duration = g_cfg.transition_duration; kb_zoom = g_cfg.ken_burns_zoom; }
+            { std::shared_lock lk(g_config_mtx); duration = g_cfg.transition_duration; kb_zoom = g_cfg.ken_burns_zoom; }
             g_transition->start(effect, duration, 0, kb_zoom);
         }
 
@@ -2601,17 +2683,7 @@ int main(int argc, char** argv) {
                     }
                     g_video_decoder.set_displayed_pts(frame.pts);
 
-                    // TEMP DIAG: display-rate instrumentation (locate 4K60 bottleneck)
-                    {
-                        uint32_t d_now = SDL_GetTicks();
-                        if (g_disp_t0 == 0) g_disp_t0 = d_now;
-                        g_disp_n++;
-                        if (g_disp_n % 200 == 0) {
-                            double secs = ((int32_t)(SDL_GetTicks() - g_disp_t0)) / 1000.0;
-                            g_logger.info("[TRACE] VIDEO_DISP: displayed {} frames in {:.1f}s (rate={:.1f}fps)", g_disp_n, secs, (secs > 0.0) ? 200.0 / secs : 0.0);
-                            g_disp_t0 = SDL_GetTicks();
-                        }
-                    }
+
                     SDL_PixelFormat target_fmt = frame.is_nv12 ? SDL_PIXELFORMAT_NV12 : SDL_PIXELFORMAT_RGBA32;
                     if (!g_video_tex || g_video_tex_w != frame.width || g_video_tex_h != frame.height ||
                         g_video_tex_fmt != target_fmt || g_video_colorspace != frame.colorspace) {
@@ -2660,7 +2732,6 @@ int main(int argc, char** argv) {
                             double fallback_dur = (!g_eligible.empty() && current_idx >= 0 && current_idx < std::ssize(g_eligible)) ? g_eligible[current_idx].duration : 0.0;
                             double remaining = g_video_decoder.get_video_remaining(fallback_dur);
                             std::string remaining_str = "0:00";
-                            static int rem_cnt=0; if(++rem_cnt%60==0) g_logger.info("REM_TRACE: remaining={:.1f} is_running={} has_frames={}", remaining, g_video_decoder.is_running(), g_video_decoder.has_frames());
                             if (remaining > 0.0 && (g_video_decoder.is_running() || g_video_decoder.has_frames())) {
                                 int total_secs = (int)std::ceil(remaining);
                                 int mins = total_secs / 60;
@@ -2722,10 +2793,7 @@ int main(int argc, char** argv) {
                     else if (SDL_GetTicks() - g_video_stall_ts > 30000) {
                         g_logger.error("[VIDEO_STALL] Decoder stuck 30s, forcing recovery");
                         trigger_error(529);
-                        if (g_event_log) {
-                            fprintf(g_event_log, "VIDEO_STALL: item=%d\n", current_idx);
-                            fflush(g_event_log);
-                        }
+                        write_event_log(std::format("VIDEO_STALL: item={}\n", current_idx));
                         pitrove::health::heartbeat_tick();
                         g_video_decoder.stop();
                         if (g_video_tex) { SDL_DestroyTexture(g_video_tex); g_video_tex = nullptr; g_video_tex_w = 0; g_video_tex_h = 0; g_video_tex_fmt = SDL_PIXELFORMAT_UNKNOWN; }
@@ -2787,12 +2855,10 @@ int main(int argc, char** argv) {
                 g_logger.info("Playing video: {}", video_path.c_str());
 
                 int width, height;
-                { std::lock_guard lock(g_config_mtx); width = g_cfg.screen_w; height = g_cfg.screen_h;
+                { std::shared_lock lock(g_config_mtx); width = g_cfg.screen_w; height = g_cfg.screen_h;
                   g_video_decoder.set_av_sync(g_cfg.av_sync); }
 
                 // Reset video frame pacing for new video
-                g_disp_t0 = 0;
-                g_disp_n = 0;
                 g_video_stall_ts = 0;
                 if (!g_video_decoder.start(video_path, width, height)) {
                     g_logger.error("Failed to start video decoder, skipping.");
@@ -2900,7 +2966,7 @@ int main(int argc, char** argv) {
                     }
                 } else {
                     if (g_eligible[next_idx].type != "video") {
-                        if (is_media_dir_healthy(g_cfg.media_dir)) {
+                        if (is_media_dir_healthy(current_media_dir())) {
                             if (g_cache && next_data && !next_data->valid && !next_data->transient_error) {
                             }
                             if (is_twin && g_cache && next_twin_data && !next_twin_data->valid && !next_twin_data->transient_error) {
@@ -3088,7 +3154,7 @@ int main(int argc, char** argv) {
                 } else {
                     double delay;
                     {
-                        std::lock_guard lk(g_config_mtx);
+                        std::shared_lock lk(g_config_mtx);
                         delay = g_cfg.transition_delay;
                     }
                     item_timer = std::max(0.0, delay - 2.0);
@@ -3159,7 +3225,7 @@ int main(int argc, char** argv) {
                 int snap_glow_depth;
                 float matte_op, vignette_str;
                 {
-                    std::lock_guard lock(g_config_mtx);
+                    std::shared_lock lock(g_config_mtx);
                     has_bias = g_cfg.bias_lighting;
                     has_matting = g_cfg.matting;
                     snap_border_mode = g_cfg.border_mode;
@@ -3188,7 +3254,7 @@ int main(int argc, char** argv) {
 
                 // 1. Draw background based on style
                 std::string snap_bg_style;
-                { std::lock_guard lk(g_config_mtx); snap_bg_style = g_cfg.bg_style; }
+                { std::shared_lock lk(g_config_mtx); snap_bg_style = g_cfg.bg_style; }
                 if (snap_blurred || snap_bg_style != "photo") {
                     g_renderer.draw_background(current_data.get(), snap_bg_style, (Uint8)(255.0f * vignette_str));
                 }
@@ -3242,7 +3308,7 @@ int main(int argc, char** argv) {
                 bool snap_blurred, snap_matte_color;
                 float matte_op, vignette_str;
                 {
-                    std::lock_guard lk(g_config_mtx);
+                    std::shared_lock lk(g_config_mtx);
                     snap_bias = g_cfg.bias_lighting;
                     snap_matting = g_cfg.matting;
                     snap_border_mode = g_cfg.border_mode;
@@ -3270,7 +3336,7 @@ int main(int argc, char** argv) {
 
                 // 1. Draw background based on style
                 std::string snap_bg_style;
-                { std::lock_guard lk(g_config_mtx); snap_bg_style = g_cfg.bg_style; }
+                { std::shared_lock lk(g_config_mtx); snap_bg_style = g_cfg.bg_style; }
                 if (current_data && (snap_blurred || snap_bg_style != "photo")) {
                     g_renderer.draw_background(current_data.get(), snap_bg_style, (Uint8)(255.0f * vignette_str));
                 }
@@ -3371,7 +3437,7 @@ int main(int argc, char** argv) {
                             if (i <= 1 && !g_video_decoder.is_running() && !g_video_decoder.has_frames()) {
                                 int sw, sh;
                                 {
-                                    std::lock_guard lock(g_config_mtx);
+                                    std::shared_lock lock(g_config_mtx);
                                     sw = g_cfg.screen_w;
                                     sh = g_cfg.screen_h;
                                     g_video_decoder.set_av_sync(g_cfg.av_sync);
@@ -3389,7 +3455,7 @@ int main(int argc, char** argv) {
                 if (g_offline_mode.load()) {
                     delay = 30.0; // Enforce a 30-second back-off delay during offline recovery
                 } else {
-                    std::lock_guard lk(g_config_mtx);
+                    std::shared_lock lk(g_config_mtx);
                     delay = g_cfg.transition_delay;
                 }
                 if (item_timer >= delay) {
@@ -3461,6 +3527,9 @@ int main(int argc, char** argv) {
     // Fail-safe: Restore physical display power on exit
     set_display_power(true);
     
+    // Signal thermal monitor early so it exits in parallel with other threads
+    thermal_running.store(false);
+
     // Stop background HTTP server
     g_watchman_thread.request_stop();
     stop_http_server();
@@ -3516,15 +3585,16 @@ int main(int argc, char** argv) {
     g_renderer.cleanup();
 
     flock(lock_fd, LOCK_UN); close(lock_fd);
-    // Stop thermal monitoring
-    thermal_running.store(false);
+    // Join thermal monitoring thread (already signaled at shutdown start)
     if (thermal_thread.joinable()) thermal_thread.join();
 
-    if (g_event_log) {
-        fprintf(g_event_log, "=== clean exit ===\n");
-        fflush(g_event_log);
-        fclose(g_event_log);
-        g_event_log = nullptr;
+    write_event_log("=== clean exit ===\n");
+    {
+        std::lock_guard lk(g_event_log_mtx);
+        if (g_event_log) {
+            fclose(g_event_log);
+            g_event_log = nullptr;
+        }
     }
     // Clear crash state after stable runtime
     pitrove::safe_mode::clear();

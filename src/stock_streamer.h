@@ -48,6 +48,7 @@ public:
 private:
     std::mutex m_lifecycle_mtx;
     std::atomic<bool> m_running{false};
+    std::atomic<bool> m_allow_io{true};
     std::atomic<bool> m_fetching{false};
     std::jthread m_worker_thread;
 

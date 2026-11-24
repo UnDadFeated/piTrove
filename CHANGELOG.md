@@ -1,3 +1,10 @@
+### Release v18.4.11
+
+- Harden keepalive pings with gateway validation and `posix_spawn` (removing shell execution), block NAS/screenshot symlink escapes with `AT_SYMLINK_NOFOLLOW`/`O_NOFOLLOW`, reject secrets and invalid values on legacy `/api/settings/update`, enforce TLS verification on stock feeds, and route geocoding through `configure_public_https`.
+- Decode high-megapixel (108MP–200MP) smartphone JPEGs directly via `libjpeg-turbo` DCT scaling while preserving output decompression-bomb limits, and fix surface pitch copies in `image_loader.cpp`.
+- Fix video prewarm speed-probe miscalibration and countdown baseline reset, remove static data races and leftover diagnostic log spam, convert read-only config locks to `std::shared_lock`, fix `std::localtime()` data race and in-memory config reload handling, make screenshot capture atomic, bound shutdown across network/NAS/thermal workers, and speed up background blur with an O(W×H) sliding window.
+- Pin `actions/checkout` in `clones-badge.yml` and harden `install.sh` NAS credential file permissions and dynamic UID/GID fstab generation.
+
 ### Release v18.4.10
 
 - Refresh the pinned Debian Trixie base and install available Debian security updates.

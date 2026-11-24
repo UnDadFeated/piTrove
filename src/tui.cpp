@@ -169,7 +169,7 @@ void config_wizard(const std::string& path) {
                 ++selection;
             }
         }
-        if (key == 'x' && chosen.secret) {
+        if ((key == 'x' || key == 'X') && chosen.secret) {
             edits.erase(chosen.id);
             if (chosen.configured) edits["clear." + chosen.id] = "1";
         }

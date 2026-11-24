@@ -105,11 +105,23 @@ bool get(const std::string& url, std::string& response, const std::string& beare
     if (result != CURLE_OK) response.clear();
     return ok;
 }
-bool post_form(const std::string& url, const std::string& body, std::string& response) {
+static int cancelled(void* opaque, curl_off_t, curl_off_t, curl_off_t, curl_off_t) {
+    auto* running = static_cast<const std::atomic<bool>*>(opaque);
+    return running && !running->load();
+}
+void set_cancel_flag(CURL* curl, const std::atomic<bool>* running) {
+    if (!curl || !running) return;
+    curl_easy_setopt(curl, CURLOPT_XFERINFOFUNCTION, cancelled);
+    curl_easy_setopt(curl, CURLOPT_XFERINFODATA, const_cast<std::atomic<bool>*>(running));
+    curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 0L);
+}
+bool post_form(const std::string& url, const std::string& body, std::string& response, const std::atomic<bool>* running) {
     response.clear();
+    if (running && !running->load()) return false;
     CURL* curl = curl_easy_init();
     if (!curl) return false;
     options(curl, url);
+    set_cancel_flag(curl, running);
     TextBuffer buffer{&response, 2 * 1024 * 1024};
     curl_easy_setopt(curl, CURLOPT_POST, 1L);
     curl_easy_setopt(curl, CURLOPT_POSTFIELDS, body.data());
@@ -133,10 +145,6 @@ static size_t write_file(void* data, size_t size, size_t count, void* opaque) no
     size_t written = fwrite(data, 1, bytes, buffer.file);
     buffer.written += written;
     return written;
-}
-static int cancelled(void* opaque, curl_off_t, curl_off_t, curl_off_t, curl_off_t) {
-    auto* running = static_cast<const std::atomic<bool>*>(opaque);
-    return running && !running->load();
 }
 bool download(const std::string& url, const std::string& path, size_t limit, const std::atomic<bool>* running, const std::string& bearer) {
     if (running && !running->load()) return false;

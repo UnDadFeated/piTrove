@@ -24,7 +24,9 @@ Json parse_json(const std::string& body) {
     return Json::parse(body, nullptr, false);
 }
 
-Json picker_request(const std::string& path, const std::string& token, const char* method = nullptr) {
+Json picker_request(const std::string& path, const std::string& token, const char* method = nullptr,
+                    const std::atomic<bool>* running = nullptr) {
+    if (running && !running->load()) return {};
     const std::unique_ptr<CURL, decltype(&curl_easy_cleanup)> curl(curl_easy_init(), curl_easy_cleanup);
     if (!curl) return {};
     const auto url = std::string(endpoint) + path;
@@ -36,6 +38,7 @@ Json picker_request(const std::string& path, const std::string& token, const cha
     }
     const std::unique_ptr<curl_slist, decltype(&curl_slist_free_all)> headers(raw_headers, curl_slist_free_all);
     http_transfer::configure_public_https(curl.get());
+    http_transfer::set_cancel_flag(curl.get(), running);
     std::string response;
     http_transfer::TextBuffer buffer{&response, 1024 * 1024};
     curl_easy_setopt(curl.get(), CURLOPT_URL, url.c_str());
@@ -52,7 +55,7 @@ Json picker_request(const std::string& path, const std::string& token, const cha
     return response.empty() ? Json::object() : parse_json(response);
 }
 
-std::string access_token(const Config& config) {
+std::string access_token(const Config& config, const std::atomic<bool>* running = nullptr) {
     if (config.google_photos_client_id.empty() || config.google_photos_client_secret.empty() ||
         config.google_photos_refresh_token.empty()) return {};
     const auto encode = http_protocol::url_encode;
@@ -60,7 +63,7 @@ std::string access_token(const Config& config) {
         "&client_secret=" + encode(config.google_photos_client_secret) +
         "&refresh_token=" + encode(config.google_photos_refresh_token);
     std::string response;
-    if (!http_transfer::post_form("https://oauth2.googleapis.com/token", body, response)) return {};
+    if (!http_transfer::post_form("https://oauth2.googleapis.com/token", body, response, running)) return {};
     auto token = text_field(parse_json(response), "access_token");
     if (token.size() > 8192 || token.find_first_of("\r\n") != token.npos) return {};
     return token;
@@ -111,57 +114,96 @@ std::string GooglePhotosManager::picker_status() {
 }
 
 std::string GooglePhotosManager::create_picker() {
-    std::lock_guard lifecycle(lifecycle_mtx);
-    {
-        std::lock_guard lock(status_mtx);
-        if (state == "picking" || state == "importing")
-            return Json{{"state", state}, {"picker_url", picker_url}}.dump();
-    }
-    if (!running.load()) return R"({"state":"unlinked"})";
-    if (sync_thread.joinable()) sync_thread.join();
     Config config;
-    { std::shared_lock lock(g_config_mtx); config = g_cfg; }
-    const auto token = access_token(config);
-    if (token.empty()) return R"({"state":"unlinked"})";
-    const auto session = picker_request("/sessions", token, "POST");
+    {
+        std::lock_guard lifecycle(lifecycle_mtx);
+        {
+            std::lock_guard lock(status_mtx);
+            if (state == "picking" || state == "importing" || state == "creating")
+                return Json{{"state", state}, {"picker_url", picker_url}}.dump();
+            if (!running.load()) return R"({"state":"unlinked"})";
+            state = "creating";
+            picker_url.clear();
+        }
+        if (sync_thread.joinable()) sync_thread.join();
+        std::shared_lock lock(g_config_mtx);
+        config = g_cfg;
+    }
+    auto reset_creating = [&] {
+        std::lock_guard lock(status_mtx);
+        if (state == "creating") state = "ready";
+    };
+    const auto token = access_token(config, &running);
+    if (token.empty()) {
+        reset_creating();
+        return R"({"state":"unlinked"})";
+    }
+    const auto session = picker_request("/sessions", token, "POST", &running);
     const auto id = text_field(session, "id");
     const auto url = text_field(session, "pickerUri");
-    if (id.empty() || id.size() > 4096 || !url.starts_with("https://photos.google.com/"))
+    if (id.empty() || id.size() > 4096 || !url.starts_with("https://photos.google.com/")) {
+        reset_creating();
         return R"({"state":"authorization_failed"})";
+    }
     const auto settings = session.contains("pollingConfig") ? session["pollingConfig"] : Json{};
     const int interval = std::max(2, duration_seconds(settings, "pollInterval", 5));
     const int lifetime = duration_seconds(settings, "timeoutIn", 600);
-    {
-        std::lock_guard lock(status_mtx);
-        imported = failed = 0;
-        state = "picking";
-        picker_url = url + "/autoclose";
-    }
     const auto directory = config.google_photos_cache_dir.empty()
         ? "/app/cache/google_photos" : config.google_photos_cache_dir;
-    if (!spawn_thread_safe(sync_thread, "google_photos_picker",
-                           [this, id, token, directory, interval, lifetime](std::stop_token stop) {
-            try {
-                import_selection(stop, id, token, directory, interval, lifetime);
-            } catch (...) {
+
+    bool delete_session = false;
+    {
+        std::lock_guard lifecycle(lifecycle_mtx);
+        if (!running.load()) {
+            reset_creating();
+            delete_session = true;
+        } else {
+            {
+                std::lock_guard lock(status_mtx);
+                imported = failed = 0;
+                state = "picking";
+                picker_url = url + "/autoclose";
+            }
+            if (!spawn_thread_safe(sync_thread, "google_photos_picker",
+                                   [this, id, token, directory, interval, lifetime](std::stop_token stop) {
+                    try {
+                        import_selection(stop, id, token, directory, interval, lifetime);
+                    } catch (...) {
+                        std::lock_guard lock(status_mtx);
+                        state = "failed";
+                        picker_url.clear();
+                    }
+                })) {
+                delete_session = true;
                 std::lock_guard lock(status_mtx);
                 state = "failed";
                 picker_url.clear();
             }
-        })) {
+        }
+    }
+    if (delete_session) {
         picker_request("/sessions/" + http_protocol::url_encode(id), token, "DELETE");
-        std::lock_guard lock(status_mtx);
-        state = "failed";
-        picker_url.clear();
     }
     return picker_status();
 }
 
 void GooglePhotosManager::import_selection(std::stop_token stop, const std::string& id,
-                                           const std::string& token, const std::string& directory,
+                                           const std::string& initial_token, const std::string& directory,
                                            int interval, int lifetime) {
     const auto session_path = "/sessions/" + http_protocol::url_encode(id);
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(lifetime);
+    std::string token = initial_token;
+    auto token_issued = std::chrono::steady_clock::now();
+    auto refresh_token_if_needed = [&](bool force) {
+        if (!force && std::chrono::steady_clock::now() - token_issued < std::chrono::minutes(45)) return;
+        Config config;
+        { std::shared_lock lock(g_config_mtx); config = g_cfg; }
+        auto refreshed = access_token(config, &running);
+        if (!refreshed.empty()) {
+            token = std::move(refreshed);
+            token_issued = std::chrono::steady_clock::now();
+        }
+    };
     std::mutex wait_mutex;
     std::condition_variable_any wait;
     bool selected = false;
@@ -169,7 +211,8 @@ void GooglePhotosManager::import_selection(std::stop_token stop, const std::stri
         std::unique_lock lock(wait_mutex);
         wait.wait_for(lock, stop, std::chrono::seconds(interval), [] { return false; });
         if (stop.stop_requested() || std::chrono::steady_clock::now() >= deadline) break;
-        const auto status = picker_request(session_path, token);
+        refresh_token_if_needed(false);
+        const auto status = picker_request(session_path, token, nullptr, &running);
         if (status.is_object() && status.contains("mediaItemsSet") && status["mediaItemsSet"] == true) {
             selected = true;
             break;
@@ -184,17 +227,26 @@ void GooglePhotosManager::import_selection(std::stop_token stop, const std::stri
         }
         std::error_code ec;
         std::filesystem::create_directories(directory, ec);
-        if (ec) ++errors;
+        if (ec || sodium_init() < 0) ++errors;
         else {
             std::string page_token;
             for (int page = 0; page < 50 && !stop.stop_requested(); ++page) {
-                const auto document = picker_request("/mediaItems?pageSize=100&sessionId=" +
-                    http_protocol::url_encode(id) + "&pageToken=" + http_protocol::url_encode(page_token), token);
+                refresh_token_if_needed(false);
+                auto document = picker_request("/mediaItems?pageSize=100&sessionId=" +
+                    http_protocol::url_encode(id) + "&pageToken=" + http_protocol::url_encode(page_token),
+                    token, nullptr, &running);
+                if (!document.is_object() && !stop.stop_requested()) {
+                    refresh_token_if_needed(true);
+                    document = picker_request("/mediaItems?pageSize=100&sessionId=" +
+                        http_protocol::url_encode(id) + "&pageToken=" + http_protocol::url_encode(page_token),
+                        token, nullptr, &running);
+                }
                 if (!document.is_object()) { ++errors; break; }
                 const auto items = document.find("mediaItems");
                 if (items != document.end() && items->is_array()) {
                     for (const auto& item : *items) {
                         if (stop.stop_requested()) break;
+                        refresh_token_if_needed(false);
                         const auto file = item.find("mediaFile");
                         if (file == item.end()) { ++errors; continue; }
                         const auto identity = text_field(item, "id");
@@ -228,7 +280,7 @@ void GooglePhotosManager::import_selection(std::stop_token stop, const std::stri
             }
         }
     }
-    if (!stop.stop_requested()) picker_request(session_path, token, "DELETE");
+    if (!stop.stop_requested()) picker_request(session_path, token, "DELETE", &running);
     if (count) revision.fetch_add(1);
     {
         std::lock_guard lock(status_mtx);

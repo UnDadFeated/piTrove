@@ -37,6 +37,7 @@ private:
     std::jthread m_worker_thread;
     std::mutex m_lifecycle_mtx;
     std::atomic<bool> m_running{false};
+    std::atomic<bool> m_allow_io{true};
     std::atomic<bool> m_fetching{false};
     std::atomic<int> m_last_error{0};
     std::atomic<time_t> m_last_fetch_time{0};
@@ -54,10 +55,10 @@ private:
     struct FeedState {
         std::string url;
         time_t modified = 0;
+        std::chrono::steady_clock::time_point retry_after{};
+        int backoff_seconds = 30;
     };
     FeedState local_feed, global_feed;
-    std::chrono::steady_clock::time_point retry_after{};
-    int backoff_seconds = 30;
     std::string execute_http_get(const std::string& url, FeedState& feed, bool& unchanged);
     std::vector<NewsItem> parse_rss(const std::string& xml_data);
 

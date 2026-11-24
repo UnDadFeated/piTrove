@@ -94,7 +94,9 @@ void monitor_thread(std::atomic<bool>& running) {
             set_fan_speed_percent(desired_speed);
         }
 
-        std::this_thread::sleep_for(std::chrono::seconds(5));
+        for (int i = 0; i < 50 && running.load(); ++i) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        }
     }
 }
 

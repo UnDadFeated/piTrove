@@ -84,6 +84,10 @@ struct Logger {
 
     void log_error_code(int code_num);
     bool is_initialized() const { return initialized; }
+    std::string get_log_file_path() {
+        std::lock_guard<std::mutex> lk(log_path_mtx);
+        return log_file_path;
+    }
 
     Logger() {
         // Construct the redaction patterns before this logger's destructor is
@@ -241,6 +245,8 @@ void get_modified_time_date(int64_t mtime, int& y, int& m, int& d);
 
 // Timezone formatting
 [[nodiscard]] std::string format_epoch_tz(time_t epoch_sec, const std::string& tz_name, const std::string& fmt_str = "%I:%M %p");
+[[nodiscard]] bool display_local_hm(time_t epoch_sec, const std::string& tz_name, int& out_hour, int& out_min);
+[[nodiscard]] bool is_valid_host_or_ip(std::string_view value);
 [[nodiscard]] std::string format_tomorrow_tz(time_t epoch_sec, const std::string& tz_name);
 [[nodiscard]] std::vector<std::string> get_supported_timezones();
 [[nodiscard]] std::string infer_timezone_from_zip_or_location(const std::string& input);

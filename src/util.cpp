@@ -2,6 +2,8 @@
 #include "safe_mode.h"
 #include "error_db.h"
 #include <curl/curl.h>
+#include <nlohmann/json.hpp>
+#include <arpa/inet.h>
 #include "http_transfer.h"
 #include <string>
 #include <format>
@@ -10,43 +12,50 @@ bool geocode_location_sync(const std::string& query, float& out_lat, float& out_
     if (query.empty()) return false;
     CURL* curl = curl_easy_init();
     if (!curl) return false;
-    
-    char* escaped = curl_easy_escape(curl, query.c_str(), (int)query.length());
+
+    char* escaped = curl_easy_escape(curl, query.c_str(), static_cast<int>(query.length()));
     if (!escaped) { curl_easy_cleanup(curl); return false; }
     std::string url = std::format("https://geocoding-api.open-meteo.com/v1/search?name={}&count=1&format=json", escaped);
     curl_free(escaped);
 
     std::string resp;
+    http_transfer::configure_public_https(curl);
     curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
     curl_easy_setopt(curl, CURLOPT_TIMEOUT, 5L);
     curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 3L);
     curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
-    curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1L);
-    curl_easy_setopt(curl, CURLOPT_PROTOCOLS_STR, "https");
-    curl_easy_setopt(curl, CURLOPT_REDIR_PROTOCOLS_STR, "https");
-    curl_easy_setopt(curl, CURLOPT_MAXREDIRS, 3L);
-    curl_easy_setopt(curl, CURLOPT_USERAGENT, "piTrove/18.2");
+    curl_easy_setopt(curl, CURLOPT_USERAGENT, "piTrove/" VERSION);
     http_transfer::TextBuffer buffer{&resp, 1024 * 1024};
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, http_transfer::append_text);
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, &buffer);
-    
+
     CURLcode res = curl_easy_perform(curl);
+    long status = 0;
+    curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &status);
     curl_easy_cleanup(curl);
-    if (res != CURLE_OK || resp.empty()) return false;
+    if (res != CURLE_OK || status != 200 || resp.empty()) return false;
 
-    size_t lat_pos = resp.find("\"latitude\":");
-    size_t lon_pos = resp.find("\"longitude\":");
-    if (lat_pos == std::string::npos || lon_pos == std::string::npos) return false;
-
-    try {
-        std::string lat_sub = resp.substr(lat_pos + 11);
-        std::string lon_sub = resp.substr(lon_pos + 12);
-        out_lat = std::stof(lat_sub);
-        out_lon = std::stof(lon_sub);
-        return true;
-    } catch (...) {
+    const auto doc = nlohmann::json::parse(resp, nullptr, false);
+    if (!doc.is_object()) return false;
+    const auto results = doc.find("results");
+    if (results == doc.end() || !results->is_array() || results->empty() || !(*results)[0].is_object()) {
         return false;
     }
+    const auto& first = (*results)[0];
+    const auto lat = first.find("latitude");
+    const auto lon = first.find("longitude");
+    if (lat == first.end() || lon == first.end() || !lat->is_number() || !lon->is_number()) {
+        return false;
+    }
+    const double lat_val = lat->get<double>();
+    const double lon_val = lon->get<double>();
+    if (!std::isfinite(lat_val) || !std::isfinite(lon_val) ||
+        lat_val < -90.0 || lat_val > 90.0 || lon_val < -180.0 || lon_val > 180.0) {
+        return false;
+    }
+    out_lat = static_cast<float>(lat_val);
+    out_lon = static_cast<float>(lon_val);
+    return true;
 }
 #include <sys/sysinfo.h>
 #include <fstream>
@@ -485,7 +494,11 @@ void Logger::init(const std::string& path, LogLevel lvl, int keep_count) {
     } else {
         std::strcpy(fname, "piTrove_00000000_000000.log");
     }
-    log_file_path = path + "/" + fname;
+    std::string new_log_path = path + "/" + fname;
+    {
+        std::lock_guard<std::mutex> lk(log_path_mtx);
+        log_file_path = new_log_path;
+    }
 
     // Rotate: keep specified number of old log files
     // The new log file is created below, so retain keep_count-1 previous logs.
@@ -493,7 +506,7 @@ void Logger::init(const std::string& path, LogLevel lvl, int keep_count) {
 
     // Write version header to new log file
     {
-        FILE* f = fopen(log_file_path.c_str(), "w");
+        FILE* f = fopen(new_log_path.c_str(), "w");
         if (f) {
             char timebuf[64];
             struct tm tm_buf_htm;
@@ -552,12 +565,12 @@ static bool match_keyword(std::string_view str, std::string_view kw) {
         while ((pos = str.find(kw, pos)) != std::string_view::npos) {
             bool before_ok = true;
             if (pos > 0) {
-                char c = str[pos - 1];
+                unsigned char c = static_cast<unsigned char>(str[pos - 1]);
                 if (std::isalnum(c)) before_ok = false;
             }
             bool after_ok = true;
             if (pos + kw.size() < str.size()) {
-                char c = str[pos + kw.size()];
+                unsigned char c = static_cast<unsigned char>(str[pos + kw.size()]);
                 if (std::isalnum(c)) after_ok = false;
             }
             if (before_ok && after_ok) {
@@ -636,7 +649,7 @@ void classify_media_item(const MediaItem& item, bool& has_people, bool& has_anim
     if (!ext_clean.empty() && ext_clean.front() == '.') {
         ext_clean = ext_clean.substr(1);
     }
-    std::transform(ext_clean.begin(), ext_clean.end(), ext_clean.begin(), ::tolower);
+    std::transform(ext_clean.begin(), ext_clean.end(), ext_clean.begin(), [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
     
     if (name_lower.rfind("img_", 0) == 0 ||
         name_lower.rfind("dsc_", 0) == 0 ||
@@ -1014,6 +1027,48 @@ std::string format_epoch_tz(time_t epoch_sec, const std::string& tz_name, const 
     }
 }
 
+bool display_local_hm(time_t epoch_sec, const std::string& tz_name, int& out_hour, int& out_min) {
+    try {
+        const auto local = display_time(epoch_sec, tz_name).get_local_time();
+        const auto day = std::chrono::floor<std::chrono::days>(local);
+        const std::chrono::hh_mm_ss hms{local - day};
+        out_hour = static_cast<int>(hms.hours().count());
+        out_min = static_cast<int>(hms.minutes().count());
+        return true;
+    } catch (const std::runtime_error&) {
+        return false;
+    }
+}
+
+bool is_valid_host_or_ip(std::string_view value) {
+    if (value.empty() || value.size() > 253 || value.front() == '-') return false;
+    for (char ch : value) {
+        if (static_cast<unsigned char>(ch) <= 32 || static_cast<unsigned char>(ch) >= 127) return false;
+    }
+    const std::string host(value);
+    in_addr v4{};
+    if (inet_pton(AF_INET, host.c_str(), &v4) == 1) return true;
+    in6_addr v6{};
+    if (inet_pton(AF_INET6, host.c_str(), &v6) == 1) return true;
+    // Strict RFC 1123 hostname (no leading '-', no empty labels, labels 1..63 chars of [A-Za-z0-9-])
+    size_t pos = 0;
+    while (pos < value.size()) {
+        const size_t dot = value.find('.', pos);
+        const size_t end = (dot == std::string_view::npos) ? value.size() : dot;
+        const size_t len = end - pos;
+        if (len == 0 || len > 63) return false;
+        if (value[pos] == '-' || value[end - 1] == '-') return false;
+        for (size_t i = pos; i < end; ++i) {
+            const unsigned char c = static_cast<unsigned char>(value[i]);
+            if (!std::isalnum(c) && c != '-') return false;
+        }
+        if (dot == std::string_view::npos) break;
+        pos = dot + 1;
+        if (pos == value.size()) return false;
+    }
+    return true;
+}
+
 std::string format_tomorrow_tz(time_t epoch_sec, const std::string& tz_name) {
     try {
         const auto today = std::chrono::floor<std::chrono::days>(display_time(epoch_sec, tz_name).get_local_time());
@@ -1057,7 +1112,7 @@ std::string infer_timezone_from_zip_or_location(const std::string& input) {
     if (clean.empty()) return "";
 
     // Extract 5-digit zip code if present
-    std::regex zip_re(R"(\b([0-9]{5})\b)");
+    static const std::regex zip_re(R"(\b([0-9]{5})\b)");
     std::smatch m;
     if (std::regex_search(clean, m, zip_re)) {
         try {

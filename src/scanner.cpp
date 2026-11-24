@@ -278,9 +278,11 @@ ScanResult MediaScanner::scan(const std::string& directory, const std::vector<st
                     std::string ext(dot == name.npos ? "" : name.substr(dot));
                     std::transform(ext.begin(), ext.end(), ext.begin(), [](unsigned char c) { return std::tolower(c); });
                     const bool media = std::ranges::find(exts, ext) != exts.end();
-                    if (!media && entry->d_type != DT_UNKNOWN && entry->d_type != DT_DIR && entry->d_type != DT_LNK) continue;
+                    if (entry->d_type == DT_LNK) continue;
+                    if (!media && entry->d_type != DT_UNKNOWN && entry->d_type != DT_DIR) continue;
                     struct stat item{};
-                    if (fstatat(dirfd(dir.get()), entry->d_name, &item, 0) != 0) { ok = false; continue; }
+                    if (fstatat(dirfd(dir.get()), entry->d_name, &item, AT_SYMLINK_NOFOLLOW) != 0) { ok = false; continue; }
+                    if (S_ISLNK(item.st_mode)) continue;
                     bool recurse = S_ISDIR(item.st_mode) && job.second < max_depth &&
                                    dates.is_month_in_window(name, window_days);
                     std::lock_guard lock(work.mutex);

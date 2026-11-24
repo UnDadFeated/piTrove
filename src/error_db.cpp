@@ -165,7 +165,7 @@ std::vector<ErrorSeed> get_all_error_seeds() {
             "E201", 
             "IMAGE_LOAD_ERROR", 
             "The media loader encountered a fatal error while trying to decode an image.", 
-            "Verify that the file is not corrupted and its image format is fully supported by SDL3/stb."
+            "Verify that the file is not corrupted and its image format is supported by SDL3, libjpeg-turbo, libwebp, libheif, or libtiff."
         },
         {
             "E202", 

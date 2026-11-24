@@ -5,78 +5,85 @@
 
 // 3-pass separable box blur operating on raw RGBA pixels
 // Pass 1: horizontal, Pass 2: vertical, Pass 3: horizontal
+static void box_blur_h(const uint8_t* src, uint8_t* dst, int width, int height, int radius) {
+    const size_t stride = static_cast<size_t>(width) * 4;
+    for (int y = 0; y < height; ++y) {
+        const uint8_t* srow = src + static_cast<size_t>(y) * stride;
+        uint8_t* drow = dst + static_cast<size_t>(y) * stride;
+        int sum_r = 0, sum_g = 0, sum_b = 0, sum_a = 0, count = 0;
+        const int init_end = std::min(width - 1, radius);
+        for (int sx = 0; sx <= init_end; ++sx) {
+            const uint8_t* p = srow + sx * 4;
+            sum_r += p[0]; sum_g += p[1]; sum_b += p[2]; sum_a += p[3];
+            ++count;
+        }
+        for (int x = 0; x < width; ++x) {
+            uint8_t* d = drow + x * 4;
+            d[0] = static_cast<uint8_t>(sum_r / count);
+            d[1] = static_cast<uint8_t>(sum_g / count);
+            d[2] = static_cast<uint8_t>(sum_b / count);
+            d[3] = static_cast<uint8_t>(sum_a / count);
+            const int add_x = x + radius + 1;
+            if (add_x < width) {
+                const uint8_t* p = srow + add_x * 4;
+                sum_r += p[0]; sum_g += p[1]; sum_b += p[2]; sum_a += p[3];
+                ++count;
+            }
+            const int rem_x = x - radius;
+            if (rem_x >= 0) {
+                const uint8_t* p = srow + rem_x * 4;
+                sum_r -= p[0]; sum_g -= p[1]; sum_b -= p[2]; sum_a -= p[3];
+                --count;
+            }
+        }
+    }
+}
+
+static void box_blur_v(const uint8_t* src, uint8_t* dst, int width, int height, int radius) {
+    const size_t stride = static_cast<size_t>(width) * 4;
+    for (int x = 0; x < width; ++x) {
+        const size_t col_off = static_cast<size_t>(x) * 4;
+        int sum_r = 0, sum_g = 0, sum_b = 0, sum_a = 0, count = 0;
+        const int init_end = std::min(height - 1, radius);
+        for (int sy = 0; sy <= init_end; ++sy) {
+            const uint8_t* p = src + static_cast<size_t>(sy) * stride + col_off;
+            sum_r += p[0]; sum_g += p[1]; sum_b += p[2]; sum_a += p[3];
+            ++count;
+        }
+        for (int y = 0; y < height; ++y) {
+            uint8_t* d = dst + static_cast<size_t>(y) * stride + col_off;
+            d[0] = static_cast<uint8_t>(sum_r / count);
+            d[1] = static_cast<uint8_t>(sum_g / count);
+            d[2] = static_cast<uint8_t>(sum_b / count);
+            d[3] = static_cast<uint8_t>(sum_a / count);
+            const int add_y = y + radius + 1;
+            if (add_y < height) {
+                const uint8_t* p = src + static_cast<size_t>(add_y) * stride + col_off;
+                sum_r += p[0]; sum_g += p[1]; sum_b += p[2]; sum_a += p[3];
+                ++count;
+            }
+            const int rem_y = y - radius;
+            if (rem_y >= 0) {
+                const uint8_t* p = src + static_cast<size_t>(rem_y) * stride + col_off;
+                sum_r -= p[0]; sum_g -= p[1]; sum_b -= p[2]; sum_a -= p[3];
+                --count;
+            }
+        }
+    }
+}
+
 static void separable_box_blur(std::span<uint8_t> pixels, int width, int height, int radius) {
-    size_t buf_size = (size_t)width * height * 4;
-    uint8_t* tmp = (uint8_t*)malloc(buf_size);
+    if (width <= 0 || height <= 0 || radius <= 0) return;
+    size_t buf_size = static_cast<size_t>(width) * height * 4;
+    uint8_t* tmp = static_cast<uint8_t*>(malloc(buf_size));
     if (!tmp) return;
 
-    // Pass 1: horizontal blur into tmp
-    for (int y = 0; y < height; y++) {
-        for (int x = 0; x < width; x++) {
-            int sum_r = 0, sum_g = 0, sum_b = 0, sum_a = 0, count = 0;
-            for (int k = -radius; k <= radius; k++) {
-                int sx = x + k;
-                if (sx < 0 || sx >= width) continue;
-                const uint8_t* p = pixels.data() + y * width * 4 + sx * 4;
-                sum_r += p[0]; sum_g += p[1]; sum_b += p[2]; sum_a += p[3];
-                count++;
-            }
-            uint8_t* dst_px = tmp + y * width * 4 + x * 4;
-            dst_px[0] = (uint8_t)(sum_r / count);
-            dst_px[1] = (uint8_t)(sum_g / count);
-            dst_px[2] = (uint8_t)(sum_b / count);
-            dst_px[3] = (uint8_t)(sum_a / count);
-        }
-    }
-
-    // Pass 2: vertical blur into tmp (reading from tmp, writing to tmp as well — need temp)
-    // Actually do: tmp→out→tmp→out with two temporals
-    uint8_t* out = (uint8_t*)malloc(buf_size);
-    if (!out) { free(tmp); return; }
-
-    // Pass 2: vertical tmp → out
-    for (int y = 0; y < height; y++) {
-        for (int x = 0; x < width; x++) {
-            int sum_r = 0, sum_g = 0, sum_b = 0, sum_a = 0, count = 0;
-            for (int k = -radius; k <= radius; k++) {
-                int sy = y + k;
-                if (sy < 0 || sy >= height) continue;
-                const uint8_t* p = tmp + sy * width * 4 + x * 4;
-                sum_r += p[0]; sum_g += p[1]; sum_b += p[2]; sum_a += p[3];
-                count++;
-            }
-            uint8_t* dst_px = out + y * width * 4 + x * 4;
-            dst_px[0] = (uint8_t)(sum_r / count);
-            dst_px[1] = (uint8_t)(sum_g / count);
-            dst_px[2] = (uint8_t)(sum_b / count);
-            dst_px[3] = (uint8_t)(sum_a / count);
-        }
-    }
-
-    // Pass 3: horizontal out → tmp
-    for (int y = 0; y < height; y++) {
-        for (int x = 0; x < width; x++) {
-            int sum_r = 0, sum_g = 0, sum_b = 0, sum_a = 0, count = 0;
-            for (int k = -radius; k <= radius; k++) {
-                int sx = x + k;
-                if (sx < 0 || sx >= width) continue;
-                const uint8_t* p = out + y * width * 4 + sx * 4;
-                sum_r += p[0]; sum_g += p[1]; sum_b += p[2]; sum_a += p[3];
-                count++;
-            }
-            uint8_t* dst_px = tmp + y * width * 4 + x * 4;
-            dst_px[0] = (uint8_t)(sum_r / count);
-            dst_px[1] = (uint8_t)(sum_g / count);
-            dst_px[2] = (uint8_t)(sum_b / count);
-            dst_px[3] = (uint8_t)(sum_a / count);
-        }
-    }
-
-    // Copy tmp → pixels
+    box_blur_h(pixels.data(), tmp, width, height, radius);
+    box_blur_v(tmp, pixels.data(), width, height, radius);
+    box_blur_h(pixels.data(), tmp, width, height, radius);
     memcpy(pixels.data(), tmp, buf_size);
 
     free(tmp);
-    free(out);
 }
 
 // Downsample image to max_dim using nearest-neighbor, writes to new allocation

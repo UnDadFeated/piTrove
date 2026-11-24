@@ -2,6 +2,7 @@
 #include "http_transfer.h"
 #include "config.h"
 #include "config_text.h"
+#include "infopanel_render.h"
 #include "util.h"
 #include "error_db.h"
 #include <curl/curl.h>
@@ -14,30 +15,77 @@
 
 
 
-static std::string decode_html_entities(const std::string& input) {
+static void append_utf8(std::string& out, uint32_t cp) {
+    if (cp == 0 || cp > 0x10FFFF || (cp >= 0xD800 && cp <= 0xDFFF)) return;
+    if (cp < 0x80) {
+        out.push_back(static_cast<char>(cp));
+    } else if (cp < 0x800) {
+        out.push_back(static_cast<char>(0xC0 | (cp >> 6)));
+        out.push_back(static_cast<char>(0x80 | (cp & 0x3F)));
+    } else if (cp < 0x10000) {
+        out.push_back(static_cast<char>(0xE0 | (cp >> 12)));
+        out.push_back(static_cast<char>(0x80 | ((cp >> 6) & 0x3F)));
+        out.push_back(static_cast<char>(0x80 | (cp & 0x3F)));
+    } else {
+        out.push_back(static_cast<char>(0xF0 | (cp >> 18)));
+        out.push_back(static_cast<char>(0x80 | ((cp >> 12) & 0x3F)));
+        out.push_back(static_cast<char>(0x80 | ((cp >> 6) & 0x3F)));
+        out.push_back(static_cast<char>(0x80 | (cp & 0x3F)));
+    }
+}
+
+static std::string decode_html_entities(const std::string& raw_input) {
     static const std::pair<std::string_view, std::string_view> entities[] = {
         {"&amp;", "&"}, {"&lt;", "<"}, {"&gt;", ">"}, {"&quot;", "\""},
         {"&#39;", "'"}, {"&apos;", "'"}, {"&nbsp;", " "}, {"&mdash;", "—"},
-        {"&ndash;", "–"}, {"&hellip;", "..."}
+        {"&ndash;", "–"}, {"&hellip;", "..."}, {"&lsquo;", "‘"}, {"&rsquo;", "’"},
+        {"&ldquo;", "“"}, {"&rdquo;", "”"}
     };
+    const std::string trimmed_in = trim(raw_input);
+    std::string_view input(trimmed_in);
+    if (input.starts_with("<![CDATA[") && input.ends_with("]]>")) {
+        input = input.substr(9, input.size() - 12);
+    }
     std::string result;
+    result.reserve(input.size());
     for (size_t offset = 0; offset < input.size();) {
-        const std::string_view rest(input.data() + offset, input.size() - offset);
-        if (rest.starts_with("<![CDATA[") && rest.ends_with("]]>")) {
-            result.append(rest.substr(9, rest.size() - 12));
-            break;
+        const std::string_view rest = input.substr(offset);
+        if (rest.starts_with("<![CDATA[")) {
+            if (const auto end = rest.find("]]>"); end != rest.npos) {
+                result.append(rest.substr(9, end - 9));
+                offset += end + 3;
+                continue;
+            }
         }
         if (rest.front() == '<') {
             if (const auto end = rest.find('>'); end != rest.npos) { offset += end + 1; continue; }
         }
         bool matched = false;
         if (rest.front() == '&') {
-            for (const auto& [entity, replacement] : entities) {
-                if (!rest.starts_with(entity)) continue;
-                result.append(replacement);
-                offset += entity.size();
-                matched = true;
-                break;
+            if (rest.size() >= 4 && rest[1] == '#') {
+                const auto semi = rest.find(';');
+                if (semi != rest.npos && semi <= 10) {
+                    const bool hex = (rest[2] == 'x' || rest[2] == 'X');
+                    const std::string_view digits = rest.substr(hex ? 3 : 2, semi - (hex ? 3 : 2));
+                    uint32_t cp = 0;
+                    if (!digits.empty()) {
+                        const auto parsed = std::from_chars(digits.data(), digits.data() + digits.size(), cp, hex ? 16 : 10);
+                        if (parsed.ec == std::errc{} && parsed.ptr == digits.data() + digits.size() && cp >= 32 && cp <= 0x10FFFF) {
+                            append_utf8(result, cp);
+                            offset += semi + 1;
+                            matched = true;
+                        }
+                    }
+                }
+            }
+            if (!matched) {
+                for (const auto& [entity, replacement] : entities) {
+                    if (!rest.starts_with(entity)) continue;
+                    result.append(replacement);
+                    offset += entity.size();
+                    matched = true;
+                    break;
+                }
             }
         }
         if (!matched) result.push_back(input[offset++]);
@@ -86,8 +134,8 @@ NewsTicker::~NewsTicker() {
 }
 
 std::string NewsTicker::execute_http_get(const std::string& url, FeedState& feed, bool& unchanged) {
-    if (std::chrono::steady_clock::now() < retry_after) return {};
-    if (feed.url != url) feed = {url, 0};
+    if (feed.url != url) feed = {url, 0, {}, 30};
+    if (std::chrono::steady_clock::now() < feed.retry_after) return {};
     CURL* curl = curl_easy_init();
     if (!curl) {
         m_last_error.store(537); // E537: NEWS_NETWORK_TIMEOUT
@@ -95,6 +143,7 @@ std::string NewsTicker::execute_http_get(const std::string& url, FeedState& feed
     }
 
     http_transfer::configure_public_https(curl);
+    http_transfer::set_cancel_flag(curl, &m_allow_io);
     std::string response_string;
     http_transfer::TextBuffer response_buffer{&response_string, 4 * 1024 * 1024};
     curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
@@ -119,12 +168,12 @@ std::string NewsTicker::execute_http_get(const std::string& url, FeedState& feed
     curl_easy_cleanup(curl);
 
     if (res == CURLE_OK && http_code == 429) {
-        retry_after = std::chrono::steady_clock::now() +
-            std::chrono::seconds(std::clamp<curl_off_t>(delay, backoff_seconds, 24 * 3600));
-        backoff_seconds = std::min(backoff_seconds * 2, 3600);
+        feed.retry_after = std::chrono::steady_clock::now() +
+            std::chrono::seconds(std::clamp<curl_off_t>(delay, feed.backoff_seconds, 24 * 3600));
+        feed.backoff_seconds = std::min(feed.backoff_seconds * 2, 3600);
     } else if (res == CURLE_OK && http_code == 304) {
         unchanged = true;
-        backoff_seconds = 30;
+        feed.backoff_seconds = 30;
         return {};
     }
     if (res != CURLE_OK || http_code < 200 || http_code >= 300) {
@@ -133,7 +182,7 @@ std::string NewsTicker::execute_http_get(const std::string& url, FeedState& feed
         return "";
     }
 
-    backoff_seconds = 30;
+    feed.backoff_seconds = 30;
     if (!response_string.empty() && modified > 0) feed.modified = modified;
     return response_string;
 }
@@ -142,12 +191,12 @@ std::vector<NewsItem> NewsTicker::parse_rss(const std::string& xml_data) {
     std::vector<NewsItem> parsed_items;
     if (xml_data.empty()) return parsed_items;
 
-    std::regex title_regex("<title[^>]*>([\\s\\S]*?)</title>");
-    std::regex pubdate_regex("<pubDate[^>]*>([\\s\\S]*?)</pubDate>");
-    std::regex source_regex("<source[^>]*>([\\s\\S]*?)</source>");
-    std::regex source_url_regex("<source[^>]*url=[\"\']([^\"\']+)");
-    std::regex link_regex("<link[^>]*>([\\s\\S]*?)</link>");
-    std::regex guid_regex("<guid[^>]*>([\\s\\S]*?)</guid>");
+    static const std::regex title_regex("<title[^>]*>([\\s\\S]*?)</title>");
+    static const std::regex pubdate_regex("<pubDate[^>]*>([\\s\\S]*?)</pubDate>");
+    static const std::regex source_regex("<source[^>]*>([\\s\\S]*?)</source>");
+    static const std::regex source_url_regex("<source[^>]*url=[\"\']([^\"\']+)");
+    static const std::regex link_regex("<link[^>]*>([\\s\\S]*?)</link>");
+    static const std::regex guid_regex("<guid[^>]*>([\\s\\S]*?)</guid>");
 
 
     std::string tz = "UTC";
@@ -275,6 +324,13 @@ void NewsTicker::fetch_sync() {
         return a.published_time > b.published_time;
     });
 
+    // Space out local and global Google News requests to reduce burst HTTP 429s.
+    if (!local_q.empty() && m_running.load()) {
+        for (int i = 0; i < 15 && m_running.load(); ++i) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        }
+    }
+
     // 2. Fetch World News (Google Top Stories for past 6 hours)
     std::string global_url = "https://news.google.com/rss?hl=en-US&gl=US&ceid=US:en";
     g_logger.debug("NEWS: Fetching Google top stories");
@@ -337,7 +393,9 @@ void NewsTicker::sync() {
 bool NewsTicker::start() {
     std::lock_guard lifecycle(m_lifecycle_mtx);
     m_running.store(false);
+    m_allow_io.store(false);
     if (m_worker_thread.joinable()) m_worker_thread.join();
+    m_allow_io.store(true);
     m_running.store(true);
     m_reset_scroll.store(true); // Only render() writes the scroll state.
 
@@ -369,6 +427,7 @@ bool NewsTicker::start() {
 void NewsTicker::stop() {
     std::lock_guard lifecycle(m_lifecycle_mtx);
     m_running.store(false);
+    m_allow_io.store(false);
     // Join here rather than in the destructor: this is an inline global, so the
     // dtor join would happen during static destruction, after main() has already
     // torn down SDL and the cache. Worker sleeps in 1s ticks, so this is bounded.
@@ -607,8 +666,14 @@ void NewsTicker::render(SDL_Renderer* renderer, FontRenderer* font_renderer, con
 
     // Helper lambda to render colorized scrolling news row
     auto render_news_row = [&](int y_offset, float scroll_offset, const std::vector<NewsHeadlineSpan>& spans) {
-        SDL_Rect clip_rect = { visible_start_x, bounds.y + y_offset, bounds.w - badge_w, row_h };
-        SDL_SetRenderClipRect(renderer, &clip_rect);
+        const SDL_Rect clip_rect = {
+            visible_start_x,
+            bounds.y + y_offset,
+            std::max(0, visible_end_x - visible_start_x),
+            row_h
+        };
+        const InfopanelClip row_clip(renderer, clip_rect);
+        if (!row_clip) return;
 
         int text_y = bounds.y + y_offset + (row_h - font_size) / 2 - 1;
         int cur_x = visible_start_x - (int)scroll_offset;
@@ -636,7 +701,6 @@ void NewsTicker::render(SDL_Renderer* renderer, FontRenderer* font_renderer, con
             span_idx++;
         }
 
-        SDL_SetRenderClipRect(renderer, nullptr);
     };
 
     // Render Row 1: Local News

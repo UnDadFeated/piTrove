@@ -6,11 +6,11 @@
 #include "infopanel_render.h"
 #include "util.h"
 #include <curl/curl.h>
+#include <nlohmann/json.hpp>
 #include <algorithm>
 #include <sstream>
 #include <format>
 #include <cmath>
-#include <regex>
 #include <chrono>
 #include <memory>
 
@@ -41,7 +41,8 @@ struct QuoteRequest {
     bool success = false;
 };
 
-void fetch_quotes(std::vector<QuoteRequest>& requests, bool tls_verify) {
+void fetch_quotes(std::vector<QuoteRequest>& requests, const std::atomic<bool>* running) {
+    if (running && !running->load()) return;
     const std::unique_ptr<CURLM, decltype(&curl_multi_cleanup)> multi(curl_multi_init(), curl_multi_cleanup);
     if (!multi) return;
     curl_multi_setopt(multi.get(), CURLMOPT_MAX_TOTAL_CONNECTIONS, 6L);
@@ -49,6 +50,7 @@ void fetch_quotes(std::vector<QuoteRequest>& requests, bool tls_verify) {
         auto* curl = curl_easy_init();
         if (!curl) continue;
         http_transfer::configure_public_https(curl);
+        http_transfer::set_cancel_flag(curl, running);
         curl_easy_setopt(curl, CURLOPT_URL, request.url.c_str());
         curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, http_transfer::append_text);
         curl_easy_setopt(curl, CURLOPT_WRITEDATA, &request.buffer);
@@ -57,16 +59,15 @@ void fetch_quotes(std::vector<QuoteRequest>& requests, bool tls_verify) {
         curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 3L);
         curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
         curl_easy_setopt(curl, CURLOPT_USERAGENT, "piTrove/" VERSION);
-        curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, tls_verify ? 1L : 0L);
-        curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, tls_verify ? 2L : 0L);
         if (curl_multi_add_handle(multi.get(), curl) != CURLM_OK) curl_easy_cleanup(curl);
         else request.handle = curl;
     }
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(6);
     int active = 0;
-    while (curl_multi_perform(multi.get(), &active) == CURLM_OK && active > 0 &&
+    while ((!running || running->load()) &&
+           curl_multi_perform(multi.get(), &active) == CURLM_OK && active > 0 &&
            std::chrono::steady_clock::now() < deadline) {
-        if (curl_multi_poll(multi.get(), nullptr, 0, 200, nullptr) != CURLM_OK) break;
+        if (curl_multi_poll(multi.get(), nullptr, 0, 100, nullptr) != CURLM_OK) break;
     }
     int queued = 0;
     while (const auto* message = curl_multi_info_read(multi.get(), &queued)) {
@@ -130,90 +131,69 @@ static std::string clean_display_sym(const std::string& sym) {
     return sym;
 }
 
+static double json_number(const nlohmann::json& obj, const char* key, double fallback = 0.0) {
+    if (!obj.is_object()) return fallback;
+    const auto it = obj.find(key);
+    if (it == obj.end() || !it->is_number()) return fallback;
+    const double val = it->get<double>();
+    return std::isfinite(val) ? val : fallback;
+}
+
 static bool parse_yahoo_chart_meta(const std::string& json_str, StockQuote& quote) {
     if (json_str.empty()) return false;
+    const auto doc = nlohmann::json::parse(json_str, nullptr, false);
+    if (!doc.is_object()) return false;
+    const auto chart = doc.find("chart");
+    if (chart == doc.end() || !chart->is_object()) return false;
+    const auto results = chart->find("result");
+    if (results == chart->end() || !results->is_array() || results->empty() || !(*results)[0].is_object()) return false;
+    const auto& result = (*results)[0];
+    const auto meta_it = result.find("meta");
+    if (meta_it == result.end() || !meta_it->is_object()) return false;
+    const auto& meta = *meta_it;
 
-    auto extract_double = [&](const std::string& key, double default_val = 0.0) -> double {
-        std::regex re("\"" + key + "\"\\s*:\\s*([0-9]+(?:\\.[0-9]+)?)");
-        std::smatch m;
-        if (std::regex_search(json_str, m, re)) {
-            try { return std::stod(m[1].str()); } catch (...) {}
-        }
-        return default_val;
-    };
+    const double reg_price = json_number(meta, "regularMarketPrice", 0.0);
+    double prev_close = json_number(meta, "chartPreviousClose", 0.0);
+    if (prev_close <= 0.0) prev_close = json_number(meta, "previousClose", 0.0);
 
-    double reg_price = extract_double("regularMarketPrice", 0.0);
-    double prev_close = extract_double("chartPreviousClose", 0.0);
-    if (prev_close <= 0.0) prev_close = extract_double("previousClose", 0.0);
-
-    if (reg_price <= 0.0) return false;
+    if (!std::isfinite(reg_price) || reg_price <= 0.0) return false;
 
     quote.price = reg_price;
     quote.prev_close = prev_close;
     quote.change = (prev_close > 0.0) ? (reg_price - prev_close) : 0.0;
     quote.change_pct = (prev_close > 0.0) ? ((reg_price - prev_close) / prev_close * 100.0) : 0.0;
 
-    double post_price = extract_double("postMarketPrice", 0.0);
-    double pre_price = extract_double("preMarketPrice", 0.0);
+    const double post_price = json_number(meta, "postMarketPrice", 0.0);
+    const double pre_price = json_number(meta, "preMarketPrice", 0.0);
     double ah_price = (post_price > 0.0) ? post_price : ((pre_price > 0.0) ? pre_price : 0.0);
 
     // Traditional stocks: fallback to latest extended-hours candle from chart 1m series (Crypto is 24/7 continuous spot)
     if (!quote.is_crypto && ah_price <= 0.0) {
         int64_t reg_end = 0;
-        size_t p_period = json_str.find("\"regular\"");
-        if (p_period != std::string::npos) {
-            size_t p_end = json_str.find("\"end\"", p_period);
-            if (p_end != std::string::npos) {
-                size_t p_col = json_str.find(':', p_end);
-                if (p_col != std::string::npos) {
-                    try { reg_end = std::stoll(json_str.substr(p_col + 1)); } catch (...) {}
-                }
+        if (meta.contains("currentTradingPeriod") && meta["currentTradingPeriod"].is_object()) {
+            const auto& tp = meta["currentTradingPeriod"];
+            if (tp.contains("regular") && tp["regular"].is_object() && tp["regular"].contains("end") && tp["regular"]["end"].is_number_integer()) {
+                reg_end = tp["regular"]["end"].get<int64_t>();
             }
         }
-
-        size_t p_close = json_str.find("\"close\":[");
-        if (p_close != std::string::npos) {
-            size_t p_close_start = p_close + 9;
-            size_t p_close_end = json_str.find(']', p_close_start);
-            if (p_close_end != std::string::npos) {
-                size_t i = p_close_end;
-                while (i > p_close_start) {
-                    --i;
-                    char ch = json_str[i];
-                    if ((ch >= '0' && ch <= '9') || ch == '.') {
-                        size_t num_end = i + 1;
-                        while (i > p_close_start && ((json_str[i-1] >= '0' && json_str[i-1] <= '9') || json_str[i-1] == '.' || json_str[i-1] == '-')) {
-                            --i;
-                        }
-                        size_t num_start = i;
-                        try {
-                            double last_close = std::stod(json_str.substr(num_start, num_end - num_start));
-                            if (last_close > 0.0) {
-                                int64_t last_ts = 0;
-                                size_t p_ts = json_str.find("\"timestamp\":[");
-                                if (p_ts != std::string::npos) {
-                                    size_t p_ts_start = p_ts + 13;
-                                    size_t p_ts_end = json_str.find(']', p_ts_start);
-                                    if (p_ts_end != std::string::npos) {
-                                        size_t j = p_ts_end;
-                                        while (j > p_ts_start) {
-                                            --j;
-                                            if (json_str[j] >= '0' && json_str[j] <= '9') {
-                                                size_t ts_end = j + 1;
-                                                while (j > p_ts_start && json_str[j-1] >= '0' && json_str[j-1] <= '9') --j;
-                                                last_ts = std::stoll(json_str.substr(j, ts_end - j));
-                                                break;
-                                            }
-                                        }
-                                    }
-                                }
-                                if (last_ts > reg_end && reg_end > 0) {
-                                    ah_price = last_close;
-                                }
-                            }
-                        } catch (...) {}
-                        break;
+        if (reg_end > 0 && result.contains("timestamp") && result["timestamp"].is_array() &&
+            result.contains("indicators") && result["indicators"].is_object() &&
+            result["indicators"].contains("quote") && result["indicators"]["quote"].is_array() &&
+            !result["indicators"]["quote"].empty() && result["indicators"]["quote"][0].is_object() &&
+            result["indicators"]["quote"][0].contains("close") && result["indicators"]["quote"][0]["close"].is_array()) {
+            const auto& timestamps = result["timestamp"];
+            const auto& closes = result["indicators"]["quote"][0]["close"];
+            const size_t n = std::min(timestamps.size(), closes.size());
+            for (size_t i = n; i > 0; --i) {
+                const auto& c = closes[i - 1];
+                const auto& ts = timestamps[i - 1];
+                if (c.is_number() && ts.is_number_integer()) {
+                    const double last_close = c.get<double>();
+                    const int64_t last_ts = ts.get<int64_t>();
+                    if (std::isfinite(last_close) && last_close > 0.0 && last_ts > reg_end) {
+                        ah_price = last_close;
                     }
+                    break;
                 }
             }
         }
@@ -253,11 +233,6 @@ void StockStreamer::fetch_sync() {
     }
 
     const bool market_open = us_market_open(std::chrono::system_clock::now());
-    bool tls_verify;
-    {
-        std::shared_lock lock(g_config_mtx);
-        tls_verify = g_cfg.stockstreamer_tls_verify;
-    }
     std::vector<StockQuote> old_stocks;
     {
         std::shared_lock lock(m_quotes_mtx);
@@ -271,7 +246,7 @@ void StockStreamer::fetch_sync() {
     };
     for (size_t i = 0; market_open && i < symbols.size(); ++i) requests[i].url = chart(symbols[i]);
     requests.back().url = chart(crypto_sym);
-    fetch_quotes(requests, tls_verify);
+    fetch_quotes(requests, &m_allow_io);
 
     std::vector<StockQuote> fetched_stocks;
     bool fresh_stock_quote = false;
@@ -311,22 +286,20 @@ void StockStreamer::fetch_sync() {
         std::string cg_url = "https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd&include_24hr_change=true";
         std::vector<QuoteRequest> fallback(1);
         fallback.front().url = std::move(cg_url);
-        fetch_quotes(fallback, tls_verify);
+        fetch_quotes(fallback, &m_allow_io);
         const auto& cg_json = fallback.front().body;
         if (fallback.front().success && !cg_json.empty()) {
-            std::regex re_p("\"usd\"\\s*:\\s*([0-9]+(?:\\.[0-9]+)?)");
-            std::regex re_c("\"usd_24h_change\"\\s*:\\s*(-?[0-9]+(?:\\.[0-9]+)?)");
-            std::smatch mp, mc;
-            if (std::regex_search(cg_json, mp, re_p)) {
-                try {
-                    fetched_crypto.price = std::stod(mp[1].str());
-                    if (std::regex_search(cg_json, mc, re_c)) {
-                        fetched_crypto.change_pct = std::stod(mc[1].str());
-                    }
+            const auto doc = nlohmann::json::parse(cg_json, nullptr, false);
+            if (doc.is_object() && doc.contains("bitcoin") && doc["bitcoin"].is_object()) {
+                const auto& btc = doc["bitcoin"];
+                const double price = json_number(btc, "usd", 0.0);
+                if (price > 0.0) {
+                    fetched_crypto.price = price;
+                    fetched_crypto.change_pct = json_number(btc, "usd_24h_change", 0.0);
                     fetched_crypto.formatted_price = format_currency(fetched_crypto.price, true);
-                    fetched_crypto.last_updated_epoch = (uint64_t)time(nullptr);
+                    fetched_crypto.last_updated_epoch = static_cast<uint64_t>(time(nullptr));
                     btc_ok = true;
-                } catch (...) {}
+                }
             }
         }
     }
@@ -360,7 +333,9 @@ void StockStreamer::sync() {
 bool StockStreamer::start() {
     std::lock_guard lifecycle(m_lifecycle_mtx);
     m_running.store(false);
+    m_allow_io.store(false);
     if (m_worker_thread.joinable()) m_worker_thread.join();
+    m_allow_io.store(true);
     m_running.store(true);
 
     if (!spawn_thread_safe(m_worker_thread, "stockstreamer", [this]() {
@@ -392,6 +367,7 @@ bool StockStreamer::start() {
 void StockStreamer::stop() {
     std::lock_guard lifecycle(m_lifecycle_mtx);
     m_running.store(false);
+    m_allow_io.store(false);
     if (m_worker_thread.joinable()) m_worker_thread.join();
 }
 
@@ -406,6 +382,7 @@ StockQuote StockStreamer::get_crypto() const {
 }
 
 std::string StockStreamer::get_status_json() const {
+    auto finite_or_zero = [](double v) { return std::isfinite(v) ? v : 0.0; };
     std::shared_lock lk(m_quotes_mtx);
     std::ostringstream ss;
     ss << "{\"last_sync\":" << m_last_sync_time.load()
@@ -414,16 +391,16 @@ std::string StockStreamer::get_status_json() const {
     for (size_t i = 0; i < m_stocks.size(); ++i) {
         if (i > 0) ss << ",";
         ss << "{\"symbol\":\"" << config_text::escape(m_stocks[i].display_symbol) << "\""
-           << ",\"price\":" << m_stocks[i].price
-           << ",\"change\":" << m_stocks[i].change
-           << ",\"change_pct\":" << m_stocks[i].change_pct
-           << ",\"aftermarket_price\":" << m_stocks[i].aftermarket_price
-           << ",\"aftermarket_change_pct\":" << m_stocks[i].aftermarket_change_pct
+           << ",\"price\":" << finite_or_zero(m_stocks[i].price)
+           << ",\"change\":" << finite_or_zero(m_stocks[i].change)
+           << ",\"change_pct\":" << finite_or_zero(m_stocks[i].change_pct)
+           << ",\"aftermarket_price\":" << finite_or_zero(m_stocks[i].aftermarket_price)
+           << ",\"aftermarket_change_pct\":" << finite_or_zero(m_stocks[i].aftermarket_change_pct)
            << ",\"has_aftermarket\":" << (m_stocks[i].has_aftermarket ? "true" : "false") << "}";
     }
     ss << "],\"crypto\":{\"symbol\":\"" << config_text::escape(m_crypto.display_symbol) << "\""
-       << ",\"price\":" << m_crypto.price
-       << ",\"change_pct\":" << m_crypto.change_pct
+       << ",\"price\":" << finite_or_zero(m_crypto.price)
+       << ",\"change_pct\":" << finite_or_zero(m_crypto.change_pct)
        << ",\"available\":" << (m_crypto.last_updated_epoch > 0 ? "true" : "false") << "}}";
     return ss.str();
 }

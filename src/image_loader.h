@@ -236,7 +236,7 @@ public:
 
     // Helper to read a file fully into a memory buffer with checks
     static bool image_dimensions(std::span<const uint8_t> buffer, int& width, int& height);
-    static RawImage decode_rgba(std::span<const uint8_t> buffer);
+    static RawImage decode_rgba(std::span<const uint8_t> buffer, int max_dim = 0);
     static std::vector<uint8_t> read_file_to_buffer(const std::string& path);
 
     // Check if file has camera EXIF tags (not screenshot/screen grab)

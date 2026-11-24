@@ -29,6 +29,7 @@ std::string GoogleCalendar::execute_http_get(const std::string& url) {
         return "";
     }
     http_transfer::configure_public_https(curl);
+    http_transfer::set_cancel_flag(curl, &m_allow_io);
     std::string response;
     http_transfer::TextBuffer response_buffer{&response, 4 * 1024 * 1024};
 
@@ -52,7 +53,7 @@ std::string GoogleCalendar::execute_http_get(const std::string& url) {
     curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, http_transfer::append_text);
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response_buffer);
     curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
-    curl_easy_setopt(curl, CURLOPT_USERAGENT, "piTrove-18.0");
+    curl_easy_setopt(curl, CURLOPT_USERAGENT, "piTrove/" VERSION);
 
     CURLcode res = curl_easy_perform(curl);
     long status = 0;
@@ -344,7 +345,9 @@ void GoogleCalendar::sync() {
 bool GoogleCalendar::start() {
     std::lock_guard lifecycle(m_lifecycle_mtx);
     m_running.store(false);
+    m_allow_io.store(false);
     if (m_worker_thread.joinable()) m_worker_thread.join();
+    m_allow_io.store(true);
     m_running.store(true);
 
     if (!spawn_thread_safe(m_worker_thread, "gcalendar", [this]() {
@@ -374,6 +377,7 @@ bool GoogleCalendar::start() {
 void GoogleCalendar::stop() {
     std::lock_guard lifecycle(m_lifecycle_mtx);
     m_running.store(false);
+    m_allow_io.store(false);
     if (m_worker_thread.joinable()) m_worker_thread.join();
 }
 

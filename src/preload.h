@@ -88,7 +88,7 @@ public:
     void cancel_all();
 
 private:
-    static void worker_thread(std::shared_ptr<PreloadState> state, int thread_id);
+    static void worker_thread(std::stop_token stop, std::shared_ptr<PreloadState> state, int thread_id);
 };
 
 #endif // PITROVE_PRELOAD_H
