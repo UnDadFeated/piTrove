@@ -141,6 +141,8 @@ RUN --mount=type=bind,from=libxml2-backport,source=/out/libxml2.deb,target=/tmp/
         exit 1; \
     fi \
     && dpkg -i /tmp/libxml2.deb \
+    && groupadd --gid 1000 --non-unique pitrove \
+    && useradd --uid 1000 --gid 1000 --home-dir /app --no-create-home --shell /usr/sbin/nologin --non-unique pitrove \
     && rm -rf /var/lib/apt/lists/*
 
 # Establish runtime directory tree
@@ -155,7 +157,10 @@ COPY src/fonts/ /app/src/fonts/
 COPY src/splash.png /app/src/splash.png
 COPY src/config.toml /app/src/config/config.toml
 COPY scripts/ /app/scripts/
-RUN chmod +x /app/scripts/*.sh 2>/dev/null || true
+RUN chmod +x /app/scripts/*.sh 2>/dev/null || true && chown -R pitrove:pitrove /app
+
+# Drop privileges by default in the runtime image
+USER pitrove
 
 # Expose HTTP control interface dashboard
 EXPOSE 9000

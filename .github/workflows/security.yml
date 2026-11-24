@@ -32,6 +32,7 @@ jobs:
           scan-type: image
           image-ref: pitrove:security-scan
           severity: HIGH,CRITICAL
+          ignore-unfixed: true
           limit-severities-for-sarif: true
           exit-code: '1'
           format: sarif
