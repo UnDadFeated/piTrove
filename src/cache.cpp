@@ -91,7 +91,7 @@ bool CacheManager::open(const std::string& dir) {
     }
     std::string mmap_sql = std::format("PRAGMA mmap_size={}", mmap_val);
     if (sqlite3_exec(db, mmap_sql.c_str(), nullptr, nullptr, &err) != SQLITE_OK) {
-        g_logger.warn("Failed to set mmap_size={}ld: {}", mmap_val, err ? err : "unknown");
+        g_logger.warn("Failed to set mmap_size={}: {}", mmap_val, err ? err : "unknown");
         if (err) sqlite3_free(err);
     }
 
@@ -524,8 +524,8 @@ void CacheManager::flush_shown_locked() {
 
 void CacheManager::mark_bad(const std::string& filepath) {
     g_logger.info("[TRACE] CacheManager::mark_bad path={}", filepath.c_str());
-    if (!db) return;
     std::lock_guard<std::mutex> lk(db_mutex);
+    if (!db) return;
     const char* sql = "UPDATE cache SET bad = 1 WHERE path = ?;";
     sqlite3_stmt* stmt;
     if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) == SQLITE_OK) {
@@ -550,17 +550,8 @@ void CacheManager::reset_all_cooldowns() {
 }
 
 void CacheManager::seed_error_catalog() {
-    if (!db) return;
     std::lock_guard<std::mutex> lk(db_mutex);
-
-    sqlite3_stmt* check_stmt = nullptr;
-    if (sqlite3_prepare_v2(db, "SELECT COUNT(*) FROM error_catalog;", -1, &check_stmt, nullptr) == SQLITE_OK) {
-        if (sqlite3_step(check_stmt) == SQLITE_ROW && sqlite3_column_int(check_stmt, 0) > 0) {
-            sqlite3_finalize(check_stmt);
-            return;
-        }
-        sqlite3_finalize(check_stmt);
-    }
+    if (!db) return;
 
     char* err = nullptr;
     if (sqlite3_exec(db,
@@ -572,42 +563,79 @@ void CacheManager::seed_error_catalog() {
         return;
     }
 
-    auto seeds = get_all_error_seeds();
+    const auto seeds = get_all_error_seeds();
+    int existing_count = -1;
+    sqlite3_stmt* check_stmt = nullptr;
+    if (sqlite3_prepare_v2(db, "SELECT COUNT(*) FROM error_catalog;", -1, &check_stmt, nullptr) == SQLITE_OK) {
+        if (sqlite3_step(check_stmt) == SQLITE_ROW) {
+            existing_count = sqlite3_column_int(check_stmt, 0);
+        }
+        sqlite3_finalize(check_stmt);
+    }
+    if (existing_count == static_cast<int>(seeds.size())) {
+        return;
+    }
 
-    for (const auto& seed : seeds) {
-        sqlite3_stmt* stmt = nullptr;
-        const char* sql = "INSERT OR REPLACE INTO error_catalog (code, title, description, recovery) VALUES (?, ?, ?, ?);";
-        if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) == SQLITE_OK) {
+    if (sqlite3_exec(db, "SAVEPOINT seed_error_catalog;", nullptr, nullptr, nullptr) != SQLITE_OK) {
+        return;
+    }
+
+    sqlite3_stmt* stmt = nullptr;
+    const char* sql = "INSERT OR REPLACE INTO error_catalog (code, title, description, recovery) VALUES (?, ?, ?, ?);";
+    int rc = sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr);
+    if (rc == SQLITE_OK) {
+        for (const auto& seed : seeds) {
             sqlite3_bind_text(stmt, 1, seed.code.c_str(), -1, SQLITE_TRANSIENT);
             sqlite3_bind_text(stmt, 2, seed.title.c_str(), -1, SQLITE_TRANSIENT);
             sqlite3_bind_text(stmt, 3, seed.desc.c_str(), -1, SQLITE_TRANSIENT);
             sqlite3_bind_text(stmt, 4, seed.rec.c_str(), -1, SQLITE_TRANSIENT);
-            sqlite3_step(stmt);
-            sqlite3_finalize(stmt);
+            rc = sqlite3_step(stmt);
+            sqlite3_reset(stmt);
+            sqlite3_clear_bindings(stmt);
+            if (rc != SQLITE_DONE) break;
+            rc = SQLITE_OK;
         }
+        sqlite3_finalize(stmt);
+    }
+
+    if (rc == SQLITE_OK) {
+        sqlite3_exec(db, "RELEASE seed_error_catalog;", nullptr, nullptr, nullptr);
+    } else {
+        sqlite3_exec(db, "ROLLBACK TO seed_error_catalog; RELEASE seed_error_catalog;", nullptr, nullptr, nullptr);
     }
 }
 
 bool CacheManager::get_error_details(const std::string& code, std::string& title, std::string& desc, std::string& recovery) {
-    if (!db) return false;
-    std::lock_guard<std::mutex> lk(db_mutex);
-
-    sqlite3_stmt* stmt = nullptr;
-    const char* sql = "SELECT title, description, recovery FROM error_catalog WHERE code = ?;";
-    bool found = false;
-
-    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) == SQLITE_OK) {
-        sqlite3_bind_text(stmt, 1, code.c_str(), -1, SQLITE_STATIC);
-        if (sqlite3_step(stmt) == SQLITE_ROW) {
-            const char* t = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0));
-            const char* d = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1));
-            const char* r = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 2));
-            if (t) title = t;
-            if (d) desc = d;
-            if (r) recovery = r;
-            found = true;
+    {
+        std::lock_guard<std::mutex> lk(db_mutex);
+        if (db) {
+            sqlite3_stmt* stmt = nullptr;
+            const char* sql = "SELECT title, description, recovery FROM error_catalog WHERE code = ?;";
+            if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) == SQLITE_OK) {
+                sqlite3_bind_text(stmt, 1, code.c_str(), -1, SQLITE_STATIC);
+                if (sqlite3_step(stmt) == SQLITE_ROW) {
+                    const char* t = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0));
+                    const char* d = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1));
+                    const char* r = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 2));
+                    if (t) title = t;
+                    if (d) desc = d;
+                    if (r) recovery = r;
+                    sqlite3_finalize(stmt);
+                    return true;
+                }
+                sqlite3_finalize(stmt);
+            }
         }
-        sqlite3_finalize(stmt);
     }
-    return found;
+
+    static const auto seeds = get_all_error_seeds();
+    const auto it = std::find_if(seeds.begin(), seeds.end(),
+                                 [&](const ErrorSeed& seed) { return seed.code == code; });
+    if (it != seeds.end()) {
+        title = it->title;
+        desc = it->desc;
+        recovery = it->rec;
+        return true;
+    }
+    return false;
 }

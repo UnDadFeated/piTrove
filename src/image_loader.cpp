@@ -2,6 +2,12 @@
 #define _GNU_SOURCE
 #endif
 #include "image_loader.h"
+#include "blur.h"
+#include <condition_variable>
+#include <thread>
+#include <filesystem>
+#include <utility>
+#include <optional>
 #include <webp/decode.h>
 #include <libheif/heif.h>
 #include <lcms2.h>
@@ -103,56 +109,43 @@ uint32_t read_be32(const uint8_t* bytes) {
            (static_cast<uint32_t>(bytes[2]) << 8) | bytes[3];
 }
 
-bool jpeg_dimensions(std::span<const uint8_t> data, int& w, int& h) {
-    jpeg_decompress_struct jpeg{};
-    JpegErrorMgr error;
-    jpeg.err = jpeg_std_error(&error.pub);
-    error.pub.error_exit = jpeg_error_exit;
-    error.pub.output_message = [](j_common_ptr) {};
-    if (setjmp(error.jump)) {
-        jpeg_destroy_decompress(&jpeg);
-        return false;
+struct JpegDecoder {
+    jpeg_decompress_struct state{};
+    JpegErrorMgr error{};
+    uint8_t* pixels = nullptr;
+
+    JpegDecoder() {
+        state.err = jpeg_std_error(&error.pub);
+        error.pub.error_exit = jpeg_error_exit;
+        error.pub.output_message = [](j_common_ptr) {};
     }
+
+    ~JpegDecoder() {
+        jpeg_destroy_decompress(&state);
+        std::free(pixels);
+    }
+};
+
+bool jpeg_dimensions(std::span<const uint8_t> data, int& w, int& h, bool* buffered = nullptr) {
+    // The decoder mutates this storage even when it exits via longjmp.
+    const auto decoder = std::make_unique<JpegDecoder>();
+    auto& jpeg = decoder->state;
+    if (setjmp(decoder->error.jump)) return false;
     jpeg_create_decompress(&jpeg);
     jpeg_mem_src(&jpeg, data.data(), data.size());
-    const bool ready = jpeg_read_header(&jpeg, TRUE) == JPEG_HEADER_OK;
+    if (jpeg_read_header(&jpeg, TRUE) != JPEG_HEADER_OK) return false;
     w = static_cast<int>(jpeg.image_width);
     h = static_cast<int>(jpeg.image_height);
-    jpeg_destroy_decompress(&jpeg);
-    return ready && jpeg_scalable_dimensions(w, h);
+    if (buffered) *buffered = jpeg_has_multiple_scans(&jpeg);
+    return jpeg_scalable_dimensions(w, h);
 }
 
-bool decode_jpeg_libjpeg(std::span<const uint8_t> data, RawImage& result, int max_dim) {
-    jpeg_decompress_struct jpeg{};
-    JpegErrorMgr error;
-    jpeg.err = jpeg_std_error(&error.pub);
-    error.pub.error_exit = jpeg_error_exit;
-    error.pub.output_message = [](j_common_ptr) {};
-    uint8_t* pixels = nullptr;
-    if (setjmp(error.jump)) {
-        std::free(pixels);
-        jpeg_destroy_decompress(&jpeg);
-        return false;
-    }
-    jpeg_create_decompress(&jpeg);
-    jpeg_mem_src(&jpeg, data.data(), data.size());
-    if (jpeg_read_header(&jpeg, TRUE) != JPEG_HEADER_OK) {
-        jpeg_destroy_decompress(&jpeg);
-        return false;
-    }
-    const int src_w = static_cast<int>(jpeg.image_width);
-    const int src_h = static_cast<int>(jpeg.image_height);
-    if (!jpeg_scalable_dimensions(src_w, src_h)) {
-        jpeg_destroy_decompress(&jpeg);
-        return false;
-    }
-
+unsigned int jpeg_scale(int src_w, int src_h, int max_dim) {
     int target_dim = max_dim;
     if (target_dim <= 0 && !usable_dimensions(src_w, src_h)) {
         target_dim = 4096;
     }
     unsigned int scale_num = 8;
-    const unsigned int scale_denom = 8;
     if (target_dim > 0 && (src_w > target_dim || src_h > target_dim)) {
         scale_num = 1;
         for (unsigned int num = 1; num <= 8; ++num) {
@@ -162,35 +155,41 @@ bool decode_jpeg_libjpeg(std::span<const uint8_t> data, RawImage& result, int ma
             if (sw >= target_dim || sh >= target_dim) break;
         }
     }
-    jpeg.scale_num = scale_num;
-    jpeg.scale_denom = scale_denom;
-    jpeg_calc_output_dimensions(&jpeg);
-    while (scale_num > 1 && !usable_dimensions(static_cast<int>(jpeg.output_width), static_cast<int>(jpeg.output_height))) {
+    while (scale_num > 1 &&
+           !usable_dimensions((src_w * scale_num + 7) / 8, (src_h * scale_num + 7) / 8)) {
         --scale_num;
-        jpeg.scale_num = scale_num;
-        jpeg_calc_output_dimensions(&jpeg);
     }
+    return scale_num;
+}
+
+bool decode_jpeg_libjpeg(std::span<const uint8_t> data, RawImage& result, int max_dim) {
+    const auto decoder = std::make_unique<JpegDecoder>();
+    auto& jpeg = decoder->state;
+    if (setjmp(decoder->error.jump)) return false;
+    jpeg_create_decompress(&jpeg);
+    jpeg_mem_src(&jpeg, data.data(), data.size());
+    if (jpeg_read_header(&jpeg, TRUE) != JPEG_HEADER_OK) return false;
+    const int src_w = static_cast<int>(jpeg.image_width);
+    const int src_h = static_cast<int>(jpeg.image_height);
+    if (!jpeg_scalable_dimensions(src_w, src_h)) return false;
+
+    jpeg.scale_num = jpeg_scale(src_w, src_h, max_dim);
+    jpeg.scale_denom = 8;
     const bool is_cmyk = (jpeg.jpeg_color_space == JCS_CMYK || jpeg.jpeg_color_space == JCS_YCCK);
     jpeg.out_color_space = is_cmyk ? JCS_CMYK : JCS_EXT_RGBA;
     jpeg_calc_output_dimensions(&jpeg);
 
     const int out_w = static_cast<int>(jpeg.output_width);
     const int out_h = static_cast<int>(jpeg.output_height);
-    if (!usable_dimensions(out_w, out_h) || jpeg.output_components != 4) {
-        jpeg_destroy_decompress(&jpeg);
-        return false;
-    }
+    if (!usable_dimensions(out_w, out_h) || jpeg.output_components != 4) return false;
 
     const size_t stride = static_cast<size_t>(out_w) * 4;
-    pixels = static_cast<uint8_t*>(std::malloc(stride * static_cast<size_t>(out_h)));
-    if (!pixels) {
-        jpeg_destroy_decompress(&jpeg);
-        return false;
-    }
+    decoder->pixels = static_cast<uint8_t*>(std::malloc(stride * static_cast<size_t>(out_h)));
+    if (!decoder->pixels) return false;
 
     jpeg_start_decompress(&jpeg);
     while (jpeg.output_scanline < jpeg.output_height) {
-        JSAMPROW row = pixels + static_cast<size_t>(jpeg.output_scanline) * stride;
+        JSAMPROW row = decoder->pixels + static_cast<size_t>(jpeg.output_scanline) * stride;
         jpeg_read_scanlines(&jpeg, &row, 1);
         if (is_cmyk) {
             for (int x = 0; x < out_w; ++x) {
@@ -206,11 +205,10 @@ bool decode_jpeg_libjpeg(std::span<const uint8_t> data, RawImage& result, int ma
         }
     }
     jpeg_finish_decompress(&jpeg);
-    jpeg_destroy_decompress(&jpeg);
 
     result.width = out_w;
     result.height = out_h;
-    result.pixels = pixels;
+    result.pixels = std::exchange(decoder->pixels, nullptr);
     return true;
 }
 
@@ -563,7 +561,64 @@ bool ImageLoader::image_dimensions(std::span<const uint8_t> buffer, int& width, 
     return common_dimensions(common_format(buffer), buffer, width, height);
 }
 
-RawImage ImageLoader::decode_rgba(std::span<const uint8_t> buffer, int max_dim) {
+namespace {
+
+class DecodeReservation {
+public:
+    DecodeReservation(size_t bytes, std::stop_token stop) {
+        std::unique_lock lock(mutex);
+        // One large decode may take the entire budget and run by itself.
+        if (in_use == 0) {
+            limit = std::clamp<uint64_t>(get_available_ram_bytes() / 3,
+                                        64ULL * 1024 * 1024, 512ULL * 1024 * 1024);
+        }
+        if (cv.wait(lock, stop, [&] { return std::min(bytes, limit) <= limit - in_use; }) &&
+            !stop.stop_requested()) {
+            reserved = std::min(bytes, limit);
+            in_use += reserved;
+        }
+    }
+
+    ~DecodeReservation() {
+        if (!reserved) return;
+        {
+            std::lock_guard lock(mutex);
+            in_use -= reserved;
+        }
+        cv.notify_all();
+    }
+
+    DecodeReservation(const DecodeReservation&) = delete;
+    DecodeReservation& operator=(const DecodeReservation&) = delete;
+    explicit operator bool() const { return reserved != 0; }
+
+private:
+    size_t reserved = 0;
+    static inline std::mutex mutex;
+    static inline std::condition_variable_any cv;
+    static inline size_t limit = 0;
+    static inline size_t in_use = 0;
+};
+
+std::optional<size_t> estimate_decode_peak(std::span<const uint8_t> buffer, int max_dim) {
+    int width = 0, height = 0;
+    size_t jpeg_coefficients = 0;
+    if (common_format(buffer) == CommonFormat::Jpeg) {
+        bool buffered = false;
+        if (!jpeg_dimensions(buffer, width, height, &buffered)) return std::nullopt;
+        if (buffered) jpeg_coefficients = static_cast<size_t>(width) * height * 8;
+        const auto scale = jpeg_scale(width, height, max_dim);
+        width = (width * scale + 7) / 8;
+        height = (height * scale + 7) / 8;
+    } else if (!ImageLoader::image_dimensions(buffer, width, height)) {
+        return std::nullopt;
+    }
+    if (!usable_dimensions(width, height)) return std::nullopt;
+    // Allow for the decoder's output, RGBA conversion, and display-size scaling/rotation.
+    return static_cast<size_t>(width) * height * 16 + jpeg_coefficients + buffer.size();
+}
+
+RawImage decode_rgba_unreserved(std::span<const uint8_t> buffer, int max_dim) {
     RawImage result;
     if (buffer.empty() || buffer.size() > INT_MAX) return {};
     if (is_tiff(buffer)) {
@@ -633,16 +688,29 @@ RawImage ImageLoader::decode_rgba(std::span<const uint8_t> buffer, int max_dim) 
     return result;
 }
 
-std::vector<uint8_t> ImageLoader::read_file_to_buffer(const std::string& path) {
+} // namespace
+
+RawImage ImageLoader::decode_rgba(std::span<const uint8_t> buffer, int max_dim) {
+    const auto peak = estimate_decode_peak(buffer, max_dim);
+    if (!peak) return {};
+    const DecodeReservation reservation(*peak, {});
+    return decode_rgba_unreserved(buffer, max_dim);
+}
+
+namespace {
+
+std::vector<uint8_t> read_image_file(const std::string& path, std::stop_token stop) {
+    if (stop.stop_requested()) { errno = ECANCELED; return {}; }
     std::vector<uint8_t> buffer;
-    const int fd = ::open(path.c_str(), O_RDONLY | O_NOFOLLOW | O_CLOEXEC);
+    const int fd = ::open(path.c_str(), O_RDONLY | O_NOFOLLOW | O_CLOEXEC | O_NONBLOCK);
     [[unlikely]]
     if (fd < 0) {
         return buffer;
     }
     struct stat st{};
-    if (::fstat(fd, &st) != 0 || !S_ISREG(st.st_mode) || st.st_size <= 0) {
-        const int saved_err = S_ISREG(st.st_mode) ? errno : EINVAL;
+    const int stat_result = ::fstat(fd, &st);
+    if (stat_result != 0 || !S_ISREG(st.st_mode) || st.st_size <= 0) {
+        const int saved_err = stat_result != 0 ? errno : EINVAL;
         ::close(fd);
         errno = saved_err;
         return buffer;
@@ -654,10 +722,22 @@ std::vector<uint8_t> ImageLoader::read_file_to_buffer(const std::string& path) {
         errno = EFBIG;
         return buffer;
     }
-    buffer.resize(total);
+    if (stop.stop_requested()) {
+        ::close(fd);
+        errno = ECANCELED;
+        return {};
+    }
+    try {
+        buffer.resize(total);
+    } catch (const std::bad_alloc&) {
+        ::close(fd);
+        errno = ENOMEM;
+        return {};
+    }
     size_t offset = 0;
-    while (offset < total) {
-        const ssize_t n = ::read(fd, buffer.data() + offset, total - offset);
+    constexpr size_t chunk_size = 1024 * 1024;
+    while (offset < total && !stop.stop_requested()) {
+        const ssize_t n = ::read(fd, buffer.data() + offset, std::min(total - offset, chunk_size));
         if (n < 0) {
             if (errno == EINTR) continue;
             const int saved_err = errno;
@@ -675,7 +755,71 @@ std::vector<uint8_t> ImageLoader::read_file_to_buffer(const std::string& path) {
         offset += static_cast<size_t>(n);
     }
     ::close(fd);
+    if (stop.stop_requested()) { errno = ECANCELED; return {}; }
     return buffer;
+}
+
+struct ImageRead {
+    std::mutex mutex;
+    std::condition_variable_any ready;
+    std::stop_source cancel;
+    std::vector<uint8_t> buffer;
+    int error = 0;
+    bool finished = false;
+};
+
+} // namespace
+
+std::vector<uint8_t> ImageLoader::read_file_to_buffer(const std::string& path) {
+    return read_file_to_buffer(path, {});
+}
+
+std::vector<uint8_t> ImageLoader::read_file_to_buffer(const std::string& path, std::stop_token stop) {
+    if (stop.stop_requested()) { errno = ECANCELED; return {}; }
+    // A NAS call can remain in the kernel after cancellation. Keep each abandoned
+    // worker's slot until that call returns so retries cannot exhaust the process.
+    static std::atomic<unsigned> active{0};
+    constexpr unsigned max_workers = 8;
+    auto count = active.load();
+    while (count < max_workers && !active.compare_exchange_weak(count, count + 1)) {}
+    if (count >= max_workers) { errno = EAGAIN; return {}; }
+
+    std::shared_ptr<ImageRead> task;
+    try {
+        task = std::make_shared<ImageRead>();
+        std::thread([task, path] {
+            errno = 0;
+            auto buffer = read_image_file(path, task->cancel.get_token());
+            const int error = buffer.empty() ? errno : 0;
+            {
+                std::lock_guard lock(task->mutex);
+                task->buffer = std::move(buffer);
+                task->error = error;
+                task->finished = true;
+            }
+            active.fetch_sub(1);
+            task->ready.notify_one();
+        }).detach();
+    } catch (const std::system_error&) {
+        active.fetch_sub(1);
+        errno = EAGAIN;
+        return {};
+    } catch (const std::bad_alloc&) {
+        active.fetch_sub(1);
+        errno = ENOMEM;
+        return {};
+    }
+
+    std::unique_lock lock(task->mutex);
+    const bool finished = task->ready.wait_for(lock, stop, std::chrono::seconds(5),
+                                               [&] { return task->finished; });
+    if (!finished || stop.stop_requested()) {
+        task->cancel.request_stop();
+        errno = stop.stop_requested() ? ECANCELED : ETIMEDOUT;
+        return {};
+    }
+    errno = task->error;
+    return std::move(task->buffer);
 }
 
 int ImageLoader::read_exif_rotation_from_memory(std::span<const uint8_t> buffer) {
@@ -702,17 +846,223 @@ int ImageLoader::read_exif_rotation_from_memory(std::span<const uint8_t> buffer)
 
 
 
-std::shared_ptr<ImageData> ImageLoader::load(const std::string& path) {
-    auto result = std::make_shared<ImageData>();
-    size_t last_slash = path.find_last_of("/\\");
-    result->filename = (last_slash == std::string::npos) ? path : path.substr(last_slash + 1);
-    result->valid = false;
-    result->transient_error = false;
+static void compute_average_color(const RawImage& src, uint8_t& r, uint8_t& g, uint8_t& b) {
+    if (!src.valid || !src.pixels || src.width <= 0 || src.height <= 0) {
+        r = 220; g = 210; b = 195;
+        return;
+    }
+    const int MAX_STEPS = 64;
+    int step_x = std::max(1, src.width / MAX_STEPS);
+    int step_y = std::max(1, src.height / MAX_STEPS);
+    long long sum_r = 0, sum_g = 0, sum_b = 0, samples = 0;
+    for (int y = 0; y < src.height; y += step_y) {
+        for (int x = 0; x < src.width; x += step_x) {
+            long long offset = (long long)y * 4 * src.width + (long long)x * 4;
+            if (offset >= 0 && offset + 3 < (long long)src.width * src.height * 4) {
+                const uint8_t* px = src.pixels + offset;
+                sum_r += px[0]; sum_g += px[1]; sum_b += px[2];
+                ++samples;
+            }
+        }
+    }
+    if (samples <= 0) {
+        r = 220; g = 210; b = 195;
+    } else {
+        r = (uint8_t)(sum_r / samples);
+        g = (uint8_t)(sum_g / samples);
+        b = (uint8_t)(sum_b / samples);
+    }
+}
 
+static void compute_edge_data(const RawImage& raw,
+    uint8_t edge_r[4], uint8_t edge_g[4], uint8_t edge_b[4],
+    std::vector<uint8_t>& edge_top_rgb, std::vector<uint8_t>& edge_bot_rgb,
+    std::vector<uint8_t>& edge_lft_rgb, std::vector<uint8_t>& edge_rgt_rgb)
+{
+    if (!raw.valid || raw.width <= 0 || raw.height <= 0) return;
+    int w = raw.width, h = raw.height;
+    const uint8_t* px = raw.pixels;
+    int stride = w * 4;
+    const int STEPS = 32;
+
+    // Edge average colors (sampled, matching get_edge_average_color)
+    auto sample_edge = [&](int x0, int y0, int x1, int y1) -> GpuColor {
+        int sx = std::max(1, (x1 - x0) / STEPS);
+        int sy = std::max(1, (y1 - y0) / STEPS);
+        long long r = 0, g = 0, b = 0, n = 0;
+        for (int y = y0; y < y1; y += sy)
+            for (int x = x0; x < x1; x += sx) {
+                long long offset = (long long)y * stride + (long long)x * 4;
+                if (offset >= 0) {
+                    const uint8_t* p = px + offset;
+                    r += p[0]; g += p[1]; b += p[2]; n++;
+                }
+            }
+        if (n <= 0) return GpuColor{0,0,0,255};
+        return GpuColor{(uint8_t)(r/n), (uint8_t)(g/n), (uint8_t)(b/n), 255};
+    };
+    int depth = 8;
+    GpuColor ec = sample_edge(0, 0, w, std::min(depth, h));
+    edge_r[0] = ec.r; edge_g[0] = ec.g; edge_b[0] = ec.b;
+    ec = sample_edge(0, std::max(0, h - depth), w, h);
+    edge_r[1] = ec.r; edge_g[1] = ec.g; edge_b[1] = ec.b;
+    ec = sample_edge(0, 0, std::min(depth, w), h);
+    edge_r[2] = ec.r; edge_g[2] = ec.g; edge_b[2] = ec.b;
+    ec = sample_edge(std::max(0, w - depth), 0, w, h);
+    edge_r[3] = ec.r; edge_g[3] = ec.g; edge_b[3] = ec.b;
+
+    // Per-pixel edge strips (3px deep average per position)
+    int ns = h < 3 ? h : 3;
+    edge_top_rgb.resize(w * 3);
+    for (int x = 0; x < w; x++) {
+        int ar = 0, ag = 0, ab = 0;
+        for (int d = 0; d < ns; d++) {
+            const uint8_t* p = px + x * 4 + d * stride;
+            ar += p[0]; ag += p[1]; ab += p[2];
+        }
+        edge_top_rgb[x * 3 + 0] = (uint8_t)(ns > 0 ? (ar / ns) : 0);
+        edge_top_rgb[x * 3 + 1] = (uint8_t)(ns > 0 ? (ag / ns) : 0);
+        edge_top_rgb[x * 3 + 2] = (uint8_t)(ns > 0 ? (ab / ns) : 0);
+    }
+
+    edge_bot_rgb.resize(w * 3);
+    for (int x = 0; x < w; x++) {
+        int ar = 0, ag = 0, ab = 0;
+        for (int d = 0; d < ns; ++d) {
+            const int ry = h - 1 - d;
+            const uint8_t* p = px + x * 4 + ry * stride;
+            ar += p[0]; ag += p[1]; ab += p[2];
+        }
+        edge_bot_rgb[x * 3 + 0] = static_cast<uint8_t>(ar / ns);
+        edge_bot_rgb[x * 3 + 1] = static_cast<uint8_t>(ag / ns);
+        edge_bot_rgb[x * 3 + 2] = static_cast<uint8_t>(ab / ns);
+    }
+
+    ns = w < 3 ? w : 3;
+    edge_lft_rgb.resize(h * 3);
+    for (int y = 0; y < h; y++) {
+        int ar = 0, ag = 0, ab = 0;
+        for (int ww = 0; ww < ns; ww++) {
+            const uint8_t* p = px + y * stride + ww * 4;
+            ar += p[0]; ag += p[1]; ab += p[2];
+        }
+        edge_lft_rgb[y * 3 + 0] = (uint8_t)(ns > 0 ? (ar / ns) : 0);
+        edge_lft_rgb[y * 3 + 1] = (uint8_t)(ns > 0 ? (ag / ns) : 0);
+        edge_lft_rgb[y * 3 + 2] = (uint8_t)(ns > 0 ? (ab / ns) : 0);
+    }
+
+    edge_rgt_rgb.resize(h * 3);
+    for (int y = 0; y < h; y++) {
+        int ar = 0, ag = 0, ab = 0;
+        int sample_count = 0;
+        for (int ww = 0; ww < ns; ww++) {
+            int wc = w - 1 - ww;
+            if (wc >= 0 && wc < w) {
+                const uint8_t* p = px + y * stride + wc * 4;
+                ar += p[0]; ag += p[1]; ab += p[2];
+                sample_count++;
+            }
+        }
+        edge_rgt_rgb[y * 3 + 0] = (uint8_t)(sample_count > 0 ? (ar / sample_count) : 0);
+        edge_rgt_rgb[y * 3 + 1] = (uint8_t)(sample_count > 0 ? (ag / sample_count) : 0);
+        edge_rgt_rgb[y * 3 + 2] = (uint8_t)(sample_count > 0 ? (ab / sample_count) : 0);
+    }
+}
+
+PreparedImage ImageLoader::prepare(std::span<const uint8_t> buffer, std::stop_token stop) {
+    int blur_radius;
+    int max_dim;
+    bool blurred;
+    {
+        std::shared_lock lock(g_config_mtx);
+        blur_radius = g_renderer.scale_px(g_cfg.blur_radius);
+        max_dim = std::max(1, g_cfg.max_texture_dim);
+        blurred = g_cfg.blurred_background && g_cfg.bg_style == "photo";
+    }
+    if (stop.stop_requested()) return {};
+    const auto peak = estimate_decode_peak(buffer, max_dim);
+    if (!peak) return {};
+    const DecodeReservation reservation(*peak, stop);
+    if (!reservation) return {};
+
+    auto raw = decode_rgba_unreserved(buffer, max_dim);
+    if (!raw.valid || stop.stop_requested()) return {};
+    const int w = raw.width, h = raw.height;
+
+    const auto metadata = read_metadata_from_memory(buffer);
+
+    // Work with display-sized, already-oriented pixels before sampling edges.
+    if (std::max(w, h) > max_dim || (metadata.rotation >= 2 && metadata.rotation <= 8)) {
+        using Surface = std::unique_ptr<SDL_Surface, decltype(&SDL_DestroySurface)>;
+        Surface src(SDL_CreateSurfaceFrom(w, h, SDL_PIXELFORMAT_RGBA32, raw.pixels, w * 4), SDL_DestroySurface);
+        if (!src) { return {}; }
+        if (std::max(w, h) > max_dim) {
+            const float scale = static_cast<float>(max_dim) / std::max(w, h);
+            auto* scaled = SDL_ScaleSurface(src.get(), std::max(1, static_cast<int>(w * scale)),
+                                            std::max(1, static_cast<int>(h * scale)), SDL_SCALEMODE_LINEAR);
+            if (!scaled) { return {}; }
+            src.reset(scaled);
+        }
+        if (metadata.rotation >= 2 && metadata.rotation <= 8) {
+            auto* rotated = ImageLoader::apply_exif_rotation(src.get(), metadata.rotation);
+            if (!rotated) { return {}; }
+            src.reset(rotated);
+        }
+        const size_t stride = static_cast<size_t>(src->w) * 4;
+        auto* adjusted = static_cast<uint8_t*>(malloc(stride * src->h));
+        if (!adjusted) { return {}; }
+        auto* source = static_cast<const uint8_t*>(src->pixels);
+        for (int row = 0; row < src->h; ++row) {
+            memcpy(adjusted + row * stride, source + static_cast<size_t>(row) * src->pitch, stride);
+        }
+        free(raw.pixels);
+        raw.pixels = adjusted;
+        raw.width = src->w;
+        raw.height = src->h;
+    }
+
+    PreparedImage prepared;
+    auto& data = prepared.data;
+    data.width = raw.width;
+    data.height = raw.height;
+    data.exif_rotation = metadata.rotation;
+    data.is_camera = metadata.is_camera;
+    data.creation_time = metadata.creation_time;
+    data.latitude = metadata.latitude;
+    data.longitude = metadata.longitude;
+    data.has_gps = metadata.has_gps;
+    if (blurred) data.blur_raw = box_blur(raw, blur_radius);
+    compute_matte_color(raw, data.matte_r, data.matte_g, data.matte_b);
+    compute_average_color(raw, data.avg_r, data.avg_g, data.avg_b);
+    compute_edge_data(raw, data.edge_r, data.edge_g, data.edge_b,
+        data.edge_top_rgb, data.edge_bot_rgb, data.edge_lft_rgb, data.edge_rgt_rgb);
+    prepared.raw = std::move(raw);
+    return prepared;
+}
+
+std::shared_ptr<ImageData> ImageLoader::make_surface(PreparedImage image, const std::string& path) {
+    auto data = std::make_shared<ImageData>(std::move(image.data));
+    data->filename = std::filesystem::path(path).filename().string();
+    if (!image.raw.valid) return data;
+    const size_t stride = static_cast<size_t>(data->width) * 4;
+    const DecodeReservation reservation(stride * data->height, {});
+    data->surface = SDL_CreateSurface(data->width, data->height, SDL_PIXELFORMAT_RGBA32);
+    if (!data->surface) return data;
+    auto* dst = static_cast<uint8_t*>(data->surface->pixels);
+    for (int y = 0; y < data->height; ++y) {
+        std::memcpy(dst + static_cast<size_t>(y) * data->surface->pitch,
+                    image.raw.pixels + static_cast<size_t>(y) * stride, stride);
+    }
+    data->valid = true;
+    return data;
+}
+
+std::shared_ptr<ImageData> ImageLoader::load(const std::string& path) {
     errno = 0;
     std::vector<uint8_t> buffer = read_file_to_buffer(path);
     if (buffer.empty()) {
         int err = errno;
+        auto result = make_surface({}, path);
         if (err != 0 && err != ENOENT && err != ELOOP && err != EINVAL && err != EFBIG) {
             result->transient_error = true;
             g_logger.warn("ImageLoader: Detected network/IO error (errno={}: {}) for path: {}", err, strerror(err), path.c_str());
@@ -723,148 +1073,8 @@ std::shared_ptr<ImageData> ImageLoader::load(const std::string& path) {
         return result;
     }
 
-    int max_dim = 1920;
-    { std::shared_lock lk(g_config_mtx); max_dim = g_cfg.max_texture_dim; }
-    RawImage raw = decode_rgba(buffer, max_dim);
-    if (!raw.valid) {
-        trigger_error(201);
-        return result;
-    }
-
-    auto* surf = SDL_CreateSurface(raw.width, raw.height, SDL_PIXELFORMAT_RGBA32);
-    if (!surf) {
-        trigger_error(201);
-        return result;
-    }
-    const size_t stride = static_cast<size_t>(raw.width) * 4;
-    auto* dst = static_cast<uint8_t*>(surf->pixels);
-    for (int y = 0; y < raw.height; ++y) {
-        memcpy(dst + static_cast<size_t>(y) * surf->pitch, raw.pixels + y * stride, stride);
-    }
-    raw = RawImage{};
-
-    ImageMetadata meta = read_metadata_from_memory(buffer);
-    int exif = meta.rotation;
-    if (exif >= 2 && exif <= 8) {
-        SDL_Surface* rotated = apply_exif_rotation(surf, exif);
-        if (rotated) {
-            SDL_DestroySurface(surf);
-            surf = rotated;
-        }
-    }
-
-    result->surface = surf;
-    result->width = surf->w;
-    result->height = surf->h;
-    result->exif_rotation = exif;
-    result->is_camera = meta.is_camera;
-    result->creation_time = meta.creation_time;
-    result->latitude = meta.latitude;
-    result->longitude = meta.longitude;
-    result->has_gps = meta.has_gps;
-    result->valid = true;
-
-   GpuColor avg = Renderer::get_average_color(surf);
-    result->avg_r = avg.r;
-    result->avg_g = avg.g;
-    result->avg_b = avg.b;
-
-    // Compute matte color from center of image
-    {
-        int cx = result->width / 4, cy = result->height / 4;
-        int cw = result->width / 2, ch = result->height / 2;
-        if (cx >= 0 && cy >= 0 && cw > 0 && ch > 0) {
-            uint8_t* px = (uint8_t*)surf->pixels;
-            int bpp = SDL_BYTESPERPIXEL(surf->format);
-            long sr = 0, sg = 0, sb = 0, n = 0;
-            for (int y = cy; y < cy + ch && y < surf->h; y++) {
-                for (int x = cx; x < cx + cw && x < surf->w; x++) {
-                    const uint8_t* p = px + y * surf->pitch + x * bpp;
-                    sr += p[0]; sg += p[1]; sb += p[2]; n++;
-                }
-            }
-            if (n > 0) {
-                result->matte_r = (uint8_t)(sr / n);
-                result->matte_g = (uint8_t)(sg / n);
-                result->matte_b = (uint8_t)(sb / n);
-            }
-        }
-    }
-
-    // Sample 4 edge colors for bias gradient (0=top, 1=bottom, 2=left, 3=right)
-    for (int e = 0; e < 4; e++) {
-        GpuColor ec = Renderer::get_edge_average_color(surf, 8, e);
-        result->edge_r[e] = ec.r;
-        result->edge_g[e] = ec.g;
-        result->edge_b[e] = ec.b;
-    }
-
-    // Per-pixel edge strips: average 3px deep per position
-    if (surf && surf->pixels && surf->w > 0 && surf->h > 0) {
-        uint8_t* px = (uint8_t*)surf->pixels;
-        int bpp = SDL_BYTESPERPIXEL(surf->format);
-        int sw = surf->w, sh = surf->h;
-        int pitch = surf->pitch;
-
-        // Top edge: one RGB per column
-        result->edge_top_rgb.resize(sw * 3);
-        for (int x = 0; x < sw; x++) {
-            int ar = 0, ag = 0, ab = 0, ac = 0;
-            int samples = sh < 3 ? sh : 3;
-            for (int d = 0; d < samples; d++) {
-                const uint8_t* dp = px + x * bpp + d * pitch;
-                ar += dp[0]; ag += dp[1]; ab += dp[2]; ac++;
-            }
-            result->edge_top_rgb[x * 3 + 0] = (uint8_t)(ac > 0 ? (ar / ac) : 0);
-            result->edge_top_rgb[x * 3 + 1] = (uint8_t)(ac > 0 ? (ag / ac) : 0);
-            result->edge_top_rgb[x * 3 + 2] = (uint8_t)(ac > 0 ? (ab / ac) : 0);
-        }
-
-        // Bottom edge (3 rows: sh-3, sh-2, sh-1)
-        result->edge_bot_rgb.resize(sw * 3);
-        int bot_samples = sh < 3 ? sh : 3;
-        for (int x = 0; x < sw; x++) {
-            int ar = 0, ag = 0, ab = 0;
-            for (int d = 0; d < bot_samples; d++) {
-                int ry = sh - bot_samples + d;
-                if (ry >= 0 && ry < sh) {
-                    const uint8_t* dp = px + x * bpp + ry * pitch;
-                    ar += dp[0]; ag += dp[1]; ab += dp[2];
-                }
-            }
-            result->edge_bot_rgb[x * 3 + 0] = (uint8_t)(bot_samples > 0 ? (ar / bot_samples) : 0);
-            result->edge_bot_rgb[x * 3 + 1] = (uint8_t)(bot_samples > 0 ? (ag / bot_samples) : 0);
-            result->edge_bot_rgb[x * 3 + 2] = (uint8_t)(bot_samples > 0 ? (ab / bot_samples) : 0);
-        }
-
-        // Left edge: one RGB per row
-        result->edge_lft_rgb.resize(sh * 3);
-        for (int y = 0; y < sh; y++) {
-            const uint8_t* p = px + y * pitch;
-            int ar = 0, ag = 0, ab = 0, ac = 0;
-            for (int w = 0; w < 3 && w < sw; w++) {
-                ar += p[w * bpp + 0]; ag += p[w * bpp + 1]; ab += p[w * bpp + 2]; ac++;
-            }
-            result->edge_lft_rgb[y * 3 + 0] = (uint8_t)(ac > 0 ? (ar / ac) : 0);
-            result->edge_lft_rgb[y * 3 + 1] = (uint8_t)(ac > 0 ? (ag / ac) : 0);
-            result->edge_lft_rgb[y * 3 + 2] = (uint8_t)(ac > 0 ? (ab / ac) : 0);
-        }
-
-        // Right edge
-        result->edge_rgt_rgb.resize(sh * 3);
-        for (int y = 0; y < sh; y++) {
-            const uint8_t* p = px + y * pitch;
-            int ar = 0, ag = 0, ab = 0, ac = 0;
-            for (int w = 0; w < 3; w++) {
-                int wc = sw - 1 - w;
-                if (wc >= 0) { ar += p[wc * bpp + 0]; ag += p[wc * bpp + 1]; ab += p[wc * bpp + 2]; ac++; }
-            }
-            result->edge_rgt_rgb[y * 3 + 0] = (uint8_t)(ac > 0 ? (ar / ac) : 0);
-            result->edge_rgt_rgb[y * 3 + 1] = (uint8_t)(ac > 0 ? (ag / ac) : 0);
-            result->edge_rgt_rgb[y * 3 + 2] = (uint8_t)(ac > 0 ? (ab / ac) : 0);
-        }
-    }
-
+    auto result = make_surface(prepare(buffer), path);
+    if (!result->valid) trigger_error(201);
     return result;
 }
 

@@ -242,6 +242,7 @@ void OverlayManager::draw_all(int current_idx, int total_items, const MediaItem*
     int on_this_day_range = 0;
     bool adaptive_text_enabled = false;
     bool has_matting = false;
+    bool progress_bar_enabled = false;
     InfopanelOptions panel_options;
 
     {
@@ -286,6 +287,7 @@ void OverlayManager::draw_all(int current_idx, int total_items, const MediaItem*
         on_this_day_range = g_cfg.on_this_day_range;
         adaptive_text_enabled = g_cfg.adaptive_text_enabled;
         has_matting = g_cfg.matting;
+        progress_bar_enabled = g_cfg.progress_bar_enabled;
         panel_options = {g_cfg.infopanels_enabled, g_cfg.news_enabled, g_cfg.gcalendar_enabled,
                          g_cfg.stockstreamer_enabled, g_cfg.left_panel_enabled, g_cfg.matting,
                          g_cfg.matting_size, g_cfg.display_offset_x, g_cfg.display_offset_y};
@@ -390,7 +392,7 @@ void OverlayManager::draw_all(int current_idx, int total_items, const MediaItem*
         int tw = 0, th = 0;
         font_renderer->measure(font, tbuf, tw, th);
         int tx = vx + vw - tw - (int)round(12.0 * sw / 1920.0);
-        int ty = has_matting ? (int)round(((double)(g_renderer.scale_px(g_cfg.matting_size)) * 0.5) + 10.0) : (int)round(20.0 * sw / 1920.0);
+        int ty = has_matting ? (int)round(((double)(g_renderer.scale_px(panel_options.matting_size)) * 0.5) + 10.0) : (int)round(20.0 * sw / 1920.0);
 
         if (is_video && !video_remaining.empty()) {
             font_renderer->draw_text(tx + 2, ty + 2, font, video_remaining, 0, 0, 0, 180);
@@ -515,7 +517,7 @@ void OverlayManager::draw_all(int current_idx, int total_items, const MediaItem*
     }
 
     // 6b. Transition Progress Bar
-    if (g_cfg.progress_bar_enabled && !is_video && transition_delay > 0.0) {
+    if (progress_bar_enabled && !is_video && transition_delay > 0.0) {
         int bar_h = 4;
         int bar_w = vw - pad * 2;
         int bar_x = vx + pad;

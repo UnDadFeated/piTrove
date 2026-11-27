@@ -17,24 +17,8 @@
 
 // Preloaded item: raw pixels + path from worker, surface created on main thread
 struct PreloadedItem {
-    RawImage raw;
-    RawImage blur_raw;  // Blurred background (move-only)
+    PreparedImage image;
     std::string path;
-    bool valid = false;
-    ImageMetadata metadata;
-    uint8_t matte_r = 0;
-    uint8_t matte_g = 0;
-    uint8_t matte_b = 0;
-    uint8_t avg_r = 220;
-    uint8_t avg_g = 210;
-    uint8_t avg_b = 195;
-    // Per-edge averaged colors (computed in worker thread)
-    uint8_t edge_r[4] = {0, 0, 0, 0};
-    uint8_t edge_g[4] = {0, 0, 0, 0};
-    uint8_t edge_b[4] = {0, 0, 0, 0};
-    // Per-pixel edge strips (computed in worker thread)
-    std::vector<uint8_t> edge_top_rgb, edge_bot_rgb;
-    std::vector<uint8_t> edge_lft_rgb, edge_rgt_rgb;
 
     PreloadedItem() = default;
     PreloadedItem(PreloadedItem&&) noexcept = default;
@@ -46,7 +30,6 @@ struct PreloadedItem {
 struct PreloadState {
     std::vector<PreloadedItem> loaded_items;
     std::mutex queue_mutex;
-    std::condition_variable queue_cv;
     std::atomic<int> loaded_count{0};
 
     std::queue<std::string> work_queue;
@@ -55,7 +38,7 @@ struct PreloadState {
     // still in cooldown (prevents the 5s re-enqueue livelock on dead NAS files)
     std::unordered_map<std::string, int64_t> stat_failed_ts;
     std::mutex work_mutex;
-    std::condition_variable work_cv;
+    std::condition_variable_any work_cv;
 
     int max_size;
     std::atomic<bool> running{false};

@@ -39,9 +39,9 @@ CONFIG
   [[ "$mode" == enabled ]] || exit 0
 fi
 
-if [[ "$(git branch --show-current)" != "develop" ]]; then
-  echo "Update requires the develop branch" >&2
-  exit 1
+branch="$(git branch --show-current)"
+if [[ -z "$branch" ]]; then
+  branch="develop"
 fi
 if ! git diff --quiet || ! git diff --cached --quiet; then
   echo "Commit or set aside local changes before updating" >&2
@@ -61,13 +61,27 @@ previous_image_name=
 
 managed=false
 if systemctl is-active --quiet "$UNIT" 2>/dev/null; then managed=true; fi
+if [[ "$managed" == true && "$(id -u)" -ne 0 ]] && ! sudo -n systemctl show -p ActiveState "$UNIT" >/dev/null 2>&1; then
+  echo "Error: $UNIT is managed by systemd, but passwordless sudo (sudo -n systemctl) is unavailable." >&2
+  echo "Configure a scoped sudoers rule for $UNIT or run the update with elevated privileges." >&2
+  exit 1
+fi
 service_touched=false
 config_backup=
 config_ready=false
 
+run_systemctl() {
+  if [[ "$(id -u)" -eq 0 ]]; then
+    systemctl "$@"
+  elif ! sudo -n systemctl "$@"; then
+    echo "Error: passwordless sudo for 'systemctl $*' failed. Ensure sudoers allows managing $UNIT." >&2
+    return 1
+  fi
+}
+
 stop_service() {
   if [[ "$managed" == true ]]; then
-    sudo -n systemctl stop "$UNIT"
+    run_systemctl stop "$UNIT"
   else
     docker compose stop "$SERVICE"
   fi
@@ -75,7 +89,7 @@ stop_service() {
 
 start_service() {
   if [[ "$managed" == true ]]; then
-    sudo -n systemctl start "$UNIT"
+    run_systemctl start "$UNIT"
   else
     docker compose up -d --force-recreate "$SERVICE"
   fi
@@ -124,7 +138,7 @@ rollback() {
 }
 trap rollback EXIT
 
-git pull --ff-only origin develop
+git pull --ff-only origin "$branch"
 if [[ "${1:-}" == --cron && "$(git rev-parse HEAD)" == "$previous_revision" ]]; then
   trap - EXIT
   echo "piTrove is up to date"
@@ -161,4 +175,7 @@ fi
 start_service
 wait_for_health "$new_image"
 trap - EXIT
+# Reclaim old BuildKit cache beyond 4 GB and dangling untagged images (preserving pitrove:rollback).
+docker builder prune --keep-storage=4gb -f >/dev/null 2>&1 || true
+docker image prune -f >/dev/null 2>&1 || true
 echo "Update healthy"

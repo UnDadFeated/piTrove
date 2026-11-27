@@ -94,18 +94,47 @@ GooglePhotosManager::~GooglePhotosManager() { stop(); }
 
 void GooglePhotosManager::start() {
     std::lock_guard lifecycle(lifecycle_mtx);
+    stop_locked();
     std::shared_lock lock(g_config_mtx);
     running.store(g_cfg.google_photos_enabled);
 }
 
 void GooglePhotosManager::stop() {
     std::lock_guard lifecycle(lifecycle_mtx);
+    stop_locked();
+}
+
+void GooglePhotosManager::stop_locked() {
+    lifecycle_generation.fetch_add(1);
     running.store(false);
     sync_thread.request_stop();
     if (sync_thread.joinable()) sync_thread.join();
     std::lock_guard lock(status_mtx);
     state = "ready";
     picker_url.clear();
+}
+
+GooglePhotosManager::LinkResult GooglePhotosManager::link_account(
+    uint64_t expected_generation, const std::string& client_id,
+    const std::string& client_secret, const std::string& refresh_token) {
+    std::lock_guard lifecycle(lifecycle_mtx);
+    if (expected_generation != generation()) return LinkResult::stale;
+    {
+        std::unique_lock lock(g_config_mtx);
+        Config previous = g_cfg;
+        g_cfg.google_photos_client_id = client_id;
+        g_cfg.google_photos_client_secret = client_secret;
+        g_cfg.google_photos_refresh_token = refresh_token;
+        g_cfg.google_photos_enabled = true;
+        const auto save_path = g_cfg.loaded_path.empty() ? "/app/config/config.toml" : g_cfg.loaded_path;
+        if (!g_cfg.save(save_path)) {
+            g_cfg = std::move(previous);
+            return LinkResult::save_failed;
+        }
+    }
+    stop_locked();
+    running.store(true);
+    return LinkResult::saved;
 }
 
 std::string GooglePhotosManager::picker_status() {
@@ -115,8 +144,10 @@ std::string GooglePhotosManager::picker_status() {
 
 std::string GooglePhotosManager::create_picker() {
     Config config;
+    uint64_t expected_generation;
     {
         std::lock_guard lifecycle(lifecycle_mtx);
+        expected_generation = generation();
         {
             std::lock_guard lock(status_mtx);
             if (state == "picking" || state == "importing" || state == "creating")
@@ -130,10 +161,13 @@ std::string GooglePhotosManager::create_picker() {
         config = g_cfg;
     }
     auto reset_creating = [&] {
+        std::lock_guard lifecycle(lifecycle_mtx);
+        if (generation() != expected_generation) return;
         std::lock_guard lock(status_mtx);
         if (state == "creating") state = "ready";
     };
     const auto token = access_token(config, &running);
+    if (generation() != expected_generation) return picker_status();
     if (token.empty()) {
         reset_creating();
         return R"({"state":"unlinked"})";
@@ -143,6 +177,8 @@ std::string GooglePhotosManager::create_picker() {
     const auto url = text_field(session, "pickerUri");
     if (id.empty() || id.size() > 4096 || !url.starts_with("https://photos.google.com/")) {
         reset_creating();
+        if (!id.empty() && id.size() <= 4096)
+            picker_request("/sessions/" + http_protocol::url_encode(id), token, "DELETE");
         return R"({"state":"authorization_failed"})";
     }
     const auto settings = session.contains("pollingConfig") ? session["pollingConfig"] : Json{};
@@ -154,8 +190,7 @@ std::string GooglePhotosManager::create_picker() {
     bool delete_session = false;
     {
         std::lock_guard lifecycle(lifecycle_mtx);
-        if (!running.load()) {
-            reset_creating();
+        if (generation() != expected_generation || !running.load()) {
             delete_session = true;
         } else {
             {

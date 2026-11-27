@@ -10,6 +10,7 @@
 #include <memory>
 #include <set>
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <format>
 #include <cstring>
@@ -63,8 +64,6 @@ std::string GoogleCalendar::execute_http_get(const std::string& url) {
     }
     if (res != CURLE_OK || status != 200) {
         g_logger.warn("CALENDAR: HTTP request failed: curl={}, status={}", curl_easy_strerror(res), status);
-        m_last_error.store(536);
-        trigger_error(536);
         curl_easy_cleanup(curl);
         return "";
     }
@@ -107,31 +106,109 @@ const char* timezone_id(icalproperty* property) {
     return parameter ? icalparameter_get_tzid(parameter) : nullptr;
 }
 
-std::string calendar_text(const char* value, std::string_view fallback = {}) {
-    std::string result(value ? std::string_view(value) : fallback);
+std::string calendar_text(const char* value, size_t limit, std::string_view fallback = {}) {
+    const auto text = value ? std::string_view(value) : fallback;
+    const auto continuation = [](unsigned char c) { return (c & 0xc0) == 0x80; };
+    const size_t max_bytes = std::min(text.size(), limit * 4);
+    size_t end = 0;
+    for (size_t count = 0; end < max_bytes && count < limit; ++count) {
+        size_t next = end + 1;
+        while (next < max_bytes && continuation(text[next])) ++next;
+        if (next < text.size() && continuation(text[next])) break;
+        end = next;
+    }
+    std::string result(text.substr(0, end));
     for (char& c : result) if (static_cast<unsigned char>(c) < 32) c = ' ';
     return trim(result);
 }
 
+// Fixed intervals have one occurrence per slot. A daily BYDAY filter repeats
+// every seven slots, so both forms can seek without enumerating past events.
+bool seek_counted_rule(icalrecurrencetype& rule, icaltimetype& start, time_t cutoff,
+                       const std::string& display_tz, const char* tzid) {
+    const auto unset = [](const auto& part) { return part[0] == ICAL_RECURRENCE_ARRAY_MAX; };
+    if (rule.rscale || !unset(rule.by_second) || !unset(rule.by_minute) ||
+        !unset(rule.by_hour) || !unset(rule.by_month_day) ||
+        !unset(rule.by_year_day) || !unset(rule.by_week_no) || !unset(rule.by_month) ||
+        !unset(rule.by_set_pos)) return true;
+
+    int unit;
+    switch (rule.freq) {
+        case ICAL_SECONDLY_RECURRENCE: unit = 1; break;
+        case ICAL_MINUTELY_RECURRENCE: unit = 60; break;
+        case ICAL_HOURLY_RECURRENCE: unit = 3600; break;
+        case ICAL_DAILY_RECURRENCE: unit = 86400; break;
+        case ICAL_WEEKLY_RECURRENCE: unit = 604800; break;
+        default: return true;
+    }
+    if (start.is_date && unit < 86400) return true;
+    const bool filter_weekdays = !unset(rule.by_day);
+    std::array<bool, 7> weekdays{};
+    if (filter_weekdays) {
+        if (rule.freq != ICAL_DAILY_RECURRENCE) return true;
+        for (const auto value : rule.by_day) {
+            if (value == ICAL_RECURRENCE_ARRAY_MAX) break;
+            const int weekday = icalrecurrencetype_day_day_of_week(value);
+            if (weekday < 1 || weekday > 7 || icalrecurrencetype_day_position(value)) return true;
+            weekdays[weekday - 1] = true;
+        }
+    }
+
+    auto* utc = icaltimezone_get_utc_timezone();
+    auto wall_cutoff = cutoff;
+    if (!icaltime_is_utc(start)) {
+        using namespace std::chrono;
+        try {
+            wall_cutoff = locate_zone(tzid ? tzid : display_tz)->to_local(sys_seconds{seconds{cutoff}})
+                .time_since_epoch().count();
+        } catch (...) {
+            if (start.zone) {
+                auto local = icaltime_from_timet_with_zone(cutoff, 0, start.zone);
+                local.zone = utc;
+                wall_cutoff = icaltime_as_timet(local);
+            }
+        }
+    }
+    auto wall_start = start;
+    wall_start.zone = utc;
+    const auto base = icaltime_as_timet(wall_start);
+    const auto interval = std::max<int>(1, rule.interval);
+    const auto stride = static_cast<time_t>(unit) * interval;
+    auto slot = (wall_cutoff - base) / stride;
+    if (slot <= 0) return true;
+    auto skipped = slot;
+    if (filter_weekdays) {
+        const int first_weekday = icaltime_day_of_week(start) - 1;
+        if (first_weekday < 0 || first_weekday >= 7) return true;
+        const auto occurs_at = [&](time_t index) {
+            return weekdays[(first_weekday + (index % 7) * interval) % 7];
+        };
+        int per_week = 0, remainder = 0;
+        for (int i = 0; i < 7; ++i) {
+            if (!occurs_at(i)) continue;
+            ++per_week;
+            if (i < slot % 7) ++remainder;
+        }
+        if (per_week == 0) return false;
+        skipped = (slot / 7) * per_week + remainder;
+        while (!occurs_at(slot)) ++slot;
+    }
+    if (skipped >= rule.count) return false;
+    rule.count -= static_cast<int>(skipped);
+    auto rebased = icaltime_from_timet_with_zone(base + slot * stride, start.is_date, utc);
+    rebased.zone = start.zone;
+    start = rebased;
+    return true;
+}
+
 } // namespace
 
-void GoogleCalendar::parse_ical(const std::string& ical_data) {
+std::optional<std::vector<CalendarEvent>> GoogleCalendar::parse_ical(
+    const std::string& ical_data, const std::string& tz, const std::string& name, size_t max_events) {
     const std::unique_ptr<icalcomponent, decltype(&icalcomponent_free)>
         calendar(icalparser_parse_string(ical_data.c_str()), icalcomponent_free);
-    if (!calendar || icalcomponent_isa(calendar.get()) != ICAL_VCALENDAR_COMPONENT) {
-        m_last_error.store(536);
-        trigger_error(536);
-        return;
-    }
+    if (!calendar || icalcomponent_isa(calendar.get()) != ICAL_VCALENDAR_COMPONENT) return std::nullopt;
 
-    std::string tz, name;
-    size_t max_events;
-    {
-        std::shared_lock lock(g_config_mtx);
-        tz = g_cfg.timezone.empty() ? "UTC" : g_cfg.timezone;
-        name = g_cfg.gcalendar_name;
-        max_events = std::clamp(g_cfg.gcalendar_max_events, 1, 16);
-    }
     const time_t now = time(nullptr);
     constexpr time_t day = 86400;
     const time_t horizon = now + 366 * day;
@@ -165,8 +242,8 @@ void GoogleCalendar::parse_ical(const std::string& ical_data) {
         const auto* uid = icalcomponent_get_uid(event);
         const bool detached = icalcomponent_get_first_property(event, ICAL_RECURRENCEID_PROPERTY) != nullptr;
         const bool all_day = start.is_date;
-        const auto* summary = icalcomponent_get_summary(event);
-        const auto* location = icalcomponent_get_location(event);
+        const auto summary = calendar_text(icalcomponent_get_summary(event), 200, "Calendar Event");
+        const auto location = calendar_text(icalcomponent_get_location(event), 160);
 
         int duration = all_day ? day : 0;
         if (auto* end_property = icalcomponent_get_first_property(event, ICAL_DTEND_PROPERTY)) {
@@ -203,8 +280,8 @@ void GoogleCalendar::parse_ical(const std::string& ical_data) {
                 (upcoming.size() == max_events && begin >= upcoming.back().start_time)) return;
 
             CalendarEvent item;
-            item.summary = calendar_text(summary, "Calendar Event");
-            item.location = calendar_text(location);
+            item.summary = summary;
+            item.location = location;
             item.start_time = begin;
             item.end_time = end;
             item.cutoff_time = cutoff;
@@ -225,9 +302,13 @@ void GoogleCalendar::parse_ical(const std::string& ical_data) {
         if (detached) continue;
         for (auto* rule = icalcomponent_get_first_property(event, ICAL_RRULE_PROPERTY);
              rule && iteration_budget; rule = icalcomponent_get_next_property(event, ICAL_RRULE_PROPERTY)) {
-            const auto recurrence = icalproperty_get_rrule(rule);
+            auto recurrence = icalproperty_get_rrule(rule);
+            auto iterator_start = start;
+            const auto cutoff = now - (all_day ? duration + 2 * day : std::max(duration, 3600) + 3600);
+            if (recurrence.count && !seek_counted_rule(recurrence, iterator_start, cutoff, tz, start_tzid))
+                continue;
             const std::unique_ptr<icalrecur_iterator, decltype(&icalrecur_iterator_free)>
-                iterator(icalrecur_iterator_new(recurrence, start), icalrecur_iterator_free);
+                iterator(icalrecur_iterator_new(recurrence, iterator_start), icalrecur_iterator_free);
             if (!iterator) continue;
             if (!recurrence.count && base_time < now - duration - 7200) {
                 // Start two days early so timezone transitions cannot hide ongoing events.
@@ -262,33 +343,46 @@ void GoogleCalendar::parse_ical(const std::string& ical_data) {
         }
     }
 
-    {
-        std::unique_lock lock(m_events_mtx);
-        m_events = std::move(upcoming);
-        m_last_error.store(0);
-        m_last_sync_time.store(now);
-    }
-    clear_error(536);
+    return upcoming;
 }
 
-void GoogleCalendar::sync() {
-    if (m_fetching.exchange(true)) return;
-    struct Guard { std::atomic<bool>& f; ~Guard() { f.store(false); } } g{m_fetching};
+void GoogleCalendar::refresh(bool requested) {
+    std::unique_lock lock(m_fetch_mtx);
+    if (!m_allow_io.load()) return;
+    if (requested) ++m_fetch_generation;
+    if (m_fetching) return;
+    m_fetching = true;
+    do {
+        const auto generation = m_fetch_generation;
+        lock.unlock();
+        try {
+            fetch_once(generation);
+        } catch (...) {
+            g_logger.warn("GoogleCalendar: Refresh failed");
+        }
+        lock.lock();
+        if (generation == m_fetch_generation) break;
+    } while (m_allow_io.load());
+    m_fetching = false;
+}
 
-    std::string ical_url;
-    std::string calendar_name;
+void GoogleCalendar::fetch_once(uint64_t generation) {
+
+    std::string ical_url, calendar_name, timezone;
+    int max_events;
     {
         std::shared_lock lk(g_config_mtx);
         ical_url = g_cfg.gcalendar_ical_url;
         calendar_name = g_cfg.gcalendar_name;
+        timezone = g_cfg.timezone;
+        max_events = std::clamp(g_cfg.gcalendar_max_events, 1, 16);
     }
+    const std::string tz = timezone.empty() ? "UTC" : timezone;
+    const time_t now = time(nullptr);
+    std::optional<std::vector<CalendarEvent>> events;
 
     if (ical_url.empty()) {
         g_logger.info("CALENDAR: No iCal URL configured, providing default preview agenda");
-        time_t now = time(nullptr);
-        std::string tz = "UTC";
-        { std::shared_lock lk(g_config_mtx); tz = g_cfg.timezone; }
-
         std::vector<CalendarEvent> sample_events;
         CalendarEvent e1;
         e1.summary = "Family Dinner";
@@ -320,15 +414,8 @@ void GoogleCalendar::sync() {
         e3.formatted_time = "ALL DAY";
         sample_events.push_back(e3);
 
-        {
-            std::unique_lock lk(m_events_mtx);
-            m_events = std::move(sample_events);
-            m_last_sync_time.store(now);
-        }
-        return;
-    }
-
-    if (!ical_url.empty()) {
+        events = std::move(sample_events);
+    } else {
         // Never log the full URL: a Google private iCal URL *is* the credential
         // (the private-<hex> path segment grants full read access on its own),
         // and this line previously wrote it to disk in plaintext on every sync.
@@ -336,22 +423,46 @@ void GoogleCalendar::sync() {
                       calendar_name.empty() ? "ical" : calendar_name.c_str(),
                       ical_url.size());
         std::string ical_data = execute_http_get(ical_url);
-        if (!ical_data.empty()) {
-            parse_ical(ical_data);
-        }
+        if (!ical_data.empty()) events = parse_ical(ical_data, tz, calendar_name, max_events);
     }
+
+    std::lock_guard fetch(m_fetch_mtx);
+    if (generation != m_fetch_generation || !m_allow_io.load()) return;
+    {
+        std::shared_lock config(g_config_mtx);
+        if (ical_url != g_cfg.gcalendar_ical_url || calendar_name != g_cfg.gcalendar_name ||
+            timezone != g_cfg.timezone || max_events != std::clamp(g_cfg.gcalendar_max_events, 1, 16)) return;
+        if (events) {
+            std::unique_lock lock(m_events_mtx);
+            m_events = std::move(*events);
+            ++m_events_generation;
+            m_last_sync_time.store(now);
+        }
+        m_last_error.store(events ? 0 : 536);
+    }
+    if (events) clear_error(536);
+    else trigger_error(536);
 }
+
+void GoogleCalendar::sync() { refresh(true); }
 
 bool GoogleCalendar::start() {
     std::lock_guard lifecycle(m_lifecycle_mtx);
     m_running.store(false);
-    m_allow_io.store(false);
+    {
+        std::lock_guard fetch(m_fetch_mtx);
+        ++m_fetch_generation;
+        m_allow_io.store(false);
+    }
     if (m_worker_thread.joinable()) m_worker_thread.join();
-    m_allow_io.store(true);
+    {
+        std::lock_guard fetch(m_fetch_mtx);
+        m_allow_io.store(true);
+    }
     m_running.store(true);
 
     if (!spawn_thread_safe(m_worker_thread, "gcalendar", [this]() {
-        this->sync();
+        this->refresh(true);
 
         while (this->m_running.load()) {
             int refresh_mins = 15;
@@ -363,7 +474,7 @@ bool GoogleCalendar::start() {
                 std::this_thread::sleep_for(std::chrono::seconds(1));
             }
             if (this->m_running.load()) {
-                this->sync();
+                this->refresh(false);
             }
         }
     })) {
@@ -377,7 +488,11 @@ bool GoogleCalendar::start() {
 void GoogleCalendar::stop() {
     std::lock_guard lifecycle(m_lifecycle_mtx);
     m_running.store(false);
-    m_allow_io.store(false);
+    {
+        std::lock_guard fetch(m_fetch_mtx);
+        ++m_fetch_generation;
+        m_allow_io.store(false);
+    }
     if (m_worker_thread.joinable()) m_worker_thread.join();
 }
 
@@ -496,32 +611,18 @@ void GoogleCalendar::render(SDL_Renderer* renderer, FontRenderer* font_renderer,
     cur_y += px(18);
 
     // 3. Render event cards
-    std::vector<CalendarEvent> events_copy;
     {
         std::shared_lock lk(m_events_mtx);
-        events_copy = m_events;
-    }
-
-    // Dynamic real-time pruning and relative day recalculation on render
-    std::string today_date = format_epoch_tz(now, tz, "%Y-%m-%d");
-    std::string tomorrow_date = format_tomorrow_tz(now, tz);
-
-    std::vector<CalendarEvent> active_events;
-    for (auto ev : events_copy) {
-        if (ev.cutoff_time > 0 && now > ev.cutoff_time) continue;
-
-        std::string ev_date = format_epoch_tz(ev.start_time, tz, "%Y-%m-%d");
-        if (ev_date == today_date) {
-            ev.relative_day = "TODAY";
-        } else if (ev_date == tomorrow_date) {
-            ev.relative_day = "TOMORROW";
-        } else {
-            ev.relative_day = format_epoch_tz(ev.start_time, tz, "%a, %b %d");
+        if (m_render_generation != m_events_generation) {
+            m_render_events = m_events;
+            m_render_generation = m_events_generation;
+            m_wrapped_events.clear();
         }
-        active_events.push_back(std::move(ev));
     }
-
-    if (active_events.empty()) {
+    const auto active = [now](const CalendarEvent& event) {
+        return event.cutoff_time <= 0 || now <= event.cutoff_time;
+    };
+    if (std::ranges::none_of(m_render_events, active)) {
         font_renderer->draw_text(pad_x, cur_y, body_font,
                                  font_renderer->ellipsize(body_font, "No upcoming events scheduled", inner_width), 160, 175, 195, 255);
         cur_y += TTF_GetFontHeight(body_font.font) + px(8);
@@ -538,20 +639,38 @@ void GoogleCalendar::render(SDL_Renderer* renderer, FontRenderer* font_renderer,
     const int summary_height = TTF_GetFontHeight(body_font.font) + px(3);
     const int location_height = TTF_GetFontHeight(sub_font.font) + px(3);
 
-    for (const auto& ev : active_events) {
-        std::vector<std::string> summary_lines = wrap_text_to_width(font_renderer, body_font, ev.summary, text_max_w);
-        std::vector<std::string> loc_lines;
-        if (!ev.location.empty()) {
-            loc_lines = wrap_text_to_width(font_renderer, sub_font, "@ " + ev.location, text_max_w);
+    if (m_wrapped_events.empty() || m_wrapped_width != text_max_w ||
+        m_wrapped_body_font.lock() != body_font_owner || m_wrapped_sub_font.lock() != sub_font_owner) {
+        m_wrapped_events.clear();
+        m_wrapped_events.reserve(m_render_events.size());
+        for (const auto& event : m_render_events) {
+            auto& wrapped = m_wrapped_events.emplace_back();
+            wrapped.summary = wrap_text_to_width(font_renderer, body_font, event.summary, text_max_w);
+            if (!event.location.empty())
+                wrapped.location = wrap_text_to_width(font_renderer, sub_font, "@ " + event.location, text_max_w);
         }
+        m_wrapped_width = text_max_w;
+        m_wrapped_body_font = body_font_owner;
+        m_wrapped_sub_font = sub_font_owner;
+    }
+
+    const auto today = format_epoch_tz(now, tz, "%Y-%m-%d");
+    const auto tomorrow = format_tomorrow_tz(now, tz);
+    for (size_t i = 0; i < m_render_events.size(); ++i) {
+        const auto& ev = m_render_events[i];
+        if (!active(ev)) continue;
+        const auto& [summary_lines, loc_lines] = m_wrapped_events[i];
 
         const int total_event_h = tag_height + int(summary_lines.size()) * summary_height +
                                   int(loc_lines.size()) * location_height;
         if (cur_y + total_event_h > bounds.y + bounds.h - px(10)) break;
 
-        std::string tag_str = std::format("{} • {}", ev.relative_day, ev.formatted_time);
+        const auto date = format_epoch_tz(ev.start_time, tz, "%Y-%m-%d");
+        const auto relative_day = date == today ? "TODAY" : date == tomorrow ? "TOMORROW" :
+            format_epoch_tz(ev.start_time, tz, "%a, %b %d");
+        std::string tag_str = std::format("{} • {}", relative_day, ev.formatted_time);
         uint8_t tr = 0, tg = 200, tb = 255;
-        if (ev.relative_day == "TODAY") {
+        if (date == today) {
             tr = 255; tg = 180; tb = 50;
         }
 

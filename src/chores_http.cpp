@@ -36,7 +36,7 @@ HttpResponse handle_http(Store& store,const std::string& method,const std::strin
         for (const auto& c:state.chores) {
             if (!first) out<<',';
             first=false;
-            out<<"{\"id\":"<<c.id<<",\"person_id\":"<<c.person_id<<",\"title\":"<<quote(c.title)<<",\"repeat\":"<<quote(c.repeat)<<",\"date\":"<<quote(c.date)<<",\"time\":"<<quote(c.time)<<",\"all_day\":"<<(c.time.empty()?"true":"false")<<",\"completed\":"<<(c.completed?"true":"false")<<",\"due\":"<<(due_today_or_overdue(c,today)?"true":"false")<<'}';
+            out<<"{\"id\":"<<c.id<<",\"revision\":"<<c.revision<<",\"person_id\":"<<c.person_id<<",\"title\":"<<quote(c.title)<<",\"repeat\":"<<quote(c.repeat)<<",\"date\":"<<quote(c.date)<<",\"time\":"<<quote(c.time)<<",\"all_day\":"<<(c.time.empty()?"true":"false")<<",\"completed\":"<<(c.completed?"true":"false")<<",\"due\":"<<(due_today_or_overdue(c,today)?"true":"false")<<'}';
         }
         out<<"]}"; return {200,out.str()};
     }
@@ -69,6 +69,6 @@ HttpResponse handle_http(Store& store,const std::string& method,const std::strin
     const auto all_day=field("all_day");
     if (all_day!="1" && all_day!="0") return error(400,"Choose all day or a time");
     if (all_day=="0" && !valid_time(field("time"))) return error(400,"Choose a valid chore time");
-    return result(store.save_chore({id("id",true),id("person_id"),field("title"),field("repeat"),field("date"),all_day=="1" ? "" : field("time")}));
+    return result(store.save_chore({id("id",true),id("person_id"),field("title"),field("repeat"),field("date"),all_day=="1" ? "" : field("time")}, id("revision",true)));
 }
 }

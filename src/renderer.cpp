@@ -348,36 +348,27 @@ void Renderer::clear(uint8_t r, uint8_t g, uint8_t b, uint8_t a) {
 }
 
 void Renderer::present() {
-    if (g_screenshot_requested.exchange(false, std::memory_order_acq_rel)) {
-        bool saved = false;
-        SDL_Surface* surf = SDL_RenderReadPixels(sdl_renderer, NULL);
-        if (surf) {
-            std::string out_p;
-            {
-                std::lock_guard lk(g_screenshot_mtx);
-                out_p = g_screenshot_out_path;
-            }
-            if (!out_p.empty()) {
-                const std::string tmp_p = out_p + ".tmp";
-                bool wrote = false;
-                {
-                    std::lock_guard lock(g_sdl_image_mutex);
-                    wrote = IMG_SavePNG(surf, tmp_p.c_str());
-                }
-                if (wrote && std::rename(tmp_p.c_str(), out_p.c_str()) == 0) {
-                    saved = true;
-                } else {
-                    std::remove(tmp_p.c_str());
-                }
-            }
-            SDL_DestroySurface(surf);
-        }
+    if (g_screenshot_pending.load(std::memory_order_acquire)) {
+        std::shared_ptr<ScreenshotRequest> req;
         {
             std::lock_guard lk(g_screenshot_mtx);
-            g_screenshot_ok.store(saved, std::memory_order_release);
-            g_screenshot_ready.store(true, std::memory_order_release);
+            req = std::move(g_pending_screenshot);
+            g_screenshot_pending.store(false, std::memory_order_release);
         }
-        g_screenshot_cv.notify_all();
+        if (req) {
+            SDL_Surface* surf = SDL_RenderReadPixels(sdl_renderer, nullptr);
+            {
+                std::lock_guard rlk(req->mtx);
+                if (req->cancelled) {
+                    if (surf) SDL_DestroySurface(surf);
+                } else {
+                    req->surface = surf;
+                    req->ok = (surf != nullptr);
+                    req->ready = true;
+                }
+            }
+            req->cv.notify_one();
+        }
     }
     SDL_RenderPresent(sdl_renderer);
 }
@@ -973,64 +964,52 @@ void Renderer::draw_background(ImageData* data, const std::string& bg_style, Uin
 
 
 
-void Renderer::draw_color_matched_matte(const SDL_Rect& fit_rect,
-    Uint8 matte_r, Uint8 matte_g, Uint8 matte_b, float matte_opacity) {
-
-    if (matte_opacity <= 0.0f) return;
-
-    Uint8 aa = (Uint8)(matte_opacity * 255.0f);
-    SDL_SetRenderDrawBlendMode(sdl_renderer, SDL_BLENDMODE_BLEND);
-    SDL_SetRenderDrawColor(sdl_renderer, matte_r, matte_g, matte_b, aa);
-
-    // Top strip (full width, above photo)
-    if (fit_rect.y > 0) {
-        SDL_FRect top = {0.0f, 0.0f, (float)screen_w, (float)fit_rect.y};
-        SDL_RenderFillRect(sdl_renderer, &top);
+static void draw_matte_strips(SDL_Renderer* renderer, const SDL_Rect& fit_rect, const SDL_Rect& bounds) {
+    SDL_Rect photo;
+    if (!SDL_GetRectIntersection(&bounds, &fit_rect, &photo)) {
+        const SDL_FRect background{float(bounds.x), float(bounds.y), float(bounds.w), float(bounds.h)};
+        SDL_RenderFillRect(renderer, &background);
+        return;
     }
-    // Bottom strip (full width, below photo)
-    if (fit_rect.y + fit_rect.h < screen_h) {
-        int bottom_h = screen_h - (fit_rect.y + fit_rect.h);
-        SDL_FRect bottom = {0.0f, (float)(fit_rect.y + fit_rect.h), (float)screen_w, (float)bottom_h};
-        SDL_RenderFillRect(sdl_renderer, &bottom);
-    }
-    // Left strip (between top/bottom edges only — non-overlapping)
-    if (fit_rect.x > 0 && fit_rect.h > 0) {
-        SDL_FRect left = {0.0f, (float)fit_rect.y, (float)fit_rect.x, (float)fit_rect.h};
-        SDL_RenderFillRect(sdl_renderer, &left);
-    }
-    // Right strip (between top/bottom edges only — non-overlapping)
-    if (fit_rect.x + fit_rect.w < screen_w && fit_rect.h > 0) {
-        int right_w = screen_w - (fit_rect.x + fit_rect.w);
-        SDL_FRect right = {(float)(fit_rect.x + fit_rect.w), (float)fit_rect.y, (float)right_w, (float)fit_rect.h};
-        SDL_RenderFillRect(sdl_renderer, &right);
+
+    const int right = photo.x + photo.w;
+    const int bottom = photo.y + photo.h;
+    const SDL_FRect strips[] = {
+        {float(bounds.x), float(bounds.y), float(bounds.w), float(photo.y - bounds.y)},
+        {float(bounds.x), float(bottom), float(bounds.w), float(bounds.y + bounds.h - bottom)},
+        {float(bounds.x), float(photo.y), float(photo.x - bounds.x), float(photo.h)},
+        {float(right), float(photo.y), float(bounds.x + bounds.w - right), float(photo.h)}
+    };
+    for (const auto& strip : strips) {
+        if (strip.w > 0 && strip.h > 0) SDL_RenderFillRect(renderer, &strip);
     }
 }
 
+void Renderer::draw_color_matched_matte(const SDL_Rect& fit_rect,
+    Uint8 r, Uint8 g, Uint8 b, float opacity) {
+    draw_color_matched_matte(fit_rect, r, g, b, opacity, {0, 0, screen_w, screen_h});
+}
+
+void Renderer::draw_color_matched_matte(const SDL_Rect& fit_rect,
+    Uint8 r, Uint8 g, Uint8 b, float opacity, const SDL_Rect& bounds) {
+    if (opacity <= 0.0f) return;
+    SDL_SetRenderDrawBlendMode(sdl_renderer, SDL_BLENDMODE_BLEND);
+    SDL_SetRenderDrawColor(sdl_renderer, r, g, b, static_cast<Uint8>(opacity * 255.0f));
+    draw_matte_strips(sdl_renderer, fit_rect, bounds);
+}
+
 void Renderer::draw_matte_borders(const SDL_Rect& fit_rect) {
+    draw_matte_borders(fit_rect, {0, 0, screen_w, screen_h});
+}
+
+void Renderer::draw_matte_borders(const SDL_Rect& fit_rect, const SDL_Rect& bounds) {
     SDL_SetRenderDrawColor(sdl_renderer, 0, 0, 0, 255);
-    
-    // Left border
-    if (fit_rect.x > 0) {
-        SDL_FRect left = {0.0f, 0.0f, (float)fit_rect.x, (float)screen_h};
-        SDL_RenderFillRect(sdl_renderer, &left);
-    }
-    // Right border
-    if (fit_rect.x + fit_rect.w < screen_w) {
-        int right_w = screen_w - (fit_rect.x + fit_rect.w);
-        SDL_FRect right = {(float)(fit_rect.x + fit_rect.w), 0.0f, (float)right_w, (float)screen_h};
-        SDL_RenderFillRect(sdl_renderer, &right);
-    }
-    // Top border
-    if (fit_rect.y > 0) {
-        SDL_FRect top = {0.0f, 0.0f, (float)screen_w, (float)fit_rect.y};
-        SDL_RenderFillRect(sdl_renderer, &top);
-    }
-    // Bottom border
-    if (fit_rect.y + fit_rect.h < screen_h) {
-        int bottom_h = screen_h - (fit_rect.y + fit_rect.h);
-        SDL_FRect bottom = {0.0f, (float)(fit_rect.y + fit_rect.h), (float)screen_w, (float)bottom_h};
-        SDL_RenderFillRect(sdl_renderer, &bottom);
-    }
+    draw_matte_strips(sdl_renderer, fit_rect, bounds);
+}
+
+void Renderer::set_caption_font(FontRenderer* fonts, std::string path) {
+    caption_fonts = fonts;
+    caption_font_path = std::move(path);
 }
 
 void Renderer::draw_bias_lighting(const SDL_Rect& fit_rect, const SDL_Rect& bounds,
@@ -1180,18 +1159,14 @@ void Renderer::draw_border(const SDL_Rect& fit_rect, const std::string& border_m
             SDL_RenderFillRect(sdl_renderer, &r);
         }
 
-        if (font_renderer && crt_font && font_loaded && !filename.empty()) {
-            int font_size = std::clamp(bw * 2, 10, 24);
-            const auto font_owner = font_renderer->load_font(crt_font->path, font_size);
-            FontHandle& font = *font_owner;
-            
+        if (caption_fonts && !filename.empty()) {
+            const auto font = caption_fonts->load_font(caption_font_path, std::clamp(bw * 2, 10, 24));
+            if (!font || !font->font) return;
             int text_w = 0, text_h = 0;
-            font_renderer->measure(font, filename, text_w, text_h);
-            
-            int text_x = ix1 + (fit_rect.w - text_w) / 2;
-            int text_y = iy2 + (bottom_bw - text_h) / 2;
-            
-            font_renderer->draw_text(text_x, text_y, font, filename, 0, 0, 0, 255);
+            caption_fonts->measure(*font, filename, text_w, text_h);
+            const int text_x = ix1 + (fit_rect.w - text_w) / 2;
+            const int text_y = iy2 + (bottom_bw - text_h) / 2;
+            caption_fonts->draw_text(text_x, text_y, *font, filename, 0, 0, 0, 255);
         }
     }
 }

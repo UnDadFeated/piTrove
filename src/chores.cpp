@@ -50,13 +50,13 @@ bool color(const std::string& s) {
 }
 bool load(sqlite3* db, Snapshot& snapshot, std::set<std::pair<int64_t,std::string>>& completions) {
     auto people = prepare(db, "SELECT id,name,color FROM people ORDER BY id");
-    auto tasks = prepare(db, "SELECT id,person_id,title,repeat,date,time FROM chores ORDER BY id");
+    auto tasks = prepare(db, "SELECT id,person_id,title,repeat,date,time,revision FROM chores ORDER BY id");
     auto done = prepare(db, "SELECT chore_id,date FROM completions");
     if (!people || !tasks || !done) return false;
     int rc;
     while ((rc = sqlite3_step(people.get())) == SQLITE_ROW) snapshot.people.push_back({sqlite3_column_int64(people.get(),0), column(people.get(),1), column(people.get(),2)});
     if (rc != SQLITE_DONE) return false;
-    while ((rc = sqlite3_step(tasks.get())) == SQLITE_ROW) snapshot.chores.push_back({sqlite3_column_int64(tasks.get(),0), sqlite3_column_int64(tasks.get(),1), column(tasks.get(),2), column(tasks.get(),3), column(tasks.get(),4), column(tasks.get(),5)});
+    while ((rc = sqlite3_step(tasks.get())) == SQLITE_ROW) snapshot.chores.push_back({sqlite3_column_int64(tasks.get(),0), sqlite3_column_int64(tasks.get(),1), column(tasks.get(),2), column(tasks.get(),3), column(tasks.get(),4), column(tasks.get(),5), false, sqlite3_column_int64(tasks.get(),6)});
     if (rc != SQLITE_DONE) return false;
     while ((rc = sqlite3_step(done.get())) == SQLITE_ROW) completions.emplace(sqlite3_column_int64(done.get(),0), column(done.get(),1));
     return rc == SQLITE_DONE;
@@ -81,7 +81,7 @@ bool Store::ready() const { return available.load(std::memory_order_acquire); }
 Result Store::open(const std::string& path) {
     std::lock_guard lock(mutex);
     sqlite3* candidate = nullptr;
-    if (sqlite3_open_v2(path.c_str(), &candidate, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_FULLMUTEX, nullptr) != SQLITE_OK) {
+    if (sqlite3_open_v2(path.c_str(), &candidate, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_FULLMUTEX | SQLITE_OPEN_NOFOLLOW, nullptr) != SQLITE_OK) {
         if (candidate) sqlite3_close_v2(candidate);
         return bad(Code::unavailable, "Cannot open chore database");
     }
@@ -101,7 +101,19 @@ Result Store::open(const std::string& path) {
     }
     sqlite3_busy_timeout(candidate,2000);
     if (!exec(candidate,"PRAGMA foreign_keys=ON; PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;") ||
-        !exec(candidate,"BEGIN IMMEDIATE; CREATE TABLE IF NOT EXISTS people(id INTEGER PRIMARY KEY AUTOINCREMENT,name TEXT NOT NULL,color TEXT NOT NULL); CREATE TABLE IF NOT EXISTS chores(id INTEGER PRIMARY KEY AUTOINCREMENT,person_id INTEGER NOT NULL REFERENCES people(id) ON DELETE RESTRICT,title TEXT NOT NULL,repeat TEXT NOT NULL CHECK(repeat IN ('daily','once')),date TEXT NOT NULL,time TEXT NOT NULL); CREATE TABLE IF NOT EXISTS completions(chore_id INTEGER NOT NULL REFERENCES chores(id) ON DELETE CASCADE,date TEXT NOT NULL,PRIMARY KEY(chore_id,date)); CREATE TRIGGER IF NOT EXISTS chores_schedule_changed AFTER UPDATE OF repeat,date ON chores WHEN old.repeat<>new.repeat OR old.date<>new.date BEGIN DELETE FROM completions WHERE chore_id=new.id; END; CREATE TRIGGER IF NOT EXISTS completion_retention AFTER INSERT ON completions BEGIN DELETE FROM completions WHERE chore_id=new.chore_id AND date NOT IN (SELECT date FROM completions WHERE chore_id=new.chore_id ORDER BY date DESC LIMIT 32); END; COMMIT;")) return bad(Code::unavailable,"Cannot initialize chore database");
+        !exec(candidate,"BEGIN IMMEDIATE; CREATE TABLE IF NOT EXISTS people(id INTEGER PRIMARY KEY AUTOINCREMENT,name TEXT NOT NULL,color TEXT NOT NULL); CREATE TABLE IF NOT EXISTS chores(id INTEGER PRIMARY KEY AUTOINCREMENT,person_id INTEGER NOT NULL REFERENCES people(id) ON DELETE RESTRICT,title TEXT NOT NULL,repeat TEXT NOT NULL CHECK(repeat IN ('daily','once')),date TEXT NOT NULL,time TEXT NOT NULL,revision INTEGER NOT NULL DEFAULT 1); CREATE TABLE IF NOT EXISTS completions(chore_id INTEGER NOT NULL REFERENCES chores(id) ON DELETE CASCADE,date TEXT NOT NULL,PRIMARY KEY(chore_id,date)); CREATE TRIGGER IF NOT EXISTS chores_schedule_changed AFTER UPDATE OF repeat,date ON chores WHEN old.repeat<>new.repeat OR old.date<>new.date BEGIN DELETE FROM completions WHERE chore_id=new.id; END; CREATE TRIGGER IF NOT EXISTS completion_retention AFTER INSERT ON completions BEGIN DELETE FROM completions WHERE chore_id=new.chore_id AND date NOT IN (SELECT date FROM completions WHERE chore_id=new.chore_id ORDER BY date DESC LIMIT 32); END;")) return bad(Code::unavailable,"Cannot initialize chore database");
+    bool has_revision = false;
+    {
+        auto columns = prepare(candidate, "PRAGMA table_info(chores)");
+        if (!columns) return bad(Code::unavailable, "Cannot inspect chore database");
+        int rc;
+        while ((rc = sqlite3_step(columns.get())) == SQLITE_ROW)
+            has_revision |= column(columns.get(), 1) == "revision";
+        if (rc != SQLITE_DONE) return bad(Code::unavailable, "Cannot inspect chore database");
+    }
+    if ((!has_revision && !exec(candidate, "ALTER TABLE chores ADD COLUMN revision INTEGER NOT NULL DEFAULT 1")) ||
+        !exec(candidate, "COMMIT"))
+        return bad(Code::unavailable, "Cannot migrate chore database");
     Snapshot next; std::set<std::pair<int64_t,std::string>> done;
     if (!load(candidate,next,done)) return bad(Code::unavailable,"Cannot read chore database");
     if (db) sqlite3_close_v2(db);
@@ -117,13 +129,15 @@ Snapshot Store::snapshot(const std::string& today) const {
     return result;
 }
 // Called with mutex held. Publish the new cache only after a checked commit.
-Result Store::mutate(const char* sql, const std::vector<std::string>& fields, int64_t id) {
+Result Store::mutate(const char* sql, const std::vector<std::string>& fields, int64_t id, bool check_revision) {
     if (!db || !exec(db,"BEGIN IMMEDIATE")) return bad(Code::unavailable,"Chore storage is unavailable; try again");
     struct Rollback { sqlite3* db; bool committed=false; ~Rollback() { if (!committed) exec(db,"ROLLBACK"); } } rollback{db};
     auto stmt=prepare(db,sql);
     if (!stmt) return bad(Code::unavailable,"Cannot prepare chore update");
     for (size_t i=0;i<fields.size();++i) if (sqlite3_bind_text(stmt.get(),int(i+1),fields[i].data(),int(fields[i].size()),SQLITE_TRANSIENT)!=SQLITE_OK) return bad(Code::unavailable,"Cannot bind chore update");
     if (sqlite3_step(stmt.get())!=SQLITE_DONE) return bad(Code::unavailable,"Cannot save chore update");
+    if (check_revision && sqlite3_changes(db) == 0)
+        return bad(Code::conflict, "This chore changed. Open it again before saving.");
     if (!id) id=sqlite3_last_insert_rowid(db);
     Snapshot next; std::set<std::pair<int64_t,std::string>> done;
     if (!load(db,next,done) || !exec(db,"COMMIT")) return bad(Code::unavailable,"Cannot persist chore update");
@@ -144,7 +158,7 @@ Result Store::delete_person(int64_t id) {
     if (std::any_of(cached.chores.begin(),cached.chores.end(),[&](auto& v){return v.person_id==id;})) return bad(Code::conflict,"Reassign or delete this person's chores first");
     return mutate("DELETE FROM people WHERE id=?",{std::to_string(id)},id);
 }
-Result Store::save_chore(Chore c) {
+Result Store::save_chore(Chore c, int64_t expected_revision) {
     std::lock_guard lock(mutex);
     if (c.id<0 || !text(c.title,160) || (c.repeat!="daily" && c.repeat!="once") || (c.repeat=="once" && !valid_date(c.date)) || (!c.time.empty() && !valid_time(c.time))) return bad(Code::invalid,"Enter a chore, a valid schedule/date, and an optional time");
     if (c.repeat=="daily") c.date.clear();
@@ -152,10 +166,17 @@ Result Store::save_chore(Chore c) {
     if (c.id && std::none_of(cached.chores.begin(),cached.chores.end(),[&](auto& v){return v.id==c.id;})) return bad(Code::not_found,"Chore no longer exists");
     if (!c.id && cached.chores.size()>=512) return bad(Code::conflict,"The household has reached its 512-chore limit");
     // A changed date/repetition represents a new schedule; drop old occurrence completions atomically.
-    const char* update="UPDATE chores SET person_id=?,title=?,repeat=?,date=?,time=? WHERE id=?";
+    if (!c.id && expected_revision)
+        return bad(Code::conflict, "A new chore does not have a revision yet");
+    const bool check_revision = expected_revision != 0;
+    const char* update = check_revision
+        ? "UPDATE chores SET person_id=?,title=?,repeat=?,date=?,time=?,revision=revision+1 WHERE id=? AND revision=?"
+        : "UPDATE chores SET person_id=?,title=?,repeat=?,date=?,time=?,revision=revision+1 WHERE id=?";
     std::vector<std::string> fields{std::to_string(c.person_id),c.title,c.repeat,c.date,c.time};
     if (c.id) fields.push_back(std::to_string(c.id));
-    return mutate(c.id ? update : "INSERT INTO chores(person_id,title,repeat,date,time) VALUES(?,?,?,?,?)",fields,c.id);
+    if (check_revision) fields.push_back(std::to_string(expected_revision));
+    return mutate(c.id ? update : "INSERT INTO chores(person_id,title,repeat,date,time) VALUES(?,?,?,?,?)",
+                  fields, c.id, check_revision);
 }
 Result Store::delete_chore(int64_t id) {
     std::lock_guard lock(mutex);

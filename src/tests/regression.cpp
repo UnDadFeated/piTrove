@@ -459,6 +459,26 @@ int main(int argc, char** argv) {
         test_cache();
         test_cache_migration();
         test_preprocessed_marker();
+        {
+            // Upgraded cache.db with an older partial error_catalog must re-seed missing E527-E540 rows.
+            char tmpl[] = "/tmp/pitrove-errcat-XXXXXX";
+            char* dir = mkdtemp(tmpl);
+            check(dir != nullptr, "errcat mkdtemp failed");
+            const std::string db_path = std::string(dir) + "/cache.db";
+            sqlite3* raw = nullptr;
+            check(sqlite3_open(db_path.c_str(), &raw) == SQLITE_OK, "errcat raw open failed");
+            check(sqlite3_exec(raw, "CREATE TABLE error_catalog(code TEXT PRIMARY KEY,title TEXT,description TEXT,recovery_action TEXT);"
+                                    "INSERT INTO error_catalog VALUES('E100','Old','Old','Old');",
+                               nullptr, nullptr, nullptr) == SQLITE_OK, "errcat seed setup failed");
+            sqlite3_close(raw);
+            CacheManager cm;
+            check(cm.open(dir), "errcat reopen failed");
+            std::string title, desc, rec;
+            check(cm.get_error_details("E530", title, desc, rec) && !title.empty(), "E530 missing after catalog upgrade");
+            check(cm.get_error_details("E540", title, desc, rec) && !title.empty(), "E540 missing after catalog upgrade");
+            cm.close();
+            std::filesystem::remove_all(dir);
+        }
         test_mqtt_lifecycle();
         SDL_Quit();
         std::cout << "font eviction, scanner admission, and cache rollback regressions passed\n";

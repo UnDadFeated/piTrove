@@ -14,7 +14,6 @@ systemctl() {
         is-active) [[ "$service_active" == true ]] ;;
         restart) ((restart_count+=1)) ;;
     esac
-    if [[ "$1" == is-active ]]; then [[ "$service_active" == true ]]; fi
 }
 docker() { echo "$status"; }
 container_bind_is_stale() { return 1; }
@@ -22,8 +21,9 @@ nas_is_healthy() { [[ "$nas_ready" == true ]]; }
 refresh_nas_mount() { ((refresh_count+=1)); [[ "$nas_ready" == true ]]; }
 
 WAS_OFFLINE=true
+RECOVERY_FAILURES=3
 recover_online
-[[ "$WAS_OFFLINE" == false && "$restart_count" == 0 && "$refresh_count" == 0 ]]
+[[ "$WAS_OFFLINE" == false && "$restart_count" == 0 && "$refresh_count" == 0 && "$RECOVERY_FAILURES" == 0 ]]
 status=unhealthy
 recover_online
 [[ "$restart_count" == 1 && "$refresh_count" == 0 ]]

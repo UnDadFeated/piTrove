@@ -4,7 +4,6 @@
 #include <filesystem>
 #include "util.h"
 #include "image_loader.h"
-#include <filesystem>
 #include <iostream>
 #include <vector>
 #include <unordered_set>
@@ -15,6 +14,8 @@
 #include <sstream>
 #include <format>
 #include <sys/statvfs.h>
+#include <sys/vfs.h>
+#include <cerrno>
 #include <sys/stat.h>
 #include <sys/file.h>
 #include <fcntl.h>
@@ -22,6 +23,47 @@
 #include <memory>
 
 namespace fs = std::filesystem;
+
+static bool is_network_filesystem(const fs::path& dir) {
+    struct statfs sfs{};
+    if (statfs(dir.c_str(), &sfs) != 0) return false;
+    const unsigned long magic = static_cast<unsigned long>(sfs.f_type);
+    return magic == 0xFF534D42UL /* CIFS_SUPER_MAGIC */ ||
+           magic == 0xFE534D42UL /* SMB2_SUPER_MAGIC */ ||
+           magic == 0x517BUL     /* SMB_SUPER_MAGIC  */ ||
+           magic == 0x6969UL;    /* NFS_SUPER_MAGIC  */
+}
+
+static fs::path select_local_storage_dir() {
+    std::error_code ec;
+    const fs::path app_cache("/app/cache");
+    if (fs::is_directory(app_cache, ec) && !ec && access(app_cache.c_str(), W_OK) == 0) {
+        return app_cache;
+    }
+    const auto tmp = fs::temp_directory_path(ec);
+    if (!ec && !tmp.empty()) return tmp;
+    return fs::path("/tmp");
+}
+
+static bool acquire_organizer_lock(const fs::path& journal_path, int& out_fd) {
+    out_fd = open(journal_path.c_str(), O_RDWR | O_CREAT | O_CLOEXEC | O_NOFOLLOW, 0600);
+    if (out_fd >= 0) {
+        if (flock(out_fd, LOCK_EX | LOCK_NB) == 0) return true;
+        const int err = errno;
+        close(out_fd);
+        out_fd = -1;
+        if (err != EOPNOTSUPP && err != ENOLCK && err != ENOSYS) return false;
+    }
+    const fs::path local_lock = select_local_storage_dir() / ".pitrove-organizer.lock";
+    out_fd = open(local_lock.c_str(), O_RDWR | O_CREAT | O_CLOEXEC | O_NOFOLLOW, 0600);
+    if (out_fd < 0) return false;
+    if (flock(out_fd, LOCK_EX | LOCK_NB) != 0) {
+        close(out_fd);
+        out_fd = -1;
+        return false;
+    }
+    return true;
+}
 
 static bool archive_path(const fs::path& name, const fs::path& root) {
     const auto relative = name.lexically_relative(root);
@@ -84,23 +126,38 @@ bool organize_media_archive(const std::string& root_dir, bool in_place,
 
     const auto root = fs::canonical(root_dir, ec);
     if (ec) return false;
-    const auto journal_path = root / ".pitrove-organizer.sqlite3";
-    int journal_fd = open(journal_path.c_str(), O_RDWR | O_CREAT | O_CLOEXEC | O_NOFOLLOW, 0600);
-    if (journal_fd < 0) return false;
-    struct JournalLock { int fd; ~JournalLock() { close(fd); } } lock{journal_fd};
-    if (flock(journal_fd, LOCK_EX | LOCK_NB) != 0) {
-        std::cerr << "Another organizer is using this archive.\n";
+    // Keep SQLite undo journal & advisory lock on local storage when organizing network mounts
+    // (CIFS/NFS) so nounix/locking quirks cannot abort or corrupt the journal.
+    const auto journal_path = is_network_filesystem(root)
+        ? (select_local_storage_dir() / ".pitrove-organizer.sqlite3")
+        : (root / ".pitrove-organizer.sqlite3");
+    int journal_fd = -1;
+    if (!acquire_organizer_lock(journal_path, journal_fd)) {
+        std::cerr << "Another organizer is using this archive or lock could not be acquired.\n";
         return false;
     }
+    struct JournalLock { int fd; ~JournalLock() { if (fd >= 0) close(fd); } } lock{journal_fd};
     sqlite3* database = nullptr;
-    const int opened = sqlite3_open_v2(journal_path.c_str(), &database, SQLITE_OPEN_READWRITE, nullptr);
+    const int opened = sqlite3_open_v2(journal_path.c_str(), &database, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE, nullptr);
     std::unique_ptr<sqlite3, decltype(&sqlite3_close)> journal(database, sqlite3_close);
     if (opened != SQLITE_OK || sqlite3_exec(database,
         "PRAGMA synchronous=FULL;"
+        "CREATE TABLE IF NOT EXISTS meta(key TEXT PRIMARY KEY, value TEXT NOT NULL);"
         "CREATE TABLE IF NOT EXISTS moves(id INTEGER PRIMARY KEY, old_path TEXT NOT NULL, new_path TEXT NOT NULL, dev INTEGER NOT NULL, inode INTEGER NOT NULL);",
         nullptr, nullptr, nullptr) != SQLITE_OK) {
-        std::cerr << "Could not open the archive undo journal.\n";
+        std::cerr << "Could not open the archive undo journal: " << journal_path << "\n";
         return false;
+    }
+    {
+        sqlite3_stmt* meta_stmt = nullptr;
+        const bool saved_root = sqlite3_prepare_v2(database, "INSERT OR REPLACE INTO meta(key,value) VALUES('root',?)", -1, &meta_stmt, nullptr) == SQLITE_OK &&
+            sqlite3_bind_text(meta_stmt, 1, root.c_str(), -1, SQLITE_TRANSIENT) == SQLITE_OK &&
+            sqlite3_step(meta_stmt) == SQLITE_DONE;
+        sqlite3_finalize(meta_stmt);
+        if (!saved_root) {
+            std::cerr << "Could not record archive root in undo journal.\n";
+            return false;
+        }
     }
     sqlite3_stmt* statement = nullptr;
     if (sqlite3_prepare_v2(database, "INSERT INTO moves(old_path,new_path,dev,inode) VALUES(?,?,?,?)", -1, &statement, nullptr) != SQLITE_OK)
@@ -111,8 +168,8 @@ bool organize_media_archive(const std::string& root_dir, bool in_place,
     size_t organized_count = 0;
     size_t error_count = 0;
 
-    static const std::unordered_set<std::string> image_exts = {".jpg", ".jpeg", ".png", ".tiff", ".tif", ".webp", ".heic", ".heif", ".bmp"};
-    static const std::unordered_set<std::string> video_exts = {".mp4", ".m4v", ".mov", ".avi", ".mkv", ".hevc"};
+    static const std::unordered_set<std::string> image_exts = {".jpg", ".jpeg", ".png", ".gif", ".tiff", ".tif", ".webp", ".heic", ".heif", ".bmp"};
+    static const std::unordered_set<std::string> video_exts = {".mp4", ".m4v", ".mov", ".avi", ".mkv", ".webm", ".hevc"};
 
     std::vector<MoveOperation> moves_to_perform;
     std::unordered_set<std::string> reserved_destinations;
@@ -123,7 +180,9 @@ bool organize_media_archive(const std::string& root_dir, bool in_place,
 
     // 1. Traverse and schedule moves
     try {
-        for (auto it = fs::recursive_directory_iterator(root); it != fs::recursive_directory_iterator(); ++it) {
+        std::error_code iter_ec;
+        for (auto it = fs::recursive_directory_iterator(root, fs::directory_options::skip_permission_denied, iter_ec);
+             !iter_ec && it != fs::recursive_directory_iterator(); it.increment(iter_ec)) {
             const auto& entry = *it;
             auto name = entry.path().filename().string();
             if (name.starts_with('.') || std::find(ignore_folders.begin(), ignore_folders.end(), name) != ignore_folders.end()) {
@@ -300,16 +359,28 @@ bool organize_media_archive(const std::string& root_dir, bool in_place,
 
 bool undo_organize(const std::string& journal_path) {
     std::error_code error;
-    const auto root = fs::canonical(fs::absolute(journal_path).parent_path(), error);
-    if (error) return false;
-    const int fd = open(journal_path.c_str(), O_RDWR | O_CLOEXEC | O_NOFOLLOW);
-    if (fd < 0) return false;
-    struct JournalLock { int fd; ~JournalLock() { close(fd); } } lock{fd};
-    if (flock(fd, LOCK_EX | LOCK_NB) != 0) return false;
+    if (!fs::is_regular_file(journal_path, error) || error) return false;
+    int fd = -1;
+    if (!acquire_organizer_lock(journal_path, fd)) return false;
+    struct JournalLock { int fd; ~JournalLock() { if (fd >= 0) close(fd); } } lock{fd};
     sqlite3* db = nullptr;
     const auto result = sqlite3_open_v2(journal_path.c_str(), &db, SQLITE_OPEN_READWRITE, nullptr);
     const std::unique_ptr<sqlite3, decltype(&sqlite3_close)> journal(db, sqlite3_close);
     if (result != SQLITE_OK) return false;
+    fs::path root_candidate = fs::absolute(journal_path).parent_path();
+    {
+        sqlite3_stmt* meta_stmt = nullptr;
+        if (sqlite3_prepare_v2(db, "SELECT value FROM meta WHERE key='root'", -1, &meta_stmt, nullptr) == SQLITE_OK) {
+            if (sqlite3_step(meta_stmt) == SQLITE_ROW) {
+                if (const auto* val = reinterpret_cast<const char*>(sqlite3_column_text(meta_stmt, 0)); val && *val) {
+                    root_candidate = val;
+                }
+            }
+            sqlite3_finalize(meta_stmt);
+        }
+    }
+    const auto root = fs::canonical(root_candidate, error);
+    if (error) return false;
     struct UndoRow { sqlite3_int64 id; fs::path old_path, new_path; dev_t dev; ino_t inode; };
     std::vector<UndoRow> rows;
     sqlite3_stmt* stmt = nullptr;
@@ -335,7 +406,12 @@ bool undo_organize(const std::string& journal_path) {
         const auto dest = (root / row.new_path).lexically_normal();
         const auto source = (root / row.old_path).lexically_normal();
         struct stat current{};
-        if (!archive_path(dest, root) || !archive_path(source, root) ||
+        std::error_code dir_error;
+        const bool paths_valid = archive_path(dest, root) && archive_path(source, root);
+        if (paths_valid && !source.parent_path().empty()) {
+            fs::create_directories(source.parent_path(), dir_error);
+        }
+        if (!paths_valid || dir_error ||
             lstat(dest.c_str(), &current) != 0 || !S_ISREG(current.st_mode) ||
             (has_identity && (current.st_dev != row.dev || current.st_ino != row.inode)) ||
             !move_without_replace(dest, source, error)) {

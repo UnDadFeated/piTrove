@@ -18,7 +18,11 @@ inline std::string script() {
 'use strict';
 window.FrameUI=(()=>{
  const $=id=>document.getElementById(id), read=(key)=>{try{return localStorage.getItem(key);}catch{return null;}},write=(key,value)=>{try{localStorage.setItem(key,value);}catch{}};
- const system=matchMedia('(prefers-color-scheme: light)');let appearance=read('pitrove-appearance')||(read('pitrove-theme')==='light-theme'?'light':'system'),locked=false,unlocked=()=>{},toastTimer;
+ const sessionRead=key=>{try{return sessionStorage.getItem(key);}catch{return null;}},
+       sessionSet=(key,value)=>{try{if(value)sessionStorage.setItem(key,value);else sessionStorage.removeItem(key);}catch{}};
+ const storedKey=()=>sessionRead('api_key')||read('api_key');
+ let keyGeneration=0;
+ const system=matchMedia('(prefers-color-scheme: light)');let appearance=read('pitrove-appearance')||(read('pitrove-theme')==='light-theme'?'light':'system'),locked=!!sessionRead('pitrove-key-rejected'),unlocked=()=>{},toastTimer;
  if(!['system','light','dark'].includes(appearance))appearance='system';
  function applyTheme(){document.documentElement.dataset.theme=appearance==='system'?(system.matches?'light':'dark'):appearance;}
  applyTheme();system.addEventListener('change',applyTheme);
@@ -26,20 +30,48 @@ window.FrameUI=(()=>{
  function toast(message){const node=$('toast');node.textContent=message;node.classList.add('show');clearTimeout(toastTimer);toastTimer=setTimeout(()=>node.classList.remove('show'),3500);}
  function access(){if($('unlock')){$('unlock').hidden=false;$('api-key').focus();}}
  async function request(path,options={}){
-  if(locked&&options.protected!==false&&!options.key){const e=Error('Unlock your controller with its access key.');e.status=401;throw e;}
-  const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),options.timeout||12000),headers={},key=options.key||read('api_key');if(key)headers.Authorization='Bearer '+key;
+  if(locked&&options.protected!==false&&options.key===undefined){const e=Error('Unlock your controller with its access key.');e.status=401;throw e;}
+  const key=options.key??(locked?'':storedKey()),generation=keyGeneration;
+  const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),options.timeout||12000),headers={};if(key)headers.Authorization='Bearer '+key;
   const settings={headers,cache:'no-store',signal:controller.signal,credentials:'same-origin'};
   if(options.fields!==undefined){settings.method='POST';settings.body=new URLSearchParams(options.fields);headers['Content-Type']='application/x-www-form-urlencoded';}else if(options.method)settings.method=options.method;
-  try{const response=await fetch(path,settings);if(response.status===401){locked=true;access();}
+  try{const response=await fetch(path,settings);if(response.status===401&&generation===keyGeneration){
+    locked=true;sessionSet('pitrove-key-rejected','1');
+    if(key&&key===sessionRead('api_key'))sessionSet('api_key','');
+    try{if(key&&key===read('api_key'))localStorage.removeItem('api_key');}catch{}
+    if($('sign-out'))$('sign-out').hidden=!storedKey();
+    access();
+   }
    if(!response.ok){let detail='';try{const text=await response.text();try{const data=JSON.parse(text);detail=data.error||data.message||'';}catch{detail=text;}}catch{}
     const error=Error(response.status===401?'Enter your controller access key to continue.':response.status===429?'Give the frame a moment, then try again.':detail||'The frame could not complete that request.');error.status=response.status;throw error;}
    if(options.blob)return await response.blob();return await response.json();
   }catch(e){if(e.name==='AbortError')throw Error('The frame took too long to respond. Please try again.');throw e;}finally{clearTimeout(timer);}
  }
  function download(blob,filename){const url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=filename;document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),30000);}
- function init(){const select=$('appearance');select.value=appearance;select.addEventListener('change',()=>{appearance=select.value;write('pitrove-appearance',appearance);applyTheme();});$('sign-out').hidden=!read('api_key');$('sign-out').addEventListener('click',()=>{setKey('');write('pitrove-signed-out','1');location.reload();});if(read('pitrove-signed-out')){try{localStorage.removeItem('pitrove-signed-out');}catch{}access();}$('access-button').addEventListener('click',()=>{if($('unlock').hidden)access();else $('unlock').hidden=true;});$('unlock').addEventListener('submit',async e=>{e.preventDefault();const button=$('unlock-submit');button.disabled=true;try{await request('/api/settings',{key:$('api-key').value,timeout:15000});setKey($('api-key').value);$('api-key').value='';$('unlock').hidden=true;$('unlock-error').textContent='';toast('Controller unlocked.');await unlocked();}catch(err){$('unlock-error').textContent=err.message;}finally{button.disabled=false;}});window.addEventListener('storage',e=>{if(e.key==='pitrove-appearance'){appearance=read('pitrove-appearance')||'system';select.value=appearance;applyTheme();}if(e.key==='api_key'){if(!e.newValue&&e.oldValue)location.reload();else {$('sign-out').hidden=!e.newValue;locked=false;}}});}
+ function init(){
+  const select=$('appearance');select.value=appearance;
+  select.addEventListener('change',()=>{appearance=select.value;write('pitrove-appearance',appearance);applyTheme();});
+  $('sign-out').hidden=!storedKey();
+  $('sign-out').addEventListener('click',()=>{setKey('');write('pitrove-signed-out','1');location.reload();});
+  if(read('pitrove-signed-out')){try{localStorage.removeItem('pitrove-signed-out');}catch{}access();}
+  if(locked)access();
+  $('access-button').addEventListener('click',()=>{if($('unlock').hidden)access();else $('unlock').hidden=true;});
+  $('unlock').addEventListener('submit',async e=>{
+   e.preventDefault();const button=$('unlock-submit'),key=$('api-key').value,remember=$('remember-key').checked;button.disabled=true;
+   try{await request('/api/settings',{key,timeout:15000});setKey(key,remember);$('api-key').value='';$('unlock').hidden=true;$('unlock-error').textContent='';toast('Controller unlocked.');await unlocked();}
+   catch(err){$('unlock-error').textContent=err.message;}finally{button.disabled=false;}
+  });
+  window.addEventListener('storage',e=>{
+   if(e.key==='pitrove-appearance'){appearance=read('pitrove-appearance')||'system';select.value=appearance;applyTheme();}
+   if(e.key==='api_key')$('sign-out').hidden=!storedKey();
+  });
+ }
  document.addEventListener('DOMContentLoaded',init);
- function setKey(value){try{if(value)localStorage.setItem('api_key',value);else localStorage.removeItem('api_key');}catch{}locked=false;if($('sign-out'))$('sign-out').hidden=!value;}
+ function setKey(value,remember=!!read('api_key')){
+  ++keyGeneration;locked=false;sessionSet('pitrove-key-rejected','');sessionSet('api_key',remember?'':value);
+  try{if(value&&remember)localStorage.setItem('api_key',value);else localStorage.removeItem('api_key');}catch{sessionSet('api_key',value);}
+  if($('sign-out'))$('sign-out').hidden=!value;
+ }
  return {$,request,toast,connection,download,setKey,onUnlock:fn=>{unlocked=fn;},access};
 })();
 </script>)JS";
@@ -53,7 +85,7 @@ inline std::string start(std::string_view title, std::string_view active) {
     for(const auto& n : {Nav{"remote","/#remote","home","Frame"},Nav{"chores","/chores","check","Chores"},Nav{"settings","/config","settings","Settings"},Nav{"logs","/#logs","activity","Activity"}}) {
         html+="<a class=\"nav-link\" data-page=\""+std::string(n.id)+"\" href=\""+n.href+"\""+(active==n.id?" aria-current=\"page\"":"")+"><svg class=\"icon\" aria-hidden=\"true\"><use href=\"#i-"+n.icon+"\"/></svg><span>"+n.text+"</span></a>";
     }
-    return html+R"SHELL(</nav><main id="main" tabindex="-1"><form id="unlock" class="card access-card" hidden><h2>Unlock your controller</h2><p>Enter the access key configured for your frame. It is remembered in this browser.</p><label for="api-key">Controller access key</label><div class="row"><input id="api-key" class="grow" type="password" autocomplete="current-password" required><button id="unlock-submit" class="primary">Unlock</button></div><p id="unlock-error" role="alert" class="danger" style="margin:10px 0 0"></p></form>)SHELL";
+    return html+R"SHELL(</nav><main id="main" tabindex="-1"><form id="unlock" class="card access-card" hidden><h2>Unlock your controller</h2><p>Enter the access key configured for your frame.</p><label for="api-key">Controller access key</label><div class="row"><input id="api-key" class="grow" type="password" autocomplete="current-password" required><button id="unlock-submit" class="primary">Unlock</button></div><label class="check-label"><input id="remember-key" type="checkbox">Remember on this device</label><p id="unlock-error" role="alert" class="danger" style="margin:10px 0 0"></p></form>)SHELL";
 }
 inline std::string end(std::string_view version) {
     return "</main><footer class=\"site-footer\"><span>piTrove "+std::string(version)+"</span><span>Made for the moments at home.</span></footer></div><div id=\"toast\" class=\"toast\" role=\"status\" aria-live=\"polite\"></div></body></html>";

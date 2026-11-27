@@ -14,6 +14,7 @@ struct Chore {
     int64_t id = 0, person_id = 0;
     std::string title, repeat = "daily", date, time;
     bool completed = false;
+    int64_t revision = 1;
 };
 struct Snapshot { std::vector<Person> people; std::vector<Chore> chores; };
 enum class Code { ok, invalid, not_found, conflict, unavailable };
@@ -32,7 +33,7 @@ public:
     Snapshot snapshot(const std::string& today) const;
     Result save_person(Person person);
     Result delete_person(int64_t id);
-    Result save_chore(Chore chore);
+    Result save_chore(Chore chore, int64_t expected_revision = 0);
     Result delete_chore(int64_t id);
     Result set_completed(int64_t id, const std::string& date, bool completed, std::string_view today = {});
 private:
@@ -41,7 +42,7 @@ private:
     sqlite3* db = nullptr;
     Snapshot cached;
     std::set<std::pair<int64_t, std::string>> completions;
-    Result mutate(const char* sql, const std::vector<std::string>& fields, int64_t id = 0);
+    Result mutate(const char* sql, const std::vector<std::string>& fields, int64_t id = 0, bool check_revision = false);
 };
 inline Store g_store;
 }

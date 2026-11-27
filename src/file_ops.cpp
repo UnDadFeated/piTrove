@@ -33,8 +33,16 @@ int publish(const std::filesystem::path& source, const std::filesystem::path& de
         return 0;
     int error = errno;
     if (error != ENOSYS && error != EINVAL && error != EOPNOTSUPP) return error;
-    if (link(source.c_str(), destination.c_str()) != 0) return errno;
-    return unlink(source.c_str()) == 0 ? 0 : errno;
+    if (link(source.c_str(), destination.c_str()) == 0)
+        return unlink(source.c_str()) == 0 ? 0 : errno;
+    error = errno;
+    if (error != ENOSYS && error != EINVAL && error != EOPNOTSUPP && error != EPERM) return error;
+    // Filesystems such as CIFS nounix support neither RENAME_NOREPLACE nor hard links.
+    // Check that destination does not already exist (without following symlinks) before renaming.
+    struct stat existing{};
+    if (lstat(destination.c_str(), &existing) == 0) return EEXIST;
+    if (errno != ENOENT) return errno;
+    return rename(source.c_str(), destination.c_str()) == 0 ? 0 : errno;
 }
 
 int copy_across_filesystems(const std::filesystem::path& source, const std::filesystem::path& destination) {
@@ -95,9 +103,11 @@ bool write_file_atomic(const std::string& path, const std::string& contents) {
     if (fd < 0) return false;
     fcntl(fd, F_SETFD, FD_CLOEXEC);
     struct stat existing{};
-    bool ok = stat(path.c_str(), &existing) != 0 ||
-              fchown(fd, existing.st_uid, existing.st_gid) == 0;
-    // Keep the existing owner's access when the container writes a host bind mount.
+    bool ok = true;
+    // Keep the existing owner's access when running as root on a host bind mount.
+    if (geteuid() == 0 && stat(path.c_str(), &existing) == 0) {
+        ok = fchown(fd, existing.st_uid, existing.st_gid) == 0;
+    }
 
     if (ok) ok = fchmod(fd, 0600) == 0 && write_all(fd, contents.data(), contents.size());
     if (ok && fsync(fd) != 0) ok = false;

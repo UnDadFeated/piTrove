@@ -3,46 +3,10 @@
 #include "renderer.h"
 #include "util.h"
 #include "image_loader.h"
-#include "blur.h"
-#include "config.h"
 #include "scanner.h"
 #include <sys/stat.h>
-#include <shared_mutex>
-#include <future>
-#include <filesystem>
 #include <algorithm>
-#include <cstring>
-#include <unordered_set>
-#include <unordered_map>
 #include <chrono>
-
-static void compute_average_color(const RawImage& src, uint8_t& r, uint8_t& g, uint8_t& b) {
-    if (!src.valid || !src.pixels || src.width <= 0 || src.height <= 0) {
-        r = 220; g = 210; b = 195;
-        return;
-    }
-    const int MAX_STEPS = 64;
-    int step_x = std::max(1, src.width / MAX_STEPS);
-    int step_y = std::max(1, src.height / MAX_STEPS);
-    long long sum_r = 0, sum_g = 0, sum_b = 0, samples = 0;
-    for (int y = 0; y < src.height; y += step_y) {
-        for (int x = 0; x < src.width; x += step_x) {
-            long long offset = (long long)y * 4 * src.width + (long long)x * 4;
-            if (offset >= 0 && offset + 3 < (long long)src.width * src.height * 4) {
-                const uint8_t* px = src.pixels + offset;
-                sum_r += px[0]; sum_g += px[1]; sum_b += px[2];
-                ++samples;
-            }
-        }
-    }
-    if (samples <= 0) {
-        r = 220; g = 210; b = 195;
-    } else {
-        r = (uint8_t)(sum_r / samples);
-        g = (uint8_t)(sum_g / samples);
-        b = (uint8_t)(sum_b / samples);
-    }
-}
 
 PreloadQueue::PreloadQueue(int max_size, int num_threads, SDL_Renderer* sdl_renderer)
     : num_threads(num_threads), sdl_renderer(sdl_renderer) {
@@ -54,8 +18,10 @@ PreloadQueue::~PreloadQueue() {
 }
 
 void PreloadQueue::start() {
-    if (state->running.load()) return;
-    state->running.store(true);
+    {
+        std::lock_guard lock(state->work_mutex);
+        if (state->running.exchange(true)) return;
+    }
 
     threads.reserve(num_threads);
     for (int i = 0; i < num_threads; i++) {
@@ -68,12 +34,13 @@ void PreloadQueue::start() {
         }
     }
     g_logger.info("PreloadQueue started with {} worker threads (capacity={})", threads.size(), state->max_size);
-    g_logger.info("Health check caching enabled (TTL=5s, NAS monitor=10s)");
 }
 
 void PreloadQueue::shutdown() {
-    if (!state->running.load()) return;
-    state->running.store(false);
+    {
+        std::lock_guard lock(state->work_mutex);
+        if (!state->running.exchange(false)) return;
+    }
     for (auto& th : threads) th.request_stop();
 
     state->work_cv.notify_all();
@@ -95,18 +62,11 @@ void PreloadQueue::enqueue(const std::string& path) {
     if (path.empty()) return;
     {
         std::lock_guard<std::mutex> lock(state->work_mutex);
-        if (state->active_preloads.count(path)) return;
+        if (!state->running.load() || state->active_preloads.count(path)) return;
         auto it = state->stat_failed_ts.find(path);
         if (it != state->stat_failed_ts.end()) {
             if (now_steady_ms() - it->second < STAT_FAIL_COOLDOWN_MS) return;
             state->stat_failed_ts.erase(it); // cooldown expired: retry
-        }
-        if (state->stat_failed_ts.size() > STAT_FAIL_MAP_MAX) {
-            int64_t cutoff = now_steady_ms() - 600000; // drop entries >10 min old
-            for (auto jt = state->stat_failed_ts.begin();
-                 jt != state->stat_failed_ts.end();)
-                jt = (jt->second < cutoff) ? state->stat_failed_ts.erase(jt)
-                                           : std::next(jt);
         }
         g_logger.debug("PreloadQueue::enqueue '{}'", path.c_str());
         state->work_queue.push(path);
@@ -131,70 +91,8 @@ std::shared_ptr<ImageData> PreloadQueue::try_dequeue(const std::string& target_p
             state->active_preloads.erase(target_path);
         }
     }
-    if (item.valid) {
-        // Build ImageData from raw pixels (main thread — SDL context is thread-local)
-        data = std::make_shared<ImageData>();
-        data->valid = false;
-
-        if (item.raw.valid) {
-            // Retrieve pre-computed EXIF rotation from worker thread
-            data->exif_rotation = item.metadata.rotation;
-            data->is_camera = item.metadata.is_camera;
-            data->creation_time = item.metadata.creation_time;
-            data->latitude = item.metadata.latitude;
-            data->longitude = item.metadata.longitude;
-            data->has_gps = item.metadata.has_gps;
-            data->filename = std::filesystem::path(item.path).filename().string();
-            data->width = item.raw.width;
-            data->height = item.raw.height;
-
-            // Create SDL surface from raw pixels
-            data->surface = SDL_CreateSurface(item.raw.width, item.raw.height, SDL_PIXELFORMAT_RGBA32);
-            if (data->surface) {
-                uint8_t* dst = (uint8_t*)data->surface->pixels;
-                const uint8_t* src = item.raw.pixels;
-                for (int y = 0; y < item.raw.height; y++) {
-                    memcpy(dst + y * data->surface->pitch, src + y * item.raw.width * 4, item.raw.width * 4);
-                }
-            }
-            if (item.raw.pixels) {
-                free(item.raw.pixels);
-                item.raw.pixels = nullptr;
-            }
-
-            data->valid = data->surface != nullptr;
-
-            // Extract average color from preloaded background calculations
-            data->avg_r = item.avg_r;
-            data->avg_g = item.avg_g;
-            data->avg_b = item.avg_b;
-
-            // Copy precomputed matte color from worker thread
-            data->matte_r = item.matte_r;
-            data->matte_g = item.matte_g;
-            data->matte_b = item.matte_b;
-
-            // Copy precomputed edge colors from worker thread
-            for (int e = 0; e < 4; e++) {
-                data->edge_r[e] = item.edge_r[e];
-                data->edge_g[e] = item.edge_g[e];
-                data->edge_b[e] = item.edge_b[e];
-            }
-
-            // Copy precomputed per-pixel edge strips from worker thread
-            data->edge_top_rgb = std::move(item.edge_top_rgb);
-            data->edge_bot_rgb = std::move(item.edge_bot_rgb);
-            data->edge_lft_rgb = std::move(item.edge_lft_rgb);
-            data->edge_rgt_rgb = std::move(item.edge_rgt_rgb);
-
-            // Move blur_raw to ImageData (no SDL needed — renderer creates texture on demand)
-            if (item.blur_raw.valid && item.blur_raw.pixels) {
-                data->blur_raw = std::move(item.blur_raw);
-            }
-        }
-    }
-
-    if (data && data->valid && data->surface && !data->texture) {
+    if (item.image.raw.valid) {
+        data = ImageLoader::make_surface(std::move(item.image), item.path);
         ImageLoader::load_texture(data.get(), sdl_renderer);
     }
 
@@ -215,129 +113,20 @@ void PreloadQueue::cancel_all() {
     state->work_cv.notify_all();
 }
 
-
-
-static void compute_edge_data(const RawImage& raw,
-    uint8_t edge_r[4], uint8_t edge_g[4], uint8_t edge_b[4],
-    std::vector<uint8_t>& edge_top_rgb, std::vector<uint8_t>& edge_bot_rgb,
-    std::vector<uint8_t>& edge_lft_rgb, std::vector<uint8_t>& edge_rgt_rgb)
-{
-    if (!raw.valid || raw.width <= 0 || raw.height <= 0) return;
-    int w = raw.width, h = raw.height;
-    const uint8_t* px = raw.pixels;
-    int stride = w * 4;
-    const int STEPS = 32;
-
-    // Edge average colors (sampled, matching get_edge_average_color)
-    auto sample_edge = [&](int x0, int y0, int x1, int y1) -> GpuColor {
-        int sx = std::max(1, (x1 - x0) / STEPS);
-        int sy = std::max(1, (y1 - y0) / STEPS);
-        long long r = 0, g = 0, b = 0, n = 0;
-        for (int y = y0; y < y1; y += sy)
-            for (int x = x0; x < x1; x += sx) {
-                long long offset = (long long)y * stride + (long long)x * 4;
-                if (offset >= 0) {
-                    const uint8_t* p = px + offset;
-                    r += p[0]; g += p[1]; b += p[2]; n++;
-                }
-            }
-        if (n <= 0) return GpuColor{0,0,0,255};
-        return GpuColor{(uint8_t)(r/n), (uint8_t)(g/n), (uint8_t)(b/n), 255};
-    };
-    int depth = 8;
-    GpuColor ec = sample_edge(0, 0, w, std::min(depth, h));
-    edge_r[0] = ec.r; edge_g[0] = ec.g; edge_b[0] = ec.b;
-    ec = sample_edge(0, std::max(0, h - depth), w, h);
-    edge_r[1] = ec.r; edge_g[1] = ec.g; edge_b[1] = ec.b;
-    ec = sample_edge(0, 0, std::min(depth, w), h);
-    edge_r[2] = ec.r; edge_g[2] = ec.g; edge_b[2] = ec.b;
-    ec = sample_edge(std::max(0, w - depth), 0, w, h);
-    edge_r[3] = ec.r; edge_g[3] = ec.g; edge_b[3] = ec.b;
-
-    // Per-pixel edge strips (3px deep average per position)
-    int ns = h < 3 ? h : 3;
-    edge_top_rgb.resize(w * 3);
-    for (int x = 0; x < w; x++) {
-        int ar = 0, ag = 0, ab = 0;
-        for (int d = 0; d < ns; d++) {
-            const uint8_t* p = px + x * 4 + d * stride;
-            ar += p[0]; ag += p[1]; ab += p[2];
-        }
-        edge_top_rgb[x * 3 + 0] = (uint8_t)(ns > 0 ? (ar / ns) : 0);
-        edge_top_rgb[x * 3 + 1] = (uint8_t)(ns > 0 ? (ag / ns) : 0);
-        edge_top_rgb[x * 3 + 2] = (uint8_t)(ns > 0 ? (ab / ns) : 0);
-    }
-
-    edge_bot_rgb.resize(w * 3);
-    for (int x = 0; x < w; x++) {
-        int ar = 0, ag = 0, ab = 0;
-        int sample_count = 0;
-        for (int d = -1; d <= 1; d++) {
-            int ry = h - 1 + d;
-            if (ry >= 0 && ry < h) {
-                const uint8_t* p = px + x * 4 + ry * stride;
-                ar += p[0]; ag += p[1]; ab += p[2];
-                sample_count++;
-            }
-        }
-        if (sample_count > 0) {
-            edge_bot_rgb[x * 3 + 0] = (uint8_t)(ar / sample_count);
-            edge_bot_rgb[x * 3 + 1] = (uint8_t)(ag / sample_count);
-            edge_bot_rgb[x * 3 + 2] = (uint8_t)(ab / sample_count);
-        } else {
-            edge_bot_rgb[x * 3 + 0] = 0;
-            edge_bot_rgb[x * 3 + 1] = 0;
-            edge_bot_rgb[x * 3 + 2] = 0;
-        }
-    }
-
-    ns = w < 3 ? w : 3;
-    edge_lft_rgb.resize(h * 3);
-    for (int y = 0; y < h; y++) {
-        int ar = 0, ag = 0, ab = 0;
-        for (int ww = 0; ww < ns; ww++) {
-            const uint8_t* p = px + y * stride + ww * 4;
-            ar += p[0]; ag += p[1]; ab += p[2];
-        }
-        edge_lft_rgb[y * 3 + 0] = (uint8_t)(ns > 0 ? (ar / ns) : 0);
-        edge_lft_rgb[y * 3 + 1] = (uint8_t)(ns > 0 ? (ag / ns) : 0);
-        edge_lft_rgb[y * 3 + 2] = (uint8_t)(ns > 0 ? (ab / ns) : 0);
-    }
-
-    edge_rgt_rgb.resize(h * 3);
-    for (int y = 0; y < h; y++) {
-        int ar = 0, ag = 0, ab = 0;
-        int sample_count = 0;
-        for (int ww = 0; ww < ns; ww++) {
-            int wc = w - 1 - ww;
-            if (wc >= 0 && wc < w) {
-                const uint8_t* p = px + y * stride + wc * 4;
-                ar += p[0]; ag += p[1]; ab += p[2];
-                sample_count++;
-            }
-        }
-        edge_rgt_rgb[y * 3 + 0] = (uint8_t)(sample_count > 0 ? (ar / sample_count) : 0);
-        edge_rgt_rgb[y * 3 + 1] = (uint8_t)(sample_count > 0 ? (ag / sample_count) : 0);
-        edge_rgt_rgb[y * 3 + 2] = (uint8_t)(sample_count > 0 ? (ab / sample_count) : 0);
-    }
-}
-
 void PreloadQueue::worker_thread(std::stop_token stop, std::shared_ptr<PreloadState> state, int thread_id) {
-    g_logger.info("Preload worker {}: I/O throttle enabled (50ms between reads, capacity={})", thread_id, state->max_size);
-    g_logger.info("  Throttle ACTIVE: I/O spread to protect CIFS session");
     g_logger.debug("Preload worker thread {} starting", thread_id);
-    while (state->running.load()) {
+    while (!stop.stop_requested() && state->running.load()) {
         std::string path;
         uint64_t task_epoch = 0;
         {
             std::unique_lock<std::mutex> lock(state->work_mutex);
-            state->work_cv.wait(lock, [state] {
+            state->work_cv.wait(lock, stop, [state] {
                 bool has_work = !state->work_queue.empty();
                 bool space_available = state->loaded_count.load() < state->max_size;
                 return (has_work && space_available) || !state->running.load();
             });
 
-            if (!state->running.load()) break;
+            if (stop.stop_requested() || !state->running.load()) break;
             if (state->work_queue.empty()) continue;
 
             path = state->work_queue.front();
@@ -350,117 +139,45 @@ void PreloadQueue::worker_thread(std::stop_token stop, std::shared_ptr<PreloadSt
             std::lock_guard lock(state->work_mutex);
             if (task_epoch == state->current_epoch) {
                 state->active_preloads.erase(path);
+                if (state->stat_failed_ts.size() >= STAT_FAIL_MAP_MAX) state->stat_failed_ts.clear();
                 state->stat_failed_ts[path] = now_steady_ms();
             }
         };
 
         struct stat st;
         if (!stat_timeout(path, st, 5000, stop)) {
+            if (stop.stop_requested()) break;
             g_logger.warn("[Worker {}] stat_timeout: '{}' inaccessible, skipping.", thread_id, path.c_str());
             note_failure();
             continue;
         }
 
-        std::vector<uint8_t> buffer = ImageLoader::read_file_to_buffer(path);
+        std::vector<uint8_t> buffer = ImageLoader::read_file_to_buffer(path, stop);
+        if (stop.stop_requested()) break;
         if (buffer.empty()) {
             g_logger.warn("[Worker {}] Failed to read file to buffer: {}", thread_id, path.c_str());
             note_failure();
             continue;
         }
 
-        int blur_radius;
-        int max_dim;
-        bool blurred;
-        {
-            std::shared_lock lock(g_config_mtx);
-            blur_radius = g_renderer.scale_px(g_cfg.blur_radius);
-            max_dim = g_cfg.max_texture_dim;
-            blurred = g_cfg.blurred_background && g_cfg.bg_style == "photo";
-        }
-
-        RawImage raw = ImageLoader::decode_rgba(buffer, max_dim);
-        if (!raw.valid) {
-            g_logger.warn("[Worker {}] Failed to decode: {}", thread_id, path.c_str());
+        auto image = ImageLoader::prepare(buffer, stop);
+        if (stop.stop_requested()) break;
+        if (!image.raw.valid) {
+            g_logger.warn("[Worker {}] Failed to decode: {}", thread_id, path);
             note_failure();
             continue;
         }
-        const int w = raw.width, h = raw.height;
-
-        const auto metadata = ImageLoader::read_metadata_from_memory(buffer);
-
-        // Work with display-sized, already-oriented pixels before sampling edges.
-        if (std::max(w, h) > max_dim || metadata.rotation != 1) {
-            using Surface = std::unique_ptr<SDL_Surface, decltype(&SDL_DestroySurface)>;
-            Surface src(SDL_CreateSurfaceFrom(w, h, SDL_PIXELFORMAT_RGBA32, raw.pixels, w * 4), SDL_DestroySurface);
-            if (!src) { note_failure(); continue; }
-            if (std::max(w, h) > max_dim) {
-                const float scale = static_cast<float>(max_dim) / std::max(w, h);
-                auto* scaled = SDL_ScaleSurface(src.get(), std::max(1, static_cast<int>(w * scale)),
-                                                std::max(1, static_cast<int>(h * scale)), SDL_SCALEMODE_LINEAR);
-                if (!scaled) { note_failure(); continue; }
-                src.reset(scaled);
-            }
-            if (metadata.rotation != 1) {
-                auto* rotated = ImageLoader::apply_exif_rotation(src.get(), metadata.rotation);
-                if (!rotated) { note_failure(); continue; }
-                src.reset(rotated);
-            }
-            const size_t stride = static_cast<size_t>(src->w) * 4;
-            auto* adjusted = static_cast<uint8_t*>(malloc(stride * src->h));
-            if (!adjusted) { note_failure(); continue; }
-            auto* source = static_cast<const uint8_t*>(src->pixels);
-            for (int row = 0; row < src->h; ++row) {
-                memcpy(adjusted + row * stride, source + static_cast<size_t>(row) * src->pitch, stride);
-            }
-            free(raw.pixels);
-            raw.pixels = adjusted;
-            raw.width = src->w;
-            raw.height = src->h;
-        }
-
-        RawImage blur;
-        if (blurred) blur = box_blur(raw, blur_radius);
-
-        uint8_t mr = 0, mg = 0, mb = 0;
-        compute_matte_color(raw, mr, mg, mb);
-
-        uint8_t ar = 220, ag = 210, ab = 195;
-        compute_average_color(raw, ar, ag, ab);
-
-        // Edge strip data (precomputed in worker to avoid main-thread stalls)
-        uint8_t edge_r[4] = {0,0,0,0}, edge_g[4] = {0,0,0,0}, edge_b[4] = {0,0,0,0};
-        std::vector<uint8_t> edge_top_rgb, edge_bot_rgb, edge_lft_rgb, edge_rgt_rgb;
-        compute_edge_data(raw, edge_r, edge_g, edge_b,
-            edge_top_rgb, edge_bot_rgb, edge_lft_rgb, edge_rgt_rgb);
 
         {
             std::scoped_lock lock(state->work_mutex, state->queue_mutex);
             if (task_epoch != state->current_epoch) {
-                g_logger.debug("[Worker {}] Discarding stale preload item (epoch mismatch: {}lu vs {}lu) for {}",
-                    thread_id, (unsigned long long)task_epoch, (unsigned long long)state->current_epoch, path.c_str());
-                if (raw.pixels) { free(raw.pixels); raw.pixels = nullptr; }
-                if (blur.pixels) { free(blur.pixels); blur.pixels = nullptr; }
+                g_logger.debug("[Worker {}] Discarding stale preload item (epoch mismatch: {} vs {}) for {}",
+                    thread_id, task_epoch, state->current_epoch, path);
                 continue;
             }
             PreloadedItem item;
-            item.raw = std::move(raw);
-            item.blur_raw = std::move(blur);
+            item.image = std::move(image);
             item.path = path;
-            item.valid = true;
-            item.metadata = metadata;
-            item.matte_r = mr;
-            item.matte_g = mg;
-            item.matte_b = mb;
-            item.avg_r = ar;
-            item.avg_g = ag;
-            item.avg_b = ab;
-            item.edge_r[0] = edge_r[0]; item.edge_r[1] = edge_r[1]; item.edge_r[2] = edge_r[2]; item.edge_r[3] = edge_r[3];
-            item.edge_g[0] = edge_g[0]; item.edge_g[1] = edge_g[1]; item.edge_g[2] = edge_g[2]; item.edge_g[3] = edge_g[3];
-            item.edge_b[0] = edge_b[0]; item.edge_b[1] = edge_b[1]; item.edge_b[2] = edge_b[2]; item.edge_b[3] = edge_b[3];
-            item.edge_top_rgb = std::move(edge_top_rgb);
-            item.edge_bot_rgb = std::move(edge_bot_rgb);
-            item.edge_lft_rgb = std::move(edge_lft_rgb);
-            item.edge_rgt_rgb = std::move(edge_rgt_rgb);
             state->loaded_items.push_back(std::move(item));
             // Keep capacity under max_size by popping/discarding oldest items
             while (std::ssize(state->loaded_items) > state->max_size) {
@@ -469,9 +186,6 @@ void PreloadQueue::worker_thread(std::stop_token stop, std::shared_ptr<PreloadSt
             }
             state->loaded_count.store(std::ssize(state->loaded_items));
         }
-        state->queue_cv.notify_one();
-
-        // I/O throttle: spread out file reads to protect CIFS session
     }
     g_logger.debug("Preload worker thread {} exiting", thread_id);
 }

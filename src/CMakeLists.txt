@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(piTrove VERSION 18.4.11 LANGUAGES CXX)
+project(piTrove VERSION 18.4.12 LANGUAGES CXX)
 add_compile_definitions(VERSION="${PROJECT_VERSION}")
 
 option(ENABLE_ASAN "Enable AddressSanitizer for memory safety testing" OFF)
@@ -18,7 +18,7 @@ if(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|arm64")
     # -mtune (cortex-a72) removed: it is a Pi 4 core and was applied to every aarch64
     # build, so Pi 5 (cortex-a76) binaries were tuned for the wrong CPU. -march is
     # unchanged, so the instruction set is identical.
-    set(CMAKE_CXX_FLAGS_RELEASE "-O2 -march=armv8-a+crc+simd -fno-omit-frame-pointer -pipe")
+    set(CMAKE_CXX_FLAGS_RELEASE "-O2 -DNDEBUG -march=armv8-a+crc+simd -fno-omit-frame-pointer -pipe")
     # LTO removed in v15.6.9 to prevent FFmpeg SIMD miscompilation
 endif()
 
@@ -40,7 +40,6 @@ find_library(EGL_LIBRARY NAMES EGL REQUIRED)
 find_library(GLES2_LIBRARY NAMES GLESv2 REQUIRED)
 
 # SQLite3
-find_package(PkgConfig REQUIRED)
 pkg_check_modules(SQLITE3 REQUIRED sqlite3)
 pkg_check_modules(CURL REQUIRED libcurl)
 
@@ -169,13 +168,14 @@ install(TARGETS piTrove DESTINATION ..)
 option(BUILD_TESTING "Build isolated regression tests" OFF)
 if(BUILD_TESTING)
     enable_testing()
-    add_executable(audit_regression tests/regression.cpp tests/support.cpp font_render.cpp scanner.cpp cache.cpp mqtt.cpp)
+    add_executable(audit_regression tests/regression.cpp tests/support.cpp font_render.cpp scanner.cpp cache.cpp mqtt.cpp error_db.cpp)
     target_include_directories(audit_regression PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} ${SDL3_INCLUDE_DIRS} ${SDL3_TTF_INCLUDE_DIRS} ${SQLITE3_INCLUDE_DIRS})
     target_compile_options(audit_regression PRIVATE -Wall -Wextra -ffunction-sections -fdata-sections)
     target_link_options(audit_regression PRIVATE -Wl,--gc-sections -Wl,--wrap=stat -Wl,--wrap=TTF_RenderText_Blended)
     target_link_libraries(audit_regression PRIVATE ${SDL3_LIBRARIES} ${SDL3_TTF_LIBRARIES} ${SQLITE3_LIBRARIES} mosquitto pthread atomic)
     add_executable(nv12_regression tests/nv12.cpp nv12_converter.cpp)
     target_include_directories(nv12_regression PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} ${SDL3_INCLUDE_DIRS} ${AVUTIL_INCLUDE_DIRS} ${AVCODEC_INCLUDE_DIRS} ${SWSCALE_INCLUDE_DIRS})
+    target_compile_options(nv12_regression PRIVATE -Wall -Wextra)
     target_link_libraries(nv12_regression PRIVATE ${AVUTIL_LIBRARIES} ${SWSCALE_LIBRARIES})
     add_executable(deep_regression tests/deep.cpp tests/deep_support.cpp config.cpp auth.cpp organizer.cpp file_ops.cpp http_protocol.cpp http_transfer.cpp util.cpp error_db.cpp news_ticker.cpp calendar.cpp stock_streamer.cpp google_photos.cpp)
     target_include_directories(deep_regression PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} ${SDL3_INCLUDE_DIRS} ${SQLITE3_INCLUDE_DIRS} ${CURL_INCLUDE_DIRS})
@@ -189,6 +189,7 @@ if(BUILD_TESTING)
     add_test(NAME chores_regression COMMAND chores_regression)
     add_executable(chores_web_fixture tests/chores_web_fixture.cpp chores.cpp chores_http.cpp http_protocol.cpp)
     target_include_directories(chores_web_fixture PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+    target_compile_options(chores_web_fixture PRIVATE -Wall -Wextra)
     target_link_libraries(chores_web_fixture PRIVATE ${SQLITE3_LIBRARIES} pthread)
     add_executable(logger_shutdown_regression tests/logger_shutdown.cpp config.cpp auth.cpp util.cpp http_transfer.cpp error_db.cpp file_ops.cpp tests/deep_support.cpp)
     target_include_directories(logger_shutdown_regression PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} ${SDL3_INCLUDE_DIRS} ${CURL_INCLUDE_DIRS})
@@ -206,7 +207,7 @@ if(BUILD_TESTING)
     set_tests_properties(config_editor_regression PROPERTIES TIMEOUT 30)
     add_executable(webui_fixture tests/webui_fixture.cpp config_editor.cpp config.cpp auth.cpp util.cpp http_transfer.cpp error_db.cpp file_ops.cpp tests/deep_support.cpp chores.cpp chores_http.cpp http_protocol.cpp)
     target_include_directories(webui_fixture PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} ${SDL3_INCLUDE_DIRS} ${SQLITE3_INCLUDE_DIRS} ${CURL_INCLUDE_DIRS})
-    target_compile_options(webui_fixture PRIVATE -ffunction-sections -fdata-sections)
+    target_compile_options(webui_fixture PRIVATE -Wall -Wextra -ffunction-sections -fdata-sections)
     target_link_options(webui_fixture PRIVATE -Wl,--gc-sections)
     target_link_libraries(webui_fixture PRIVATE ${SDL3_LIBRARIES} ${SQLITE3_LIBRARIES} ${CURL_LIBRARIES} sodium pthread atomic)
     add_executable(playback_regression tests/playback.cpp tests/deep_support.cpp config.cpp auth.cpp video_decoder.cpp nv12_converter.cpp util.cpp error_db.cpp http_transfer.cpp file_ops.cpp)
@@ -231,5 +232,9 @@ if(BUILD_TESTING)
         ${CMAKE_CURRENT_SOURCE_DIR}/../scripts/update.sh
         ${CMAKE_CURRENT_SOURCE_DIR}/../scripts/healthcheck.sh)
     set_tests_properties(deployment_regression PROPERTIES TIMEOUT 30)
+    add_test(NAME config_merge_regression
+        COMMAND python3 ${CMAKE_CURRENT_SOURCE_DIR}/tests/config_merge.py
+        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/..)
+    set_tests_properties(config_merge_regression PROPERTIES TIMEOUT 30)
     set_tests_properties(audit_regression watchdog_regression nv12_regression deep_regression playback_regression chores_regression PROPERTIES TIMEOUT 30)
 endif()

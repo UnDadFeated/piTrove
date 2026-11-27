@@ -37,7 +37,8 @@ bool set_drm_power(bool on) {
 }
 
 bool apply_power(bool on) {
-    if (g_screen_blanked.load() == !on) return false;
+    const bool request_changed = g_screen_blanked.load() != !on;
+    if (!request_changed && (!on || !hardware_blanked.load())) return false;
     bool hardware_changed = set_drm_power(on);
     if (!hardware_changed) {
         const int fd = open("/sys/class/graphics/fb0/blank", O_WRONLY | O_CLOEXEC);
@@ -48,9 +49,9 @@ bool apply_power(bool on) {
             g_logger.debug("Display power control unavailable; using a black frame when asleep.");
         }
     }
-    hardware_blanked.store(!on && hardware_changed);
+    if (hardware_changed) hardware_blanked.store(!on);
     g_screen_blanked.store(!on);
-    return true;
+    return request_changed || hardware_changed;
 }
 
 } // namespace

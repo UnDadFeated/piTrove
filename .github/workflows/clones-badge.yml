@@ -21,7 +21,8 @@ jobs:
           TOKEN: ${{ secrets.REPO_TRAFFIC_TOKEN }}
         run: |
           if [ -z "$TOKEN" ]; then
-            echo "count=0" >> "$GITHUB_OUTPUT"
+            echo "REPO_TRAFFIC_TOKEN secret is missing; leaving badge unchanged"
+            echo "count=skip" >> "$GITHUB_OUTPUT"
             exit 0
           fi
           CLONES=$(curl -sf --retry 2 -H "Authorization: Bearer $TOKEN" "https://api.github.com/repos/${{ github.repository }}/traffic/clones" | jq '.count // 0')
@@ -33,15 +34,15 @@ jobs:
           echo "count=$CLONES" >> "$GITHUB_OUTPUT"
 
       - name: Update badge JSON
+        if: steps.clones.outputs.count != 'skip'
         run: |
           mkdir -p .github
           # Nested double quotes inside echo "..." were stripped, writing {clones:42}
           # (invalid JSON). printf emits valid JSON.
-          if [ "${{ steps.clones.outputs.count }}" != "skip" ]; then
-            printf '{"clones":%s}\n' "${{ steps.clones.outputs.count }}" > .github/clones.json
-          fi
+          printf '{"clones":%s}\n' "${{ steps.clones.outputs.count }}" > .github/clones.json
 
       - name: Commit if changed
+        if: steps.clones.outputs.count != 'skip'
         run: |
           git config user.name "piTrove Bot"
           git config user.email "bot@pitrove.app"

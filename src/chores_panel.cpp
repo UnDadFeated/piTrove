@@ -4,6 +4,7 @@
 #include "font_render.h"
 #include "infopanel_render.h"
 #include "util.h"
+#include <algorithm>
 #include <cstdlib>
 #include <ctime>
 #include <sstream>
@@ -35,6 +36,26 @@ auto chore_sort_key(const chores::Chore& chore) {
     const auto date = chore.repeat == "once" ? std::string_view(chore.date) : "9999-99-99";
     return std::tuple{chore.completed, date, std::string_view(chore.time), chore.person_id, chore.id};
 }
+
+bool same_card_data(const chores::Snapshot& before, const chores::Snapshot& after) {
+    const auto person = [](const chores::Person& value) {
+        return std::tie(value.id, value.name, value.color);
+    };
+    const auto chore = [](const chores::Chore& value) {
+        return std::tie(value.id, value.person_id, value.title, value.repeat, value.date,
+                        value.time, value.completed);
+    };
+    return std::ranges::equal(before.people, after.people, {}, person, person) &&
+           std::ranges::equal(before.chores, after.chores, {}, chore, chore);
+}
+
+struct ChoreCard {
+    std::vector<std::string> title;
+    std::string name, schedule;
+    uint8_t red, green, blue;
+    bool completed;
+};
+
 }
 
 void render_chores_panel(SDL_Renderer* renderer, FontRenderer* fonts, const std::string& path,
@@ -59,6 +80,8 @@ void render_chores_panel(SDL_Renderer* renderer, FontRenderer* fonts, const std:
         std::string zone, today, date, clock;
         chores::Snapshot data;
         std::vector<const chores::Chore*> rows;
+        std::vector<ChoreCard> cards;
+        std::tuple<FontRenderer*, std::string, int, int, int, size_t, int> layout;
         bool ready = false, show_done = false, show_clock = false;
         int total = 0, done = 0;
     };
@@ -68,29 +91,34 @@ void render_chores_panel(SDL_Renderer* renderer, FontRenderer* fonts, const std:
         show_done != state.show_done || show_clock != state.show_clock) {
         const auto now = time(nullptr);
         state.zone = timezone;
-        state.today = format_epoch_tz(now, timezone, "%Y-%m-%d");
+        auto today = format_epoch_tz(now, timezone, "%Y-%m-%d");
         state.show_clock = show_clock;
         if (show_clock) {
             state.date = format_epoch_tz(now, timezone, "%m/%d/%Y");
             state.clock = format_epoch_tz(now, timezone, "%I:%M %p");
             if (state.clock.starts_with('0')) state.clock.erase(0, 1);
         }
-        state.rows.clear();
         state.ready = chores::g_store.ready();
-        state.data = chores::g_store.snapshot(state.today);
+        auto data = chores::g_store.snapshot(today);
         state.next_refresh = ticks + 1000;
-        state.total = 0;
-        state.done = 0;
-        state.show_done = show_done;
-        for (const auto& chore : state.data.chores) {
-            if (!chores::due_today_or_overdue(chore, state.today)) continue;
-            ++state.total;
-            if (chore.completed) ++state.done;
-            if (show_done || !chore.completed) state.rows.push_back(&chore);
+        if (today != state.today || show_done != state.show_done || !same_card_data(state.data, data)) {
+            state.today = std::move(today);
+            state.show_done = show_done;
+            state.cards.clear();
+            state.rows.clear();
+            state.data = std::move(data);
+            state.total = 0;
+            state.done = 0;
+            for (const auto& chore : state.data.chores) {
+                if (!chores::due_today_or_overdue(chore, state.today)) continue;
+                ++state.total;
+                if (chore.completed) ++state.done;
+                if (show_done || !chore.completed) state.rows.push_back(&chore);
+            }
+            std::sort(state.rows.begin(), state.rows.end(), [](const auto* a, const auto* b) {
+                return chore_sort_key(*a) < chore_sort_key(*b);
+            });
         }
-        std::sort(state.rows.begin(), state.rows.end(), [](const auto* a, const auto* b) {
-            return chore_sort_key(*a) < chore_sort_key(*b);
-        });
     }
 
     SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
@@ -166,36 +194,49 @@ void render_chores_panel(SDL_Renderer* renderer, FontRenderer* fonts, const std:
     const size_t end = std::min(state.rows.size(), (page + 1) * slots);
     const int text_x = x + px(12);
     const int text_width = available - px(12);
-    for (size_t i = page * slots; i < end; ++i) {
-        const auto& chore = *state.rows[i];
-        const auto person = std::find_if(state.data.people.begin(), state.data.people.end(),
-                                         [&](const auto& p) { return p.id == chore.person_id; });
-        const bool assigned = person != state.data.people.end();
-        const std::string_view name = assigned ? std::string_view(person->name) : "Unassigned";
-        unsigned color = 0x38bdf8;
-        if (assigned && person->color.size() == 7 && person->color.front() == '#') {
-            color = static_cast<unsigned>(std::strtoul(person->color.c_str() + 1, nullptr, 16));
+    const auto layout = std::tuple{fonts, path, px(panel_body_size), px(panel_detail_size),
+                                   text_width, page, slots};
+    if (state.cards.empty() || state.layout != layout) {
+        state.layout = layout;
+        state.cards.clear();
+        for (size_t i = page * slots; i < end; ++i) {
+            const auto& chore = *state.rows[i];
+            const auto person = std::find_if(state.data.people.begin(), state.data.people.end(),
+                [&](const auto& p) { return p.id == chore.person_id; });
+            const bool assigned = person != state.data.people.end();
+            unsigned color = 0x38bdf8;
+            if (assigned && person->color.size() == 7 && person->color.front() == '#')
+                color = static_cast<unsigned>(std::strtoul(person->color.c_str() + 1, nullptr, 16));
+
+            std::string schedule = chore.time.empty() ? "All day" : "Due " + chore.time;
+            if (chore.completed) schedule = "Done";
+            else if (chore.repeat == "once" && chore.date < state.today) schedule = "Overdue • " + chore.date;
+
+            state.cards.push_back({
+                title_lines(*fonts, *body, chore.title, text_width),
+                fonts->ellipsize(*body, assigned ? std::string_view(person->name) : "Unassigned", text_width),
+                fonts->ellipsize(*detail, schedule, text_width),
+                static_cast<uint8_t>(color >> 16), static_cast<uint8_t>(color >> 8),
+                static_cast<uint8_t>(color), chore.completed
+            });
         }
-        const uint8_t red = (color >> 16) & 255, green = (color >> 8) & 255, blue = color & 255;
-        SDL_SetRenderDrawColor(renderer, red, green, blue, chore.completed ? 90 : 230);
+    }
+
+    for (const auto& card : state.cards) {
+        SDL_SetRenderDrawColor(renderer, card.red, card.green, card.blue, card.completed ? 90 : 230);
         const SDL_FRect bar{float(x), float(y + px(2)), float(px(3)), float(card_height - px(10))};
         SDL_RenderFillRect(renderer, &bar);
 
         int text_y = y;
-        for (const auto& line : title_lines(*fonts, *body, chore.title, text_width)) {
-            fonts->draw_text(text_x, text_y, *body, line, chore.completed ? 130 : 245,
-                             chore.completed ? 155 : 250, chore.completed ? 150 : 255, 255);
+        for (const auto& line : card.title) {
+            fonts->draw_text(text_x, text_y, *body, line, card.completed ? 130 : 245,
+                             card.completed ? 155 : 250, card.completed ? 150 : 255, 255);
             text_y += body_step;
         }
-        fonts->draw_text(text_x, text_y, *body, fonts->ellipsize(*body, name, text_width),
-                         red, green, blue, 255);
+        fonts->draw_text(text_x, text_y, *body, card.name, card.red, card.green, card.blue, 255);
         text_y += body_step;
-
-        std::string schedule = chore.time.empty() ? "All day" : "Due " + chore.time;
-        if (chore.completed) schedule = "Done";
-        else if (chore.repeat == "once" && chore.date < state.today) schedule = "Overdue • " + chore.date;
-        fonts->draw_text(text_x, text_y, *detail, fonts->ellipsize(*detail, schedule, text_width),
-                         chore.completed ? 130 : 180, chore.completed ? 170 : 190, 185, 255);
+        fonts->draw_text(text_x, text_y, *detail, card.schedule,
+                         card.completed ? 130 : 180, card.completed ? 170 : 190, 185, 255);
         y += card_height;
     }
     if (pages > 1) {

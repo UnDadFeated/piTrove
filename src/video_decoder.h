@@ -5,6 +5,8 @@
 #include <mutex>
 #include <span>
 #include <queue>
+#include <chrono>
+#include <unordered_map>
 #include <vector>
 #include <optional>
 #include <SDL3/SDL_pixels.h>
@@ -23,6 +25,7 @@ struct VideoFrame {
     uint8_t* data_uv = nullptr; // UV-plane for NV12
     bool is_nv12 = false;
     double pts = 0.0;
+    double duration = 0.0;
     double aspect_ratio = 0.0;
     double rotation = 0.0;
     SDL_Colorspace colorspace = SDL_COLORSPACE_BT709_LIMITED;
@@ -38,7 +41,7 @@ struct VideoFrame {
         : width(o.width), height(o.height), format(o.format),
           linesize_y(o.linesize_y), linesize_uv(o.linesize_uv),
           data_size(o.data_size), data(o.data), data_uv(o.data_uv),
-          is_nv12(o.is_nv12), pts(o.pts), aspect_ratio(o.aspect_ratio), rotation(o.rotation), colorspace(o.colorspace) {
+          is_nv12(o.is_nv12), pts(o.pts), duration(o.duration), aspect_ratio(o.aspect_ratio), rotation(o.rotation), colorspace(o.colorspace) {
         o.data = nullptr;
         o.data_uv = nullptr;
     }
@@ -49,7 +52,7 @@ struct VideoFrame {
             width = o.width; height = o.height; format = o.format;
             linesize_y = o.linesize_y; linesize_uv = o.linesize_uv;
             data_size = o.data_size; data = o.data; data_uv = o.data_uv;
-            is_nv12 = o.is_nv12; pts = o.pts;
+            is_nv12 = o.is_nv12; pts = o.pts; duration = o.duration;
             aspect_ratio = o.aspect_ratio; rotation = o.rotation; colorspace = o.colorspace;
             o.data = nullptr;
             o.data_uv = nullptr;
@@ -88,6 +91,9 @@ public:
     void note_frame_anchor(double pts_s, bool has_pts, bool stream_eof = false);
     void note_presentation_start(double pts_s);
     void set_displayed_pts(double pts_s);
+    void rebase_presentation(double pts_s);
+    void set_paused(bool paused);
+    bool has_queued_audio();
  double get_video_duration() const { return m_video_total_duration.load(std::memory_order_relaxed); }
  double get_fps() const { const double duration = m_frame_duration.load(); return duration > 0 ? 1.0 / duration : 0; }
  size_t get_max_queued_frames() const;
@@ -100,6 +106,7 @@ private:
  std::atomic<bool> m_decode_fast{false}; // decoder runs well ahead of realtime -> bounded lookahead
  std::string m_path;
  mutable std::mutex m_path_mtx;
+ std::unordered_map<std::string, std::chrono::steady_clock::time_point> m_prewarm_failures;
  int m_target_width{0};
  int m_target_height{0};
  std::jthread m_thread;
@@ -135,9 +142,12 @@ private:
  bool m_audio_initialized{false};
  std::mutex m_audio_mtx;
  struct AudioChunk { std::vector<int16_t> samples; double pts; };
- std::vector<AudioChunk> m_audio_prebuffer;
+ std::queue<AudioChunk> m_audio_prebuffer;
+ std::optional<Uint64> m_paused_at;
+ double m_audio_reference_pts = 0.0;
  size_t m_audio_prebuffer_samples = 0;
  int64_t m_audio_frames_submitted = 0;
+ void submit_ready_audio_locked(bool syncing);
  void queue_audio_locked(std::span<const int16_t> samples, double pts, bool syncing);
 
  void init_audio();

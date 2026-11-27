@@ -136,6 +136,10 @@ Result apply(Config& config,const std::map<std::string,std::string>& values,cons
       if(it==schema().end())return error(400,"Unknown configuration option: "+key);
       if(clear&&(!it->secret||value!="1"||values.contains(key)))return error(400,"Choose one replacement or clear action for "+it->label+".");
       if(it->secret&&!clear&&value.empty())continue; // Blank secret inputs preserve the configured value.
+      if(key=="remote.api_key"&&!clear&&!value.empty()&&
+         (value.size()>256||value.front()==' '||value.back()==' '||
+          !std::all_of(value.begin(),value.end(),[](unsigned char c){return c>=0x20&&c<=0x7e;})))
+          return error(400,"The controller access key must be at most 256 printable ASCII characters, with no spaces at either end.");
       if(!it->set(candidate,clear?"":value))return error(400,"Choose a valid value for "+it->label+".");
     }
     if(candidate.brightness_auto_min>candidate.brightness_auto_max)return error(400,"Minimum brightness cannot exceed maximum brightness.");

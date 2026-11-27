@@ -1,5 +1,8 @@
 #include "thermal.h"
 #include "config.h"
+#include "util.h"
+#include <atomic>
+#include <condition_variable>
 #include <fstream>
 #include <thread>
 #include <chrono>
@@ -29,18 +32,23 @@ Quality get_quality() {
 }
 
 void set_fan_speed_percent(int percent) {
+    static std::mutex mutex;
+    static bool unavailable = false;
+    std::lock_guard lock(mutex);
+    if (unavailable) return;
     percent = std::clamp(percent, 0, 100);
 
     // Locate hwmon device for pwm fan
-    std::string pwm_path = "";
-    std::string enable_path = "";
+    std::string pwm_path;
+    std::string enable_path;
+    std::error_code path_error;
 
     for (int i = 0; i < 8; ++i) {
         std::string p = "/sys/class/hwmon/hwmon" + std::to_string(i) + "/pwm1";
         std::string e = "/sys/class/hwmon/hwmon" + std::to_string(i) + "/pwm1_enable";
         std::ifstream name("/sys/class/hwmon/hwmon" + std::to_string(i) + "/name");
         std::string driver;
-        if ((name >> driver) && (driver == "pwmfan" || driver == "pwm-fan") && std::filesystem::exists(p)) {
+        if ((name >> driver) && (driver == "pwmfan" || driver == "pwm-fan") && std::filesystem::exists(p, path_error)) {
             pwm_path = p;
             enable_path = e;
             break;
@@ -51,27 +59,25 @@ void set_fan_speed_percent(int percent) {
         return;
     }
 
-    if (percent == 0) {
-        // Kernel automatic thermal control
-        if (std::filesystem::exists(enable_path)) {
-            std::ofstream out(enable_path);
-            out << "2\n";
-        }
-    } else {
-        // Manual PWM speed control
-        if (std::filesystem::exists(enable_path)) {
-            std::ofstream out(enable_path);
-            out << "1\n";
-        }
-        int pwm_val = (int)round((float)percent * 2.55f);
-        pwm_val = std::clamp(pwm_val, 0, 255);
-        std::ofstream out(pwm_path);
-        out << pwm_val << "\n";
+    auto write_pwm = [&](const std::string& path, int value) {
+        std::ofstream out(path);
+        if (out && (out << value << '\n' << std::flush)) return true;
+        unavailable = true;
+        g_logger.warn("Thermal fan control unavailable: could not write {}. Leaving fan control to the host.", path);
+        return false;
+    };
+
+    if (std::filesystem::exists(enable_path, path_error) && !write_pwm(enable_path, percent == 0 ? 2 : 1)) return;
+    if (percent > 0) {
+        write_pwm(pwm_path, static_cast<int>(std::lround(percent * 255.0 / 100.0)));
     }
 }
 
-void monitor_thread(std::atomic<bool>& running) {
-    while (running.load()) {
+void monitor_thread(std::stop_token stop) {
+    std::mutex mutex;
+    std::condition_variable_any cv;
+    std::unique_lock lock(mutex);
+    while (!stop.stop_requested()) {
         const int temp = read_cpu_temp_c();
 
         if (temp >= 85) {
@@ -94,9 +100,7 @@ void monitor_thread(std::atomic<bool>& running) {
             set_fan_speed_percent(desired_speed);
         }
 
-        for (int i = 0; i < 50 && running.load(); ++i) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(100));
-        }
+        cv.wait_for(lock, stop, std::chrono::seconds(5), [] { return false; });
     }
 }
 

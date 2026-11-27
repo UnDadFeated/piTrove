@@ -2,29 +2,44 @@
 #include "renderer.h"
 #include "util.h"
 #include "config.h"
+#include <algorithm>
 #include <cmath>
 #include <cstring>
 #include <utility>
 
 
-void render_crossfade_gpu(SDL_Renderer* renderer,
-                          SDL_Texture* from,
-                          SDL_Texture* to,
-                          float progress) {
+namespace {
+void draw_crossfade(SDL_Renderer* renderer, SDL_Texture* from, SDL_Texture* to, float progress,
+                    const SDL_FRect* to_rect) {
+    if (from) {
+        SDL_BlendMode blend_mode = SDL_BLENDMODE_NONE;
+        Uint8 alpha = 255;
+        SDL_GetTextureBlendMode(from, &blend_mode);
+        SDL_GetTextureAlphaMod(from, &alpha);
+        SDL_SetTextureBlendMode(from, SDL_BLENDMODE_NONE);
+        SDL_SetTextureAlphaMod(from, 255);
+        SDL_RenderTexture(renderer, from, nullptr, nullptr);
+        SDL_SetTextureAlphaMod(from, alpha);
+        SDL_SetTextureBlendMode(from, blend_mode);
+    }
+    if (!to) return;
+    SDL_BlendMode blend_mode = SDL_BLENDMODE_NONE;
+    Uint8 alpha = 255;
+    SDL_GetTextureBlendMode(to, &blend_mode);
+    SDL_GetTextureAlphaMod(to, &alpha);
+    SDL_SetTextureBlendMode(to, SDL_BLENDMODE_BLEND);
+    SDL_SetTextureAlphaMod(to, static_cast<Uint8>(255.0f * std::clamp(progress, 0.0f, 1.0f)));
+    SDL_RenderTexture(renderer, to, nullptr, to_rect);
+    SDL_SetTextureAlphaMod(to, alpha);
+    SDL_SetTextureBlendMode(to, blend_mode);
+}
+} // namespace
+
+void render_crossfade_gpu(SDL_Renderer* renderer, SDL_Texture* from, SDL_Texture* to, float progress) {
     SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
     SDL_RenderClear(renderer);
-
-    if (from) {
-        SDL_SetTextureAlphaMod(from, static_cast<Uint8>(255.0f * (1.0f - progress)));
-        SDL_RenderTexture(renderer, from, nullptr, nullptr);
-    }
-
-    if (to) {
-        SDL_SetTextureAlphaMod(to, static_cast<Uint8>(255.0f * progress));
-        SDL_RenderTexture(renderer, to, nullptr, nullptr);
-    }
+    draw_crossfade(renderer, from, to, progress, nullptr);
 }
-
 
 TransitionEngine::TransitionEngine() {}
 
@@ -100,23 +115,7 @@ void TransitionEngine::render_fade(SDL_Texture* prev_tex, SDL_Texture* next_tex,
     if (screen_w <= 0 || screen_h <= 0) return;
     if (!renderer) return;
     
-    SDL_Renderer* sdl = renderer->sdl_renderer;
-    float p = config.progress;
-    
-    SDL_Rect prev_dst = {0, 0, screen_w, screen_h};
-    SDL_Rect next_dst = {0, 0, screen_w, screen_h};
-    
-    // Draw previous texture fading out
-    SDL_SetTextureAlphaMod(prev_tex, (Uint8)(255.0f * (1.0f - p)));
-    SDL_FRect prev_dst_f = {(float)prev_dst.x, (float)prev_dst.y, (float)prev_dst.w, (float)prev_dst.h};
-    SDL_RenderTexture(sdl, prev_tex, nullptr, &prev_dst_f);
-    SDL_SetTextureAlphaMod(prev_tex, 255);
-    
-    // Draw next texture fading in
-    SDL_SetTextureAlphaMod(next_tex, (Uint8)(255.0f * p));
-    SDL_FRect next_dst_f = {(float)next_dst.x, (float)next_dst.y, (float)next_dst.w, (float)next_dst.h};
-    SDL_RenderTexture(sdl, next_tex, nullptr, &next_dst_f);
-    SDL_SetTextureAlphaMod(next_tex, 255);
+    draw_crossfade(renderer->sdl_renderer, prev_tex, next_tex, config.progress, nullptr);
 }
 
 void TransitionEngine::render_wipe(SDL_Texture* prev_tex, SDL_Texture* next_tex, int direction, int screen_w, int screen_h) {
@@ -165,15 +164,7 @@ void TransitionEngine::render_ken_burns(SDL_Texture* prev_tex, SDL_Texture* next
     SDL_Renderer* sdl = renderer->sdl_renderer;
     float p = config.progress;
     
-    // 1. Render previous texture fading out
-    if (prev_tex) {
-        SDL_SetTextureAlphaMod(prev_tex, (Uint8)(255.0f * (1.0f - p)));
-        SDL_FRect prev_dst_f = {0.0f, 0.0f, (float)screen_w, (float)screen_h};
-        SDL_RenderTexture(sdl, prev_tex, nullptr, &prev_dst_f);
-        SDL_SetTextureAlphaMod(prev_tex, 255);
-    }
-    
-    // 2. Render next texture fading in, smoothly zooming out and centering
+    // Zoom out and center the incoming scene while it fades in.
     float scale = 1.0f + zoom * (1.0f - p);
     
     int dst_w = (int)(screen_w * scale);
@@ -187,9 +178,7 @@ void TransitionEngine::render_ken_burns(SDL_Texture* prev_tex, SDL_Texture* next
     
     SDL_FRect dst_f = {(float)dst_x, (float)dst_y, (float)dst_w, (float)dst_h};
     
-    SDL_SetTextureAlphaMod(next_tex, (Uint8)(255.0f * p));
-    SDL_RenderTexture(sdl, next_tex, nullptr, &dst_f);
-    SDL_SetTextureAlphaMod(next_tex, 255);
+    draw_crossfade(sdl, prev_tex, next_tex, p, &dst_f);
 }
 
 void TransitionEngine::render_pixelate(SDL_Texture* prev_tex, SDL_Texture* next_tex, int screen_w, int screen_h) {

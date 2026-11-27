@@ -24,6 +24,25 @@ def split_sections(text):
     return sections
 
 
+def _insert_before_trailing_blanks(lines, line):
+    index = len(lines)
+    while index > 0 and not lines[index - 1].strip():
+        index -= 1
+    lines.insert(index, line)
+
+
+def _fsync_dir(directory):
+    try:
+        flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
+        dir_fd = os.open(directory, flags)
+        try:
+            os.fsync(dir_fd)
+        finally:
+            os.close(dir_fd)
+    except OSError:
+        pass
+
+
 def merge_configs(template_path, user_path, output_path, overrides=None):
     temporary = None
     try:
@@ -47,11 +66,14 @@ def merge_configs(template_path, user_path, output_path, overrides=None):
         }
 
         for section, defaults in template.items():
-            if section not in user and section not in overrides and not (section == "brightness" and legacy_brightness):
-                user[section] = defaults.copy()
-                continue
-            lines = user.setdefault(section, [f"[{section}]\n"] if section else [])
             values = overrides.get(section, {})
+            is_new_section = section not in user
+            if is_new_section:
+                # Preserve template comments and ordering for newly added sections.
+                lines = defaults.copy()
+                user[section] = lines
+            else:
+                lines = user[section]
             found = set()
             for index, line in enumerate(lines):
                 if match := SETTING.match(line):
@@ -59,16 +81,38 @@ def merge_configs(template_path, user_path, output_path, overrides=None):
                     found.add(key)
                     if key in values:
                         lines[index] = f"{key} = {values[key]}\n"
-            for line in defaults:
-                match = SETTING.match(line)
-                if not match or match[1] in found:
-                    continue
-                key = match[1]
-                if key in values:
-                    line = f"{key} = {values[key]}\n"
-                elif section == "brightness" and key in legacy_brightness:
-                    line = f"{key} = {legacy_brightness[key]}\n"
-                lines.append(line)
+                    elif is_new_section and section == "brightness" and key in legacy_brightness:
+                        lines[index] = f"{key} = {legacy_brightness[key]}\n"
+            if not is_new_section:
+                for line in defaults:
+                    match = SETTING.match(line)
+                    if not match or match[1] in found:
+                        continue
+                    key = match[1]
+                    found.add(key)
+                    if key in values:
+                        line = f"{key} = {values[key]}\n"
+                    elif section == "brightness" and key in legacy_brightness:
+                        line = f"{key} = {legacy_brightness[key]}\n"
+                    _insert_before_trailing_blanks(lines, line)
+            for key, value in values.items():
+                if key not in found:
+                    _insert_before_trailing_blanks(lines, f"{key} = {value}\n")
+
+        for section, values in overrides.items():
+            if section in template:
+                continue
+            lines = user.setdefault(section, [f"[{section}]\n"] if section else [])
+            found = set()
+            for index, line in enumerate(lines):
+                if match := SETTING.match(line):
+                    key = match[1]
+                    found.add(key)
+                    if key in values:
+                        lines[index] = f"{key} = {values[key]}\n"
+            for key, value in values.items():
+                if key not in found:
+                    _insert_before_trailing_blanks(lines, f"{key} = {value}\n")
 
         destination = Path(output_path)
         with tempfile.NamedTemporaryFile(
@@ -88,6 +132,8 @@ def merge_configs(template_path, user_path, output_path, overrides=None):
             output.flush()
             os.fsync(output.fileno())
         os.replace(temporary, destination)
+        temporary = None
+        _fsync_dir(destination.parent)
         return True
     except (OSError, UnicodeError, ValueError) as error:
         print(f"Config merge failed: {error}", file=sys.stderr)

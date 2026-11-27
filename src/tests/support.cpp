@@ -20,7 +20,6 @@ Renderer::~Renderer() = default;
 Config::Config() = default;
 
 bool is_nas_online() { return true; }
-std::vector<ErrorSeed> get_all_error_seeds() { return {}; }
 std::vector<uint8_t> ImageLoader::read_file_to_buffer(const std::string&) { return {}; }
 ImageMetadata ImageLoader::read_metadata_from_memory(std::span<const uint8_t>) { return {}; }
 

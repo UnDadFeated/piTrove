@@ -21,6 +21,10 @@ struct MqttSession {
     std::string sensor;
     std::atomic<bool> connected{false};
     std::atomic<bool> stopping{false};
+    // Owned by the mosquitto callback thread.
+    int command_mid = 0;
+    int sensor_mid = 0;
+    bool subscriptions_failed = false;
 };
 
 std::mutex lifecycle_mutex;
@@ -46,13 +50,35 @@ void on_connect(mosquitto* client, void* context, int result) noexcept {
             trigger_error(701);
             return;
         }
+        session.connected.store(false);
+        session.command_mid = session.sensor_mid = 0;
+        const auto status = session.prefix + "/status";
+        mosquitto_publish(client, nullptr, status.c_str(), static_cast<int>(std::strlen(offline)), offline, 0, true);
         const auto commands = session.prefix + "/command/#";
-        if (mosquitto_subscribe(client, nullptr, commands.c_str(), 0) != MOSQ_ERR_SUCCESS ||
+        session.subscriptions_failed =
+            mosquitto_subscribe(client, &session.command_mid, commands.c_str(), 0) != MOSQ_ERR_SUCCESS ||
             (!session.sensor.empty() &&
-            mosquitto_subscribe(client, nullptr, session.sensor.c_str(), 0) != MOSQ_ERR_SUCCESS)) {
+             mosquitto_subscribe(client, &session.sensor_mid, session.sensor.c_str(), 0) != MOSQ_ERR_SUCCESS);
+        if (session.subscriptions_failed) trigger_error(701);
+    } catch (...) {
+        session.subscriptions_failed = true;
+    }
+}
+
+void on_subscribe(mosquitto*, void* context, int mid, int qos_count, const int* granted_qos) noexcept {
+    auto& session = *static_cast<MqttSession*>(context);
+    if (session.stopping.load() || session.subscriptions_failed || mid == 0 ||
+        (mid != session.command_mid && mid != session.sensor_mid)) return;
+    try {
+        if (qos_count != 1 || !granted_qos || granted_qos[0] >= 0x80) {
+            session.subscriptions_failed = true;
+            g_logger.warn("MQTT: A required subscription was rejected by the broker");
             trigger_error(701);
             return;
         }
+        if (mid == session.command_mid) session.command_mid = 0;
+        else session.sensor_mid = 0;
+        if (session.command_mid || session.sensor_mid) return;
         session.connected.store(true);
         clear_error(701);
         g_last_motion_time.store(static_cast<int64_t>(std::time(nullptr)));
@@ -92,6 +118,7 @@ void on_message(mosquitto*, void* context, const mosquitto_message* message) noe
         }
         if (!topic.starts_with(session.prefix) || topic.size() <= session.prefix.size()) return;
         const auto command = topic.substr(session.prefix.size());
+        if (message->retain && command != "/command/screen") return;
         const bool press = payload == "PRESS" || payload == "1" || payload == "true";
         if (command == "/command/next" && (press || on || payload == "next")) g_remote_command.store(1);
         else if (command == "/command/prev" && (press || payload == "prev")) g_remote_command.store(2);
@@ -228,6 +255,7 @@ void start_mqtt_client() {
     mosquitto_connect_callback_set(client.get(), on_connect);
     mosquitto_disconnect_callback_set(client.get(), on_disconnect);
     mosquitto_message_callback_set(client.get(), on_message);
+    mosquitto_subscribe_callback_set(client.get(), on_subscribe);
     mosquitto_reconnect_delay_set(client.get(), 2, 60, true);
 
     int rc = mosquitto_connect_async(client.get(), config.mqtt_broker.c_str(), config.mqtt_port, 30);

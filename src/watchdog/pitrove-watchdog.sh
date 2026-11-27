@@ -10,6 +10,7 @@ INTERFACE="${INTERFACE:-wlan0}"
 CIFS_MOUNT="${CIFS_MOUNT:-/mnt/nas}"
 DOCKER_CONTAINER="${DOCKER_CONTAINER:-piTrove}"
 CIFS_REMOUNT_COOLDOWN="${CIFS_REMOUNT_COOLDOWN:-60}"
+LOG_FILE="${LOG_FILE:-/home/pi/piTrove/logs/pitrove-watchdog.log}"
 
 FAIL_COUNT=0
 MAX_FAIL=12          # 12 checks * 15 seconds = 180s (3 minutes) offline trigger
@@ -121,7 +122,7 @@ restart_application() {
         return 1
     fi
     timeout -k 1 5 systemctl reset-failed piTrove.service 2>/dev/null || true
-    timeout -k 2 55 systemctl restart piTrove.service 2>/dev/null
+    timeout -k 2 90 systemctl restart piTrove.service 2>/dev/null
 }
 
 recover_online() {
@@ -152,6 +153,8 @@ recover_online() {
                     log "Network recovered and piTrove can read the media mount."
                     WAS_OFFLINE=false
                 fi
+                RECOVERY_FAILURES=0
+                LAST_RECOVERY=-1
                 return
             fi
         else

@@ -358,7 +358,9 @@ static void test_lifecycles() {
 int main() {
     try {
         g_logger.level = LogLevel::ERROR;
-        test_logger(); test_config(); test_organizer(); test_http(); test_oauth(); test_transfers(); test_calendar_recurrence(); test_lifecycles();
+        check(redact_secrets("pass = mysecret123").find("mysecret123") == std::string::npos, "pass secret leaked");
+    check(redact_secrets("ical_url=\"https://cal.example/private token\"").find("private") == std::string::npos, "ical_url secret leaked");
+    test_logger(); test_config(); test_organizer(); test_http(); test_oauth(); test_transfers(); test_calendar_recurrence(); test_lifecycles();
         std::cout << "Deep config/PIN, organizer, HTTP, OAuth and download regressions passed\n";
     } catch (const std::exception& error) { std::cerr << error.what() << '\n'; return 1; }
 }

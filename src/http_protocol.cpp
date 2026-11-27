@@ -125,8 +125,9 @@ static int wait_fd(int fd, short events, Clock::time_point deadline) {
         return ready;
     }
 }
-Result receive(int fd, std::string& raw, Request& request, int timeout_ms) {
-    const auto deadline = Clock::now() + std::chrono::milliseconds(timeout_ms);
+Result receive(int fd, std::string& raw, Request& request, int timeout_ms, int header_timeout_ms) {
+    auto deadline = Clock::now() + std::chrono::milliseconds(std::min(timeout_ms, header_timeout_ms));
+    bool reading_body = false;
     raw.clear(); raw.reserve(4096);
     while (true) {
         size_t required;
@@ -134,6 +135,10 @@ Result receive(int fd, std::string& raw, Request& request, int timeout_ms) {
         if (result != Result::incomplete) {
             if (result == Result::complete) raw.resize(required); // one request per connection
             return result;
+        }
+        if (required && !reading_body) {
+            reading_body = true;
+            deadline = Clock::now() + std::chrono::milliseconds(timeout_ms);
         }
         int ready = wait_fd(fd, POLLIN, deadline);
         if (ready == 0) return Result::timeout;

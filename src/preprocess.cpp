@@ -17,6 +17,7 @@
 #include <cstdio>
 #include <memory>
 #include <fstream>
+#include <unordered_map>
 #include "video_input.h"
 
 static std::jthread g_preprocess_thread;
@@ -82,7 +83,6 @@ static bool get_video_metadata(const std::string& path, int& out_w, int& out_h, 
         }, &deadline
     };
     const int opened = open_local_video_input(&context, path.c_str());
-    if (opened == AVERROR_INVALIDDATA) out_w = -1;
     if (opened < 0 || avformat_find_stream_info(context, nullptr) < 0) return false;
     const int video = av_find_best_stream(context, AVMEDIA_TYPE_VIDEO, -1, -1, nullptr, 0);
     if (video < 0) return false;
@@ -93,16 +93,18 @@ static bool get_video_metadata(const std::string& path, int& out_w, int& out_h, 
     return out_w > 0 && out_h > 0;
 }
 
-static std::vector<std::pair<std::string, std::string>> fetch_preprocess_batch() {
+static std::vector<std::pair<std::string, std::string>> fetch_preprocess_batch(const std::string& after_path) {
     std::vector<std::pair<std::string, std::string>> batch;
     if (!g_cache) return batch;
     std::lock_guard<std::mutex> lk(g_cache->db_mutex);
     if (!g_cache->db) return batch;
 
-    int batch_size = std::clamp(static_cast<int>(std::thread::hardware_concurrency() * 5), 10, 50);
-    std::string sql = std::format("SELECT path, type FROM cache WHERE bad = 0 AND preprocessed = 0 LIMIT {};", batch_size);
+    const int batch_size = std::clamp(static_cast<int>(std::thread::hardware_concurrency() * 5), 10, 50);
+    const char* sql = "SELECT path, type FROM cache WHERE bad = 0 AND preprocessed = 0 AND path > ? ORDER BY path LIMIT ?;";
     sqlite3_stmt* stmt = nullptr;
-    if (sqlite3_prepare_v2(g_cache->db, sql.c_str(), -1, &stmt, nullptr) == SQLITE_OK) {
+    if (sqlite3_prepare_v2(g_cache->db, sql, -1, &stmt, nullptr) == SQLITE_OK) {
+        sqlite3_bind_text(stmt, 1, after_path.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_int(stmt, 2, batch_size);
         while (sqlite3_step(stmt) == SQLITE_ROW) {
             const char* p = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0));
             const char* t = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1));
@@ -119,32 +121,68 @@ static void preprocess_loop(std::stop_token stop) {
     g_logger.info("Preprocess: Background preprocessing thread started.");
     g_preprocess_finished.store(false);
 
+    std::unordered_map<std::string, std::chrono::steady_clock::time_point> deferred_until;
+    constexpr auto defer_cooldown = std::chrono::minutes(10);
+    constexpr size_t max_deferred_entries = 4096;
+    std::string cursor;
+    bool pass_made_progress = false;
+
+    auto sleep_backoff = [&]() {
+        for (int i = 0; i < 50 && g_preprocess_running.load() && g_running.load(); ++i) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        }
+    };
+
+    auto defer_path = [&](const std::string& p) {
+        const auto now = std::chrono::steady_clock::now();
+        if (deferred_until.size() >= max_deferred_entries) {
+            std::erase_if(deferred_until, [&](const auto& kv) { return kv.second <= now; });
+            if (deferred_until.size() >= max_deferred_entries) {
+                deferred_until.clear();
+            }
+        }
+        deferred_until[p] = now + defer_cooldown;
+    };
+
     while (g_preprocess_running.load() && g_running.load()) {
-        auto batch = fetch_preprocess_batch();
+        auto batch = fetch_preprocess_batch(cursor);
         if (batch.empty()) {
-            for (int i = 0; i < 50 && g_preprocess_running.load() && g_running.load(); i++) {
-                std::this_thread::sleep_for(std::chrono::milliseconds(100));
+            const bool wrapped = !cursor.empty();
+            cursor.clear();
+            const bool had_progress = pass_made_progress;
+            pass_made_progress = false;
+            const auto now = std::chrono::steady_clock::now();
+            std::erase_if(deferred_until, [&](const auto& kv) { return kv.second <= now; });
+            if (!wrapped || !had_progress) {
+                sleep_backoff();
             }
             continue;
         }
 
         if (g_metadata_workers.load() >= MAX_METADATA_WORKERS) {
-            for (int i = 0; i < 50 && g_preprocess_running.load() && g_running.load(); ++i)
-                std::this_thread::sleep_for(std::chrono::milliseconds(100));
+            sleep_backoff();
             continue;
         }
         g_logger.info("Preprocess: Found {} items needing preprocessing. Processing...", batch.size());
 
         std::vector<MediaItem> processed;
         std::vector<std::string> completed_without_metadata;
-        bool stat_failed = false;
+        bool deferred_any = false;
         for (const auto& [path, type] : batch) {
             if (!g_preprocess_running.load() || !g_running.load()) break;
+            cursor = path;
+
+            const auto now = std::chrono::steady_clock::now();
+            if (const auto it = deferred_until.find(path); it != deferred_until.end()) {
+                if (now < it->second) continue;
+                deferred_until.erase(it);
+            }
 
             struct stat st;
             if (!stat_timeout(path, st, 5000, stop)) {
                 g_logger.debug("Preprocess: File '{}' inaccessible; deferring metadata.", path);
-                stat_failed = true;
+                defer_path(path);
+                deferred_any = true;
                 continue;
             }
 
@@ -167,6 +205,7 @@ static void preprocess_loop(std::stop_token stop) {
             if (g_metadata_workers.load() >= MAX_METADATA_WORKERS) {
                 // Only this coordinator reserves slots; blocked workers keep their slots.
                 // Do not mark unprocessed items complete just because the NAS is hung.
+                deferred_any = true;
                 break;
             }
             g_metadata_workers.fetch_add(1);
@@ -198,8 +237,6 @@ static void preprocess_loop(std::stop_token stop) {
                         pr->item.height = h;
                         pr->item.duration = dur;
                         pr->success = true;
-                    } else {
-                        pr->item.width = w;
                     }
                 }
                 } catch (...) { pr->success = false; }
@@ -209,6 +246,8 @@ static void preprocess_loop(std::stop_token stop) {
             } else {
                 g_metadata_workers.fetch_sub(1);
                 // Leave metadata pending when resources are temporarily exhausted.
+                defer_path(path);
+                deferred_any = true;
                 continue;
             }
 
@@ -225,17 +264,23 @@ static void preprocess_loop(std::stop_token stop) {
                     completed_without_metadata.push_back(path);
                 }
             } else if (g_preprocess_running.load() && g_running.load()) {
-                g_logger.warn("Preprocess: Metadata probe timed out for '{}'.", path);
-                completed_without_metadata.push_back(path);
+                // Never mark timed-out probes as preprocessed=1 with empty metadata;
+                // defer and retry after cooldown so transient NAS stalls self-heal.
+                g_logger.warn("Preprocess: Metadata probe timed out for '{}'; deferring.", path);
+                defer_path(path);
+                deferred_any = true;
             }
 
             std::this_thread::sleep_for(std::chrono::milliseconds(100));
         }
-        const bool saved = g_cache && g_cache->upsert_batch(processed, 1, completed_without_metadata);
-        if (stat_failed || !saved) {
-            if (stat_failed) g_logger.warn("Preprocess: NAS metadata reads deferred; retrying after backoff.");
-            for (int i = 0; i < 50 && g_preprocess_running.load() && g_running.load(); ++i)
-                std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        const bool had_updates = !processed.empty() || !completed_without_metadata.empty();
+        const bool saved = !had_updates || (g_cache && g_cache->upsert_batch(processed, 1, completed_without_metadata));
+        if (had_updates && saved) {
+            pass_made_progress = true;
+        }
+        if (deferred_any || !saved) {
+            if (deferred_any) g_logger.warn("Preprocess: NAS metadata reads deferred; continuing after backoff.");
+            sleep_backoff();
         }
     }
 

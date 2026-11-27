@@ -169,12 +169,18 @@ static bool parse_yahoo_chart_meta(const std::string& json_str, StockQuote& quot
 
     // Traditional stocks: fallback to latest extended-hours candle from chart 1m series (Crypto is 24/7 continuous spot)
     if (!quote.is_crypto && ah_price <= 0.0) {
-        int64_t reg_end = 0;
+        int64_t reg_start = 0, reg_end = 0, pre_start = 0;
         if (meta.contains("currentTradingPeriod") && meta["currentTradingPeriod"].is_object()) {
-            const auto& tp = meta["currentTradingPeriod"];
-            if (tp.contains("regular") && tp["regular"].is_object() && tp["regular"].contains("end") && tp["regular"]["end"].is_number_integer()) {
-                reg_end = tp["regular"]["end"].get<int64_t>();
-            }
+            const auto& periods = meta["currentTradingPeriod"];
+            const auto period_time = [&](const char* period, const char* field) -> int64_t {
+                const auto p = periods.find(period);
+                if (p == periods.end() || !p->is_object()) return 0;
+                const auto t = p->find(field);
+                return t != p->end() && t->is_number_integer() ? t->get<int64_t>() : 0;
+            };
+            reg_start = period_time("regular", "start");
+            reg_end = period_time("regular", "end");
+            pre_start = period_time("pre", "start");
         }
         if (reg_end > 0 && result.contains("timestamp") && result["timestamp"].is_array() &&
             result.contains("indicators") && result["indicators"].is_object() &&
@@ -190,7 +196,9 @@ static bool parse_yahoo_chart_meta(const std::string& json_str, StockQuote& quot
                 if (c.is_number() && ts.is_number_integer()) {
                     const double last_close = c.get<double>();
                     const int64_t last_ts = ts.get<int64_t>();
-                    if (std::isfinite(last_close) && last_close > 0.0 && last_ts > reg_end) {
+                    const bool extended = last_ts >= reg_end ||
+                        (pre_start > 0 && last_ts >= pre_start && last_ts < reg_start);
+                    if (std::isfinite(last_close) && last_close > 0.0 && extended) {
                         ah_price = last_close;
                     }
                     break;
@@ -216,36 +224,52 @@ static bool parse_yahoo_chart_meta(const std::string& json_str, StockQuote& quot
     return true;
 }
 
-void StockStreamer::fetch_sync() {
-    if (m_fetching.exchange(true)) return;
-    struct Guard { std::atomic<bool>& f; ~Guard() { f.store(false); } } g{m_fetching};
+void StockStreamer::refresh(bool requested) {
+    std::unique_lock lock(m_fetch_mtx);
+    if (!m_allow_io.load()) return;
+    if (requested) ++m_fetch_generation;
+    if (m_fetching) return;
+    m_fetching = true;
+    do {
+        const auto generation = m_fetch_generation;
+        lock.unlock();
+        try {
+            fetch_once(generation);
+        } catch (...) {
+            g_logger.warn("StockStreamer: Refresh failed");
+        }
+        lock.lock();
+        if (generation == m_fetch_generation) break;
+    } while (m_allow_io.load());
+    m_fetching = false;
+}
 
-    std::vector<std::string> symbols = {"NVDA", "AAPL", "MSFT", "AMZN", "GOOGL", "META", "BRK-B", "TSLA", "AVGO", "JPM"};
-    std::string crypto_sym = "BTC-USD";
+void StockStreamer::fetch_once(uint64_t generation) {
+
+    std::vector<std::string> configured_symbols;
+    std::string configured_crypto;
     {
         std::shared_lock lk(g_config_mtx);
-        if (!g_cfg.stockstreamer_symbols.empty()) {
-            symbols = g_cfg.stockstreamer_symbols;
-        }
-        if (!g_cfg.stockstreamer_crypto.empty()) {
-            crypto_sym = g_cfg.stockstreamer_crypto;
-        }
+        configured_symbols = g_cfg.stockstreamer_symbols;
+        configured_crypto = g_cfg.stockstreamer_crypto;
     }
-
-    const bool market_open = us_market_open(std::chrono::system_clock::now());
+    const auto symbols = configured_symbols.empty()
+        ? std::vector<std::string>{"NVDA", "AAPL", "MSFT", "AMZN", "GOOGL", "META", "BRK-B", "TSLA", "AVGO", "JPM"}
+        : configured_symbols;
+    const auto crypto_sym = configured_crypto.empty() ? "BTC-USD" : configured_crypto;
     std::vector<StockQuote> old_stocks;
     {
         std::shared_lock lock(m_quotes_mtx);
         old_stocks = m_stocks;
     }
-    std::vector<QuoteRequest> requests(market_open ? symbols.size() + 1 : 1);
-    const auto chart = [](const std::string& symbol) {
+    std::vector<QuoteRequest> requests(symbols.size() + 1);
+    const auto chart = [](const std::string& symbol, bool extended_hours) {
         return "https://query1.finance.yahoo.com/v8/finance/chart/" +
             http_protocol::url_encode(symbol == "BRK.B" ? "BRK-B" : symbol) +
-            "?interval=1m&range=1d";
+            (extended_hours ? "?interval=1m&range=1d&includePrePost=true" : "?interval=1m&range=1d");
     };
-    for (size_t i = 0; market_open && i < symbols.size(); ++i) requests[i].url = chart(symbols[i]);
-    requests.back().url = chart(crypto_sym);
+    for (size_t i = 0; i < symbols.size(); ++i) requests[i].url = chart(symbols[i], true);
+    requests.back().url = chart(crypto_sym, false);
     fetch_quotes(requests, &m_allow_io);
 
     std::vector<StockQuote> fetched_stocks;
@@ -254,7 +278,7 @@ void StockStreamer::fetch_sync() {
         const auto& sym = symbols[i];
         const auto previous = std::find_if(old_stocks.begin(), old_stocks.end(),
             [&](const StockQuote& quote) { return quote.symbol == sym; });
-        if (!market_open || !requests[i].success) {
+        if (!requests[i].success) {
             if (previous != old_stocks.end()) fetched_stocks.push_back(*previous);
             continue;
         }
@@ -305,6 +329,10 @@ void StockStreamer::fetch_sync() {
     }
 
     {
+        std::lock_guard fetch(m_fetch_mtx);
+        if (generation != m_fetch_generation || !m_allow_io.load()) return;
+        std::shared_lock config(g_config_mtx);
+        if (configured_symbols != g_cfg.stockstreamer_symbols || configured_crypto != g_cfg.stockstreamer_crypto) return;
         std::unique_lock lk(m_quotes_mtx);
         // This contains fresh results and cached quotes for the currently selected symbols.
         m_stocks = std::move(fetched_stocks);
@@ -326,20 +354,27 @@ void StockStreamer::fetch_sync() {
     }
 }
 
-void StockStreamer::sync() {
-    fetch_sync();
-}
+void StockStreamer::sync() { refresh(true); }
+
+void StockStreamer::fetch_sync() { sync(); }
 
 bool StockStreamer::start() {
     std::lock_guard lifecycle(m_lifecycle_mtx);
     m_running.store(false);
-    m_allow_io.store(false);
+    {
+        std::lock_guard fetch(m_fetch_mtx);
+        ++m_fetch_generation;
+        m_allow_io.store(false);
+    }
     if (m_worker_thread.joinable()) m_worker_thread.join();
-    m_allow_io.store(true);
+    {
+        std::lock_guard fetch(m_fetch_mtx);
+        m_allow_io.store(true);
+    }
     m_running.store(true);
 
     if (!spawn_thread_safe(m_worker_thread, "stockstreamer", [this]() {
-        if (!g_screen_blanked.load()) this->sync();
+        this->refresh(true);
 
         while (this->m_running.load()) {
             int refresh_secs = 10;
@@ -353,7 +388,7 @@ bool StockStreamer::start() {
                 std::this_thread::sleep_for(std::chrono::seconds(1));
             }
             if (this->m_running.load() && !g_screen_blanked.load()) {
-                this->sync();
+                this->refresh(false);
             }
         }
     })) {
@@ -367,7 +402,11 @@ bool StockStreamer::start() {
 void StockStreamer::stop() {
     std::lock_guard lifecycle(m_lifecycle_mtx);
     m_running.store(false);
-    m_allow_io.store(false);
+    {
+        std::lock_guard fetch(m_fetch_mtx);
+        ++m_fetch_generation;
+        m_allow_io.store(false);
+    }
     if (m_worker_thread.joinable()) m_worker_thread.join();
 }
 

@@ -1,62 +1,9 @@
 #include "scanner.h"
 #include "safe_mode.h"
 #include "error_db.h"
-#include <curl/curl.h>
-#include <nlohmann/json.hpp>
 #include <arpa/inet.h>
-#include "http_transfer.h"
 #include <string>
 #include <format>
-
-bool geocode_location_sync(const std::string& query, float& out_lat, float& out_lon) {
-    if (query.empty()) return false;
-    CURL* curl = curl_easy_init();
-    if (!curl) return false;
-
-    char* escaped = curl_easy_escape(curl, query.c_str(), static_cast<int>(query.length()));
-    if (!escaped) { curl_easy_cleanup(curl); return false; }
-    std::string url = std::format("https://geocoding-api.open-meteo.com/v1/search?name={}&count=1&format=json", escaped);
-    curl_free(escaped);
-
-    std::string resp;
-    http_transfer::configure_public_https(curl);
-    curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
-    curl_easy_setopt(curl, CURLOPT_TIMEOUT, 5L);
-    curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 3L);
-    curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
-    curl_easy_setopt(curl, CURLOPT_USERAGENT, "piTrove/" VERSION);
-    http_transfer::TextBuffer buffer{&resp, 1024 * 1024};
-    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, http_transfer::append_text);
-    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &buffer);
-
-    CURLcode res = curl_easy_perform(curl);
-    long status = 0;
-    curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &status);
-    curl_easy_cleanup(curl);
-    if (res != CURLE_OK || status != 200 || resp.empty()) return false;
-
-    const auto doc = nlohmann::json::parse(resp, nullptr, false);
-    if (!doc.is_object()) return false;
-    const auto results = doc.find("results");
-    if (results == doc.end() || !results->is_array() || results->empty() || !(*results)[0].is_object()) {
-        return false;
-    }
-    const auto& first = (*results)[0];
-    const auto lat = first.find("latitude");
-    const auto lon = first.find("longitude");
-    if (lat == first.end() || lon == first.end() || !lat->is_number() || !lon->is_number()) {
-        return false;
-    }
-    const double lat_val = lat->get<double>();
-    const double lon_val = lon->get<double>();
-    if (!std::isfinite(lat_val) || !std::isfinite(lon_val) ||
-        lat_val < -90.0 || lat_val > 90.0 || lon_val < -180.0 || lon_val > 180.0) {
-        return false;
-    }
-    out_lat = static_cast<float>(lat_val);
-    out_lon = static_cast<float>(lon_val);
-    return true;
-}
 #include <sys/sysinfo.h>
 #include <fstream>
 #include <memory>
@@ -120,7 +67,6 @@ uint64_t get_total_ram_bytes() {
 }
 
 #include "util.h"
-#include <regex>
 #include "media_item.h"
 #include "image_loader.h"
 #include "cache.h"
@@ -135,7 +81,6 @@ uint64_t get_total_ram_bytes() {
 #include <sys/stat.h>
 #include <signal.h>
 #include <cctype>
-#include <sys/ioctl.h>
 #include <net/if.h>
 #include <mutex>
 #include <dlfcn.h>
@@ -144,8 +89,9 @@ uint64_t get_total_ram_bytes() {
 
 
 std::string redact_secrets(const std::string& message) {
-    static constexpr std::string_view keys[]{"bearer", "api_key", "password", "client_secret",
-                                             "refresh_token", "pin", "token"};
+    static constexpr std::string_view keys[]{"bearer", "api_key", "password", "pass", "client_secret",
+                                             "refresh_token", "ical_url", "pin", "token"};
+    static constexpr std::string_view key_starts = "bBaApPcCrRiItT";
     static constexpr std::string_view spaces = " \t\r\n\v\f";
     static constexpr std::string_view bearer_chars =
         "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._~+/=-";
@@ -155,42 +101,73 @@ std::string redact_secrets(const std::string& message) {
         return std::ranges::equal(value.substr(0, term.size()), term, {},
             [](char c) { return c >= 'A' && c <= 'Z' ? static_cast<char>(c + ('a' - 'A')) : c; });
     };
+    const auto is_alpha_char = [](char c) {
+        return std::isalpha(static_cast<unsigned char>(c)) != 0;
+    };
     std::string redacted;
     size_t copied = 0;
-    size_t offset = text.find_first_of("bBaApPcCrRtT");
+    size_t offset = text.find_first_of(key_starts);
     while (offset != text.npos) {
+        if (offset > 0 && is_alpha_char(text[offset - 1])) {
+            offset = text.find_first_of(key_starts, offset + 1);
+            continue;
+        }
         const auto key = std::ranges::find_if(keys, [&](auto term) { return matches(text.substr(offset), term); });
         if (key == std::end(keys)) {
-            offset = text.find_first_of("bBaApPcCrRtT", offset + 1);
+            offset = text.find_first_of(key_starts, offset + 1);
             continue;
         }
         const bool bearer = *key == "bearer";
-        size_t begin = text.find_first_not_of(spaces, offset + key->size());
+        size_t after_key = offset + key->size();
+        if (!bearer && after_key < text.size() && (text[after_key] == '"' || text[after_key] == '\'')) {
+            ++after_key;
+        }
+        size_t begin = text.find_first_not_of(spaces, after_key);
         if (begin == text.npos) break;
         if (bearer) {
             if (begin == offset + key->size() || !bearer_chars.contains(text[begin])) {
-                offset = text.find_first_of("bBaApPcCrRtT", offset + 1);
+                offset = text.find_first_of(key_starts, offset + 1);
                 continue;
             }
         } else {
             if (text[begin] != '=' && text[begin] != ':') {
-                offset = text.find_first_of("bBaApPcCrRtT", offset + 1);
+                offset = text.find_first_of(key_starts, offset + 1);
                 continue;
             }
             begin = text.find_first_not_of(spaces, begin + 1);
             if (begin == text.npos) break;
         }
-        size_t end = bearer ? text.find_first_not_of(bearer_chars, begin)
-                            : text.find_first_of(" \t\r\n\v\f,;", begin);
-        if (end == text.npos) end = text.size();
+        size_t end = text.size();
+        if (bearer) {
+            end = text.find_first_not_of(bearer_chars, begin);
+            if (end == text.npos) end = text.size();
+        } else if (text[begin] == '"' || text[begin] == '\'') {
+            const char quote = text[begin];
+            size_t pos = begin + 1;
+            while (pos < text.size() && text[pos] != '\n' && text[pos] != '\r') {
+                if (text[pos] == '\\' && pos + 1 < text.size()) {
+                    pos += 2;
+                    continue;
+                }
+                if (text[pos] == quote) {
+                    ++pos;
+                    break;
+                }
+                ++pos;
+            }
+            end = pos;
+        } else {
+            end = text.find_first_of(" \t\r\n\v\f,;", begin);
+            if (end == text.npos) end = text.size();
+        }
         if (end == begin) {
-            offset = text.find_first_of("bBaApPcCrRtT", offset + 1);
+            offset = text.find_first_of(key_starts, offset + 1);
             continue;
         }
         redacted.append(text.substr(copied, (bearer ? offset : begin) - copied));
         redacted.append(bearer ? "Bearer [REDACTED]" : "[REDACTED]");
         copied = end;
-        offset = text.find_first_of("bBaApPcCrRtT", end);
+        offset = text.find_first_of(key_starts, end);
     }
     if (copied == 0) return message;
     redacted.append(text.substr(copied));
@@ -294,40 +271,6 @@ void terminate_handler() {
     std::abort();
 }
 
-bool set_interface_status(const std::string& iface, bool up) {
-    int fd = socket(AF_INET, SOCK_DGRAM, 0);
-    [[unlikely]]
-    if (fd < 0) {
-        g_logger.error("Keepalive: Failed to open socket for interface control: {}", std::strerror(errno));
-        return false;
-    }
-
-    struct ifreq ifr;
-    std::memset(&ifr, 0, sizeof(ifr));
-    std::strncpy(ifr.ifr_name, iface.c_str(), IFNAMSIZ - 1);
-
-    if (ioctl(fd, SIOCGIFFLAGS, &ifr) < 0) {
-        g_logger.error("Keepalive: Failed to read interface flags for {}: {}", iface.c_str(), std::strerror(errno));
-        close(fd);
-        return false;
-    }
-
-    if (up) {
-        ifr.ifr_flags |= IFF_UP;
-    } else {
-        ifr.ifr_flags &= ~IFF_UP;
-    }
-
-    if (ioctl(fd, SIOCSIFFLAGS, &ifr) < 0) {
-        g_logger.error("Keepalive: Failed to write interface flags for {}: {}", iface.c_str(), std::strerror(errno));
-        close(fd);
-        return false;
-    }
-
-    close(fd);
-    return true;
-}
-
 WifiStats read_wifi_stats(const std::string& iface) {
     WifiStats stats;
     std::string path = "/proc/net/wireless";
@@ -417,6 +360,61 @@ void Logger::flush_loop() {
     const auto close_log = [](FILE* file) { fclose(file); };
     std::unique_ptr<FILE, decltype(close_log)> log_file(nullptr, close_log);
     std::string open_path;
+    size_t current_file_bytes = 0;
+    unsigned rotation_seq = 0;
+
+    auto open_current = [&](const std::string& path) {
+        log_file.reset(path.empty() ? nullptr : fopen(path.c_str(), "ae"));
+        open_path = path;
+        current_file_bytes = 0;
+        if (log_file) {
+            struct stat st{};
+            if (fstat(fileno(log_file.get()), &st) == 0 && st.st_size > 0) {
+                current_file_bytes = static_cast<size_t>(st.st_size);
+            }
+        }
+    };
+
+    auto rotate_active_file = [&]() {
+        if (log_dir.empty()) return;
+        if (log_file) {
+            (void)fflush(log_file.get());
+            log_file.reset();
+        }
+        auto now = std::chrono::system_clock::now();
+        auto t = std::chrono::system_clock::to_time_t(now);
+        char fname[128];
+        char timebuf[64];
+        struct tm tm_buf{};
+        struct tm* tm_ptr = localtime_r(&t, &tm_buf);
+        if (tm_ptr) {
+            std::strftime(fname, sizeof(fname), "piTrove_%Y%m%d_%H%M%S.log", tm_ptr);
+            std::strftime(timebuf, sizeof(timebuf), "%Y-%m-%d %H:%M:%S", tm_ptr);
+        } else {
+            std::strcpy(fname, "piTrove_00000000_000000.log");
+            std::strcpy(timebuf, "0000-00-00 00:00:00");
+        }
+        std::string next_path = log_dir + "/" + fname;
+        std::error_code ec;
+        if (next_path == open_path || std::filesystem::exists(next_path, ec)) {
+            ++rotation_seq;
+            const std::string base(fname, std::strlen(fname) - 4);
+            next_path = std::format("{}/{}_{}.log", log_dir, base, rotation_seq);
+        }
+        rotate_logs(log_dir, std::max(0, keep_count_ - 1));
+        {
+            std::lock_guard<std::mutex> lk(log_path_mtx);
+            log_file_path = next_path;
+        }
+        open_current(next_path);
+        if (log_file) {
+            std::string hdr = std::format("=== piTrove v{} log rotated {} ===\n", VERSION, timebuf);
+            if (fputs(hdr.c_str(), log_file.get()) != EOF) {
+                current_file_bytes += hdr.size();
+            }
+        }
+    };
+
     while (true) {
         size_t dropped = 0;
         {
@@ -431,8 +429,7 @@ void Logger::flush_loop() {
             std::string current_log_path;
             { std::lock_guard<std::mutex> lk(log_path_mtx); current_log_path = log_file_path; }
             if (!log_file || open_path != current_log_path) {
-                log_file.reset(fopen(current_log_path.c_str(), "ae"));
-                open_path = current_log_path;
+                open_current(current_log_path);
             }
             FILE* f = log_file.get();
             if (!f) {
@@ -445,7 +442,7 @@ void Logger::flush_loop() {
             if (dropped) {
                 std::string warning = std::format("[WARN] Logger dropped {} messages while its queue was full.\n", dropped);
                 (void)write(STDOUT_FILENO, warning.data(), warning.size());
-                if (f) (void)fputs(warning.c_str(), f);
+                if (f && fputs(warning.c_str(), f) != EOF) current_file_bytes += warning.size();
             }
             for (const auto& msg : back_queue) {
                 auto t = std::chrono::system_clock::to_time_t(msg.time);
@@ -466,7 +463,15 @@ void Logger::flush_loop() {
                     VERSION, header, (int)ms.count(), tag, msg.body);
                 if (!line.empty()) {
                     (void)write(STDOUT_FILENO, line.c_str(), line.size());
-                    if (f) (void)fputs(line.c_str(), f);
+                    if (f) {
+                        if (current_file_bytes + line.size() > MAX_LOG_FILE_BYTES && current_file_bytes > 0) {
+                            rotate_active_file();
+                            f = log_file.get();
+                        }
+                        if (f && fputs(line.c_str(), f) != EOF) {
+                            current_file_bytes += line.size();
+                        }
+                    }
                 }
             }
             if (f && fflush(f) != 0) log_file.reset();
@@ -478,6 +483,7 @@ void Logger::flush_loop() {
 void Logger::init(const std::string& path, LogLevel lvl, int keep_count) {
     level = lvl;
     log_dir = path;
+    keep_count_ = std::max(1, keep_count);
     std::error_code ec;
     std::filesystem::create_directories(path, ec);
     if (ec) {
@@ -591,9 +597,11 @@ void classify_media_item(const MediaItem& item, bool& has_people, bool& has_anim
 
     // Convert filename and parent directory path to lowercase
     std::string path_lower = item.path;
-    std::transform(path_lower.begin(), path_lower.end(), path_lower.begin(), ::tolower);
+    std::transform(path_lower.begin(), path_lower.end(), path_lower.begin(),
+                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
     std::string name_lower = item.filename;
-    std::transform(name_lower.begin(), name_lower.end(), name_lower.begin(), ::tolower);
+    std::transform(name_lower.begin(), name_lower.end(), name_lower.begin(),
+                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
 
     // List of common document / screenshot / web-grab indicators
     static constexpr std::string_view doc_keywords[] = {
@@ -747,21 +755,22 @@ std::string sanitize_alphanumeric(std::string_view input) {
 
 // Health check cache state
 static std::string g_last_health_check_path;
-static time_t g_last_health_check_time{0};
+static std::chrono::steady_clock::time_point g_last_health_check_time{};
+static bool g_has_health_check{false};
 static bool g_last_health_check_result{false};
 static bool g_last_known_healthy{true};  // Track previous health state for E910
-static constexpr int HEALTH_CHECK_CACHE_TTL = 5;  // 5-second TTL
+static constexpr auto HEALTH_CHECK_CACHE_TTL = std::chrono::seconds(5);
 static std::mutex g_health_check_mutex;
 
 bool is_media_dir_healthy(const std::string& media_dir) {
     if (media_dir.empty()) return false;
 
-    // Check cache -- same TTL pattern as is_nas_online()
-    time_t now = std::time(nullptr);
+    // Check cache -- monotonic steady_clock TTL (immune to NTP wall-clock jumps)
+    const auto now = std::chrono::steady_clock::now();
     {
         std::lock_guard<std::mutex> lock(g_health_check_mutex);
-        if (media_dir == g_last_health_check_path &&
-            now - g_last_health_check_time <= HEALTH_CHECK_CACHE_TTL) {
+        if (g_has_health_check && media_dir == g_last_health_check_path &&
+            (now - g_last_health_check_time) <= HEALTH_CHECK_CACHE_TTL) {
             return g_last_health_check_result;  // Return STATIC cached result
         }
     }
@@ -775,7 +784,8 @@ bool is_media_dir_healthy(const std::string& media_dir) {
     {
         std::lock_guard<std::mutex> lock(g_health_check_mutex);
         g_last_health_check_path = media_dir;
-        g_last_health_check_time = now;
+        g_last_health_check_time = std::chrono::steady_clock::now();
+        g_has_health_check = true;
         g_last_health_check_result = healthy;
 
         // Burst detection: if health state changed (healthy -> unhealthy)
@@ -814,7 +824,15 @@ namespace {
 
 static std::atomic<bool> g_nas_online{true};
 static std::atomic<bool> g_nas_check_in_progress{false};
-static std::atomic<time_t> g_last_nas_check_time{0};
+static std::atomic<int64_t> g_last_nas_check_ms{0};
+static std::atomic<bool> g_has_nas_check{false};
+static std::atomic<bool> g_nas_shutdown{false};
+
+static int64_t steady_now_ms() {
+    return std::chrono::duration_cast<std::chrono::milliseconds>(
+               std::chrono::steady_clock::now().time_since_epoch())
+        .count();
+}
 
 static bool perform_nas_online_check() {
     std::string media_dir;
@@ -918,22 +936,28 @@ bool is_nas_online() {
         return false;
     }
 
-    time_t now = std::time(nullptr);
-    if (now - g_last_nas_check_time.load() > 10) {
+    const int64_t now_ms = steady_now_ms();
+    if (!g_nas_shutdown.load() &&
+        (!g_has_nas_check.load() || (now_ms - g_last_nas_check_ms.load()) > 10000)) {
         if (!g_nas_check_in_progress.exchange(true)) {
             std::lock_guard lk(g_nas_thread_mtx);
-            if (g_nas_check_thread.joinable()) {
-                g_nas_check_thread.join();
-            }
-            if (!spawn_thread_safe(g_nas_check_thread, "nas_check", []() {
-                bool online = perform_nas_online_check();
-                g_nas_online.store(online);
-                g_last_nas_check_time.store(std::time(nullptr));
+            if (g_nas_shutdown.load()) {
                 g_nas_check_in_progress.store(false);
-            })) {
-                // Spawn failed: reset the in-progress flag so the next
-                // call can retry.
-                g_nas_check_in_progress.store(false);
+            } else {
+                if (g_nas_check_thread.joinable()) {
+                    g_nas_check_thread.join();
+                }
+                if (!spawn_thread_safe(g_nas_check_thread, "nas_check", []() {
+                    bool online = perform_nas_online_check();
+                    g_nas_online.store(online);
+                    g_last_nas_check_ms.store(steady_now_ms());
+                    g_has_nas_check.store(true);
+                    g_nas_check_in_progress.store(false);
+                })) {
+                    // Spawn failed: reset the in-progress flag so the next
+                    // call can retry.
+                    g_nas_check_in_progress.store(false);
+                }
             }
         }
     }
@@ -942,6 +966,7 @@ bool is_nas_online() {
 
 void cleanup_nas_thread() {
     std::lock_guard lk(g_nas_thread_mtx);
+    g_nas_shutdown.store(true);
     g_nas_check_in_progress.store(false);
     if (g_nas_check_thread.joinable()) {
         g_nas_check_thread.join();
@@ -1107,106 +1132,3 @@ std::vector<std::string> get_supported_timezones() {
     };
 }
 
-std::string infer_timezone_from_zip_or_location(const std::string& input) {
-    std::string clean = trim(input);
-    if (clean.empty()) return "";
-
-    // Extract 5-digit zip code if present
-    static const std::regex zip_re(R"(\b([0-9]{5})\b)");
-    std::smatch m;
-    if (std::regex_search(clean, m, zip_re)) {
-        try {
-            int zip = std::stoi(m[1].str());
-            int p3 = zip / 100; // 3-digit prefix (005 - 999)
-
-            if ((p3 >= 5 && p3 <= 89) || (p3 >= 100 && p3 <= 299) || (p3 >= 320 && p3 <= 349) || (p3 >= 430 && p3 <= 459)) {
-                return "America/New_York";
-            }
-            if (p3 >= 300 && p3 <= 319) return "America/New_York"; // GA
-            if (p3 >= 400 && p3 <= 427) return "America/New_York"; // KY
-            if (p3 >= 480 && p3 <= 499) return "America/Detroit";
-            if (p3 >= 460 && p3 <= 479) return "America/Indiana/Indianapolis";
-            if ((p3 >= 350 && p3 <= 397) || (p3 >= 500 && p3 <= 567) || (p3 >= 600 && p3 <= 799) || (p3 >= 570 && p3 <= 588)) {
-                return "America/Chicago";
-            }
-            if ((p3 >= 590 && p3 <= 599) || (p3 >= 800 && p3 <= 831) || (p3 >= 840 && p3 <= 847) || (p3 >= 870 && p3 <= 884)) {
-                return "America/Denver";
-            }
-            if (p3 >= 832 && p3 <= 838) return "America/Boise";
-            if (p3 >= 850 && p3 <= 865) return "America/Phoenix";
-            if (p3 >= 967 && p3 <= 968) return "Pacific/Honolulu";
-            if (p3 >= 995 && p3 <= 999) return "America/Anchorage";
-            if ((p3 >= 889 && p3 <= 961) || (p3 >= 970 && p3 <= 994)) {
-                return "America/Los_Angeles";
-            }
-        } catch (...) {}
-    }
-
-    // Name-based inference
-    std::string lower = clean;
-    std::transform(lower.begin(), lower.end(), lower.begin(), [](unsigned char ch){ return (char)std::tolower(ch); });
-
-    if (lower.find("california") != std::string::npos || lower.find("sacramento") != std::string::npos ||
-        lower.find("los angeles") != std::string::npos || lower.find("san francisco") != std::string::npos ||
-        lower.find("san diego") != std::string::npos || lower.find("seattle") != std::string::npos ||
-        lower.find("portland") != std::string::npos || lower.find("las vegas") != std::string::npos ||
-        lower.find("elk grove") != std::string::npos || lower.find(", ca") != std::string::npos ||
-        lower.find(", wa") != std::string::npos || lower.find(", or") != std::string::npos ||
-        lower.find(", nv") != std::string::npos) {
-        return "America/Los_Angeles";
-    }
-    if (lower.find("new york") != std::string::npos || lower.find("boston") != std::string::npos ||
-        lower.find("miami") != std::string::npos || lower.find("orlando") != std::string::npos ||
-        lower.find("atlanta") != std::string::npos || lower.find("philadelphia") != std::string::npos ||
-        lower.find("washington dc") != std::string::npos || lower.find(", ny") != std::string::npos ||
-        lower.find(", fl") != std::string::npos || lower.find(", ma") != std::string::npos ||
-        lower.find(", pa") != std::string::npos || lower.find(", ga") != std::string::npos ||
-        lower.find(", nc") != std::string::npos || lower.find(", va") != std::string::npos) {
-        return "America/New_York";
-    }
-    if (lower.find("chicago") != std::string::npos || lower.find("dallas") != std::string::npos ||
-        lower.find("houston") != std::string::npos || lower.find("austin") != std::string::npos ||
-        lower.find("san antonio") != std::string::npos || lower.find("minneapolis") != std::string::npos ||
-        lower.find("nashville") != std::string::npos || lower.find("new orleans") != std::string::npos ||
-        lower.find(", tx") != std::string::npos || lower.find(", il") != std::string::npos ||
-        lower.find(", mn") != std::string::npos || lower.find(", tn") != std::string::npos) {
-        return "America/Chicago";
-    }
-    if (lower.find("denver") != std::string::npos || lower.find("salt lake") != std::string::npos ||
-        lower.find("colorado") != std::string::npos || lower.find("albuquerque") != std::string::npos ||
-        lower.find(", co") != std::string::npos || lower.find(", ut") != std::string::npos ||
-        lower.find(", nm") != std::string::npos || lower.find(", mt") != std::string::npos) {
-        return "America/Denver";
-    }
-    if (lower.find("phoenix") != std::string::npos || lower.find("tucson") != std::string::npos ||
-        lower.find("arizona") != std::string::npos || lower.find(", az") != std::string::npos) {
-        return "America/Phoenix";
-    }
-    if (lower.find("anchorage") != std::string::npos || lower.find("alaska") != std::string::npos ||
-        lower.find(", ak") != std::string::npos) {
-        return "America/Anchorage";
-    }
-    if (lower.find("honolulu") != std::string::npos || lower.find("hawaii") != std::string::npos ||
-        lower.find(", hi") != std::string::npos) {
-        return "Pacific/Honolulu";
-    }
-    if (lower.find("london") != std::string::npos || lower.find("england") != std::string::npos ||
-        lower.find("uk") != std::string::npos) {
-        return "Europe/London";
-    }
-    if (lower.find("paris") != std::string::npos || lower.find("france") != std::string::npos) {
-        return "Europe/Paris";
-    }
-    if (lower.find("berlin") != std::string::npos || lower.find("germany") != std::string::npos) {
-        return "Europe/Berlin";
-    }
-    if (lower.find("tokyo") != std::string::npos || lower.find("japan") != std::string::npos) {
-        return "Asia/Tokyo";
-    }
-    if (lower.find("sydney") != std::string::npos || lower.find("melbourne") != std::string::npos ||
-        lower.find("australia") != std::string::npos) {
-        return "Australia/Sydney";
-    }
-
-    return "";
-}

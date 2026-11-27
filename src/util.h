@@ -73,6 +73,8 @@ struct Logger {
     static constexpr size_t MAX_QUEUED_MESSAGES = 4096;
     static constexpr size_t MAX_QUEUED_BYTES = 4 * 1024 * 1024;
     static constexpr size_t MAX_MESSAGE_BYTES = 64 * 1024;
+    static constexpr size_t MAX_LOG_FILE_BYTES = 10 * 1024 * 1024;
+    int keep_count_{3};
     size_t queued_bytes{0};
     size_t dropped_messages{0};
 
@@ -188,7 +190,6 @@ bool set_display_power(bool power);
 bool toggle_display_power();
 bool display_hardware_blanked();
 void set_display_drm_fd(int fd, std::string connector = {});
-bool set_interface_status(const std::string& iface, bool up);
 
 // WiFi diagnostics
 struct WifiStats {
@@ -249,9 +250,7 @@ void get_modified_time_date(int64_t mtime, int& y, int& m, int& d);
 [[nodiscard]] bool is_valid_host_or_ip(std::string_view value);
 [[nodiscard]] std::string format_tomorrow_tz(time_t epoch_sec, const std::string& tz_name);
 [[nodiscard]] std::vector<std::string> get_supported_timezones();
-[[nodiscard]] std::string infer_timezone_from_zip_or_location(const std::string& input);
 
-bool geocode_location_sync(const std::string& query, float& out_lat, float& out_lon);
 
 #endif // PITROVE_UTIL_H
 

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 #include <string>
 #include <vector>
 #include <atomic>
@@ -49,7 +50,11 @@ private:
     std::mutex m_lifecycle_mtx;
     std::atomic<bool> m_running{false};
     std::atomic<bool> m_allow_io{true};
-    std::atomic<bool> m_fetching{false};
+    std::mutex m_fetch_mtx;
+    uint64_t m_fetch_generation = 0;
+    bool m_fetching = false;
+    void refresh(bool requested);
+    void fetch_once(uint64_t generation);
     std::jthread m_worker_thread;
 
     mutable std::shared_mutex m_quotes_mtx;

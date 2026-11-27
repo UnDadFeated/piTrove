@@ -133,14 +133,17 @@ NewsTicker::~NewsTicker() {
     stop();
 }
 
-std::string NewsTicker::execute_http_get(const std::string& url, FeedState& feed, bool& unchanged) {
+std::string NewsTicker::execute_http_get(const std::string& url, FeedState& feed, bool& unchanged,
+                                         uint64_t generation) {
+    const auto unavailable = [&]() -> std::string {
+        std::lock_guard fetch(m_fetch_mtx);
+        if (generation == m_fetch_generation && m_allow_io.load()) m_last_error.store(537);
+        return {};
+    };
     if (feed.url != url) feed = {url, 0, {}, 30};
     if (std::chrono::steady_clock::now() < feed.retry_after) return {};
     CURL* curl = curl_easy_init();
-    if (!curl) {
-        m_last_error.store(537); // E537: NEWS_NETWORK_TIMEOUT
-        return "";
-    }
+    if (!curl) return unavailable();
 
     http_transfer::configure_public_https(curl);
     http_transfer::set_cancel_flag(curl, &m_allow_io);
@@ -178,8 +181,7 @@ std::string NewsTicker::execute_http_get(const std::string& url, FeedState& feed
     }
     if (res != CURLE_OK || http_code < 200 || http_code >= 300) {
         g_logger.warn("NEWS: HTTP GET failed: curl_res={}, http_code={}", (int)res, http_code);
-        m_last_error.store(537);
-        return "";
+        return unavailable();
     }
 
     feed.backoff_seconds = 30;
@@ -187,7 +189,8 @@ std::string NewsTicker::execute_http_get(const std::string& url, FeedState& feed
     return response_string;
 }
 
-std::vector<NewsItem> NewsTicker::parse_rss(const std::string& xml_data) {
+std::vector<NewsItem> NewsTicker::parse_rss(const std::string& xml_data, const std::string& tz,
+                                            const std::vector<std::string>& blacklist) {
     std::vector<NewsItem> parsed_items;
     if (xml_data.empty()) return parsed_items;
 
@@ -198,14 +201,6 @@ std::vector<NewsItem> NewsTicker::parse_rss(const std::string& xml_data) {
     static const std::regex link_regex("<link[^>]*>([\\s\\S]*?)</link>");
     static const std::regex guid_regex("<guid[^>]*>([\\s\\S]*?)</guid>");
 
-
-    std::string tz = "UTC";
-    std::vector<std::string> blacklist;
-    {
-        std::shared_lock lk(g_config_mtx);
-        tz = g_cfg.timezone;
-        blacklist = g_cfg.news_blacklist;
-    }
 
     auto is_blacklisted = [&](const std::string& text) {
         if (text.empty() || blacklist.empty()) return false;
@@ -279,19 +274,41 @@ std::vector<NewsItem> NewsTicker::parse_rss(const std::string& xml_data) {
     return parsed_items;
 }
 
-void NewsTicker::fetch_sync() {
-    if (m_fetching.exchange(true)) return;
-    struct Guard { std::atomic<bool>& f; ~Guard() { f.store(false); } } g{m_fetching};
+void NewsTicker::refresh(bool requested) {
+    std::unique_lock lock(m_fetch_mtx);
+    if (!m_allow_io.load()) return;
+    if (requested) ++m_fetch_generation;
+    if (m_fetching) return;
+    m_fetching = true;
+    do {
+        const auto generation = m_fetch_generation;
+        lock.unlock();
+        try {
+            fetch_once(generation);
+        } catch (...) {
+            g_logger.warn("NewsTicker: Refresh failed");
+        }
+        lock.lock();
+        if (generation == m_fetch_generation) break;
+    } while (m_allow_io.load());
+    m_fetching = false;
+}
 
-    std::string local_q;
-    std::string tz = "UTC";
+void NewsTicker::fetch_once(uint64_t generation) {
+
+    std::string local_q, tz;
+    std::vector<std::string> blacklist;
     {
         std::shared_lock lk(g_config_mtx);
-        if (!g_cfg.news_local_query.empty()) {
-            local_q = g_cfg.news_local_query;
-        }
+        local_q = g_cfg.news_local_query;
         tz = g_cfg.timezone;
+        blacklist = g_cfg.news_blacklist;
     }
+
+    auto local_feed = m_local_feed;
+    auto global_feed = m_global_feed;
+    if (blacklist != m_feed_blacklist || tz != m_feed_timezone)
+        local_feed.modified = global_feed.modified = 0;
 
     time_t now = time(nullptr);
 
@@ -303,10 +320,10 @@ void NewsTicker::fetch_sync() {
     std::string local_url = "https://news.google.com/rss/search?q=" + url_encode(local_query_with_time) + "&hl=en-US&gl=US&ceid=US:en";
     g_logger.debug("NEWS: Fetching local headlines");
     bool local_unchanged = false, global_unchanged = false;
-    std::string local_xml = local_q.empty() ? "" : execute_http_get(local_url, local_feed, local_unchanged);
+    std::string local_xml = local_q.empty() ? "" : execute_http_get(local_url, local_feed, local_unchanged, generation);
     bool local_fetched = !local_xml.empty();
     
-    std::vector<NewsItem> raw_local = parse_rss(local_xml);
+    std::vector<NewsItem> raw_local = parse_rss(local_xml, tz, blacklist);
     
     std::vector<NewsItem> local_items;
     time_t one_week_ago = now - (7 * 86400);
@@ -334,9 +351,9 @@ void NewsTicker::fetch_sync() {
     // 2. Fetch World News (Google Top Stories for past 6 hours)
     std::string global_url = "https://news.google.com/rss?hl=en-US&gl=US&ceid=US:en";
     g_logger.debug("NEWS: Fetching Google top stories");
-    std::string global_xml = execute_http_get(global_url, global_feed, global_unchanged);
+    std::string global_xml = execute_http_get(global_url, global_feed, global_unchanged, generation);
     const bool global_fetched = !global_xml.empty();
-    std::vector<NewsItem> raw_global = parse_rss(global_xml);
+    std::vector<NewsItem> raw_global = parse_rss(global_xml, tz, blacklist);
     
     std::vector<NewsItem> global_items;
     time_t six_hours_ago = now - (6 * 3600);
@@ -365,17 +382,19 @@ void NewsTicker::fetch_sync() {
 
     now = time(nullptr);
     {
+        std::lock_guard fetch(m_fetch_mtx);
+        if (generation != m_fetch_generation || !m_allow_io.load()) return;
+        std::shared_lock config(g_config_mtx);
+        if (local_q != g_cfg.news_local_query || tz != g_cfg.timezone || blacklist != g_cfg.news_blacklist) return;
+        m_local_feed = local_q.empty() ? FeedState{} : std::move(local_feed);
+        m_global_feed = std::move(global_feed);
+        m_feed_blacklist = std::move(blacklist);
+        m_feed_timezone = tz;
         std::unique_lock lk(m_items_mtx);
-        if (local_fetched || (local_q.empty() && !m_local_items.empty())) {
-            m_local_items = std::move(local_items);
-            m_cached_local_spans.clear();
-            m_cached_local_total_w = 0;
-        }
-        if (global_fetched) {
-            m_global_items = std::move(global_items);
-            m_cached_global_spans.clear();
-            m_cached_global_total_w = 0;
-        }
+        const bool local_changed = local_fetched || (local_q.empty() && !m_local_items.empty());
+        if (local_changed) m_local_items = std::move(local_items);
+        if (global_fetched) m_global_items = std::move(global_items);
+        if (local_changed || global_fetched) ++m_items_generation;
         const bool local_ok = local_q.empty() || local_fetched || local_unchanged;
         const bool global_ok = global_fetched || global_unchanged;
         m_last_error.store(local_ok && global_ok ? 0 : 537);
@@ -386,22 +405,29 @@ void NewsTicker::fetch_sync() {
     }
 }
 
-void NewsTicker::sync() {
-    fetch_sync();
-}
+void NewsTicker::sync() { refresh(true); }
+
+void NewsTicker::fetch_sync() { sync(); }
 
 bool NewsTicker::start() {
     std::lock_guard lifecycle(m_lifecycle_mtx);
     m_running.store(false);
-    m_allow_io.store(false);
+    {
+        std::lock_guard fetch(m_fetch_mtx);
+        ++m_fetch_generation;
+        m_allow_io.store(false);
+    }
     if (m_worker_thread.joinable()) m_worker_thread.join();
-    m_allow_io.store(true);
+    {
+        std::lock_guard fetch(m_fetch_mtx);
+        m_allow_io.store(true);
+    }
     m_running.store(true);
     m_reset_scroll.store(true); // Only render() writes the scroll state.
 
     if (!spawn_thread_safe(m_worker_thread, "news_ticker", [this]() {
         // Initial fetch
-        this->fetch_sync();
+        this->refresh(true);
 
         while (this->m_running.load()) {
             int refresh_mins = 15;
@@ -413,7 +439,7 @@ bool NewsTicker::start() {
                 std::this_thread::sleep_for(std::chrono::seconds(1));
             }
             if (this->m_running.load()) {
-                this->fetch_sync();
+                this->refresh(false);
             }
         }
     })) {
@@ -427,7 +453,11 @@ bool NewsTicker::start() {
 void NewsTicker::stop() {
     std::lock_guard lifecycle(m_lifecycle_mtx);
     m_running.store(false);
-    m_allow_io.store(false);
+    {
+        std::lock_guard fetch(m_fetch_mtx);
+        ++m_fetch_generation;
+        m_allow_io.store(false);
+    }
     // Join here rather than in the destructor: this is an inline global, so the
     // dtor join would happen during static destruction, after main() has already
     // torn down SDL and the cache. Worker sleeps in 1s ticks, so this is bounded.
@@ -499,139 +529,53 @@ void NewsTicker::render(SDL_Renderer* renderer, FontRenderer* font_renderer, con
     int row_h = bounds.h / 2;
 
     // 2. Prepare tokens and measure total width for both rows
+    std::vector<NewsItem> local_items, global_items;
+    bool rebuild = false;
     {
-        std::unique_lock lk(m_items_mtx);
-        if (m_cached_font_size != font_size) {
-            m_cached_local_spans.clear();
-            m_cached_global_spans.clear();
-            m_cached_font_size = font_size;
+        std::shared_lock lk(m_items_mtx);
+        rebuild = m_cached_items_generation != m_items_generation ||
+                  m_cached_font_size != font_size || m_cached_font_path != font_path;
+        if (rebuild) {
+            local_items = m_local_items;
+            global_items = m_global_items;
+            m_cached_items_generation = m_items_generation;
         }
-
-        if (m_cached_local_spans.empty()) {
-            m_cached_local_spans.clear();
-            m_cached_local_total_w = 0;
-
-            if (m_local_items.empty()) {
-                NewsHeadlineSpan span;
-                std::string s = "   piTrove Local News  •  Updating latest headlines...   •   ";
+    }
+    if (rebuild) {
+        const auto rebuild_row = [&](const std::vector<NewsItem>& items, bool local,
+                                     std::vector<NewsHeadlineSpan>& spans, int& total_width) {
+            spans.clear();
+            total_width = 0;
+            const auto add = [&](NewsHeadlineSpan& span, std::string text, SDL_Color color) {
                 int w = 0, h = 0;
-                font_renderer->measure(font, s, w, h);
-                span.tokens.push_back({s, w, {200, 215, 230, 255}});
-                span.total_w = w;
-                m_cached_local_spans.push_back(span);
-                m_cached_local_total_w = w;
-            } else {
-                for (const auto& item : m_local_items) {
-                    NewsHeadlineSpan span;
-                    int item_w = 0;
-
-                    // Timestamp in Warm Amber / Gold
-                    if (!item.formatted_time.empty()) {
-                        std::string t_str = "   [" + item.formatted_time + "] ";
-                        int tw = 0, th = 0;
-                        font_renderer->measure(font, t_str, tw, th);
-                        span.tokens.push_back({t_str, tw, {255, 195, 60, 255}});
-                        item_w += tw;
-                    } else {
-                        std::string sp = "   ";
-                        int tw = 0, th = 0;
-                        font_renderer->measure(font, sp, tw, th);
-                        span.tokens.push_back({sp, tw, {255, 255, 255, 255}});
-                        item_w += tw;
-                    }
-
-                    // Headline Title in Crisp White
-                    int title_w = 0, title_h = 0;
-                    font_renderer->measure(font, item.title, title_w, title_h);
-                    span.tokens.push_back({item.title, title_w, {245, 248, 255, 255}});
-                    item_w += title_w;
-
-                    // Source in Sky Cyan
-                    if (!item.source.empty()) {
-                        std::string src_str = " (" + item.source + ")";
-                        int sw = 0, sh = 0;
-                        font_renderer->measure(font, src_str, sw, sh);
-                        span.tokens.push_back({src_str, sw, {0, 200, 255, 230}});
-                        item_w += sw;
-                    }
-
-                    // Separator bullet in Electric Cyan
-                    std::string bul = "   •   ";
-                    int bw = 0, bh = 0;
-                    font_renderer->measure(font, bul, bw, bh);
-                    span.tokens.push_back({bul, bw, {255, 180, 50, 200}});
-                    item_w += bw;
-
-                    span.total_w = item_w;
-                    m_cached_local_spans.push_back(span);
-                    m_cached_local_total_w += item_w;
-                }
+                font_renderer->measure(font, text, w, h);
+                span.tokens.push_back({std::move(text), w, color});
+                span.total_w += w;
+                total_width += w;
+            };
+            const SDL_Color time_color = local ? SDL_Color{255, 195, 60, 255} : SDL_Color{100, 215, 255, 255};
+            const SDL_Color source_color = local ? SDL_Color{0, 200, 255, 230} : SDL_Color{120, 225, 180, 230};
+            const SDL_Color separator_color = local ? SDL_Color{255, 180, 50, 200} : SDL_Color{0, 210, 255, 200};
+            for (const auto& item : items) {
+                auto& span = spans.emplace_back();
+                if (item.formatted_time.empty()) add(span, "   ", {255, 255, 255, 255});
+                else add(span, "   [" + item.formatted_time + "] ", time_color);
+                add(span, item.title, {245, 248, 255, 255});
+                if (!item.source.empty()) add(span, " (" + item.source + ")", source_color);
+                add(span, "   •   ", separator_color);
             }
-            if (m_cached_local_total_w <= 0) m_cached_local_total_w = 100;
-        }
-
-        if (m_cached_global_spans.empty()) {
-            m_cached_global_spans.clear();
-            m_cached_global_total_w = 0;
-
-            if (m_global_items.empty()) {
-                NewsHeadlineSpan span;
-                std::string s = "   piTrove World News  •  Updating latest headlines...   •   ";
-                int w = 0, h = 0;
-                font_renderer->measure(font, s, w, h);
-                span.tokens.push_back({s, w, {200, 215, 230, 255}});
-                span.total_w = w;
-                m_cached_global_spans.push_back(span);
-                m_cached_global_total_w = w;
-            } else {
-                for (const auto& item : m_global_items) {
-                    NewsHeadlineSpan span;
-                    int item_w = 0;
-
-                    // Timestamp in Sky Ice Blue
-                    if (!item.formatted_time.empty()) {
-                        std::string t_str = "   [" + item.formatted_time + "] ";
-                        int tw = 0, th = 0;
-                        font_renderer->measure(font, t_str, tw, th);
-                        span.tokens.push_back({t_str, tw, {100, 215, 255, 255}});
-                        item_w += tw;
-                    } else {
-                        std::string sp = "   ";
-                        int tw = 0, th = 0;
-                        font_renderer->measure(font, sp, tw, th);
-                        span.tokens.push_back({sp, tw, {255, 255, 255, 255}});
-                        item_w += tw;
-                    }
-
-                    // Headline Title in Crisp White
-                    int title_w = 0, title_h = 0;
-                    font_renderer->measure(font, item.title, title_w, title_h);
-                    span.tokens.push_back({item.title, title_w, {245, 248, 255, 255}});
-                    item_w += title_w;
-
-                    // Source in Soft Mint
-                    if (!item.source.empty()) {
-                        std::string src_str = " (" + item.source + ")";
-                        int sw = 0, sh = 0;
-                        font_renderer->measure(font, src_str, sw, sh);
-                        span.tokens.push_back({src_str, sw, {120, 225, 180, 230}});
-                        item_w += sw;
-                    }
-
-                    // Separator bullet in Electric Cyan
-                    std::string bul = "   •   ";
-                    int bw = 0, bh = 0;
-                    font_renderer->measure(font, bul, bw, bh);
-                    span.tokens.push_back({bul, bw, {0, 210, 255, 200}});
-                    item_w += bw;
-
-                    span.total_w = item_w;
-                    m_cached_global_spans.push_back(span);
-                    m_cached_global_total_w += item_w;
-                }
+            if (spans.empty()) {
+                add(spans.emplace_back(),
+                    local ? "   piTrove Local News  •  Updating latest headlines...   •   "
+                          : "   piTrove World News  •  Updating latest headlines...   •   ",
+                    {200, 215, 230, 255});
             }
-            if (m_cached_global_total_w <= 0) m_cached_global_total_w = 100;
-        }
+            if (total_width <= 0) total_width = 100;
+        };
+        rebuild_row(local_items, true, m_cached_local_spans, m_cached_local_total_w);
+        rebuild_row(global_items, false, m_cached_global_spans, m_cached_global_total_w);
+        m_cached_font_size = font_size;
+        m_cached_font_path = font_path;
     }
 
     // 3. Compute continuous scrolling offset for each row

@@ -12,8 +12,6 @@
 #include <fstream>
 #include <array>
 #include <limits>
-#include <fcntl.h>
-#include <sys/stat.h>
 extern Logger g_logger;
 
 // FFmpeg APIs may replace or null these pointers, so cleanup follows the variable.
@@ -174,9 +172,10 @@ void VideoDecoder::init_audio() {
 
 void VideoDecoder::shutdown_audio() {
     std::lock_guard lk(m_audio_mtx);
-    m_audio_prebuffer.clear();
+    m_audio_prebuffer = {};
     m_audio_prebuffer_samples = 0;
     m_audio_frames_submitted = 0;
+    m_paused_at.reset();
     if (!m_audio_initialized) return;
 
     DEBUG_LOG("AUDIO: Shutting down audio device");
@@ -208,7 +207,7 @@ void VideoDecoder::queue_audio_locked(std::span<const int16_t> samples, double p
         if (std::abs(relative) > 7 * 86400) return;
         const int64_t desired = std::llround(relative * audio_rate);
         if (queued == 0) {
-            const auto elapsed_ms = std::max(0.0, SDL_GetTicks() - m_anchor_wall_ms.load());
+            const auto elapsed_ms = std::max(0.0, m_paused_at.value_or(SDL_GetTicks()) - m_anchor_wall_ms.load());
             m_audio_frames_submitted = std::max(m_audio_frames_submitted,
                 static_cast<int64_t>(elapsed_ms * audio_rate / 1000));
         }
@@ -245,15 +244,30 @@ void VideoDecoder::push_audio_samples(std::span<const int16_t> samples, double p
     if (!m_audio_initialized || !m_audio_stream) return;
     SDL_SetAudioStreamGain(m_audio_stream, volume / 100.0f);
 
+    const bool anchor_set = m_anchor_set.load(std::memory_order_relaxed);
     const bool syncing = m_av_sync.load(std::memory_order_relaxed) && m_pts_valid.load();
-    if (m_av_sync.load(std::memory_order_relaxed) && !m_anchor_set.load(std::memory_order_relaxed)) {
+    if (!anchor_set || syncing) {
         if (m_audio_prebuffer_samples + samples.size() <= max_audio_frames * audio_channels) {
-            m_audio_prebuffer.push_back({{samples.begin(), samples.end()}, pts});
+            m_audio_prebuffer.push({{samples.begin(), samples.end()}, pts});
             m_audio_prebuffer_samples += samples.size();
         }
-        return;
+        if (anchor_set) submit_ready_audio_locked(syncing);
+    } else {
+        submit_ready_audio_locked(false);
+        queue_audio_locked(samples, pts, false);
     }
-    queue_audio_locked(samples, pts, syncing);
+}
+
+void VideoDecoder::submit_ready_audio_locked(bool syncing) {
+    // Keep future audio timestamped until video approaches it. A jump can then
+    // discard the SDL queue for the old clock without losing the new segment.
+    while (!m_audio_prebuffer.empty()) {
+        const auto& chunk = m_audio_prebuffer.front();
+        if (syncing && std::isfinite(chunk.pts) && chunk.pts > m_audio_reference_pts + 0.5) break;
+        queue_audio_locked(chunk.samples, chunk.pts, syncing);
+        m_audio_prebuffer_samples -= chunk.samples.size();
+        m_audio_prebuffer.pop();
+    }
 }
 
 void VideoDecoder::set_av_sync(bool on) { m_av_sync.store(on, std::memory_order_relaxed); }
@@ -268,8 +282,6 @@ double VideoDecoder::get_anchor_wall_ms() const { return m_anchor_wall_ms.load(s
 
 double VideoDecoder::get_anchor_pts() const { return m_anchor_pts.load(std::memory_order_acquire); }
 
-// Anchor the presentation clock to the first pushed event (video frame or audio
-// chunk), whichever arrives first. Single writer: the decode thread.
 void VideoDecoder::note_frame_anchor(double pts_s, bool has_pts, bool stream_eof) {
     if (!m_av_sync.load(std::memory_order_relaxed)) return;
     if (!has_pts) {
@@ -292,15 +304,48 @@ void VideoDecoder::note_presentation_start(double pts_s) {
     std::lock_guard lock(m_audio_mtx);
     if (m_anchor_set.load(std::memory_order_relaxed)) return;
     m_anchor_pts.store(pts_s, std::memory_order_relaxed);
-    m_anchor_wall_ms.store(static_cast<double>(SDL_GetTicks()), std::memory_order_relaxed);
+    m_anchor_wall_ms.store(static_cast<double>(m_paused_at.value_or(SDL_GetTicks())), std::memory_order_relaxed);
+    m_audio_reference_pts = pts_s;
     if (m_audio_initialized && m_audio_stream) {
-        const bool syncing = m_av_sync.load(std::memory_order_relaxed) && m_pts_valid.load();
-        for (const auto& chunk : m_audio_prebuffer) queue_audio_locked(chunk.samples, chunk.pts, syncing);
-        m_audio_prebuffer.clear();
-        m_audio_prebuffer_samples = 0;
-        SDL_ResumeAudioStreamDevice(m_audio_stream);
+        submit_ready_audio_locked(m_av_sync.load(std::memory_order_relaxed) && m_pts_valid.load());
+        if (!m_paused_at) SDL_ResumeAudioStreamDevice(m_audio_stream);
     }
     m_anchor_set.store(true, std::memory_order_release);
+}
+
+void VideoDecoder::rebase_presentation(double pts_s) {
+    std::lock_guard lock(m_audio_mtx);
+    m_anchor_pts.store(pts_s, std::memory_order_relaxed);
+    m_anchor_wall_ms.store(static_cast<double>(m_paused_at.value_or(SDL_GetTicks())), std::memory_order_relaxed);
+    m_audio_reference_pts = pts_s;
+    m_audio_frames_submitted = 0;
+    if (m_audio_stream) {
+        SDL_ClearAudioStream(m_audio_stream);
+        submit_ready_audio_locked(true);
+    }
+}
+
+void VideoDecoder::set_paused(bool paused) {
+    std::lock_guard lock(m_audio_mtx);
+    if (paused == m_paused_at.has_value()) return;
+    const bool started = m_anchor_set.load(std::memory_order_relaxed);
+    const auto now = SDL_GetTicks();
+    if (paused) {
+        m_paused_at = now;
+        if (started && m_audio_stream) SDL_PauseAudioStreamDevice(m_audio_stream);
+    } else {
+        if (started) {
+            m_anchor_wall_ms.store(m_anchor_wall_ms.load(std::memory_order_relaxed) + (now - *m_paused_at),
+                                   std::memory_order_relaxed);
+            if (m_audio_stream) SDL_ResumeAudioStreamDevice(m_audio_stream);
+        }
+        m_paused_at.reset();
+    }
+}
+
+bool VideoDecoder::has_queued_audio() {
+    std::lock_guard lock(m_audio_mtx);
+    return m_audio_stream && SDL_GetAudioStreamQueued(m_audio_stream) > 0;
 }
 
 std::string VideoDecoder::get_current_path() const {
@@ -310,14 +355,14 @@ std::string VideoDecoder::get_current_path() const {
 
 bool VideoDecoder::prewarm(const std::string& path, int target_width, int target_height) {
     if (path.empty()) return false;
+    if (m_running.load() || has_frames()) return get_current_path() == path;
+    if (m_thread.joinable() && !m_eof.load()) return false;
     {
-        std::lock_guard lk(m_path_mtx);
-        if (m_running.load(std::memory_order_relaxed) && m_path == path) {
-            return true;
+        std::lock_guard lock(m_path_mtx);
+        if (const auto failure = m_prewarm_failures.find(path); failure != m_prewarm_failures.end()) {
+            if (std::chrono::steady_clock::now() - failure->second < std::chrono::seconds(60)) return false;
+            m_prewarm_failures.erase(failure);
         }
-    }
-    if (m_running.load(std::memory_order_relaxed)) {
-        return false;
     }
     g_logger.info("VIDEO_DEC: Pre-warming upcoming video in background: {}", path.c_str());
     return start_impl(path, target_width, target_height, true);
@@ -334,7 +379,10 @@ bool VideoDecoder::start_impl(const std::string& path, int target_width, int tar
             g_logger.info("VIDEO_DEC: Using pre-warmed video context for: {}", path.c_str());
             m_anchor_set.store(false, std::memory_order_release);
             if (!prewarm) {
-                m_prewarm_limit.store(0, std::memory_order_relaxed);
+                {
+                    std::lock_guard queue_lock(m_queue_mtx);
+                    m_prewarm_limit.store(0, std::memory_order_relaxed);
+                }
                 m_queue_cv.notify_one();
             }
             return true;
@@ -362,14 +410,24 @@ bool VideoDecoder::start_impl(const std::string& path, int target_width, int tar
     m_start_failed.store(false);
     decode_start_time.store(0.0, std::memory_order_relaxed);
     m_running.store(true);
-    if (!spawn_thread_safe(m_thread, "video_decoder", [this]() {
+    auto note_prewarm_failure = [this, prewarm] {
+        if (!prewarm) return;
+        std::lock_guard lock(m_path_mtx);
+        if (m_prewarm_failures.size() >= 1000) m_prewarm_failures.clear();
+        m_prewarm_failures[m_path] = std::chrono::steady_clock::now();
+    };
+    if (!spawn_thread_safe(m_thread, "video_decoder", [this, note_prewarm_failure](std::stop_token stop) {
         try { this->decode_loop(); }
         catch (const std::exception& error) { g_logger.error("VIDEO_DEC: Worker failed: {}", error.what()); }
         catch (...) { g_logger.error("VIDEO_DEC: Worker failed with unknown exception"); }
-        if (!m_produced_frame) m_start_failed.store(true);
+        if (!m_produced_frame && !stop.stop_requested()) {
+            m_start_failed.store(true);
+            note_prewarm_failure();
+        }
         m_running.store(false);
         m_eof.store(true);
     })) {
+        note_prewarm_failure();
         m_start_failed.store(true);
         m_running.store(false);
         m_eof.store(true);
@@ -386,9 +444,14 @@ void VideoDecoder::stop() {
         std::lock_guard lock(m_queue_mtx);
         m_running.store(false);
     }
+    m_thread.request_stop();
     m_queue_cv.notify_all();
     if (m_thread.joinable()) m_thread.join();
     shutdown_audio();
+    {
+        std::lock_guard lock(m_path_mtx);
+        m_path.clear();
+    }
     {
         std::lock_guard lk(m_queue_mtx);
         while (!m_frame_queue.empty()) {
@@ -412,9 +475,10 @@ double VideoDecoder::get_frame_duration() const {
 }
 
 void VideoDecoder::set_displayed_pts(double pts_s) {
-    if (pts_s >= 0.0) {
-        m_current_displayed_pts.store(pts_s, std::memory_order_relaxed);
-    }
+    m_current_displayed_pts.store(pts_s, std::memory_order_relaxed);
+    std::lock_guard lock(m_audio_mtx);
+    m_audio_reference_pts = pts_s;
+    if (m_audio_stream) submit_ready_audio_locked(av_sync_ready());
 }
 
 double VideoDecoder::get_video_remaining(double fallback_duration) const {
@@ -491,40 +555,34 @@ void VideoDecoder::decode_loop() {
     };
     fmt_ctx->interrupt_callback.opaque = &io_data;
 
-    if (open_local_video_input(&fmt_ctx, m_path.c_str()) != 0) {
+    if (fmt_ctx->interrupt_callback.callback(&io_data)) return;
+    if (open_local_video_input(&fmt_ctx, m_path.c_str()) != 0 ||
+        io_data.start_time + IO_TIMEOUT_US < av_gettime_relative()) {
+        if (!m_running.load()) return;
         g_logger.error("VIDEO_DEC: Failed to open {}", m_path.c_str());
         trigger_error(532);
         m_start_failed.store(true);
         m_running.store(false);
-        m_eof.store(true);
+
         return;
     }
 
-    // Request a small read-ahead window instead of flooding the NAS with an entire video.
-    {
-        struct stat vst;
-        constexpr uint64_t max_prefetch = 16 * 1024 * 1024;
-        if (::stat(m_path.c_str(), &vst) == 0 && vst.st_size > 0) {
-            int vfd = ::open(m_path.c_str(), O_RDONLY | O_CLOEXEC);
-            if (vfd >= 0) {
-                posix_fadvise(vfd, 0, std::min<uint64_t>(max_prefetch, vst.st_size), POSIX_FADV_WILLNEED);
-                ::close(vfd);
-            }
-        }
-    }
+    if (fmt_ctx->interrupt_callback.callback(&io_data)) return;
 
     // Small chunk probing for instant video startup over network SMB/CIFS shares (YouTube style)
     g_logger.info("[TRACE] VIDEO_DEC: Probing stream metadata (probesize=500KB, max_analyze=1s)...");
     fmt_ctx->probesize = 500000;              // 500 KB probe chunk instead of default 5 MB
     fmt_ctx->max_analyze_duration = 1000000; // 1s analyze duration max
 
-    if (avformat_find_stream_info(fmt_ctx, nullptr) < 0) {
+    if (avformat_find_stream_info(fmt_ctx, nullptr) < 0 ||
+        io_data.start_time + IO_TIMEOUT_US < av_gettime_relative()) {
+        if (!m_running.load()) return;
         g_logger.error("VIDEO_DEC: Failed to find stream info for {}", m_path.c_str());
         trigger_error(532);
         m_start_failed.store(true);
         avformat_close_input(&fmt_ctx);
         m_running.store(false);
-        m_eof.store(true);
+
         return;
     }
 
@@ -543,7 +601,7 @@ void VideoDecoder::decode_loop() {
         m_start_failed.store(true);
         avformat_close_input(&fmt_ctx);
         m_running.store(false);
-        m_eof.store(true);
+
         return;
     }
 
@@ -560,7 +618,7 @@ void VideoDecoder::decode_loop() {
         g_logger.error("VIDEO_DEC: No video stream found in {}", m_path.c_str());
         avformat_close_input(&fmt_ctx);
         m_running.store(false);
-        m_eof.store(true);
+
         return;
     }
 
@@ -643,7 +701,7 @@ void VideoDecoder::decode_loop() {
         trigger_error(533);
         avformat_close_input(&fmt_ctx);
         m_running.store(false);
-        m_eof.store(true);
+
         return;
     }
     AVCodecContext* vcc = avcodec_alloc_context3(vc);
@@ -703,7 +761,7 @@ void VideoDecoder::decode_loop() {
             if (vcc) avcodec_free_context(&vcc);
             avformat_close_input(&fmt_ctx);
             m_running.store(false);
-            m_eof.store(true);
+
             return;
         }
     }
@@ -825,6 +883,7 @@ void VideoDecoder::decode_loop() {
         g_logger.info("VIDEO_DEC: downscaling {}x{} -> {}x{} NV12 (display pacing)", vcc->width, vcc->height, dst_w, dst_h);
     }
     g_logger.info("VIDEO_DEC: Decoding {} ({}x{} -> {}x{})", m_path.c_str(), vcc->width, vcc->height, dst_w, dst_h);
+    const double video_time_base = av_q2d(fmt_ctx->streams[video_stream_idx]->time_base);
     AVPacket* pkt = av_packet_alloc();
     AvResource<AVPacket, av_packet_free> packet_guard{pkt};
     AVFrame* frame = av_frame_alloc();
@@ -877,7 +936,7 @@ void VideoDecoder::decode_loop() {
                     g_logger.error("VIDEO_DEC: [E530] Frame crawl detected ({} frames/3s window, queue_size={}): HW M2M pipeline stalled, disabling HW accel for this session, advancing item", crawl_count, q_sz);
                     trigger_error(530);
                     hw_disabled_session.store(true, std::memory_order_relaxed);
-                    m_eof.store(true);
+
                     eof = true;
                     break;
                 }
@@ -956,11 +1015,11 @@ void VideoDecoder::decode_loop() {
                         }
                         vf_count++;
                         last_frame_ms = av_gettime_relative();
-                        crawl_count++;
                         m_decoded_frames.fetch_add(1, std::memory_order_relaxed);
                         AVFrame* sw_frame2 = frame;
                         AVFrame* tmp_sw2 = nullptr;
                         AvResource<AVFrame, av_frame_free> tmp_sw2_guard{tmp_sw2};
+                        const double duration = frame->duration * video_time_base;
                         int64_t pts_raw1_pre = (frame->best_effort_timestamp != AV_NOPTS_VALUE) ? frame->best_effort_timestamp : (frame->pts != AV_NOPTS_VALUE ? frame->pts : frame->pkt_dts);
                         if (frame->format == AV_PIX_FMT_DRM_PRIME || frame->hw_frames_ctx) {
                             tmp_sw2 = av_frame_alloc();
@@ -976,6 +1035,7 @@ void VideoDecoder::decode_loop() {
                             }
                         }
                         VideoFrame vf;
+                        vf.duration = duration;
                         vf.format = sw_frame2->format;
                         if (!convert(sw_frame2, vf, converter, dst_w, dst_h)) {
                             if (tmp_sw2) av_frame_free(&tmp_sw2);
@@ -985,7 +1045,7 @@ void VideoDecoder::decode_loop() {
                         if (tmp_sw2) av_frame_free(&tmp_sw2); // after last use of sw_frame2
                         int64_t pts_raw1 = pts_raw1_pre;
                         if (pts_raw1 != AV_NOPTS_VALUE) {
-                            vf.pts = av_q2d(fmt_ctx->streams[video_stream_idx]->time_base) * pts_raw1;
+                            vf.pts = video_time_base * pts_raw1;
                         }
                         note_frame_anchor(vf.pts, pts_raw1 != AV_NOPTS_VALUE, eof);
                         {
@@ -998,6 +1058,7 @@ void VideoDecoder::decode_loop() {
                                 decode_start_time.store(av_gettime_relative() / 1000000.0, std::memory_order_relaxed);
                             }
                             m_frame_queue.push(std::move(vf));
+                            ++crawl_count;
                             m_produced_frame = true;
                         }
                         last_frame_ms = av_gettime_relative();
@@ -1008,7 +1069,7 @@ void VideoDecoder::decode_loop() {
                 }
             }
             // Set EOF flag after flush completes so guards know decoder truly finished
-            if (eof) { m_eof.store(true); g_logger.info("VIDEO_DEC: Natural EOF reached. vf={} pkt={}", vf_count, af_count); }
+            if (eof) g_logger.info("VIDEO_DEC: Natural EOF reached. vf={} pkt={}", vf_count, af_count);
             break;
         }
         if (pkt->stream_index == video_stream_idx) {
@@ -1060,6 +1121,7 @@ void VideoDecoder::decode_loop() {
                     AVFrame* sw_frame = frame;
                     AVFrame* tmp_sw = nullptr;
                     AvResource<AVFrame, av_frame_free> tmp_sw_guard{tmp_sw};
+                    const double duration = frame->duration * video_time_base;
                     int64_t pts_raw_pre = (frame->best_effort_timestamp != AV_NOPTS_VALUE) ? frame->best_effort_timestamp : (frame->pts != AV_NOPTS_VALUE ? frame->pts : frame->pkt_dts);
                     if (frame->format == AV_PIX_FMT_DRM_PRIME || frame->hw_frames_ctx) {
                         tmp_sw = av_frame_alloc();
@@ -1074,6 +1136,7 @@ void VideoDecoder::decode_loop() {
                         }
                     }
                     VideoFrame vf;
+                    vf.duration = duration;
                     vf.format = sw_frame->format;
                     if (!convert(sw_frame, vf, converter, dst_w, dst_h)) {
                         if (tmp_sw) av_frame_free(&tmp_sw);
@@ -1082,7 +1145,7 @@ void VideoDecoder::decode_loop() {
                     }
                     if (tmp_sw) av_frame_free(&tmp_sw);
                     int64_t pts_raw2 = pts_raw_pre;
-                    if (pts_raw2 != AV_NOPTS_VALUE) vf.pts = av_q2d(fmt_ctx->streams[video_stream_idx]->time_base) * pts_raw2;
+                    if (pts_raw2 != AV_NOPTS_VALUE) vf.pts = video_time_base * pts_raw2;
                     note_frame_anchor(vf.pts, pts_raw2 != AV_NOPTS_VALUE, eof);
                     {
                         const long long wait_t0 = av_gettime_relative();
@@ -1091,6 +1154,7 @@ void VideoDecoder::decode_loop() {
                         queue_wait_us += av_gettime_relative() - wait_t0;
                         if (!m_running.load()) break;
                         m_frame_queue.push(std::move(vf));
+                        ++crawl_count;
                         m_produced_frame = true;
                     }
                     last_frame_ms = av_gettime_relative();
@@ -1126,9 +1190,9 @@ void VideoDecoder::decode_loop() {
             m_decoded_frames.fetch_add(1, std::memory_order_relaxed);
             consecutive_demux_fails = 0;
             last_frame_ms = av_gettime_relative(); // Stall detection
-            crawl_count++;
 
             // Capture PTS before any av_frame_unref() to prevent use-after-free on HW path
+            const double duration = frame->duration * video_time_base;
             int64_t pts_raw = (frame->best_effort_timestamp != AV_NOPTS_VALUE)
                 ? frame->best_effort_timestamp
                 : (frame->pts != AV_NOPTS_VALUE ? frame->pts : frame->pkt_dts);
@@ -1152,6 +1216,7 @@ void VideoDecoder::decode_loop() {
                 }
             }
             VideoFrame vf;
+            vf.duration = duration;
             vf.format = sw_frame->format;
             if (!convert(sw_frame, vf, converter, dst_w, dst_h)) {
                 if (tmp_sw) av_frame_free(&tmp_sw);
@@ -1161,7 +1226,7 @@ void VideoDecoder::decode_loop() {
             if (tmp_sw) av_frame_free(&tmp_sw);
             // Use pre-captured PTS (saved before av_frame_unref on HW path)
             if (pts_raw != AV_NOPTS_VALUE) {
-                vf.pts = av_q2d(fmt_ctx->streams[video_stream_idx]->time_base) * pts_raw;
+                vf.pts = video_time_base * pts_raw;
             }
             // Track last decoded frame PTS for accurate countdown timer
             if (vf.pts > 0) m_last_frame_pts.store(vf.pts + m_frame_duration, std::memory_order_relaxed);
@@ -1176,10 +1241,10 @@ void VideoDecoder::decode_loop() {
                 queue_wait_us += av_gettime_relative() - wait_t0;
                 if (!m_running.load()) break;
                 m_frame_queue.push(std::move(vf));
+                ++crawl_count;
                 m_produced_frame = true;
             }
             last_frame_ms = av_gettime_relative();
-                crawl_count++;
             av_frame_unref(frame);
             } // end while drain
             if (ret < 0 && ret != AVERROR(EAGAIN) && ret != AVERROR_EOF) {
@@ -1216,10 +1281,7 @@ void VideoDecoder::decode_loop() {
     }
 
     g_logger.info("VIDEO_DEC: Done {} ({} vf, {} af)", m_path.c_str(), vf_count, af_count);
-    // Mark decoder as stopped immediately so the render loop stops spinning
-    // on "decoder already running" while we clean up FFmpeg resources below
-    m_running.store(false);
-    m_eof.store(true); // Mark EOF so render loop transitions to next item (even on stall)
+
 
     try {
     av_frame_free(&frame);

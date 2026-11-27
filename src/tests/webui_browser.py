@@ -11,7 +11,9 @@ import time
 import urllib.request
 import websocket
 
-base = 'http://127.0.0.1:19030'
+test_port = os.environ.get('PITROVE_TEST_PORT', '19030')
+chrome_port = os.environ.get('PITROVE_CHROME_PORT', '9223')
+base = f'http://127.0.0.1:{test_port}'
 key = 'chores-fixture-key'
 
 def api(path, fields=None):
@@ -22,12 +24,12 @@ def api(path, fields=None):
         return json.load(response)
 
 with tempfile.TemporaryDirectory(prefix='pitrove-chrome-', ignore_cleanup_errors=True) as profile:
-    chrome = subprocess.Popen(['chromium', '--headless', '--no-sandbox', '--disable-gpu', '--disable-breakpad', '--disable-dev-shm-usage', '--no-first-run', '--no-default-browser-check', '--remote-allow-origins=*', '--remote-debugging-port=9223', '--user-data-dir='+profile, 'about:blank'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+    chrome = subprocess.Popen(['chromium', '--headless', '--no-sandbox', '--disable-gpu', '--disable-breakpad', '--disable-dev-shm-usage', '--no-first-run', '--no-default-browser-check', '--remote-allow-origins=*', f'--remote-debugging-port={chrome_port}', '--user-data-dir='+profile, 'about:blank'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
     try:
         deadline = time.monotonic() + 20
         while True:
             try:
-                tabs = json.load(urllib.request.urlopen('http://127.0.0.1:9223/json/list', timeout=1))
+                tabs = json.load(urllib.request.urlopen(f'http://127.0.0.1:{chrome_port}/json/list', timeout=1))
                 target = next(t for t in tabs if t['type'] == 'page')
                 ws = websocket.create_connection(target['webSocketDebuggerUrl'], timeout=20, suppress_origin=True)
                 break
@@ -135,10 +137,11 @@ with tempfile.TemporaryDirectory(prefix='pitrove-chrome-', ignore_cleanup_errors
         assert 'changed on the frame' in js("document.getElementById('config-error').textContent")
         assert js("document.getElementById('option-slideshow.transition_delay').value")=='88'
         js('window.confirm=()=>true');click('reload-config');wait("document.getElementById('pending-count').textContent==='All changes saved'")
-        # Changing the access key updates this browser after saving with the old key.
+        # Changing the access key updates session storage by default (not persistent localStorage).
         fill('option-remote.api_key','temporary-browser-key');js("document.getElementById('option-remote.api_key').dispatchEvent(new Event('input'))")
         submit('config-form');click('save-config');wait("document.getElementById('pending-count').textContent==='All changes saved'")
-        assert js("localStorage.getItem('api_key')")=='temporary-browser-key'
+        assert js("sessionStorage.getItem('api_key')")=='temporary-browser-key'
+        assert js("localStorage.getItem('api_key')") is None
         key='temporary-browser-key'
         assert api('/api/config')['revision']
         fill('option-remote.api_key','chores-fixture-key');js("document.getElementById('option-remote.api_key').dispatchEvent(new Event('input'))")

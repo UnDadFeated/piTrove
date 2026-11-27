@@ -7,6 +7,7 @@
 #include <cstring>
 #include <vector>
 #include <span>
+#include <stop_token>
 #include <SDL3/SDL.h>
 
 enum class ImageFormat { Unknown, RGBA32, RGB24, BGRA32, BGR24 };
@@ -209,6 +210,11 @@ struct ImageData {
     }
 };
 
+struct PreparedImage {
+    RawImage raw;
+    ImageData data;
+};
+
 class ImageLoader {
 public:
 
@@ -238,6 +244,9 @@ public:
     static bool image_dimensions(std::span<const uint8_t> buffer, int& width, int& height);
     static RawImage decode_rgba(std::span<const uint8_t> buffer, int max_dim = 0);
     static std::vector<uint8_t> read_file_to_buffer(const std::string& path);
+    static std::vector<uint8_t> read_file_to_buffer(const std::string& path, std::stop_token stop);
+    static PreparedImage prepare(std::span<const uint8_t> buffer, std::stop_token stop = {});
+    static std::shared_ptr<ImageData> make_surface(PreparedImage image, const std::string& path);
 
     // Check if file has camera EXIF tags (not screenshot/screen grab)
     static bool has_camera_exif(const char* path);

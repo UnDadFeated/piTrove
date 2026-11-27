@@ -8,14 +8,21 @@
 #include <mutex>
 #include <atomic>
 #include <condition_variable>
+#include <memory>
 #include "font_render.h"
 
-inline std::atomic<bool> g_screenshot_requested{false};
+struct ScreenshotRequest {
+    std::mutex mtx;
+    std::condition_variable cv;
+    bool ready{false};
+    bool ok{false};
+    bool cancelled{false};
+    SDL_Surface* surface{nullptr};
+};
+
+inline std::atomic<bool> g_screenshot_pending{false};
 inline std::mutex g_screenshot_mtx;
-inline std::condition_variable g_screenshot_cv;
-inline std::atomic<bool> g_screenshot_ready{false};
-inline std::atomic<bool> g_screenshot_ok{false};
-inline std::string g_screenshot_out_path = "/app/cache/screenshot.png";
+inline std::shared_ptr<ScreenshotRequest> g_pending_screenshot;
 #include "image_loader.h"
 
 // Color structure matching custom rendering needs
@@ -72,10 +79,15 @@ public:
     void clear(uint8_t r = 0, uint8_t g = 0, uint8_t b = 0, uint8_t a = 255);
     void present();
     void draw_matte_borders(const SDL_Rect& fit_rect);
+    void draw_matte_borders(const SDL_Rect& fit_rect, const SDL_Rect& bounds);
     void draw_blurred_background(SDL_Texture* blur_texture, Uint8 vignette_alpha);
     void draw_background(ImageData* data, const std::string& bg_style, Uint8 vignette_alpha);
 
     void draw_color_matched_matte(const SDL_Rect& fit_rect, Uint8 matte_r, Uint8 matte_g, Uint8 matte_b, float matte_opacity);
+    void draw_color_matched_matte(const SDL_Rect& fit_rect, Uint8 matte_r, Uint8 matte_g, Uint8 matte_b,
+                                  float matte_opacity, const SDL_Rect& bounds);
+    void set_caption_font(FontRenderer* fonts, std::string path);
+
     void draw_bias_lighting(const SDL_Rect& fit_rect, const SDL_Rect& bounds, Uint8 avg_r, Uint8 avg_g, Uint8 avg_b,
         int bias_strength, float item_timer, float anim_speed, const std::string& style, int border_width, int glow_depth = 0);
     void draw_border(const SDL_Rect& fit_rect, const std::string& border_mode, Uint8 avg_r, Uint8 avg_g, Uint8 avg_b, int border_width, const std::string& filename);
@@ -92,6 +104,8 @@ public:
 
 
 private:
+    FontRenderer* caption_fonts{nullptr};
+    std::string caption_font_path;
     SDL_Texture* bias_gradient{nullptr};
     struct PatternBackground {
         SDL_Texture* texture{nullptr};

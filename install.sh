@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# install.sh — piTrove v18.1.19 Premium Graphical Installer
+# install.sh — piTrove Premium Graphical Installer
 # Target: Debian Trixie (13) 64-bit on Raspberry Pi 4/5
 
 set -eo pipefail
@@ -42,9 +42,26 @@ trap cleanup_terminal EXIT INT TERM
 
 # ── Visual Helper Functions ───────────────────────────────────────────────────
 
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+
+detect_pitrove_version() {
+    local candidate ver=""
+    for candidate in "${PRIMARY_HOME:-/home/${SUDO_USER:-pi}}/piTrove/src/CMakeLists.txt" "$SCRIPT_DIR/src/CMakeLists.txt"; do
+        if [[ -f "$candidate" ]]; then
+            ver="$(sed -nE 's/^project\(piTrove[[:space:]]+VERSION[[:space:]]+([0-9]+\.[0-9]+\.[0-9]+).*/\1/p' "$candidate" | head -n1)"
+            if [[ -n "$ver" ]]; then
+                PITROVE_VERSION="$ver"
+                return
+            fi
+        fi
+    done
+    PITROVE_VERSION="${PITROVE_VERSION:-dev}"
+}
+detect_pitrove_version
+
 banner() {
     clear 2>/dev/null || true
-    echo -e " ${BOLD}${WHITE}piTrove${NC}  ${CYAN}v18.1.19${NC} ${GRAY}──────────────────────────${NC} ${BOLD}${GREEN}Installer${NC}"
+    echo -e " ${BOLD}${WHITE}piTrove${NC}  ${CYAN}v${PITROVE_VERSION}${NC} ${GRAY}──────────────────────────${NC} ${BOLD}${GREEN}Installer${NC}"
     echo -e " ${MAGENTA}The Ultra-Premium Picture Frame${NC}"
     echo
 }
@@ -246,6 +263,155 @@ if [[ "$(uname -m)" != "aarch64" ]]; then
 fi
 ok "Debian Trixie 64-bit validated successfully"
 
+# ── Handle Organize Archive Command Line Option ────────────────────────────────
+if [[ "${1:-}" == "--organize" ]]; then
+    if [[ -z "${2:-}" ]]; then
+        fail "Missing target folder. Usage: install.sh --organize <folder_path>"
+    fi
+
+    TARGET_DIR=$(realpath "$2" 2>/dev/null || echo "$2")
+    if [[ ! -d "$TARGET_DIR" ]]; then
+        fail "Folder does not exist: $2"
+    fi
+
+    echo -e " ${BOLD}${WHITE}Media Archive Reorganization${NC}"
+    echo -e "   Target directory: ${GREEN}$TARGET_DIR${NC}"
+    echo
+    echo -e "   Please select an organization strategy:"
+    echo -e "   ${BOLD}${GREEN}1)${NC} ${BOLD}Chronological Folders${NC}"
+    echo -e "      Move files into Photos/YYYY-MM/ and Videos/YYYY-MM/ directories."
+    echo -e "   ${BOLD}${GREEN}2)${NC} ${BOLD}In-Place Prefix${NC}"
+    echo -e "      Add the YYYY-MM-DD_ prefix to files inside their existing folder structures."
+    echo -e "   ${BOLD}${GREEN}3)${NC} ${BOLD}Disable Seasonal Scanning${NC}"
+    echo -e "      Keep all folders as is, but disable the seasonal window in config.toml"
+    echo -e "      so all files will play without filtering."
+    echo -e "   ${BOLD}${GREEN}4)${NC} ${BOLD}Abort${NC}"
+    echo -e "   ${BOLD}${GREEN}5)${NC} ${BOLD}Undo journaled moves${NC}"
+    echo
+    safe_read -p "▸ Enter choice [1-5]: " STRATEGY
+
+    if [[ "$STRATEGY" == "3" ]]; then
+        info "Disabling seasonal scanning window in config.toml..."
+        CFG_PATH="$PRIMARY_HOME/piTrove/config/config.toml"
+        if [[ -f "$CFG_PATH" ]]; then
+            if [[ -f "$PRIMARY_HOME/piTrove/scripts/merge_config.py" && -f "$PRIMARY_HOME/piTrove/src/config.toml" ]]; then
+                python3 - "$PRIMARY_HOME/piTrove" "$CFG_PATH" <<'PYMERGE' || fail "Could not update $CFG_PATH"
+from pathlib import Path
+import sys
+root = Path(sys.argv[1])
+cfg = Path(sys.argv[2])
+sys.path.insert(0, str(root / "scripts"))
+from merge_config import merge_configs
+sys.exit(0 if merge_configs(root / "src/config.toml", cfg, cfg, {"scan": {"window_days": "0"}}) else 1)
+PYMERGE
+            else
+                sed -i 's/^window_days\s*=.*/window_days = 0/' "$CFG_PATH"
+            fi
+            chown "$PRIMARY_USER:$PRIMARY_USER" "$CFG_PATH"
+            chmod 600 "$CFG_PATH"
+            ok "Set window_days = 0 in $CFG_PATH"
+            info "Restarting background slideshow daemon to reload config..."
+            systemctl restart piTrove.service &>/dev/null || true
+            ok "Slideshow daemon restarted successfully."
+        else
+            fail "Configuration file not found at $CFG_PATH"
+        fi
+        exit 0
+    elif [[ "$STRATEGY" == "4" ]] || [[ -z "$STRATEGY" ]]; then
+        info "Aborted by user."
+        exit 0
+    elif [[ "$STRATEGY" != "1" && "$STRATEGY" != "2" && "$STRATEGY" != "5" ]]; then
+        fail "Invalid strategy selected."
+    fi
+
+    MOUNT_POINT=$(findmnt --noheadings --output TARGET --target "$TARGET_DIR") || fail "Could not identify the archive mount."
+    MOUNT_OPTIONS=$(findmnt --noheadings --output OPTIONS --target "$TARGET_DIR") || fail "Could not read archive mount options."
+    CURRENT_IMAGE=$(docker inspect --format '{{.Image}}' piTrove) || fail "Could not identify the installed piTrove image."
+    CFG_DIR="$PRIMARY_HOME/piTrove/config"
+    CACHE_DIR="$PRIMARY_HOME/piTrove/cache"
+    [[ -d "$CFG_DIR" ]] || fail "Cannot find the installed piTrove configuration."
+    mkdir -p "$CACHE_DIR"
+    chown "$PRIMARY_USER:$PRIMARY_USER" "$CACHE_DIR"
+
+    echo -e "${RED}[!] WARNING: The target archive is located on $MOUNT_POINT.${NC}"
+    echo -e "    This operation will:"
+    if [[ ",$MOUNT_OPTIONS," == *,ro,* ]]; then
+        echo -e "    Temporarily remount '$MOUNT_POINT' from Read-Only (ro) to Read-Write (rw)."
+    fi
+    if [[ "$STRATEGY" == "1" ]]; then
+        echo -e "    2. Scan, rename, and group all photos and videos under:"
+        echo -e "       - $TARGET_DIR/Photos/YYYY-MM/YYYY-MM-DD_filename.ext"
+        echo -e "       - $TARGET_DIR/Videos/YYYY-MM/YYYY-MM-DD_filename.ext"
+    elif [[ "$STRATEGY" == "2" ]]; then
+        echo -e "    2. Scan and rename all files in-place with the 'YYYY-MM-DD_' prefix"
+        echo -e "       within their current directories."
+    else
+        echo -e "    Restore journaled names without overwriting existing files."
+    fi
+    echo -e "    3. Retain original file timestamps and resolve naming conflicts."
+    echo ""
+
+    safe_read -p "▸ Are you sure you want to proceed? (y/N): " CONF1
+    if [[ ! "$CONF1" =~ ^[Yy]$ ]]; then
+        info "Aborted by user."
+        exit 0
+    fi
+
+    safe_read -p "▸ CONFIRM ONCE MORE: Are you absolutely sure? This will rewrite files on the storage. (y/N): " CONF2
+    if [[ ! "$CONF2" =~ ^[Yy]$ ]]; then
+        info "Aborted by user."
+        exit 0
+    fi
+
+    if [[ ",$MOUNT_OPTIONS," == *,ro,* ]]; then
+        MOUNT_TYPE=$(findmnt --noheadings --output FSTYPE --target "$TARGET_DIR")
+        case "$MOUNT_TYPE" in
+            cifs|smb3|nfs|nfs4) ;;
+            *) fail "A writable archive is required on $MOUNT_TYPE." ;;
+        esac
+        restore_archive_mount() {
+            local result=$?
+            trap - EXIT
+            if ! mount -o remount,ro "$MOUNT_POINT"; then
+                fail "Failed to restore $MOUNT_POINT to read-only."
+            fi
+            exit "$result"
+        }
+        mount -o remount,rw "$MOUNT_POINT" || fail "Could not remount the archive read-write."
+        trap restore_archive_mount EXIT
+        trap 'exit 130' INT
+        trap 'exit 143' TERM
+    fi
+
+    ORGANIZE_ARGS=(--organize /archive)
+    if [[ "$STRATEGY" == "2" ]]; then
+        ORGANIZE_ARGS+=(--in-place)
+    elif [[ "$STRATEGY" == "5" ]]; then
+        if [[ -f "$CACHE_DIR/.pitrove-organizer.sqlite3" ]]; then
+            ORGANIZE_ARGS=(--undo-organize /app/cache/.pitrove-organizer.sqlite3)
+        else
+            ORGANIZE_ARGS=(--undo-organize /archive/.pitrove-organizer.sqlite3)
+        fi
+    fi
+    docker run --rm --network none \
+        --user "$(id -u "$PRIMARY_USER"):$(id -g "$PRIMARY_USER")" \
+        --entrypoint /app/piTrove \
+        --mount "type=bind,source=$TARGET_DIR,target=/archive" \
+        --mount "type=bind,source=$CACHE_DIR,target=/app/cache" \
+        --mount "type=bind,source=$CFG_DIR,target=/app/config,readonly" \
+        "$CURRENT_IMAGE" --config /app/config/config.toml "${ORGANIZE_ARGS[@]}"
+    exit $?
+fi
+
+# ── Handle Update Command Line Option ──────────────────────────────────────────
+if [[ "${1:-}" == "--update" ]]; then
+    project="$PRIMARY_HOME/piTrove"
+    [[ -x "$project/scripts/update.sh" ]] || fail "Cannot find the installed update script."
+    args=()
+    if [[ "${2:-}" == "--cron" ]]; then args+=(--cron); fi
+    exec sudo -u "$PRIMARY_USER" env PITROVE_DIR="$project" "$project/scripts/update.sh" "${args[@]}"
+fi
+
 # 2. Bootstrap packages (git, lsb_release, curl, sudo needed below)
 run_with_spinner "Updating system package repositories" apt-get update
 run_with_spinner "Upgrading host packages & system libraries" env DEBIAN_FRONTEND=noninteractive apt-get upgrade -y -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold"
@@ -290,133 +456,6 @@ if [ "$standalone_wifi" = false ]; then
     run_with_spinner "Installing NetworkManager" env DEBIAN_FRONTEND=noninteractive apt-get install -y network-manager
     systemctl enable --now NetworkManager
     ok "NetworkManager installed and enabled"
-fi
-
-# Parse a value from config.toml
-# ── Handle Organize Archive Command Line Option ────────────────────────────────
-if [[ "$1" == "--organize" ]]; then
-    if [[ -z "$2" ]]; then
-        fail "Missing target folder. Usage: install.sh --organize <folder_path>"
-    fi
-    
-    TARGET_DIR=$(realpath "$2" 2>/dev/null || echo "$2")
-    if [[ ! -d "$TARGET_DIR" ]]; then
-        fail "Folder does not exist: $2"
-    fi
-    
-    echo -e " ${BOLD}${WHITE}Media Archive Reorganization${NC}"
-    echo -e "   Target directory: ${GREEN}$TARGET_DIR${NC}"
-    echo
-    echo -e "   Please select an organization strategy:"
-    echo -e "   ${BOLD}${GREEN}1)${NC} ${BOLD}Chronological Folders${NC}"
-    echo -e "      Move files into Photos/YYYY-MM/ and Videos/YYYY-MM/ directories."
-    echo -e "   ${BOLD}${GREEN}2)${NC} ${BOLD}In-Place Prefix${NC}"
-    echo -e "      Add the YYYY-MM-DD_ prefix to files inside their existing folder structures."
-    echo -e "   ${BOLD}${GREEN}3)${NC} ${BOLD}Disable Seasonal Scanning${NC}"
-    echo -e "      Keep all folders as is, but disable the seasonal window in config.toml"
-    echo -e "      so all files will play without filtering."
-    echo -e "   ${BOLD}${GREEN}4)${NC} ${BOLD}Abort${NC}"
-    echo
-    
-    echo -e "   ${BOLD}${GREEN}5)${NC} ${BOLD}Undo journaled moves${NC}"
-    safe_read -p "▸ Enter choice [1-5]: " STRATEGY
-    
-    if [[ "$STRATEGY" == "3" ]]; then
-        info "Disabling seasonal scanning window in config.toml..."
-        CFG_PATH="$PRIMARY_HOME/piTrove/config/config.toml"
-        if [[ -f "$CFG_PATH" ]]; then
-            sed -i 's/^window_days\s*=.*/window_days = 0/' "$CFG_PATH"
-            ok "Set window_days = 0 in $CFG_PATH"
-            info "Restarting background slideshow daemon to reload config..."
-            systemctl restart piTrove.service &>/dev/null || true
-            ok "Slideshow daemon restarted successfully."
-        else
-            fail "Configuration file not found at $CFG_PATH"
-        fi
-        exit 0
-    elif [[ "$STRATEGY" == "4" ]] || [[ -z "$STRATEGY" ]]; then
-        info "Aborted by user."
-        exit 0
-    elif [[ "$STRATEGY" != "1" && "$STRATEGY" != "2" && "$STRATEGY" != "5" ]]; then
-        fail "Invalid strategy selected."
-    fi
-    
-    MOUNT_POINT=$(findmnt --noheadings --output TARGET --target "$TARGET_DIR") || fail "Could not identify the archive mount."
-    MOUNT_OPTIONS=$(findmnt --noheadings --output OPTIONS --target "$TARGET_DIR") || fail "Could not read archive mount options."
-    CURRENT_IMAGE=$(docker inspect --format '{{.Image}}' piTrove) || fail "Could not identify the installed piTrove image."
-    CFG_DIR="$PRIMARY_HOME/piTrove/config"
-    [[ -d "$CFG_DIR" ]] || fail "Cannot find the installed piTrove configuration."
-    
-    echo -e "${RED}[!] WARNING: The target archive is located on $MOUNT_POINT.${NC}"
-    echo -e "    This operation will:"
-    if [[ ",$MOUNT_OPTIONS," == *,ro,* ]]; then
-        echo -e "    Temporarily remount '$MOUNT_POINT' from Read-Only (ro) to Read-Write (rw)."
-    fi
-    if [[ "$STRATEGY" == "1" ]]; then
-        echo -e "    2. Scan, rename, and group all photos and videos under:"
-        echo -e "       - $TARGET_DIR/Photos/YYYY-MM/YYYY-MM-DD_filename.ext"
-        echo -e "       - $TARGET_DIR/Videos/YYYY-MM/YYYY-MM-DD_filename.ext"
-    elif [[ "$STRATEGY" == "2" ]]; then
-        echo -e "    2. Scan and rename all files in-place with the 'YYYY-MM-DD_' prefix"
-        echo -e "       within their current directories."
-    else
-        echo -e "    Restore journaled names without overwriting existing files."
-    fi
-    echo -e "    3. Retain original file timestamps and resolve naming conflicts."
-    echo ""
-    
-    safe_read -p "▸ Are you sure you want to proceed? (y/N): " CONF1
-    if [[ ! "$CONF1" =~ ^[Yy]$ ]]; then
-        info "Aborted by user."
-        exit 0
-    fi
-    
-    safe_read -p "▸ CONFIRM ONCE MORE: Are you absolutely sure? This will rewrite files on the storage. (y/N): " CONF2
-    if [[ ! "$CONF2" =~ ^[Yy]$ ]]; then
-        info "Aborted by user."
-        exit 0
-    fi
-    
-    if [[ ",$MOUNT_OPTIONS," == *,ro,* ]]; then
-        MOUNT_TYPE=$(findmnt --noheadings --output FSTYPE --target "$TARGET_DIR")
-        case "$MOUNT_TYPE" in
-            cifs|smb3|nfs|nfs4) ;;
-            *) fail "A writable archive is required on $MOUNT_TYPE." ;;
-        esac
-        restore_archive_mount() {
-            local result=$?
-            trap - EXIT
-            if ! mount -o remount,ro "$MOUNT_POINT"; then
-                fail "Failed to restore $MOUNT_POINT to read-only."
-            fi
-            exit "$result"
-        }
-        mount -o remount,rw "$MOUNT_POINT" || fail "Could not remount the archive read-write."
-        trap restore_archive_mount EXIT
-        trap 'exit 130' INT
-        trap 'exit 143' TERM
-    fi
-
-    ORGANIZE_ARGS=(--organize /archive)
-    if [[ "$STRATEGY" == "2" ]]; then
-        ORGANIZE_ARGS+=(--in-place)
-    elif [[ "$STRATEGY" == "5" ]]; then
-        ORGANIZE_ARGS=(--undo-organize /archive/.pitrove-organizer.sqlite3)
-    fi
-    docker run --rm --network none --entrypoint /app/piTrove \
-        --mount "type=bind,source=$TARGET_DIR,target=/archive" \
-        --mount "type=bind,source=$CFG_DIR,target=/app/config,readonly" \
-        "$CURRENT_IMAGE" --config /app/config/config.toml "${ORGANIZE_ARGS[@]}"
-    exit $?
-fi
-
-# ── Handle Update Command Line Option ──────────────────────────────────────────
-if [[ "$1" == "--update" ]]; then
-    project="$PRIMARY_HOME/piTrove"
-    [[ -x "$project/scripts/update.sh" ]] || fail "Cannot find the installed update script."
-    args=()
-    if [[ "${2:-}" == "--cron" ]]; then args+=(--cron); fi
-    exec sudo -u "$PRIMARY_USER" env PITROVE_DIR="$project" "$project/scripts/update.sh" "${args[@]}"
 fi
 
 # ── Kill Conflicting Display Servers ───────────────────────────────────────────
@@ -671,6 +710,7 @@ else
     run_with_spinner "Pulling latest repository changes (branch: $INSTALL_BRANCH)" sudo -u "$PRIMARY_USER" git pull --ff-only origin "$INSTALL_BRANCH"
 fi
 chown -R $PRIMARY_USER:$PRIMARY_USER "$PRIMARY_HOME/piTrove"
+detect_pitrove_version
 info "Repository ready at: ${CYAN}$PRIMARY_HOME/piTrove${NC} (branch: ${BOLD}${BRANCH_LABEL}${NC})"
 
 # ── Wi-Fi Keepalive Daemon & Organizer Cleanups (v13.0.0 Migration) ───────────
@@ -933,6 +973,8 @@ $SHARE_IP:$SHARE_PATH $SHARE_MOUNT $SHARE_PROTOCOL defaults,_netdev,timeo=10,ret
                             safe_read -r _tmp ; SHARE_PATH="${_tmp:-$SHARE_PATH}"
                             generate_fstab_line
                             sed -i '/# piTrove /d' /etc/fstab
+                            sed -i '/# PiTrove /d' /etc/fstab
+                            sed -i "\|[[:space:]]${SHARE_MOUNT}[[:space:]]|d" /etc/fstab 2>/dev/null || true
                             echo "$FSTAB_LINE" >> /etc/fstab
                             systemctl daemon-reload 2>/dev/null || true
                             MOUNT_ATTEMPTS=0
@@ -1050,8 +1092,9 @@ mkdir -p "$PRIMARY_HOME/piTrove/cache" "$PRIMARY_HOME/piTrove/config"
 mkdir -p "$PRIMARY_HOME/piTrove/src/config"
 mkdir -p "$PRIMARY_HOME/piTrove/logs"
 mkdir -p "$PRIMARY_HOME/piTrove/subtitles"
+mkdir -p "$PRIMARY_HOME/piTrove/screenshots"
 mkdir -p "$PRIMARY_HOME/piTrove/src/fonts"
-chown -R $PRIMARY_USER:$PRIMARY_USER "$PRIMARY_HOME/piTrove/cache" "$PRIMARY_HOME/piTrove/config" "$PRIMARY_HOME/piTrove/logs" "$PRIMARY_HOME/piTrove/subtitles"
+chown -R "$PRIMARY_USER:$PRIMARY_USER" "$PRIMARY_HOME/piTrove/cache" "$PRIMARY_HOME/piTrove/config" "$PRIMARY_HOME/piTrove/logs" "$PRIMARY_HOME/piTrove/subtitles" "$PRIMARY_HOME/piTrove/screenshots"
 
 # ── Build piTrove Docker Container ─────────────────────────────────────────────
 info "Building piTrove Docker Container (compiling binary inside container)..."
@@ -1132,12 +1175,62 @@ if [[ -z "$PROBED_INTERFACE" ]]; then
 fi
 
 CONFIG_FILE="$PRIMARY_HOME/piTrove/config/config.toml"
+SECRETS_FILE="$PRIMARY_HOME/piTrove/config/secrets.toml"
 INSTALL_ROOT="$PRIMARY_HOME/piTrove"
+GENERATED_API_KEY=""
+
+has_existing_api_key() {
+    python3 - "$CONFIG_FILE" "$SECRETS_FILE" <<'PYCHECK'
+from pathlib import Path
+import re
+import sys
+
+for raw in sys.argv[1:]:
+    p = Path(raw)
+    if not p.is_file():
+        continue
+    section = ""
+    for line in p.read_text(encoding="utf-8", errors="ignore").splitlines():
+        s = line.strip()
+        if not s or s.startswith("#") or s.startswith(";"):
+            continue
+        if s.startswith("[") and "]" in s:
+            section = s[1:s.index("]")].strip()
+            continue
+        if section == "remote" and re.match(r"^api_key\s*=", s):
+            val = s.split("=", 1)[1].strip()
+            if val.startswith(""") or val.startswith("'"):
+                q = val[0]
+                end = val.find(q, 1)
+                val = val[1:end] if end != -1 else val[1:]
+            else:
+                val = val.split("#", 1)[0].strip()
+            if val:
+                sys.exit(0)
+sys.exit(1)
+PYCHECK
+}
+
 if [[ -f "$CONFIG_FILE" ]]; then
     info "Merging defaults into existing config.toml..."
 fi
+
+if ! has_existing_api_key; then
+    if [[ -n "${PITROVE_API_KEY:-}" ]]; then
+        GENERATED_API_KEY="$PITROVE_API_KEY"
+        info "Using [remote] api_key from environment"
+    elif [[ "${PITROVE_OPEN_LAN:-0}" == "1" ]]; then
+        warn "PITROVE_OPEN_LAN=1 set: leaving LAN control API open without an API key."
+    elif [[ -t 0 ]] && yesno "Leave LAN control API open without an API key (not recommended on shared networks)?"; then
+        warn "LAN control API left unauthenticated by user choice. You can set an API key later via 'pitrove config'."
+    else
+        GENERATED_API_KEY="$(python3 -c 'import secrets; print(secrets.token_hex(32))')"
+        ok "Generated strong random [remote] api_key for LAN control authentication"
+    fi
+fi
+
 if ! printf '%s\0' "$SCAN_WINDOW_DAYS" "$PROBED_GATEWAY" "$PROBED_INTERFACE" \
-    "$GOOGLE_PHOTOS_ENABLED" |
+    "$GOOGLE_PHOTOS_ENABLED" "$GENERATED_API_KEY" |
     python3 -c '
 import json
 from pathlib import Path
@@ -1149,7 +1242,7 @@ sys.path.insert(0, str(root / "scripts"))
 from merge_config import merge_configs
 
 config = root / "config/config.toml"
-window, gateway, interface, photos = (
+window, gateway, interface, photos, api_key = (
     value.decode() for value in sys.stdin.buffer.read().split(b"\0")[:-1]
 )
 overrides = {"scan": {"window_days": str(int(window))}}
@@ -1159,15 +1252,21 @@ if not config.exists():
         "updates": {"auto_update_branch": json.dumps(branch)},
         "keepalive": {"gateway_ip": json.dumps(gateway), "wifi_interface": json.dumps(interface)},
     })
+if api_key:
+    overrides.setdefault("remote", {})["api_key"] = json.dumps(api_key)
 if photos == "1":
-    overrides["remote"] = {"http_enabled": "1"}
+    overrides.setdefault("remote", {})["http_enabled"] = "1"
     overrides["google_photos"] = {"enabled": "1"}
 sys.exit(0 if merge_configs(root / "src/config.toml", config, config, overrides) else 1)
 ' "$INSTALL_ROOT" "$INSTALL_BRANCH"; then
     fail "Could not save config.toml"
 fi
 chown "$PRIMARY_USER:$PRIMARY_USER" "$CONFIG_FILE"
+chmod 600 "$CONFIG_FILE"
 ok "Production configuration saved"
+if [[ -n "$GENERATED_API_KEY" ]]; then
+    echo -e "   ${BOLD}${YELLOW}API Key (save this for the Web Remote Dashboard):${NC} ${BOLD}${CYAN}$GENERATED_API_KEY${NC}"
+fi
 
 # Ensure watchdog directory exists
 mkdir -p "$PRIMARY_HOME/piTrove/src/watchdog"
@@ -1193,7 +1292,7 @@ Type=simple
 User=$PRIMARY_USER
 Group=$PRIMARY_USER
 WorkingDirectory=$PRIMARY_HOME/piTrove
-ExecStartPre=-/bin/bash -c "timeout -k 2 10 ls -U /mnt/nas >/dev/null 2>&1 || true"
+ExecStartPre=-/bin/bash -c "timeout -k 2 10 ls -U '$SHARE_MOUNT' >/dev/null 2>&1 || true"
 ExecStartPre=-/usr/bin/docker compose down
 ExecStart=/usr/bin/docker compose up
 ExecStop=/usr/bin/docker compose down
@@ -1252,10 +1351,12 @@ case "$1" in
         if [[ ! -t 0 ]] && { true < /dev/tty; } 2>/dev/null; then
             exec 0< /dev/tty
         fi
-        docker exec -it piTrove /app/piTrove --config-wizard /app/config/config.toml || G_EXIT_CODE=2
+        rc=0
+        docker exec -it piTrove /app/piTrove --config-wizard /app/config/config.toml || rc=$?
         stty sane 2>/dev/null || true
         tput cnorm 2>/dev/null || true
         echo
+        exit "$rc"
         ;;
     restart)
         echo -e "${YELLOW}[▸] Restarting piTrove service...${NC}"
@@ -1326,6 +1427,9 @@ print_success_card() {
     echo
     echo -e " ${BOLD}${WHITE}Web Remote Dashboard & MQTT HUD:${NC}"
     echo -e "   • URL: ${BOLD}${CYAN}$url${NC}"
+    if [[ -n "${GENERATED_API_KEY:-}" ]]; then
+        echo -e "   • API Key: ${BOLD}${YELLOW}$GENERATED_API_KEY${NC}"
+    fi
     echo -e "     Click to view MQTT telemetry, control the screen physically,"
     echo -e "     and trigger motion simulation sweeps remotely."
     echo

@@ -256,6 +256,9 @@ ScanResult MediaScanner::scan(const std::string& directory, const std::vector<st
                 ++work.working;
             }
             bool ok = true;
+            std::vector<MediaItem> local_items;
+            std::vector<std::pair<std::string, int>> local_dirs;
+            size_t local_steps = 0;
             try {
                 // glibc readdir buffers getdents64 results. Only possible media,
                 // directories, symlinks, and unknown types need a metadata lookup.
@@ -281,15 +284,17 @@ ScanResult MediaScanner::scan(const std::string& directory, const std::vector<st
                     if (entry->d_type == DT_LNK) continue;
                     if (!media && entry->d_type != DT_UNKNOWN && entry->d_type != DT_DIR) continue;
                     struct stat item{};
-                    if (fstatat(dirfd(dir.get()), entry->d_name, &item, AT_SYMLINK_NOFOLLOW) != 0) { ok = false; continue; }
+                    if (fstatat(dirfd(dir.get()), entry->d_name, &item, AT_SYMLINK_NOFOLLOW) != 0) {
+                        // A file vanishing between readdir and fstatat is benign; do not fail the whole scan.
+                        if (errno != ENOENT) ok = false;
+                        continue;
+                    }
                     if (S_ISLNK(item.st_mode)) continue;
                     bool recurse = S_ISDIR(item.st_mode) && job.second < max_depth &&
                                    dates.is_month_in_window(name, window_days);
-                    std::lock_guard lock(work.mutex);
-                    if (work.cancelled) break;
-                    ++work.steps;
+                    ++local_steps;
                     if (recurse) {
-                        work.dirs.emplace_back(job.first + "/" + std::string(name), job.second + 1);
+                        local_dirs.emplace_back(job.first + "/" + std::string(name), job.second + 1);
                     } else if (media && S_ISREG(item.st_mode)) {
                         MediaItem file;
                         file.path = job.first + "/" + std::string(name);
@@ -298,13 +303,43 @@ ScanResult MediaScanner::scan(const std::string& directory, const std::vector<st
                         file.type = is_image(ext) ? "image" : "video";
                         file.file_size = item.st_size;
                         file.modified_time = item.st_mtime;
-                        work.items.push_back(std::move(file));
+                        local_items.push_back(std::move(file));
                     }
-                    work.cv.notify_all();
+                    // Batch flush on very large directories so cancellation and coordinator progress stay responsive.
+                    if (local_items.size() >= 256 || local_dirs.size() >= 32) {
+                        bool cancelled = false;
+                        {
+                            std::lock_guard lock(work.mutex);
+                            cancelled = work.cancelled;
+                            if (!cancelled) {
+                                for (auto& subdir : local_dirs) work.dirs.push_back(std::move(subdir));
+                                if (!local_items.empty()) {
+                                    work.items.insert(work.items.end(),
+                                                      std::make_move_iterator(local_items.begin()),
+                                                      std::make_move_iterator(local_items.end()));
+                                }
+                                work.steps += local_steps;
+                            }
+                        }
+                        local_dirs.clear();
+                        local_items.clear();
+                        local_steps = 0;
+                        work.cv.notify_all();
+                        if (cancelled) break;
+                    }
                 }
             } catch (...) { ok = false; }
             {
                 std::lock_guard lock(work.mutex);
+                if (!work.cancelled) {
+                    for (auto& subdir : local_dirs) work.dirs.push_back(std::move(subdir));
+                    if (!local_items.empty()) {
+                        work.items.insert(work.items.end(),
+                                          std::make_move_iterator(local_items.begin()),
+                                          std::make_move_iterator(local_items.end()));
+                    }
+                    work.steps += local_steps;
+                }
                 --work.working;
                 work.complete &= ok;
                 ++work.steps;

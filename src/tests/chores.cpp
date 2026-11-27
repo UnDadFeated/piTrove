@@ -118,6 +118,12 @@ static void test_http(){
  check(queried.status==404&&store.snapshot("2026-11-17").chores.size()==1,"query overrode POST body");
  auto cross=request("id=1");cross.insert(cross.find("Content-Type:"),"Origin: https://another-site.example\r\n");
  check(handle_http(store,"POST","/api/chores/tasks/delete",cross,"2026-11-17","UTC").status==403,"cross-origin form deleted a chore");
+ check(state.body.find("\"revision\":1")!=std::string::npos,"HTTP snapshot missing initial revision");
+ check(call("/api/chores/tasks/save","id=1&person_id=1&title=Stale&repeat=daily&all_day=1&revision=99").status==409,"stale revision was accepted");
+ check(call("/api/chores/tasks/save","id=1&person_id=1&title=Feed%20cat%20now&repeat=daily&all_day=1&revision=1").status==200,"matching revision edit failed");
+ auto rev2=handle_http(store,"GET","/api/chores","","2026-11-17","America/Los_Angeles");
+ check(rev2.status==200&&rev2.body.find("\"revision\":2")!=std::string::npos,"revision did not increment");
+ check(call("/api/chores/tasks/save","id=1&person_id=1&title=Feed%20cat&repeat=daily&all_day=1").status==200,"omitted revision broke legacy client compatibility");
  check(call("/api/chores/tasks/delete","id=1").status==200&&call("/api/chores/people/delete","id=1").status==200,"HTTP delete failed");
 }
 int main(){char tmp[]="/tmp/pitrove-chores-XXXXXX";char* dir=mkdtemp(tmp);try{check(dir,"mkdtemp failed");test_geometry();test_store(std::string(dir)+"/chores.db");test_http();std::filesystem::remove_all(dir);std::cout<<"Chore persistence, scheduling, HTTP and panel geometry regressions passed\n";}catch(const std::exception& e){std::cerr<<e.what()<<'\n';if(dir)std::filesystem::remove_all(dir);return 1;}}

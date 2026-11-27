@@ -24,7 +24,7 @@ jobs:
       - name: Verify the production controller
         run: python3 src/tests/controller_server.py pitrove:security-scan
 
-      - name: Scan runtime image
+      - name: Scan runtime image (fixable gate)
         env:
           TRIVY_VEX: .github/libxml2-backports.openvex.json
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
@@ -38,25 +38,62 @@ jobs:
           format: sarif
           output: trivy-image.sarif
 
+      - name: Scan runtime image (full report including unfixed)
+        if: always()
+        env:
+          TRIVY_VEX: .github/libxml2-backports.openvex.json
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: image
+          image-ref: pitrove:security-scan
+          severity: HIGH,CRITICAL
+          ignore-unfixed: false
+          limit-severities-for-sarif: true
+          exit-code: '0'
+          format: sarif
+          output: trivy-image-full.sarif
+
       - name: Summarize runtime vulnerabilities
-        if: always() && hashFiles('trivy-image.sarif') != ''
+        if: always() && (hashFiles('trivy-image.sarif') != '' || hashFiles('trivy-image-full.sarif') != '')
         run: |
           python3 - <<'PYTHON'
           import json
           import os
           import re
+          from pathlib import Path
 
-          with open("trivy-image.sarif", encoding="utf-8") as report:
-              sarif = json.load(report)
-          results = [result for run in sarif["runs"] for result in run.get("results", [])]
-          advisories = sorted({result["ruleId"] for result in results
-                               if re.fullmatch(r"CVE-\d{4}-\d{4,}", result.get("ruleId", ""))})
+          def load_report(path):
+              if not Path(path).is_file():
+                  return [], []
+              with open(path, encoding="utf-8") as report:
+                  sarif = json.load(report)
+              results = [r for run in sarif.get("runs", []) for r in run.get("results", [])]
+              advisories = sorted({
+                  r["ruleId"] for r in results
+                  if re.fullmatch(r"CVE-\d{4}-\d{4,}", r.get("ruleId", ""))
+              })
+              return results, advisories
+
+          fix_results, fix_advisories = load_report("trivy-image.sarif")
+          all_results, all_advisories = load_report("trivy-image-full.sarif")
+          unfixed_advisories = sorted(set(all_advisories) - set(fix_advisories))
+
           with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as summary:
-              summary.write(f"### ARM64 runtime scan\n\n{len(results)} high or critical findings.\n")
-              for advisory in advisories:
-                  summary.write(f"- [{advisory}](https://www.cve.org/CVERecord?id={advisory})\n")
-          if advisories:
-              print("::warning title=Runtime vulnerabilities::" + ", ".join(advisories[:20]))
+              summary.write("### ARM64 runtime scan\n\n")
+              summary.write(f"- **Fixable HIGH/CRITICAL (gate):** {len(fix_results)} findings ({len(fix_advisories)} CVEs)\n")
+              summary.write(f"- **Total HIGH/CRITICAL (including unfixed):** {len(all_results)} findings ({len(all_advisories)} CVEs)\n\n")
+              if fix_advisories:
+                  summary.write("#### Fixable advisories\n")
+                  for advisory in fix_advisories:
+                      summary.write(f"- [{advisory}](https://www.cve.org/CVERecord?id={advisory})\n")
+              if unfixed_advisories:
+                  summary.write("\n#### Unfixed upstream advisories (tracked)\n")
+                  for advisory in unfixed_advisories:
+                      summary.write(f"- [{advisory}](https://www.cve.org/CVERecord?id={advisory})\n")
+          if fix_advisories:
+              print("::warning title=Fixable runtime vulnerabilities::" + ", ".join(fix_advisories[:20]))
+          if unfixed_advisories:
+              print("::warning title=Unfixed runtime vulnerabilities::" + ", ".join(unfixed_advisories[:20]))
           PYTHON
 
       - name: Scan repository

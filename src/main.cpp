@@ -54,6 +54,7 @@ extern char** environ;
 #include <fstream>
 #include <glob.h>
 #include <numbers>
+#include <utility>
 #include <format>
 
 static TransitionEngine* g_transition = nullptr;
@@ -109,6 +110,7 @@ PreloadQueue* g_preload = nullptr;
 
 // Background Watchman & Dynamic Playlist State
 std::mutex g_playlist_mtx;
+static uint64_t playlist_generation = 0; // Protected by g_playlist_mtx.
 std::vector<MediaItem> g_scanned_items;
 std::vector<MediaItem> g_eligible;
 int current_idx = 0;
@@ -219,41 +221,16 @@ static bool is_item_in_seasonal_window(const MediaItem& item, int window_days) {
     return diff <= window_days;
 }
 
-static bool should_be_twin_portrait(std::vector<MediaItem>& eligible, int idx) {
-    bool twin_enabled = false;
-    {
-        std::shared_lock lock(g_config_mtx);
-        twin_enabled = g_cfg.twin_portrait_enabled && g_cfg.collage_enabled;
+static std::optional<int> find_twin_portrait(const std::vector<MediaItem>& items, int index, bool look_ahead) {
+    const auto portrait = [](const MediaItem& item) {
+        return item.type == "image" && item.height > item.width && item.height > 0;
+    };
+    if (!portrait(items[index])) return std::nullopt;
+    const int end = look_ahead ? std::ssize(items) : std::min<int>(index + 2, std::ssize(items));
+    for (int i = index + 1; i < end; ++i) {
+        if (portrait(items[i])) return i;
     }
-    int size = std::ssize(eligible);
-    if (!twin_enabled || size < 2) return false;
-
-    // Check if the current item is portrait
-    if (idx >= size || idx < 0) return false;
-    const auto& item1 = eligible[idx];
-    if (item1.type == "video" || item1.height <= item1.width || item1.height <= 0) return false;
-
-    // Check if the next item is portrait
-    if (idx + 1 >= size) return false;
-    const auto& item2 = eligible[idx + 1];
-    bool item2_is_portrait = (item2.type == "image" && item2.height > item2.width && item2.height > 0);
-
-    if (item2_is_portrait) {
-        return true;
-    }
-
-    // If next item is not portrait, search forward in the playlist to find the nearest portrait image to pair
-    for (int j = idx + 2; j < size; j++) {
-        const auto& candidate = eligible[j];
-        if (candidate.type == "image" && candidate.height > candidate.width && candidate.height > 0) {
-            // Swap candidate into the adjacent slot (idx + 1)
-            std::swap(eligible[idx + 1], eligible[j]);
-            g_logger.info("Twin-Portrait: Dynamically paired portrait at index {} by bringing forward portrait from index {}", idx, j);
-            return true;
-        }
-    }
-
-    return false;
+    return std::nullopt;
 }
 
 // NOTE: Matting/border offset logic duplicates Renderer::calculate_fit_rect (renderer.cpp:251)
@@ -326,15 +303,17 @@ static SDL_Texture* render_state_to_texture(
     if (!target) return nullptr;
     SDL_SetTextureBlendMode(target, SDL_BLENDMODE_BLEND);
 
-    // Set render target to our texture
-    SDL_SetRenderTarget(renderer, target);
+    if (!SDL_SetRenderTarget(renderer, target)) {
+        SDL_DestroyTexture(target);
+        return nullptr;
+    }
 
     bool snap_matte_color = false;
     {
         std::shared_lock lock(g_config_mtx);
         snap_matte_color = g_cfg.color_matched_matte;
     }
-    if (snap_matte_color && primary) {
+    if (snap_matte_color && primary && !twin) {
         SDL_SetRenderDrawColor(renderer, primary->matte_r, primary->matte_g, primary->matte_b, 255);
     } else {
         SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
@@ -345,9 +324,12 @@ static SDL_Texture* render_state_to_texture(
     if (twin && twin->texture && primary && primary->texture) {
         // Draw twin portrait layout!
         SDL_Rect rect_l, rect_r;
-        int half_w = layout.slideshow_area.w / 2;
-        calculate_fit_rect_in_area(primary->width, primary->height, layout.slideshow_area.x, layout.slideshow_area.y, half_w, layout.slideshow_area.h, rect_l);
-        calculate_fit_rect_in_area(twin->width, twin->height, layout.slideshow_area.x + half_w, layout.slideshow_area.y, layout.slideshow_area.w - half_w, layout.slideshow_area.h, rect_r);
+        const auto& area = layout.slideshow_area;
+        const int half_w = area.w / 2;
+        const SDL_Rect left_area{area.x, area.y, half_w, area.h};
+        const SDL_Rect right_area{area.x + half_w, area.y, area.w - half_w, area.h};
+        calculate_fit_rect_in_area(primary->width, primary->height, left_area.x, left_area.y, left_area.w, left_area.h, rect_l);
+        calculate_fit_rect_in_area(twin->width, twin->height, right_area.x, right_area.y, right_area.w, right_area.h, rect_r);
 
         bool has_bias = false;
         bool has_matting = false;
@@ -386,16 +368,16 @@ static SDL_Texture* render_state_to_texture(
 
         // 2. Draw matte borders if enabled (solid black base layer) - ONLY if NOT color-matched or blurred!
         if (has_matting && !snap_matte_color && !snap_blurred) {
-            g_renderer.draw_matte_borders(rect_l);
-            g_renderer.draw_matte_borders(rect_r);
+            g_renderer.draw_matte_borders(rect_l, left_area);
+            g_renderer.draw_matte_borders(rect_r, right_area);
         }
 
         // 3. Color-matched matte for each portrait (opaque and edge-to-edge if enabled)
         if (snap_matte_color) {
             g_renderer.draw_color_matched_matte(rect_l,
-                primary->matte_r, primary->matte_g, primary->matte_b, matte_op);
+                primary->matte_r, primary->matte_g, primary->matte_b, matte_op, left_area);
             g_renderer.draw_color_matched_matte(rect_r,
-                twin->matte_r, twin->matte_g, twin->matte_b, matte_op);
+                twin->matte_r, twin->matte_g, twin->matte_b, matte_op, right_area);
         }
 
         // 4. Draw bias lighting if enabled
@@ -493,14 +475,27 @@ static SDL_Texture* render_state_to_texture(
     return target;
 }
 
-static std::vector<MediaItem> filter_playlist(const std::vector<MediaItem>& items, int cooldown_days, int window_days) {
-    bool on_this_day = false;
-    {
-        std::shared_lock lock(g_config_mtx);
-        on_this_day = g_cfg.on_this_day_enabled;
-    }
+struct PlaylistSettings {
+    int cooldown_days, window_days, videos_per_photos;
+    bool photos_only, videos_only, shuffle;
+    bool on_this_day, people, animals, twin_portraits;
 
-    if (on_this_day) {
+    bool operator==(const PlaylistSettings&) const = default;
+};
+
+static PlaylistSettings playlist_settings() {
+    std::shared_lock lock(g_config_mtx);
+    return {g_cfg.cooldown_days, g_cfg.scan_window_days, g_cfg.videos_per_photos,
+            g_cfg.play_just_photos, g_cfg.play_just_videos, g_cfg.shuffle,
+            g_cfg.on_this_day_enabled, g_cfg.show_people_faces, g_cfg.keep_animals,
+            g_cfg.twin_portrait_enabled && g_cfg.collage_enabled};
+}
+
+static std::vector<MediaItem> filter_playlist(const std::vector<MediaItem>& items,
+                                              const PlaylistSettings& settings) {
+    const auto cooldown_days = settings.cooldown_days;
+    const auto window_days = settings.window_days;
+    if (settings.on_this_day) {
         std::time_t t = std::time(nullptr);
         struct tm tm_buf;
         std::tm* today = localtime_r(&t, &tm_buf);
@@ -526,18 +521,8 @@ static std::vector<MediaItem> filter_playlist(const std::vector<MediaItem>& item
                     classify_media_item(item, has_people, has_animals, is_doc);
                     if (is_doc) continue;
                     
-                    bool filter_people, filter_animals;
-                    {
-                        std::shared_lock lk(g_config_mtx);
-                        filter_people = g_cfg.show_people_faces;
-                        filter_animals = g_cfg.keep_animals;
-                    }
-                    if (filter_people || filter_animals) {
-                        bool keep = false;
-                        if (filter_people && has_people) keep = true;
-                        if (filter_animals && has_animals) keep = true;
-                        if (!keep) continue;
-                    }
+                    if ((settings.people || settings.animals) &&
+                        !(settings.people && has_people) && !(settings.animals && has_animals)) continue;
                 }
                 anniversary_filtered.push_back(item);
             }
@@ -560,21 +545,7 @@ static std::vector<MediaItem> filter_playlist(const std::vector<MediaItem>& item
         }
     }
     
-    // Precompute everything that does not depend on the cooldown, exactly once.
-    //
-    // Previously all of this sat *inside* the per-pass loop below: classify_media_item()
-    // re-lowercased each item's full path and rescanned ~50 keyword lists for every item
-    // on every cooldown-degradation pass, and the "snapshot" took g_config_mtx 73,000+
-    // times per pass. On a library of 73,736 items that turned a routine daily rescan into
-    // an effective hang — and the caller holds g_playlist_mtx across this function, so the
-    // 60Hz render loop stalls with it.
-    bool snap_show_people = true, snap_keep_animals = true;
-    {
-        std::shared_lock lk(g_config_mtx);
-        snap_show_people = g_cfg.show_people_faces;
-        snap_keep_animals = g_cfg.keep_animals;
-    }
-
+    // Reuse the seasonal and category filters on each cooldown-degradation pass.
     // drop_flags[i] != 0 => excluded regardless of the current cooldown.
     std::vector<uint8_t> drop_flags;
     drop_flags.reserve(items.size());
@@ -589,9 +560,9 @@ static std::vector<MediaItem> filter_playlist(const std::vector<MediaItem>& item
             classify_media_item(item, has_people, has_animals, is_doc);
             if (is_doc) {
                 drop = true;
-            } else if (!snap_show_people && has_people) {
+            } else if (!settings.people && has_people) {
                 drop = true;
-            } else if (!snap_keep_animals && has_animals) {
+            } else if (!settings.animals && has_animals) {
                 drop = true;
             }
         }
@@ -633,7 +604,7 @@ static std::vector<MediaItem> filter_playlist(const std::vector<MediaItem>& item
 static void organize_playlist(std::vector<MediaItem>& eligible, int videos_per_photos, bool play_just_photos, bool play_just_videos, bool shuffle_enabled) {
     if (eligible.empty()) return;
 
-    if (videos_per_photos <= 0 || play_just_photos) {
+    if (play_just_photos || (videos_per_photos <= 0 && !play_just_videos)) {
         std::vector<MediaItem> photos;
         for (auto& item : eligible) {
             if (item.type != "video") photos.push_back(std::move(item));
@@ -730,74 +701,123 @@ static void update_image_metadata(MediaItem& item, const ImageData& data) {
     item.has_gps = data.has_gps;
 }
 
-static void mark_item_shown(const std::string& path, bool lock_playlist) {
-    int64_t now = static_cast<int64_t>(std::time(nullptr));
+static void mark_item_shown(const std::string& path) {
+    const auto now = static_cast<int64_t>(std::time(nullptr));
+    {
+        std::lock_guard lock(g_playlist_mtx);
+        for (auto* items : {&g_eligible, &g_scanned_items}) {
+            for (auto& item : *items) {
+                if (item.path == path) item.last_shown = now;
+            }
+        }
+    }
     if (g_cache) g_cache->mark_shown(path);
-    
-    std::unique_lock<std::mutex> lock(g_playlist_mtx, std::defer_lock);
-    if (lock_playlist) {
-        lock.lock();
-    }
-    
-    // Update last_shown in g_eligible
-    for (auto& item : g_eligible) {
-        if (item.path == path) {
-            item.last_shown = now;
-        }
-    }
-    // Update last_shown in g_scanned_items
-    for (auto& item : g_scanned_items) {
-        if (item.path == path) {
-            item.last_shown = now;
-        }
-    }
 }
 
-// Contract: Callers MUST hold g_playlist_mtx lock prior to invoking advance_playlist
-static void advance_playlist(int step) {
-    if (g_eligible.empty()) return;
-    
-    if (step > 0) {
-        int next_idx = current_idx + step;
-        if (next_idx >= std::ssize(g_eligible)) {
-            g_logger.info("Playlist reached end. Re-filtering and re-shuffling to prevent repetition...");
-            
-            int cooldown_days = 330;
-            int window_days = 5;
-            bool play_just_photos = false;
-            bool play_just_videos = false;
-            int videos_per_photos = 10;
-            bool shuffle_enabled = true;
-            {
-                std::shared_lock lock(g_config_mtx);
-                cooldown_days = g_cfg.cooldown_days;
-                window_days = g_cfg.scan_window_days;
-                play_just_photos = g_cfg.play_just_photos;
-                play_just_videos = g_cfg.play_just_videos;
-                videos_per_photos = g_cfg.videos_per_photos;
-                shuffle_enabled = g_cfg.shuffle;
-            }
-            
-            std::vector<MediaItem> new_eligible = filter_playlist(g_scanned_items, cooldown_days, window_days);
-            if (!new_eligible.empty()) {
-                organize_playlist(new_eligible, videos_per_photos, play_just_photos, play_just_videos, shuffle_enabled);
-                
-                std::string prev_path = g_eligible[current_idx].path;
-                g_eligible = std::move(new_eligible);
-                
-                // Avoid immediate repetition if the new first item matches the previous item
-                if (g_eligible.size() > 1 && g_eligible[0].path == prev_path) {
-                    std::swap(g_eligible[0], g_eligible[1]);
-                }
-            }
-            current_idx = 0;
-        } else {
-            current_idx = next_idx;
-        }
-    } else {
-        int n = std::ssize(g_eligible);
-        current_idx = ((current_idx + step) % n + n) % n;
+static std::vector<MediaItem> build_playlist(const std::vector<MediaItem>& scanned,
+                                             const PlaylistSettings& settings) {
+    auto items = filter_playlist(scanned, settings);
+    organize_playlist(items, settings.videos_per_photos, settings.photos_only,
+                      settings.videos_only, settings.shuffle);
+    return items;
+}
+
+static bool rebuild_playlist(const PlaylistSettings& settings) {
+    std::vector<MediaItem> scanned;
+    uint64_t generation;
+    {
+        std::lock_guard lock(g_playlist_mtx);
+        scanned = g_scanned_items;
+        generation = playlist_generation;
     }
+    auto items = build_playlist(scanned, settings);
+    std::lock_guard lock(g_playlist_mtx);
+    if (generation != playlist_generation) {
+        // A watchman scan published newer source data while we were filtering.
+        // Apply this settings change again against that data on the next frame.
+        g_config_changed.store(true);
+        return false;
+    }
+    std::string path;
+    if (!g_eligible.empty()) path = g_eligible[current_idx].path;
+    const auto found = std::find_if(items.begin(), items.end(),
+        [&](const MediaItem& item) { return item.path == path; });
+    current_idx = found == items.end() ? 0 : static_cast<int>(found - items.begin());
+    g_eligible = std::move(items);
+    ++playlist_generation;
+    return true;
+}
+
+struct PlaylistSelection {
+    uint64_t generation;
+    int index;
+    int count;
+    MediaItem item;
+    std::optional<MediaItem> twin;
+
+    // The playlist lock must be held while validating or applying the selection.
+    bool matches() const {
+        if (generation != playlist_generation || index != current_idx ||
+            g_eligible.empty() || g_eligible[index].path != item.path) return false;
+        return !twin || g_eligible[(index + 1) % count].path == twin->path;
+    }
+};
+
+static PlaylistSelection select_media(bool twin_enabled, bool pair_portraits) {
+    // Caller holds g_playlist_mtx. Keep portrait selection adjacent for the
+    // existing slideshow and HTTP index semantics.
+    if (g_eligible.empty()) return {playlist_generation, 0, 0, {}, {}};
+    const int count = std::ssize(g_eligible);
+    if (current_idx < 0 || current_idx >= count) current_idx = 0;
+    std::optional<MediaItem> twin;
+    if (twin_enabled) {
+        if (const auto partner = find_twin_portrait(g_eligible, current_idx, pair_portraits)) {
+            if (*partner != current_idx + 1) {
+                std::swap(g_eligible[current_idx + 1], g_eligible[*partner]);
+                ++playlist_generation;
+            }
+            twin = g_eligible[current_idx + 1];
+        }
+    }
+    return {playlist_generation, current_idx, count, g_eligible[current_idx], std::move(twin)};
+}
+
+static void advance_playlist(int step, const PlaylistSelection& selection) {
+    std::unique_lock lock(g_playlist_mtx);
+    const auto still_selected = [&] {
+        return !g_eligible.empty() && g_eligible[current_idx].path == selection.item.path;
+    };
+    const auto next_index = [&] {
+        const int count = std::ssize(g_eligible);
+        const bool still_a_pair = selection.twin && current_idx + 1 < count &&
+            selection.twin->path == g_eligible[current_idx + 1].path;
+        const int offset = (std::abs(step) == 2 && !still_a_pair) ? step / 2 : step;
+        return current_idx + offset;
+    };
+
+    // A watchman refresh can move an active clip while its decoder stops.
+    // Advance that clip at its new index if the refresh preserved it.
+    if (!still_selected()) return;
+    const int count = std::ssize(g_eligible);
+    const int next = next_index();
+    if (step < 0 || next < count) {
+        current_idx = (next % count + count) % count;
+        return;
+    }
+
+    auto scanned = g_scanned_items;
+    const auto generation = playlist_generation;
+    lock.unlock();
+    auto items = build_playlist(scanned, playlist_settings());
+    if (items.size() > 1 && items.front().path == selection.item.path) std::swap(items[0], items[1]);
+    lock.lock();
+    if (generation != playlist_generation) {
+        if (still_selected()) current_idx = next_index() % std::ssize(g_eligible);
+        return;
+    }
+    g_eligible = std::move(items);
+    current_idx = 0;
+    ++playlist_generation;
 }
 
 static ScanResult scan_gallery(const std::string& media_dir, int depth,
@@ -846,11 +866,16 @@ static void watchman_loop(std::stop_token stop) {
         struct tm* tm_res = localtime_r(&now, &curr_tm);
         
         const unsigned photo_revision = g_google_photos.media_revision();
-        if (tm_res && (curr_tm.tm_yday != last_yday || photo_revision != cloud_revision)) {
+        bool needs_media;
+        {
+            std::lock_guard lock(g_playlist_mtx);
+            needs_media = g_eligible.empty();
+        }
+        if (tm_res && (curr_tm.tm_yday != last_yday || photo_revision != cloud_revision || needs_media)) {
             const auto attempt = std::chrono::steady_clock::now();
             if (attempt < retry_after) continue;
             retry_after = attempt + std::chrono::minutes(1);
-            if (g_offline_mode.load()) {
+            if (g_offline_mode.load() && !needs_media) {
                 g_logger.warn("Watchman: System is in Offline Recovery Mode. Skipping midnight temporal window shift.");
                 continue;
             }
@@ -878,7 +903,7 @@ static void watchman_loop(std::stop_token stop) {
                 continue;
             }
             if (stop.stop_requested()) break;
-            if (!scan.complete || scan.items.empty()) {
+            if (!scan.complete) {
                 g_logger.warn("Watchman: No complete media scan available. Keeping the playlist and cache.");
                 continue;
             }
@@ -917,59 +942,24 @@ static void watchman_loop(std::stop_token stop) {
                     if (!saved || !g_cache->upsert_batch(pending, 0)) continue;
                 }
 
-                // Snapshot the settings we need, then do the expensive filtering OUTSIDE
-                // g_playlist_mtx. Holding the playlist lock across filter_playlist() blocks
-                // the 60Hz render loop — and therefore the health heartbeat — for the
-                // whole filtering pass.
-                int cooldown_days, window_days, videos_per_photos;
-                bool shuffle_enabled, play_just_photos, play_just_videos;
-                {
-                    std::shared_lock lk(g_config_mtx);
-                    cooldown_days = g_cfg.cooldown_days;
-                    window_days = g_cfg.scan_window_days;
-                    videos_per_photos = g_cfg.videos_per_photos;
-                    shuffle_enabled = g_cfg.shuffle;
-                    play_just_photos = g_cfg.play_just_photos;
-                    play_just_videos = g_cfg.play_just_videos;
-                }
-
-                std::vector<MediaItem> new_eligible = filter_playlist(scanned, cooldown_days, window_days);
-                g_logger.info("Watchman: New seasonal window calculation: {} / {} items eligible", new_eligible.size(), scanned.size());
-
-                if (!new_eligible.empty()) {
-                    organize_playlist(new_eligible, videos_per_photos, play_just_photos, play_just_videos, shuffle_enabled);
-                }
-
+                const auto settings = playlist_settings();
+                auto new_eligible = build_playlist(scanned, settings);
                 if (stop.stop_requested()) break;
-                // Short critical section: publish the results.
                 {
-                    std::scoped_lock lock(g_playlist_mtx);
-                    g_scanned_items = std::move(scanned);
-
-                    if (!new_eligible.empty()) {
-                        // Try to preserve current playing item
-                        std::string current_path = "";
-                        if (current_idx >= 0 && current_idx < std::ssize(g_eligible)) {
-                            current_path = g_eligible[current_idx].path;
-                        }
-
-                        g_eligible = std::move(new_eligible);
-
-                        // Find if current path is in new playlist
-                        int new_idx = 0;
-                        if (!current_path.empty()) {
-                            for (int idx = 0; idx < std::ssize(g_eligible); idx++) {
-                                if (g_eligible[idx].path == current_path) {
-                                    new_idx = idx;
-                                    break;
-                                }
-                            }
-                        }
-                        current_idx = new_idx;
-                        g_logger.info("Watchman: Playlist swapped seamlessly. New size={}, current_idx={}", g_eligible.size(), current_idx);
-                    } else {
-                        g_logger.warn("Watchman: New playlist is empty. Keeping old playlist to prevent interruption.");
+                    std::lock_guard lock(g_playlist_mtx);
+                    if (settings != playlist_settings()) {
+                        retry_after = attempt;
+                        continue;
                     }
+
+                    std::string current_path;
+                    if (!g_eligible.empty()) current_path = g_eligible[current_idx].path;
+                    const auto found = std::find_if(new_eligible.begin(), new_eligible.end(),
+                        [&](const MediaItem& item) { return item.path == current_path; });
+                    current_idx = found == new_eligible.end() ? 0 : static_cast<int>(found - new_eligible.begin());
+                    g_scanned_items = std::move(scanned);
+                    g_eligible = std::move(new_eligible);
+                    ++playlist_generation;
                 }
                 last_yday = curr_tm.tm_yday;
                 cloud_revision = photo_revision;
@@ -1356,13 +1346,6 @@ int main(int argc, char** argv) {
 
     g_logger.info("=== piTrove v{} started {} ===", VERSION, get_timestamp().c_str());
 
-    // Start thermal monitoring thread
-    static std::atomic<bool> thermal_running{true};
-    std::jthread thermal_thread;
-    if (!spawn_thread_safe(thermal_thread, "thermal", pitrove::thermal::monitor_thread, std::ref(thermal_running))) {
-        thermal_running.store(false);
-    }
-
     // --- Config ---
     g_cfg.parse_args(argc, argv);
     if (config_path.empty()) {
@@ -1379,6 +1362,9 @@ int main(int argc, char** argv) {
         g_logger.warn("No config file found, using defaults");
     }
 
+    std::jthread thermal_thread;
+    spawn_thread_safe(thermal_thread, "thermal", pitrove::thermal::monitor_thread);
+
     // Apply the configured timezone to libc. The container ships tzdata but sets no TZ
     // environment variable, so every localtime_r() call was resolving to UTC. That made
     // the watchman's day-rollover fire at 00:00 UTC (17:00 in America/Los_Angeles) and ran
@@ -1394,7 +1380,8 @@ int main(int argc, char** argv) {
     pitrove::auth::init();
 
     // Check for safe mode due to crash loops
-    if (pitrove::safe_mode::should_enter_safe_mode()) {
+    const bool safe_mode_active = pitrove::safe_mode::should_enter_safe_mode();
+    if (safe_mode_active) {
         g_cfg.ken_burns = false;
         g_cfg.bias_lighting = false;
         g_cfg.blurred_background = false;
@@ -1822,43 +1809,9 @@ int main(int argc, char** argv) {
         SDL_Delay(500);
     }
 
-    // --- Dynamic Seasonal & Cooldown filter ---
-    int cooldown_days = 330;
-    int window_days = 5;
-    {
-        std::shared_lock lock(g_config_mtx);
-        cooldown_days = g_cfg.cooldown_days;
-        window_days = g_cfg.scan_window_days;
-    }
-    g_eligible = filter_playlist(g_scanned_items, cooldown_days, window_days);
-    g_logger.info("Initial Dynamic Playlist Setup: {} items eligible (cooldown={} days, seasonal window={} days)",
-        std::ssize(g_eligible), cooldown_days, window_days);
-
-    if (g_eligible.empty()) {
-        g_logger.warn("No eligible items after dynamic filters");
-        g_renderer.render_splash(4, 0, 0, 0, "DONE", ++dot_counter, nullptr, false);
-        SDL_Delay(3000);
-        g_renderer.cleanup_splash(); g_renderer.cleanup();
-        delete g_cache;
-        flock(lock_fd, LOCK_UN); close(lock_fd);
-        return 0;
-    }
-
-    // --- Organize playlist (shuffle and interleave photos & videos per configuration) ---
-    {
-        bool play_just_photos = false;
-        bool play_just_videos = false;
-        int videos_per_photos = 10;
-        bool shuffle_enabled = true;
-        {
-            std::shared_lock lock(g_config_mtx);
-            play_just_photos = g_cfg.play_just_photos;
-            play_just_videos = g_cfg.play_just_videos;
-            videos_per_photos = g_cfg.videos_per_photos;
-            shuffle_enabled = g_cfg.shuffle;
-        }
-        organize_playlist(g_eligible, videos_per_photos, play_just_photos, play_just_videos, shuffle_enabled);
-    }
+    auto applied_playlist_settings = playlist_settings();
+    g_eligible = build_playlist(g_scanned_items, applied_playlist_settings);
+    g_logger.info("Initial playlist contains {} items.", g_eligible.size());
 
     // Household data lives beside config and survives media cache maintenance.
     {
@@ -1931,6 +1884,7 @@ int main(int argc, char** argv) {
     g_transition->set_renderer(&g_renderer);
     g_overlay = new OverlayManager(&g_renderer);
     g_overlay->init();
+    g_renderer.set_caption_font(g_overlay->get_font_renderer(), g_overlay->get_font_path());
 
     // Check if touchscreen mode is enabled and verify physical device presence
     {
@@ -1959,202 +1913,67 @@ int main(int argc, char** argv) {
     g_preload = new PreloadQueue(g_cfg.preload_capacity, g_cfg.preload_workers, g_renderer.sdl_renderer);
     g_preload->start();
 
-    g_logger.info("Starting slideshow loop with {} items", g_eligible.size());
-    // Randomize start position so each boot shows different initial photos
-    if (!g_eligible.empty()) {
-        current_idx = (int)(make_entropy_seed() % std::ssize(g_eligible));
-    } else {
-        current_idx = 0;
+    {
+        std::lock_guard lock(g_playlist_mtx);
+        current_idx = g_eligible.empty() ? 0 : static_cast<int>(make_entropy_seed() % g_eligible.size());
     }
-    g_logger.info("Randomized start index: {} / {}", current_idx, g_eligible.size());
+
     double item_timer = 0.0;
     auto last_frame_time = std::chrono::steady_clock::now();
-
-    std::shared_ptr<ImageData> current_data = nullptr;
-    std::shared_ptr<ImageData> current_twin_data = nullptr;
-    std::shared_ptr<ImageData> next_data = nullptr;
-    std::shared_ptr<ImageData> next_twin_data = nullptr;
+    std::shared_ptr<ImageData> current_data, current_twin_data, next_data, next_twin_data;
+    std::string displayed_path, displayed_twin_path;
+    std::optional<PlaylistSelection> transition_selection;
     bool next_is_twin = false;
     SDL_Texture* current_tex = nullptr;
     SDL_Texture* transition_prev_target = nullptr;
     SDL_Texture* transition_next_target = nullptr;
     SDL_Rect fit_rect{0, 0, 0, 0};
+    bool transitioning = true;
 
-    auto current_media_dir = []() { std::shared_lock lk(g_config_mtx); return g_cfg.media_dir; };
-    // Find the first valid item to display, skipping and removing bad/missing files
-    int load_attempts = 0;
-    std::unique_lock<std::mutex> playlist_lock(g_playlist_mtx);
-    while (load_attempts < std::ssize(g_eligible) && load_attempts < 20) {
-        std::string path = g_eligible[current_idx].path;
-        playlist_lock.unlock();
-        bool exists = file_exists(path);
-        playlist_lock.lock();
-        if (!exists) {
-            g_logger.warn("MISSING_FILE: First media file is missing/deleted from disk: {}", path.c_str());
-            if (is_media_dir_healthy(current_media_dir())) {
+    auto cancel_transition = [&] {
+        if (g_transition) g_transition->reset();
+        transitioning = false;
+        next_data.reset();
+        next_twin_data.reset();
+        next_is_twin = false;
+        transition_selection.reset();
+        if (transition_prev_target) SDL_DestroyTexture(std::exchange(transition_prev_target, nullptr));
+        if (transition_next_target) SDL_DestroyTexture(std::exchange(transition_next_target, nullptr));
+    };
 
-                // Erase from g_scanned_items and g_eligible
-                auto it_scanned = std::remove_if(g_scanned_items.begin(), g_scanned_items.end(),
-                    [&](const MediaItem& item) { return item.path == path; });
-                if (it_scanned != g_scanned_items.end()) {
-                    g_scanned_items.erase(it_scanned, g_scanned_items.end());
-                }
-                g_eligible.erase(g_eligible.begin() + current_idx);
-            } else {
-                g_logger.warn("Media directory is unhealthy/unmounted. Skipping removal of first item: {}", path.c_str());
-            }
+    struct Playback {
+        std::string path;
+        bool started = false;
+        bool eof_reached = false;
+        std::optional<double> displayed_pts;
+        Uint64 last_frame_at = 0;
+        Uint64 audio_drain_until = 0;
+        std::optional<Uint64> paused_at;
+        double fallback_due_at = 0.0;
+        double last_frame_duration_ms = 0.0;
+        bool drew_frame = false;
+        SDL_FRect destination{};
+        double rotation = 0.0;
+    } video;
 
-            if (g_eligible.empty()) break;
-            if (current_idx >= std::ssize(g_eligible)) current_idx = 0;
-            load_attempts++;
-            continue;
-        }
+    auto stop_video = [&] {
+        g_video_decoder.stop();
+        video = {};
+        g_video_stall_ts = 0;
+        if (g_video_tex) SDL_DestroyTexture(std::exchange(g_video_tex, nullptr));
+        g_video_tex_w = g_video_tex_h = 0;
+        g_video_tex_fmt = SDL_PIXELFORMAT_UNKNOWN;
+    };
 
-        if (g_eligible[current_idx].type == "video") {
-            // First item is a video, let the main loop play it!
-            g_logger.info("First item in playlist is a video: {}", g_eligible[current_idx].path.c_str());
-            break;
-        } else {
-            // First item is an image, check if should be twin portrait
-            bool is_twin = should_be_twin_portrait(g_eligible, current_idx);
-            if (is_twin) {
-                int next_idx = (current_idx + 1) % std::ssize(g_eligible);
-                std::string path_l = g_eligible[current_idx].path;
-                std::string path_r = g_eligible[next_idx].path;
-
-                playlist_lock.unlock();
-                bool exists_l = file_exists(path_l);
-                bool exists_r = file_exists(path_r);
-                std::shared_ptr<ImageData> l_data = nullptr;
-                std::shared_ptr<ImageData> r_data = nullptr;
-                if (exists_l && exists_r) {
-                    l_data = ImageLoader::load(path_l);
-                    r_data = ImageLoader::load(path_r);
-                }
-                playlist_lock.lock();
-
-                // Re-validate indices since we unlocked
-                if (g_eligible.empty()) break;
-                if (current_idx >= std::ssize(g_eligible)) current_idx = 0;
-                next_idx = (current_idx + 1) % std::ssize(g_eligible);
-                path_l = g_eligible[current_idx].path;
-                path_r = g_eligible[next_idx].path;
-
-                if (!exists_l) {
-                    g_logger.warn("MISSING_FILE: Left twin file missing: {}", path_l.c_str());
-                    if (is_media_dir_healthy(current_media_dir())) {
-                        g_eligible.erase(g_eligible.begin() + current_idx);
-                    }
-                    if (g_eligible.empty()) break;
-                    if (current_idx >= std::ssize(g_eligible)) current_idx = 0;
-                    load_attempts++;
-                    continue;
-                }
-                if (!exists_r) {
-                    g_logger.warn("MISSING_FILE: Right twin file missing: {}", path_r.c_str());
-                    if (is_media_dir_healthy(current_media_dir())) {
-                        g_eligible.erase(g_eligible.begin() + next_idx);
-                    }
-                    if (g_eligible.empty()) break;
-                    if (current_idx >= std::ssize(g_eligible)) current_idx = 0;
-                    load_attempts++;
-                    continue;
-                }
-
-                current_data = l_data;
-                current_twin_data = r_data;
-
-                if (current_data && current_data->valid && current_twin_data && current_twin_data->valid) {
-                    ImageLoader::load_texture(current_data.get(), g_renderer.sdl_renderer);
-                    ImageLoader::load_texture(current_twin_data.get(), g_renderer.sdl_renderer);
-                    clear_error(201);
-                    clear_error(101);
-                    current_tex = current_data->texture;
-                    mark_item_shown(path_l, false);
-                    mark_item_shown(path_r, false);
-
-                    // Update metadata
-                    update_image_metadata(g_eligible[current_idx], *current_data);
-
-                    update_image_metadata(g_eligible[next_idx], *current_twin_data);
-
-                    if (g_cache) {
-                        g_cache->upsert(g_eligible[current_idx], 0, 1);
-                        g_cache->upsert(g_eligible[next_idx], 0, 1);
-                    }
-
-                    g_logger.info("First item is twin-portrait, loaded successfully: {} and {}", path_l.c_str(), path_r.c_str());
-                    break;
-                } else {
-                    if (!current_data || !current_data->valid) {
-                        if (is_media_dir_healthy(current_media_dir()) && (!current_data || !current_data->transient_error)) {
-                            g_eligible.erase(g_eligible.begin() + current_idx);
-                        }
-                    } else if (!current_twin_data || !current_twin_data->valid) {
-                        if (is_media_dir_healthy(current_media_dir()) && (!current_twin_data || !current_twin_data->transient_error)) {
-                            g_eligible.erase(g_eligible.begin() + next_idx);
-                        }
-                    }
-                    current_data = nullptr;
-                    current_twin_data = nullptr;
-                    if (g_eligible.empty()) break;
-                    if (current_idx >= std::ssize(g_eligible)) current_idx = 0;
-                    load_attempts++;
-                }
-            } else {
-                std::string single_path = g_eligible[current_idx].path;
-                playlist_lock.unlock();
-                std::shared_ptr<ImageData> single_data = ImageLoader::load(single_path);
-                playlist_lock.lock();
-
-                if (g_eligible.empty()) break;
-                if (current_idx >= std::ssize(g_eligible)) current_idx = 0;
-
-                current_data = single_data;
-                if (current_data && current_data->valid) {
-                    ImageLoader::load_texture(current_data.get(), g_renderer.sdl_renderer);
-                    clear_error(201);
-                    clear_error(101);
-                    current_tex = current_data->texture;
-                    current_twin_data = nullptr;
-                    mark_item_shown(g_eligible[current_idx].path, false);
-
-                    // Update in-memory item metadata with actual dimensions and EXIF rotation
-                    update_image_metadata(g_eligible[current_idx], *current_data);
-                    for (auto& item : g_scanned_items) {
-                        if (item.path == g_eligible[current_idx].path) {
-                            update_image_metadata(item, *current_data);
-                            break;
-                        }
-                    }
-                    if (g_cache) g_cache->upsert(g_eligible[current_idx], 0, 1);
-
-                    {
-                        InfopanelLayout layout = calculate_infopanel_layout(g_renderer.screen_w, g_renderer.screen_h);
-                        calculate_fit_rect_in_area(g_eligible[current_idx].width, g_eligible[current_idx].height, layout.slideshow_area.x, layout.slideshow_area.y, layout.slideshow_area.w, layout.slideshow_area.h, fit_rect);
-                    }
-                    g_logger.info("First item is an image, loaded successfully: {} ({}x{})", g_eligible[current_idx].path.c_str(), g_eligible[current_idx].width, g_eligible[current_idx].height);
-                    break;
-                } else {
-                    if (is_media_dir_healthy(current_media_dir()) && (!single_data || !single_data->transient_error)) {
-                        g_logger.warn("Bad first image, skipping: {}", g_eligible[current_idx].path.c_str());
-                        g_eligible.erase(g_eligible.begin() + current_idx);
-                    } else {
-                        g_logger.warn("Failed to load first image due to network/unmounted media dir: {}", g_eligible[current_idx].path.c_str());
-                    }
-                    if (g_eligible.empty()) break;
-                    if (current_idx >= std::ssize(g_eligible)) current_idx = 0;
-                    load_attempts++;
-                }
-            }
-        }
-    }
-    playlist_lock.unlock();
-
-    bool transitioning = false;
-    std::string transition_effect;
-    { std::shared_lock lk(g_config_mtx); transition_effect = g_cfg.transition_effect;
-                pitrove::thermal::set_fan_speed_percent(g_cfg.fan_speed); }
+    auto effective_transition = [&] {
+        std::shared_lock lock(g_config_mtx);
+        if (safe_mode_active && g_cfg.transition_effect == "ken_burns") return std::string("fade");
+        return g_cfg.transition_effect;
+    };
+    std::string transition_effect = effective_transition();
+    uint64_t observed_generation = 0;
+    auto photo_retry_at = std::chrono::steady_clock::time_point{};
+    bool showing_empty = false;
 
     // --- Start Background Watchman Thread ---
     if (spawn_thread_safe(g_watchman_thread, "watchman", watchman_loop)) {
@@ -2179,13 +1998,15 @@ int main(int argc, char** argv) {
     while (g_running.load()) {
         if (g_config_changed.exchange(false)) {
             g_logger.info("MAIN_LOOP: Applying updated configuration in memory.");
-            int fan_speed = 30;
-            {
-                std::shared_lock lk(g_config_mtx);
-                transition_effect = g_cfg.transition_effect;
-                fan_speed = g_cfg.fan_speed;
+            transition_effect = effective_transition();
+            const auto settings = playlist_settings();
+            if (settings != applied_playlist_settings && rebuild_playlist(settings))
+                applied_playlist_settings = settings;
+            if (g_preload) g_preload->cancel_all();
+            if (transitioning) {
+                cancel_transition();
+                transitioning = true;
             }
-            pitrove::thermal::set_fan_speed_percent(fan_speed);
             scene_due = {};
             scene_image.reset();
             scene_twin.reset();
@@ -2249,6 +2070,10 @@ int main(int argc, char** argv) {
                     }
                 }
             }
+        }
+
+        if (!g_screen_blanked.load() && display_hardware_blanked() && sleep_schedule_timer == 0.0) {
+            set_display_power(true);
         }
 
         // Periodic touch screen check (every 5 seconds)
@@ -2405,11 +2230,6 @@ int main(int argc, char** argv) {
                     }
                     if (event.button.button == SDL_BUTTON_RIGHT) {
                         if (g_overlay) {
-                            if ((g_video_decoder.is_running() || g_video_decoder.has_frames()) && g_video_decoder.is_eof()) {
-                                g_logger.info("Right-click during video: stopping decoder to open config menu.");
-                                g_video_decoder.stop();
-                                if (g_video_tex) { SDL_DestroyTexture(g_video_tex); g_video_tex = nullptr; g_video_tex_w = 0; g_video_tex_h = 0; g_video_tex_fmt = SDL_PIXELFORMAT_UNKNOWN; }
-                            }
                             g_overlay->menu_active = !g_overlay->menu_active;
                         }
                     } else if (event.button.button == SDL_BUTTON_LEFT) {
@@ -2484,6 +2304,8 @@ int main(int argc, char** argv) {
             }
         }
 
+        if (!g_running.load()) break;
+
         // Check motion sensor cooldown
         {
             bool mqtt_on = false;
@@ -2505,11 +2327,8 @@ int main(int argc, char** argv) {
         // Handle screen blanking state
         static bool black_frame_presented = false;
         if (g_screen_blanked.load()) {
-            if (g_video_decoder.is_running() || g_video_decoder.has_frames()) {
-                g_logger.info("Screen blanked: stopping video decoder.");
-                g_video_decoder.stop();
-                if (g_video_tex) { SDL_DestroyTexture(g_video_tex); g_video_tex = nullptr; g_video_tex_w = 0; g_video_tex_h = 0; g_video_tex_fmt = SDL_PIXELFORMAT_UNKNOWN; }
-            }
+            showing_empty = false;
+            if (video.started || g_video_decoder.is_running() || g_video_decoder.has_frames()) stop_video();
             if (!black_frame_presented && !display_hardware_blanked()) {
                 g_renderer.clear(0, 0, 0, 255);
                 g_renderer.present();
@@ -2522,168 +2341,224 @@ int main(int argc, char** argv) {
         black_frame_presented = false;
         int cmd = g_remote_command.exchange(0);
 
-        // --- Mutex-Guarded playlist lookup & manipulation ---
-        std::unique_lock<std::mutex> playlist_lock(g_playlist_mtx);
-
-        // Apply Pause Toggle command
-        if (cmd == 3) {
-            g_slideshow_paused = !g_slideshow_paused.load();
-            g_logger.info("SLIDESHOW: Pause toggled remotely. Current pause state = {}", g_slideshow_paused.load() ? "PAUSED" : "PLAYING");
-        }
-
-        // Validate current_idx (skip stat() to avoid CIFS hang)
-        if (!g_eligible.empty()) {
-            if (current_idx >= std::ssize(g_eligible)) {
-                current_idx = 0;
+        if (cmd == 3) g_slideshow_paused = !g_slideshow_paused.load();
+        const bool paused = g_slideshow_paused.load();
+        PlaylistSelection selection;
+        const bool twin_enabled = applied_playlist_settings.twin_portraits;
+        bool playlist_replaced;
+        {
+            std::lock_guard lock(g_playlist_mtx);
+            if (cmd == 5 && !g_eligible.empty()) {
+                const int count = std::ssize(g_eligible);
+                for (int i = 1; i < count; ++i) {
+                    const int index = (current_idx + i) % count;
+                    if (g_eligible[index].type == "video") {
+                        std::swap(g_eligible[(current_idx + 1) % count], g_eligible[index]);
+                        ++playlist_generation;
+                        break;
+                    }
+                }
+                cmd = 1;
+            }
+            playlist_replaced = playlist_generation != observed_generation;
+            const bool pair_portraits = cmd != 1 && cmd != 2 &&
+                ((transitioning && !transition_selection) || playlist_replaced);
+            selection = select_media(twin_enabled, pair_portraits);
+            if (!playlist_replaced && current_twin_data && displayed_path == selection.item.path &&
+                selection.index + 1 < selection.count &&
+                displayed_twin_path == g_eligible[selection.index + 1].path) {
+                selection.twin = g_eligible[selection.index + 1];
             }
         }
 
-        if (g_eligible.empty()) {
-            playlist_lock.unlock();
+        if (selection.generation != observed_generation) {
+            observed_generation = selection.generation;
+            const bool same_photo = displayed_path == selection.item.path &&
+                displayed_twin_path == (selection.twin ? selection.twin->path : std::string{});
+            if (!same_photo || transitioning) item_timer = 0.0;
+            cancel_transition();
+            transitioning = !same_photo;
+            photo_retry_at = {};
+            if (playlist_replaced && g_preload) g_preload->cancel_all();
+        }
+
+        if (!selection.count) {
+            if (!showing_empty) {
+                if (video.started || !g_video_decoder.get_current_path().empty()) stop_video();
+                cancel_transition();
+                current_data.reset();
+                current_twin_data.reset();
+                current_tex = nullptr;
+                displayed_path.clear();
+                displayed_twin_path.clear();
+                showing_empty = true;
+            }
+            g_renderer.clear(0, 0, 0, 255);
+            if (g_overlay) {
+                auto* fonts = g_overlay->get_font_renderer();
+                if (fonts) {
+                    const auto font = fonts->load_font(g_overlay->get_font_path(), 24);
+                    const auto area = calculate_infopanel_layout(g_renderer.screen_w, g_renderer.screen_h).slideshow_area;
+                    fonts->draw_text_fitted(area, *font, "No media matches the slideshow settings", {220, 220, 220, 255});
+                }
+            }
+            g_renderer.present();
             SDL_Delay(100);
             continue;
         }
+        showing_empty = false;
 
-        // Handle Force Video Next command
-        if (cmd == 5) {
-            int n = std::ssize(g_eligible);
-            int video_idx = -1;
-            for (int i = 1; i < n; i++) {
-                int idx = (current_idx + i) % n;
-                if (g_eligible[idx].type == "video") {
-                    video_idx = idx;
-                    break;
-                }
-            }
-            if (video_idx != -1) {
-                int next_idx = (current_idx + 1) % n;
-                std::swap(g_eligible[next_idx], g_eligible[video_idx]);
-                g_logger.info("FORCE VIDEO: Swapped video from index {} to next index {}: {}", video_idx, next_idx, g_eligible[next_idx].path.c_str());
-            } else {
-                g_logger.warn("FORCE VIDEO: No video found in the playlist to force next.");
-            }
-            cmd = 1;
-        }
-
-        // Apply Skip Arrow commands
+        const auto advance = [&](int step) {
+            advance_playlist(step, selection);
+            transitioning = true;
+        };
+        const bool shown_twin = current_twin_data && displayed_path == selection.item.path &&
+            selection.twin && displayed_twin_path == selection.twin->path;
         if (cmd == 1 || cmd == 2) {
-            item_timer = 0.0;
-            bool was_video = (g_eligible[current_idx].type == "video");
-            // Cancel an active video immediately, including a non-EOF worker.
-            // Photo skips preserve a worker prewarming an upcoming video.
-            if (was_video) {
-                g_logger.info("Interrupted video playback via skip request: stopping decoder.");
-                g_video_decoder.stop();
-                if (g_video_tex) { SDL_DestroyTexture(g_video_tex); g_video_tex = nullptr; g_video_tex_w = 0; g_video_tex_h = 0; g_video_tex_fmt = SDL_PIXELFORMAT_UNKNOWN; }
-            }
-            if (was_video) {
-                current_data = nullptr;
-                current_twin_data = nullptr;
-                current_tex = nullptr;
+            if (video.started) {
                 g_renderer.clear(0, 0, 0, 255);
                 g_renderer.present();
+                stop_video();
+            } else if (selection.item.type == "video" &&
+                       g_video_decoder.get_current_path() == selection.item.path) {
+                stop_video();
             }
-            if (g_transition) {
-                g_transition->reset();
-            }
-            if (transition_prev_target) { SDL_DestroyTexture(transition_prev_target); transition_prev_target = nullptr; }
-            if (transition_next_target) { SDL_DestroyTexture(transition_next_target); transition_next_target = nullptr; }
-            
-            transitioning = true;
-            if (cmd == 1) {
-                advance_playlist(current_twin_data ? 2 : 1);
-            } else {
-                advance_playlist(current_twin_data ? -2 : -1);
-            }
-        }
-
-        if (transitioning && !g_transition->is_active()) {
-            TransitionEffect effect = TransitionEffect::Fade;
-            if (transition_effect == "wipe") effect = TransitionEffect::WipeLeft;
-            else if (transition_effect == "ken_burns") effect = TransitionEffect::KenBurns;
-            else if (transition_effect == "pixelate") effect = TransitionEffect::Pixelate;
-            else if (transition_effect == "dissolve") effect = TransitionEffect::Dissolve;
-            else if (transition_effect == "crossfade") effect = TransitionEffect::Fade;
-
-            float duration = 0.0f, kb_zoom = 0.1f;
-            { std::shared_lock lk(g_config_mtx); duration = g_cfg.transition_duration; kb_zoom = g_cfg.ken_burns_zoom; }
-            g_transition->start(effect, duration, 0, kb_zoom);
-        }
-
-        // --- Video Decoder Handling ---
-        try {
-        if (g_eligible.empty()) {
-            playlist_lock.unlock();
-            SDL_Delay(200);
+            cancel_transition();
+            photo_retry_at = {};
+            item_timer = 0.0;
+            advance((cmd == 1 ? 1 : -1) * (shown_twin ? 2 : 1));
             continue;
         }
-        if (current_idx < 0 || current_idx >= std::ssize(g_eligible)) {
-            current_idx = 0;
-        }
-        if (g_eligible[current_idx].type == "video") {
-            if ((g_video_decoder.is_running() || g_video_decoder.has_frames() ||
-                 g_video_decoder.has_start_failed()) &&
-                g_video_decoder.get_current_path() != g_eligible[current_idx].path) {
-                playlist_lock.unlock();
-                g_video_decoder.stop();
-                g_video_decoder.consume_start_failed();
-                continue;
-            }
-            if (g_video_decoder.is_running() || g_video_decoder.has_frames()) {
-                if (g_video_stall_ts == 0) g_video_stall_ts = SDL_GetTicks();
-                if (SDL_GetTicks() - g_video_stall_ts < 1000 &&
-                    !g_video_decoder.presentation_started() && !g_video_decoder.is_eof() &&
-                    g_video_decoder.frame_queue_size() < std::min<size_t>(12, g_video_decoder.get_max_queued_frames())) {
-                    playlist_lock.unlock();
-                    SDL_Delay(10);
+
+        const bool is_video = selection.item.type == "video";
+        if (video.started && (!is_video || video.path != selection.item.path)) stop_video();
+        const auto draw_panels = [&](const InfopanelLayout& layout) {
+            if (!g_overlay) return;
+            const auto path = g_overlay->get_font_path();
+            auto* font = g_overlay->get_font_renderer();
+            if (layout.show_chores)
+                render_chores_panel(g_renderer.sdl_renderer, font, path, layout.chores_area, g_renderer.screen_w, layout.content_top);
+            if (layout.show_calendar)
+                g_calendar.render(g_renderer.sdl_renderer, font, path, layout.calendar_area, g_renderer.screen_w);
+            if (layout.show_stocks)
+                g_stock_streamer.render(g_renderer.sdl_renderer, font, path, layout.stocks_area, g_renderer.screen_w);
+            if (layout.show_news)
+                g_news_ticker.render(g_renderer.sdl_renderer, font, path, layout.news_area, g_renderer.screen_w);
+        };
+
+        if (is_video) {
+            try {
+                if (transitioning) cancel_transition();
+                if (!video.started) {
+                    if (g_video_decoder.get_current_path() == selection.item.path &&
+                        g_video_decoder.has_start_failed()) {
+                        stop_video();
+                        advance(1);
+                        SDL_Delay(50);
+                        continue;
+                    }
+                    int width, height;
+                    {
+                        std::shared_lock lock(g_config_mtx);
+                        width = g_cfg.screen_w;
+                        height = g_cfg.screen_h;
+                        g_video_decoder.set_av_sync(g_cfg.av_sync);
+                    }
+                    g_logger.info("Playing video: {}", selection.item.path);
+                    if (!g_video_decoder.start(selection.item.path, width, height)) {
+                        stop_video();
+                        advance(1);
+                        SDL_Delay(50);
+                        continue;
+                    }
+                    video.path = selection.item.path;
+                    video.started = true;
+                    current_data.reset();
+                    current_twin_data.reset();
+                    current_tex = nullptr;
+                    displayed_path.clear();
+                    displayed_twin_path.clear();
+                }
+
+                const auto ticks = SDL_GetTicks();
+                const auto layout = calculate_infopanel_layout(g_renderer.screen_w, g_renderer.screen_h);
+                g_video_decoder.set_paused(paused);
+                const double frame_ms = 1000.0 * g_video_decoder.get_frame_duration();
+                if (paused && !video.paused_at) video.paused_at = ticks;
+                if (!paused && video.paused_at) {
+                    const auto paused_ms = ticks - *video.paused_at;
+                    if (video.last_frame_at) video.last_frame_at += paused_ms;
+                    if (video.audio_drain_until) video.audio_drain_until += paused_ms;
+                    if (video.fallback_due_at > 0.0) video.fallback_due_at += paused_ms;
+                    video.paused_at.reset();
+                    g_video_stall_ts = 0;
+                }
+
+                if (g_video_decoder.has_start_failed()) {
+                    g_logger.error("VIDEO_DEC: Skipping video (open failed): {}", video.path);
+                    stop_video();
+                    advance(1);
+                    SDL_Delay(50);
                     continue;
                 }
-                const auto due_time = [&](double pts) {
-                    return g_video_decoder.get_anchor_wall_ms() + (pts - g_video_decoder.get_anchor_pts()) * 1000.0;
+
+                auto jump = [&](double pts, double previous, double duration_ms) {
+                    return pts > previous + duration_ms / 1000.0 + 2.0;
                 };
-                if (g_video_decoder.av_sync_ready()) {
-                    if (const auto next_pts = g_video_decoder.next_frame_pts()) {
-                        const double wait = due_time(*next_pts) - SDL_GetTicks();
-                        if (wait >= 1.0) {
-                            playlist_lock.unlock();
-                            SDL_Delay(static_cast<Uint32>(std::min(wait, 10.0)));
-                            continue;
-                        }
+                auto due = [&](double pts) {
+                    return g_video_decoder.get_anchor_wall_ms() +
+                           (pts - g_video_decoder.get_anchor_pts()) * 1000.0;
+                };
+
+                const bool synced = g_video_decoder.av_sync_ready();
+                const auto next_pts = g_video_decoder.next_frame_pts();
+                bool frame_due = !video.displayed_pts || (!synced && ticks >= video.fallback_due_at);
+                if (!paused && synced && next_pts && video.displayed_pts) {
+                    if (jump(*next_pts, *video.displayed_pts, video.last_frame_duration_ms) &&
+                        ticks >= video.last_frame_at + video.last_frame_duration_ms) {
+                        g_video_decoder.rebase_presentation(*next_pts);
+                        frame_due = true;
+                    } else {
+                        frame_due = ticks >= due(*next_pts);
                     }
                 }
+
                 VideoFrame frame;
-                if (g_video_decoder.get_frame(frame)) {
-                    if (!g_video_decoder.presentation_started()) {
-                        auto& item = g_eligible[current_idx];
+                const bool buffering = !video.displayed_pts && !g_video_decoder.is_eof() &&
+                    g_video_decoder.frame_queue_size() < std::min<size_t>(12, g_video_decoder.get_max_queued_frames());
+                if (buffering && !g_video_stall_ts) g_video_stall_ts = ticks;
+                const bool got_frame = !paused && frame_due &&
+                    (!buffering || ticks - g_video_stall_ts >= 1000) && g_video_decoder.get_frame(frame);
+                if (got_frame) {
+                    if (!video.displayed_pts) {
+                        auto& item = selection.item;
                         const double fps = g_video_decoder.get_fps();
                         const double duration = g_video_decoder.get_video_duration();
                         if (duration > 0.0 && (item.framerate != fps || item.duration != duration)) {
                             item.framerate = fps;
                             item.duration = duration;
-                            if (g_cache) g_cache->upsert(item, 0);
+                            bool publish;
+                            {
+                                std::lock_guard lock(g_playlist_mtx);
+                                publish = selection.matches();
+                                if (publish) g_eligible[selection.index] = item;
+                            }
+                            if (publish && g_cache) g_cache->upsert(item, 0);
                         }
                     }
                     g_video_decoder.note_presentation_start(frame.pts);
-                    // A frame is actually flowing: reset the stall timer so only a truly
-                    // empty queue (decoder hang) accumulates toward the 30s forced recovery.
-                    g_video_stall_ts = 0;
-                    if (transitioning) {
-                        transitioning = false;
-                        if (g_transition) g_transition->reset();
-                        if (transition_prev_target) { SDL_DestroyTexture(transition_prev_target); transition_prev_target = nullptr; }
-                        if (transition_next_target) { SDL_DestroyTexture(transition_next_target); transition_next_target = nullptr; }
-                    }
-                    // Skip late frames only while the successor is already due.
-                    if (g_video_decoder.av_sync_ready()) {
-                        const double ticks = SDL_GetTicks();
-                        while (ticks - due_time(frame.pts) > 40.0) {
-                            const auto next_pts = g_video_decoder.next_frame_pts();
-                            if (!next_pts || due_time(*next_pts) > ticks || !g_video_decoder.get_frame(frame)) break;
+                    if (synced) {
+                        while (ticks - due(frame.pts) > 40.0) {
+                            const auto following = g_video_decoder.next_frame_pts();
+                            const double duration_ms = frame.duration > 0.0 ? 1000.0 * frame.duration : frame_ms;
+                            if (!following || jump(*following, frame.pts, duration_ms) || due(*following) > ticks ||
+                                !g_video_decoder.get_frame(frame)) break;
                         }
                     }
+                    video.displayed_pts = frame.pts;
+                    video.last_frame_duration_ms = frame.duration > 0.0 ? 1000.0 * frame.duration : frame_ms;
                     g_video_decoder.set_displayed_pts(frame.pts);
-
-
+                    g_video_stall_ts = 0;
                     SDL_PixelFormat target_fmt = frame.is_nv12 ? SDL_PIXELFORMAT_NV12 : SDL_PIXELFORMAT_RGBA32;
                     if (!g_video_tex || g_video_tex_w != frame.width || g_video_tex_h != frame.height ||
                         g_video_tex_fmt != target_fmt || g_video_colorspace != frame.colorspace) {
@@ -2712,481 +2587,208 @@ int main(int argc, char** argv) {
                         } else {
                             SDL_UpdateTexture(g_video_tex, nullptr, frame.data, frame.width * 4);
                         }
-                        g_renderer.clear(0, 0, 0, 255);
-                        const auto v_layout = calculate_infopanel_layout(g_renderer.screen_w, g_renderer.screen_h);
-                        const auto& area = v_layout.slideshow_area;
-                        const double image_aspect = frame.aspect_ratio > 0 ? frame.aspect_ratio :
-                                                    static_cast<double>(frame.width) / frame.height;
-                        const double radians = frame.rotation * std::numbers::pi / 180.0;
-                        const double cosine = std::abs(std::cos(radians));
-                        const double sine = std::abs(std::sin(radians));
-                        const double h = std::min(area.w / (image_aspect * cosine + sine),
-                                                  area.h / (image_aspect * sine + cosine));
-                        const float w = static_cast<float>(h * image_aspect);
-                        const auto height = static_cast<float>(h);
-                        const SDL_FRect destination{area.x + (area.w - w) / 2, area.y + (area.h - height) / 2, w, height};
-                        SDL_RenderTextureRotated(g_renderer.sdl_renderer, g_video_tex, nullptr, &destination,
-                                                 frame.rotation, nullptr, SDL_FLIP_NONE);
-                        // FIX: Overlay rendering + draw overlays BEFORE present()
-                        if (g_overlay) {
-                            double fallback_dur = (!g_eligible.empty() && current_idx >= 0 && current_idx < std::ssize(g_eligible)) ? g_eligible[current_idx].duration : 0.0;
-                            double remaining = g_video_decoder.get_video_remaining(fallback_dur);
-                            std::string remaining_str = "0:00";
-                            if (remaining > 0.0 && (g_video_decoder.is_running() || g_video_decoder.has_frames())) {
-                                int total_secs = (int)std::ceil(remaining);
-                                int mins = total_secs / 60;
-                                int secs = total_secs % 60;
-                                remaining_str = std::format("{}:{:02d}", mins, secs);
-                            }
-                            std::string font_p = g_overlay->get_font_path();
-                            FontRenderer* fr = g_overlay->get_font_renderer();
-                            if (v_layout.show_chores) {
-                                render_chores_panel(g_renderer.sdl_renderer, fr, font_p, v_layout.chores_area, g_renderer.screen_w, v_layout.content_top);
-                            }
-                            if (v_layout.show_calendar) {
-                                g_calendar.render(g_renderer.sdl_renderer, fr, font_p, v_layout.calendar_area, g_renderer.screen_w);
-                            }
-                            if (v_layout.show_stocks) {
-                                g_stock_streamer.render(g_renderer.sdl_renderer, fr, font_p, v_layout.stocks_area, g_renderer.screen_w);
-                            }
-                            if (v_layout.show_news) {
-                                g_news_ticker.render(g_renderer.sdl_renderer, fr, font_p, v_layout.news_area, g_renderer.screen_w);
-                            }
-                            g_overlay->draw_all(current_idx, std::ssize(g_eligible),
-                                &g_eligible[current_idx],
-                                nullptr,
-                                0.0, true, 0, nullptr, nullptr, remaining_str, &v_layout.slideshow_area);
-                        }
-                        g_renderer.present();
                     }
-                    // Precise Video Frame Pacing: Locks GPU/CPU decoding to exact video framerate
-                    static std::string pacing_video_path = "";
-                    static uint64_t video_start_ticks_ms = 0;
-                    static uint64_t video_frame_count = 0;
-                    std::string cur_path = g_eligible[current_idx].path;
-                    uint64_t now_ticks_ms = SDL_GetTicks();
+                    const auto& area = layout.slideshow_area;
+                    const double image_aspect = frame.aspect_ratio > 0 ? frame.aspect_ratio :
+                                                static_cast<double>(frame.width) / frame.height;
+                    const double radians = frame.rotation * std::numbers::pi / 180.0;
+                    const double cosine = std::abs(std::cos(radians));
+                    const double sine = std::abs(std::sin(radians));
+                    const double h = std::min(area.w / (image_aspect * cosine + sine),
+                                              area.h / (image_aspect * sine + cosine));
+                    const float w = static_cast<float>(h * image_aspect);
+                    const auto height = static_cast<float>(h);
+                    const SDL_FRect destination{area.x + (area.w - w) / 2, area.y + (area.h - height) / 2, w, height};
+                    video.destination = destination;
+                    video.rotation = frame.rotation;
+                    if (!video.fallback_due_at || ticks > video.fallback_due_at + 1000.0)
+                        video.fallback_due_at = ticks;
+                    video.fallback_due_at += frame_ms;
+                }
 
-                    if (!g_video_decoder.av_sync_ready()) {
-                        if (pacing_video_path != cur_path) {
-                            pacing_video_path = cur_path;
-                            video_start_ticks_ms = now_ticks_ms;
-                            video_frame_count = 0;
-                        }
-                        double frame_dur_s = g_video_decoder.get_frame_duration();
-                        if (frame_dur_s <= 0.0) frame_dur_s = 0.033333; // Default 30fps fallback
-                        double target_rel_ms = (double)video_frame_count * (frame_dur_s * 1000.0);
-                        uint64_t target_abs_ms = video_start_ticks_ms + (uint64_t)target_rel_ms;
-                        if (now_ticks_ms < target_abs_ms) {
-                            uint32_t sleep_ms = (uint32_t)(target_abs_ms - now_ticks_ms);
-                            if (sleep_ms > 0 && sleep_ms < 500) {
-                                SDL_Delay(sleep_ms);
-                            }
-                        } else if (now_ticks_ms > target_abs_ms + 1000) {
-                            // Smooth clock resync only if presentation falls > 1000ms behind
-                            video_start_ticks_ms = now_ticks_ms - (uint64_t)target_rel_ms;
-                        }
-                        video_frame_count++;
+                if (g_video_decoder.is_eof() && !g_video_decoder.has_frames()) {
+                    if (!video.eof_reached) {
+                        video.eof_reached = true;
+                        video.audio_drain_until = ticks + 500;
                     }
-                } else if (g_video_decoder.is_running() || g_video_decoder.has_frames()) {
-                    // Queue empty but decoder still running - wait and retry
-                    if (g_video_stall_ts == 0) g_video_stall_ts = SDL_GetTicks();
-                    else if (SDL_GetTicks() - g_video_stall_ts > 30000) {
-                        g_logger.error("[VIDEO_STALL] Decoder stuck 30s, forcing recovery");
-                        trigger_error(529);
-                        write_event_log(std::format("VIDEO_STALL: item={}\n", current_idx));
-                        pitrove::health::heartbeat_tick();
-                        g_video_decoder.stop();
-                        if (g_video_tex) { SDL_DestroyTexture(g_video_tex); g_video_tex = nullptr; g_video_tex_w = 0; g_video_tex_h = 0; g_video_tex_fmt = SDL_PIXELFORMAT_UNKNOWN; }
-                        transitioning = true;
-                        advance_playlist(1);
-                        g_video_stall_ts = 0;
-                        playlist_lock.unlock();
-                        SDL_Delay(10);
+                    const bool frame_held = !video.last_frame_at || ticks >= video.last_frame_at + video.last_frame_duration_ms;
+                    if (!paused && !got_frame && frame_held &&
+                        (ticks >= video.audio_drain_until || !g_video_decoder.has_queued_audio())) {
+                        const auto path = video.path;
+                        const bool played = video.displayed_pts.has_value();
+                        stop_video();
+                        if (played) mark_item_shown(path);
+                        advance(1);
                         continue;
                     }
-                    SDL_Delay(1);
-                    continue;
+                } else if (!paused && !g_video_decoder.has_frames()) {
+                    if (!g_video_stall_ts) g_video_stall_ts = ticks;
+                    if (ticks - g_video_stall_ts > 30000) {
+                        g_logger.error("[VIDEO_STALL] Decoder stuck 30s, forcing recovery");
+                        trigger_error(529);
+                        write_event_log(std::format("VIDEO_STALL: item={}\n", selection.index));
+                        stop_video();
+                        advance(1);
+                        continue;
+                    }
                 }
 
-                // Decoder finish check: advance when frame queue is empty and decoder is done or at EOF
-                if (!g_video_decoder.has_frames() && (!g_video_decoder.is_running() || g_video_decoder.is_eof())) {
-                    g_logger.info("Video decoder finished (EOF), advancing playlist.");
-                    g_video_decoder.stop();
-                    if (g_video_tex) { SDL_DestroyTexture(g_video_tex); g_video_tex = nullptr; g_video_tex_w = 0; g_video_tex_h = 0; g_video_tex_fmt = SDL_PIXELFORMAT_UNKNOWN; }
-                    mark_item_shown(g_eligible[current_idx].path, false);
-                    transitioning = true;
-                    advance_playlist(1);
-                    playlist_lock.unlock();
-                    SDL_Delay(10);
-                    continue;
+                if (got_frame || paused || !video.drew_frame) {
+                    g_renderer.clear(0, 0, 0, 255);
+                    if (g_video_tex) {
+                        SDL_RenderTextureRotated(g_renderer.sdl_renderer, g_video_tex, nullptr, &video.destination,
+                                                 video.rotation, nullptr, SDL_FLIP_NONE);
+                    }
+                    draw_panels(layout);
+                    if (g_overlay) {
+                        const int seconds = static_cast<int>(std::ceil(g_video_decoder.get_video_remaining(selection.item.duration)));
+                        const auto remaining = std::format("{}:{:02d}", seconds / 60, seconds % 60);
+                        g_overlay->draw_all(selection.index, selection.count, &selection.item, nullptr, 0.0,
+                            true, active_fps, nullptr, nullptr, remaining, &layout.slideshow_area);
+                    }
+                    g_renderer.present();
+                    video.drew_frame = true;
+                    if (got_frame) video.last_frame_at = SDL_GetTicks();
                 }
-                // Keep drawing video + overlay until decoder completes
+                SDL_Delay(paused ? 16 : 1);
+            } catch (const std::exception& error) {
+                g_logger.error("VIDEO_DEC: Playback failed: {}", error.what());
+                stop_video();
+                advance(1);
             }
-
-            // Video decoder not running - start it
-
-            if (transitioning) {
-                transitioning = false;
-                if (g_transition) g_transition->reset();
-                if (transition_prev_target) { SDL_DestroyTexture(transition_prev_target); transition_prev_target = nullptr; }
-                if (transition_next_target) { SDL_DestroyTexture(transition_next_target); transition_next_target = nullptr; }
-                playlist_lock.unlock();
-                continue;
-            } else {
-                std::string video_path = g_eligible[current_idx].path;
-                if (g_video_decoder.is_running() || g_video_decoder.has_frames()) {
-                    // g_logger.debug("VIDEO_DEC: decoder already running");
-                    playlist_lock.unlock();
-                    continue;
-                }
-                // Decoder finished its start attempt and the file could not be opened:
-                // advance instead of retrying the same bad item every 100ms.
-                if (g_video_decoder.consume_start_failed()) {
-                    g_logger.error("VIDEO_DEC: Skipping video (open failed): {}", video_path.c_str());
-                    current_data = nullptr;
-                    current_twin_data = nullptr;
-                    current_tex = nullptr;
-                    transitioning = true;
-                    advance_playlist(1);
-                    playlist_lock.unlock();
-                    SDL_Delay(50);
-                    continue;
-                }
-                g_logger.info("Playing video: {}", video_path.c_str());
-
-                int width, height;
-                { std::shared_lock lock(g_config_mtx); width = g_cfg.screen_w; height = g_cfg.screen_h;
-                  g_video_decoder.set_av_sync(g_cfg.av_sync); }
-
-                // Reset video frame pacing for new video
-                g_video_stall_ts = 0;
-                if (!g_video_decoder.start(video_path, width, height)) {
-                    g_logger.error("Failed to start video decoder, skipping.");
-                    current_data = nullptr;
-                    current_twin_data = nullptr;
-                    current_tex = nullptr;
-                    transitioning = true;
-                    advance_playlist(1);
-                    playlist_lock.unlock();
-                    SDL_Delay(50);
-                    continue;
-                }
-                playlist_lock.unlock();
-                SDL_Delay(10);
-                continue;
-            }
-        }
-        } catch (const std::exception& e) {
-            g_logger.error("VIDEO_DEC: Exception in main loop: {}", e.what());
-            g_video_decoder.stop();
-            if (g_video_tex) { SDL_DestroyTexture(g_video_tex); g_video_tex = nullptr; g_video_tex_w = 0; g_video_tex_h = 0; g_video_tex_fmt = SDL_PIXELFORMAT_UNKNOWN; }
-            playlist_lock.unlock();
-            continue;
-        } catch (...) {
-            g_logger.error("VIDEO_DEC: Unknown exception in main loop");
-            g_video_decoder.stop();
-            if (g_video_tex) { SDL_DestroyTexture(g_video_tex); g_video_tex = nullptr; g_video_tex_w = 0; g_video_tex_h = 0; g_video_tex_fmt = SDL_PIXELFORMAT_UNKNOWN; }
-            playlist_lock.unlock();
             continue;
         }
 
         // --- Image Rendering Handling ---
-        double dt_scaled = g_slideshow_paused.load() ? 0.0 : dt;
+        double dt_scaled = paused ? 0.0 : dt;
         item_timer += dt_scaled;
-        g_item_timer.store((float)item_timer);
+        g_item_timer.store(static_cast<float>(item_timer));
         if (transitioning) {
-            // Load next_data exactly once at the beginning of the transition
-            if (!next_data) {
-                int next_idx = current_idx % std::ssize(g_eligible);
-                bool is_twin = should_be_twin_portrait(g_eligible, next_idx);
-                next_is_twin = is_twin;
-
-                int next_idx_twin = -1;
-                std::string next_path, next_path_twin;
-                if (is_twin) {
-                    next_idx_twin = (next_idx + 1) % std::ssize(g_eligible);
-                    next_path = g_eligible[next_idx].path;
-                    next_path_twin = g_eligible[next_idx_twin].path;
-                } else {
-                    next_path = g_eligible[next_idx].path;
-                }
-
-                // Capture paths and type under lock, then unlock for I/O to prevent race on g_eligible
-                bool next_is_video = g_eligible[next_idx].type == "video";
-                playlist_lock.unlock();
-                if (g_preload && !next_is_video) {
-                    next_data = g_preload->try_dequeue(next_path);
-                    if (is_twin) {
-                        next_twin_data = g_preload->try_dequeue(next_path_twin);
-                    }
-                }
-                // Fallback to synchronous load if preloader bypassed or missed (skip for video items)
-                if (!next_is_video) {
-                    if (!next_data || !next_data->valid) {
-                        next_data = ImageLoader::load(next_path);
-                    }
-                    if (is_twin && (!next_twin_data || !next_twin_data->valid)) {
-                        next_twin_data = ImageLoader::load(next_path_twin);
-                    }
-                }
-                playlist_lock.lock();
-
-                // Validate indices after re-acquiring lock (watchman may have resized playlist)
-                if (g_eligible.empty()) {
-                    next_data = nullptr;
-                    next_twin_data = nullptr;
-                } else {
-                    if (next_idx >= std::ssize(g_eligible)) next_idx = next_idx % std::ssize(g_eligible);
-                    if (current_idx >= std::ssize(g_eligible)) current_idx = current_idx % std::ssize(g_eligible);
-                }
-
-                // Update metadata using path-safe lookups (indices may have shifted)
-                auto update_meta_safe = [&](const std::string& expected_path, const std::shared_ptr<ImageData>& data) {
-                    if (!data || !data->valid) return;
-                    int found = -1;
-                    for (int i = 0; i < std::ssize(g_eligible); i++) {
-                        if (g_eligible[i].path == expected_path) { found = i; break; }
-                    }
-                    if (found != -1) {
-                        update_image_metadata(g_eligible[found], *data);
-                        if (g_cache) g_cache->upsert(g_eligible[found], 0, 1);
-                    }
+            if (!transition_selection) {
+                transition_selection = selection;
+                next_is_twin = selection.twin.has_value();
+                const auto load_photo = [&](const std::string& path) {
+                    auto data = g_preload ? g_preload->try_dequeue(path) : nullptr;
+                    if (!data || !data->valid) data = ImageLoader::load(path);
+                    ImageLoader::load_texture(data.get(), g_renderer.sdl_renderer);
+                    return data;
                 };
-                if (g_eligible[next_idx].type != "video") {
-                    update_meta_safe(next_path, next_data);
-                    if (is_twin && next_twin_data) {
-                        update_meta_safe(next_path_twin, next_twin_data);
-                    }
+                next_data = load_photo(selection.item.path);
+                if (selection.twin) next_twin_data = load_photo(selection.twin->path);
+
+                bool matches;
+                {
+                    std::lock_guard lock(g_playlist_mtx);
+                    matches = transition_selection->matches();
+                }
+                if (!matches) {
+                    cancel_transition();
+                    continue;
                 }
 
-                if (next_data && next_data->valid && (!is_twin || (next_twin_data && next_twin_data->valid))) {
-                    ImageLoader::load_texture(next_data.get(), g_renderer.sdl_renderer);
-                    if (is_twin && next_twin_data) {
-                        ImageLoader::load_texture(next_twin_data.get(), g_renderer.sdl_renderer);
-                    }
-                } else {
-                    if (g_eligible[next_idx].type != "video") {
-                        if (is_media_dir_healthy(current_media_dir())) {
-                            if (g_cache && next_data && !next_data->valid && !next_data->transient_error) {
-                            }
-                            if (is_twin && g_cache && next_twin_data && !next_twin_data->valid && !next_twin_data->transient_error) {
-                            }
+                if (next_data->texture && next_is_twin && !next_twin_data->texture) {
+                    next_twin_data.reset();
+                    next_is_twin = false;
+                    transition_selection->twin.reset();
+                }
+                if (!next_data->texture) {
+                    cancel_transition();
+                    const auto failures = g_consecutive_failures.fetch_add(1) + 1;
+                    if (failures >= 3 && !g_offline_mode.exchange(true)) {
+                        g_logger.warn("SLIDESHOW: Entering Offline Recovery Mode after {} load failures.", failures);
+                        for (const auto& fallback : {std::string("src/splash.png"), get_exe_dir() + "/src/splash.png",
+                                                     get_exe_dir() + "/splash.png"}) {
+                            if (!file_exists(fallback)) continue;
+                            auto data = load_photo(fallback);
+                            if (!data->texture) continue;
+                            current_data = std::move(data);
+                            current_twin_data.reset();
+                            current_tex = current_data->texture;
+                            displayed_path.clear();
+                            displayed_twin_path.clear();
+                            break;
                         }
                     }
-                    next_data = nullptr;
-                    next_twin_data = nullptr;
+                    photo_retry_at = std::chrono::steady_clock::now() +
+                        (g_offline_mode.load() ? std::chrono::seconds(30) : std::chrono::seconds(2));
+                    continue;
                 }
+
+                TransitionEffect effect = TransitionEffect::Fade;
+                if (transition_effect == "wipe") effect = TransitionEffect::WipeLeft;
+                else if (transition_effect == "ken_burns") effect = TransitionEffect::KenBurns;
+                else if (transition_effect == "pixelate") effect = TransitionEffect::Pixelate;
+                else if (transition_effect == "dissolve") effect = TransitionEffect::Dissolve;
+                float duration, zoom;
+                {
+                    std::shared_lock lock(g_config_mtx);
+                    duration = g_cfg.transition_duration;
+                    zoom = g_cfg.ken_burns_zoom;
+                }
+                if (current_tex) {
+                    transition_prev_target = render_state_to_texture(g_renderer.sdl_renderer,
+                        g_renderer.screen_w, g_renderer.screen_h, current_data, current_twin_data, item_timer);
+                    transition_next_target = render_state_to_texture(g_renderer.sdl_renderer,
+                        g_renderer.screen_w, g_renderer.screen_h, next_data, next_twin_data, 0.0);
+                }
+                g_transition->start(effect, duration, 0, zoom);
+                last_frame_time = std::chrono::steady_clock::now();
+                dt_scaled = 0.0;
             }
 
-            bool is_video_transition = (g_eligible[current_idx].type == "video");
-            bool load_success = is_video_transition || (next_data && next_data->texture && (!next_is_twin || (next_twin_data && next_twin_data->texture)));
-
-            if (load_success) {
-                clear_error(201);
-                clear_error(101);
-                if (g_consecutive_failures.load() > 0) {
+            const bool animate = transition_prev_target && transition_next_target && g_transition->is_active();
+            if (animate) g_transition->update(dt_scaled);
+            if (!animate || g_transition->get_progress() >= 1.0f) {
+                auto target = *transition_selection;
+                bool publish;
+                {
+                    std::lock_guard lock(g_playlist_mtx);
+                    publish = target.matches();
+                    if (publish) {
+                        auto apply = [&](MediaItem& item, const ImageData& data, int index) {
+                            update_image_metadata(g_eligible[index], data);
+                            item = g_eligible[index];
+                            const auto scanned = std::find_if(g_scanned_items.begin(), g_scanned_items.end(),
+                                [&](const MediaItem& entry) { return entry.path == item.path; });
+                            if (scanned != g_scanned_items.end()) update_image_metadata(*scanned, data);
+                        };
+                        apply(target.item, *next_data, target.index);
+                        if (target.twin) apply(*target.twin, *next_twin_data, (target.index + 1) % target.count);
+                    }
+                }
+                if (publish) {
+                    current_data = std::move(next_data);
+                    current_twin_data = std::move(next_twin_data);
+                    current_tex = current_data->texture;
+                    displayed_path = target.item.path;
+                    displayed_twin_path = target.twin ? target.twin->path : std::string{};
+                    item_timer = 0.0;
+                    photo_retry_at = {};
+                    clear_error(201);
+                    clear_error(101);
                     g_consecutive_failures.store(0);
-                }
-                if (g_offline_mode.exchange(false)) {
-                    g_logger.info("SLIDESHOW: Exiting Offline Recovery Mode. Connection to NAS restored.");
-                }
-                // Generate intermediate flat textures representing full screen layout states
-                bool just_started = false;
-                if (!transition_prev_target) {
-                    transition_prev_target = render_state_to_texture(g_renderer.sdl_renderer, g_renderer.screen_w, g_renderer.screen_h, current_data, current_twin_data, item_timer);
-                    just_started = true;
-                }
-                if (!transition_next_target) {
-                    transition_next_target = render_state_to_texture(g_renderer.sdl_renderer, g_renderer.screen_w, g_renderer.screen_h, next_data, next_twin_data, 0.0);
-                    just_started = true;
-                }
-
-                if (transition_prev_target && transition_next_target) {
-                    if (just_started) {
-                        last_frame_time = std::chrono::steady_clock::now();
-                        dt_scaled = 0.0;
+                    if (g_offline_mode.exchange(false))
+                        g_logger.info("SLIDESHOW: Exiting Offline Recovery Mode. Connection to NAS restored.");
+                    if (g_cache) {
+                        g_cache->upsert(target.item, 0, 1);
+                        if (target.twin) g_cache->upsert(*target.twin, 0, 1);
                     }
-                    g_renderer.clear(0, 0, 0, 255);
-                    g_transition->update(dt_scaled);
-                    g_transition->render(transition_prev_target, transition_next_target, g_renderer.screen_w, g_renderer.screen_h);
-                    InfopanelLayout t_layout = calculate_infopanel_layout(g_renderer.screen_w, g_renderer.screen_h);
-                    if (g_overlay) {
-                        std::string font_p = g_overlay->get_font_path();
-                        FontRenderer* fr = g_overlay->get_font_renderer();
-                        if (t_layout.show_chores) {
-                            render_chores_panel(g_renderer.sdl_renderer, fr, font_p, t_layout.chores_area, g_renderer.screen_w, t_layout.content_top);
-                        }
-                        if (t_layout.show_calendar) {
-                            g_calendar.render(g_renderer.sdl_renderer, fr, font_p, t_layout.calendar_area, g_renderer.screen_w);
-                        }
-                        if (t_layout.show_stocks) {
-                            g_stock_streamer.render(g_renderer.sdl_renderer, fr, font_p, t_layout.stocks_area, g_renderer.screen_w);
-                        }
-                        if (t_layout.show_news) {
-                            g_news_ticker.render(g_renderer.sdl_renderer, fr, font_p, t_layout.news_area, g_renderer.screen_w);
-                        }
-                        bool cur_is_video = (!g_eligible.empty() && current_idx >= 0 && current_idx < std::ssize(g_eligible) && g_eligible[current_idx].type == "video");
-                        g_overlay->draw_all(current_idx, std::ssize(g_eligible),
-                            &g_eligible[current_idx],
-                            nullptr,
-                            0.0, cur_is_video, active_fps, next_data ? next_data.get() : nullptr, next_twin_data ? next_twin_data.get() : nullptr, "", &t_layout.slideshow_area);
-                    }
-                    g_renderer.present();
-
-                    if (g_transition->get_progress() >= 1.0f) {
-                        transitioning = false;
-                        item_timer = 0.0;
-
-                        current_data = next_data;
-                        current_twin_data = next_twin_data;
-                        next_data = nullptr;
-                        next_twin_data = nullptr;
-                        next_is_twin = false;
-
-                        SDL_DestroyTexture(transition_prev_target);
-                        transition_prev_target = nullptr;
-                        SDL_DestroyTexture(transition_next_target);
-                        transition_next_target = nullptr;
-
-                        current_tex = current_data ? current_data->texture : nullptr;
-                        if (!is_video_transition) {
-                            mark_item_shown(g_eligible[current_idx].path, false);
-                            if (current_twin_data) {
-                                mark_item_shown(g_eligible[(current_idx + 1) % std::ssize(g_eligible)].path, false);
-                            }
-                        }
-
-                        // Update in-memory item metadata with actual dimensions and EXIF rotation
-                        if (current_data) {
-                            update_image_metadata(g_eligible[current_idx], *current_data);
-                            for (auto& item : g_scanned_items) {
-                                if (item.path == g_eligible[current_idx].path) {
-                                    update_image_metadata(item, *current_data);
-                                    break;
-                                }
-                            }
-                            if (g_cache) g_cache->upsert(g_eligible[current_idx], 0, 1);
-                            {
-                            InfopanelLayout layout = calculate_infopanel_layout(g_renderer.screen_w, g_renderer.screen_h);
-                            calculate_fit_rect_in_area(current_data->width, current_data->height, layout.slideshow_area.x, layout.slideshow_area.y, layout.slideshow_area.w, layout.slideshow_area.h, fit_rect);
-                        }
-                        }
-                    }
-                } else {
-                    if (transition_prev_target) { SDL_DestroyTexture(transition_prev_target); transition_prev_target = nullptr; }
-                    if (transition_next_target) { SDL_DestroyTexture(transition_next_target); transition_next_target = nullptr; }
-
-                    transitioning = false;
-                    item_timer = 0.0;
-                    if (g_transition) g_transition->reset();
-
-                    if (next_data) {
-                        current_data = next_data;
-                        current_twin_data = next_twin_data;
-                        next_data = nullptr;
-                        next_twin_data = nullptr;
-                        current_tex = current_data->texture;
-                        mark_item_shown(g_eligible[current_idx].path, false);
-                        if (current_twin_data) {
-                            mark_item_shown(g_eligible[(current_idx + 1) % std::ssize(g_eligible)].path, false);
-                        }
-
-                        // Update metadata
-                        if (current_data) {
-                            update_image_metadata(g_eligible[current_idx], *current_data);
-                            for (auto& item : g_scanned_items) {
-                                if (item.path == g_eligible[current_idx].path) {
-                                    update_image_metadata(item, *current_data);
-                                    break;
-                                }
-                            }
-                            if (g_cache) g_cache->upsert(g_eligible[current_idx], 0, 1);
-                        }
-
-                        {
-                            InfopanelLayout layout = calculate_infopanel_layout(g_renderer.screen_w, g_renderer.screen_h);
-                            calculate_fit_rect_in_area(current_data->width, current_data->height, layout.slideshow_area.x, layout.slideshow_area.y, layout.slideshow_area.w, layout.slideshow_area.h, fit_rect);
-                        }
-                    }
+                    mark_item_shown(target.item.path);
+                    if (target.twin) mark_item_shown(target.twin->path);
                 }
+                cancel_transition();
             } else {
-                transitioning = false;
-                if (g_transition) g_transition->reset();
-                if (transition_prev_target) { SDL_DestroyTexture(transition_prev_target); transition_prev_target = nullptr; }
-                if (transition_next_target) { SDL_DestroyTexture(transition_next_target); transition_next_target = nullptr; }
-
-                g_consecutive_failures.fetch_add(1);
-                g_logger.warn("SLIDESHOW: Failed to load next media item. Consecutive failure count: {}", g_consecutive_failures.load());
-                if (g_consecutive_failures.load() >= 3) {
-                    if (!g_offline_mode.exchange(true)) {
-                        g_logger.warn("SLIDESHOW: Entering Offline Recovery Mode due to multiple consecutive load failures.");
-                        // Discard old textures so the fallback splash screen is forced to load
-                        current_data = nullptr;
-                        current_twin_data = nullptr;
-                        current_tex = nullptr;
-                    }
+                g_renderer.clear(0, 0, 0, 255);
+                g_transition->render(transition_prev_target, transition_next_target, g_renderer.screen_w, g_renderer.screen_h);
+                const auto layout = calculate_infopanel_layout(g_renderer.screen_w, g_renderer.screen_h);
+                draw_panels(layout);
+                const auto& target = *transition_selection;
+                if (g_overlay) {
+                    g_overlay->draw_all(target.index, target.count, &target.item,
+                        target.twin ? &*target.twin : nullptr, 0.0, false, active_fps,
+                        next_data.get(), next_twin_data.get(), "", &layout.slideshow_area);
                 }
-
-                if (g_offline_mode.load()) {
-                    item_timer = 0.0;
-                    if (!current_tex) {
-                        std::string fallback_path = "src/splash.png";
-                        if (!file_exists(fallback_path)) {
-                            fallback_path = get_exe_dir() + "/src/splash.png";
-                            if (!file_exists(fallback_path)) {
-                                fallback_path = get_exe_dir() + "/splash.png";
-                            }
-                        }
-                        if (file_exists(fallback_path)) {
-                            std::shared_ptr<ImageData> fallback_data = ImageLoader::load(fallback_path);
-                            if (fallback_data && fallback_data->valid) {
-                                ImageLoader::load_texture(fallback_data.get(), g_renderer.sdl_renderer);
-                                current_data = fallback_data;
-                                current_twin_data = nullptr;
-                                current_tex = current_data->texture;
-                                {
-                            InfopanelLayout layout = calculate_infopanel_layout(g_renderer.screen_w, g_renderer.screen_h);
-                            calculate_fit_rect_in_area(current_data->width, current_data->height, layout.slideshow_area.x, layout.slideshow_area.y, layout.slideshow_area.w, layout.slideshow_area.h, fit_rect);
-                        }
-                            }
-                        }
-                    }
-                } else {
-                    double delay;
-                    {
-                        std::shared_lock lk(g_config_mtx);
-                        delay = g_cfg.transition_delay;
-                    }
-                    item_timer = std::max(0.0, delay - 2.0);
-                    if (next_data) {
-                        current_data = next_data;
-                        current_twin_data = next_twin_data;
-                        next_data = nullptr;
-                        next_twin_data = nullptr;
-                        current_tex = current_data->texture;
-                        mark_item_shown(g_eligible[current_idx].path, false);
-                        if (current_twin_data) {
-                            mark_item_shown(g_eligible[(current_idx + 1) % std::ssize(g_eligible)].path, false);
-                        }
-
-                        // Update metadata
-                        if (current_data) {
-                            update_image_metadata(g_eligible[current_idx], *current_data);
-                            for (auto& item : g_scanned_items) {
-                                if (item.path == g_eligible[current_idx].path) {
-                                    update_image_metadata(item, *current_data);
-                                    break;
-                                }
-                            }
-                            if (g_cache) g_cache->upsert(g_eligible[current_idx], 0, 1);
-                        }
-
-                        {
-                            InfopanelLayout layout = calculate_infopanel_layout(g_renderer.screen_w, g_renderer.screen_h);
-                            calculate_fit_rect_in_area(current_data->width, current_data->height, layout.slideshow_area.x, layout.slideshow_area.y, layout.slideshow_area.w, layout.slideshow_area.h, fit_rect);
-                        }
-                    }
-                }
+                g_renderer.present();
             }
         } else {
             const auto layout = calculate_infopanel_layout(g_renderer.screen_w, g_renderer.screen_h);
@@ -3241,16 +2843,15 @@ int main(int argc, char** argv) {
                     vignette_str = g_cfg.vignette_strength;
                 }
 
-                if (snap_matte_color && current_data) {
-                    g_renderer.clear(current_data->matte_r, current_data->matte_g, current_data->matte_b, 255);
-                } else {
-                    g_renderer.clear(0, 0, 0, 255);
-                }
+                g_renderer.clear(0, 0, 0, 255);
 
                 SDL_Rect rect_l, rect_r;
-                int half_w = layout.slideshow_area.w / 2;
-                calculate_fit_rect_in_area(current_data->width, current_data->height, layout.slideshow_area.x, layout.slideshow_area.y, half_w, layout.slideshow_area.h, rect_l);
-                calculate_fit_rect_in_area(current_twin_data->width, current_twin_data->height, layout.slideshow_area.x + half_w, layout.slideshow_area.y, layout.slideshow_area.w - half_w, layout.slideshow_area.h, rect_r);
+                const auto& area = layout.slideshow_area;
+                const int half_w = area.w / 2;
+                const SDL_Rect left_area{area.x, area.y, half_w, area.h};
+                const SDL_Rect right_area{area.x + half_w, area.y, area.w - half_w, area.h};
+                calculate_fit_rect_in_area(current_data->width, current_data->height, left_area.x, left_area.y, left_area.w, left_area.h, rect_l);
+                calculate_fit_rect_in_area(current_twin_data->width, current_twin_data->height, right_area.x, right_area.y, right_area.w, right_area.h, rect_r);
 
                 // 1. Draw background based on style
                 std::string snap_bg_style;
@@ -3261,16 +2862,16 @@ int main(int argc, char** argv) {
 
                 // 2. Draw matte borders if enabled (solid black base layer) - ONLY if NOT color-matched or blurred!
                 if (has_matting && !snap_matte_color && !snap_blurred) {
-                    g_renderer.draw_matte_borders(rect_l);
-                    g_renderer.draw_matte_borders(rect_r);
+                    g_renderer.draw_matte_borders(rect_l, left_area);
+                    g_renderer.draw_matte_borders(rect_r, right_area);
                 }
 
                 // 3. Color-matched matte for each portrait (opaque and edge-to-edge if enabled)
                 if (snap_matte_color) {
                     g_renderer.draw_color_matched_matte(rect_l,
-                        current_data->matte_r, current_data->matte_g, current_data->matte_b, matte_op);
+                        current_data->matte_r, current_data->matte_g, current_data->matte_b, matte_op, left_area);
                     g_renderer.draw_color_matched_matte(rect_r,
-                        current_twin_data->matte_r, current_twin_data->matte_g, current_twin_data->matte_b, matte_op);
+                        current_twin_data->matte_r, current_twin_data->matte_g, current_twin_data->matte_b, matte_op, right_area);
                 }
 
 
@@ -3395,102 +2996,81 @@ int main(int argc, char** argv) {
                 if (g_overlay) {
                     if (layout.show_news)
                         g_news_ticker.render(g_renderer.sdl_renderer, font, font_path, layout.news_area, g_renderer.screen_w);
-                    bool cur_is_video = (!g_eligible.empty() && current_idx >= 0 && current_idx < std::ssize(g_eligible) && g_eligible[current_idx].type == "video");
-                    int twin_idx = (current_idx + 1) % std::ssize(g_eligible);
-                    const MediaItem* twin_item_ptr = (current_twin_data && !g_eligible.empty()) ? &g_eligible[twin_idx] : nullptr;
-                    g_overlay->draw_all(current_idx, std::ssize(g_eligible),
-                        &g_eligible[current_idx],
-                        twin_item_ptr,
-                        item_timer, cur_is_video, active_fps, current_data.get(), current_twin_data.get(), "", &layout.slideshow_area);
+                    const auto* item = displayed_path == selection.item.path ? &selection.item : nullptr;
+                    const auto* twin = item && shown_twin ? &*selection.twin : nullptr;
+                    g_overlay->draw_all(selection.index, selection.count, item, twin, item_timer, false,
+                        active_fps, current_data.get(), current_twin_data.get(), "", &layout.slideshow_area);
+                }
+                // Splash-to-first-photo fade-out
+                if (first_photo_fade) {
+                    if (fade_start_time == 0) fade_start_time = SDL_GetTicks();
+                    Uint64 fade_elapsed = SDL_GetTicks() - fade_start_time;
+                    float fade_alpha = 1.0f - std::min(1.0f, fade_elapsed / 500.0f);
+                    if (fade_alpha > 0.0f) {
+                        SDL_SetRenderDrawBlendMode(g_renderer.sdl_renderer, SDL_BLENDMODE_BLEND);
+                        SDL_SetRenderDrawColor(g_renderer.sdl_renderer, 0, 0, 0, (Uint8)(fade_alpha * 255.0f));
+                        SDL_FRect fade_rect = {0, 0, (float)g_renderer.screen_w, (float)g_renderer.screen_h};
+                        SDL_RenderFillRect(g_renderer.sdl_renderer, &fade_rect);
+                    }
+                    if (fade_alpha <= 0.0f) {
+                        first_photo_fade = false;
+                        g_renderer.cleanup_splash();
+                    }
                 }
                 g_renderer.present();
             }
 
-            // Queue lookahead at a fixed cadence instead of per refresh.
             static auto next_lookahead = std::chrono::steady_clock::time_point{};
             if (g_preload && now >= next_lookahead) {
                 next_lookahead = now + std::chrono::milliseconds(500);
-                int lookahead_idx = g_eligible.empty() ? 0 : (current_idx + (current_twin_data ? 2 : 1)) % std::ssize(g_eligible);
-                bool lookahead_is_twin = g_eligible.empty() ? false : should_be_twin_portrait(g_eligible, lookahead_idx);
-                
-                if (lookahead_idx >= 0 && lookahead_idx < std::ssize(g_eligible)) {
-                    if (g_eligible[lookahead_idx].type == "image") {
-                        g_preload->enqueue(g_eligible[lookahead_idx].path);
-                    }
-                    if (lookahead_is_twin) {
-                        int lookahead_idx2 = (lookahead_idx + 1) % std::ssize(g_eligible);
-                        if (lookahead_idx2 >= 0 && lookahead_idx2 < std::ssize(g_eligible)) {
-                            if (g_eligible[lookahead_idx2].type == "image") {
-                                g_preload->enqueue(g_eligible[lookahead_idx2].path);
+                std::string photo, twin, warm_video;
+                {
+                    std::lock_guard lock(g_playlist_mtx);
+                    if (selection.matches()) {
+                        const int next = (selection.index + (shown_twin ? 2 : 1)) % selection.count;
+                        if (g_eligible[next].type == "image") {
+                            photo = g_eligible[next].path;
+                            if (twin_enabled) {
+                                if (const auto partner = find_twin_portrait(g_eligible, next, true))
+                                    twin = g_eligible[*partner].path;
+                            }
+                        }
+                        for (int i = 0; i < std::min(2, selection.count); ++i) {
+                            const auto& item = g_eligible[(next + i) % selection.count];
+                            if (item.type == "video") {
+                                warm_video = item.path;
+                                break;
                             }
                         }
                     }
                 }
-
-                // Pre-warm the next eligible video with the existing decoder.
-                if (!g_eligible.empty()) {
-                    int scan_start = current_idx + (current_twin_data ? 2 : 1);
-                    for (int i = 0; i < 4 && i < std::ssize(g_eligible); i++) {
-                        int vi = (scan_start + i) % std::ssize(g_eligible);
-                        if (g_eligible[vi].type == "video") {
-                            // Pre-warm the upcoming video into background decode queue if idle
-                            if (i <= 1 && !g_video_decoder.is_running() && !g_video_decoder.has_frames()) {
-                                int sw, sh;
-                                {
-                                    std::shared_lock lock(g_config_mtx);
-                                    sw = g_cfg.screen_w;
-                                    sh = g_cfg.screen_h;
-                                    g_video_decoder.set_av_sync(g_cfg.av_sync);
-                                }
-                                g_video_decoder.prewarm(g_eligible[vi].path, sw, sh);
-                            }
-                            break;
-                        }
+                g_preload->enqueue(photo);
+                g_preload->enqueue(twin);
+                if (!warm_video.empty()) {
+                    int width, height;
+                    {
+                        std::shared_lock lock(g_config_mtx);
+                        width = g_cfg.screen_w;
+                        height = g_cfg.screen_h;
+                        g_video_decoder.set_av_sync(g_cfg.av_sync);
                     }
+                    g_video_decoder.prewarm(warm_video, width, height);
                 }
             }
 
+            double delay;
             {
-                double delay;
-                if (g_offline_mode.load()) {
-                    delay = 30.0; // Enforce a 30-second back-off delay during offline recovery
-                } else {
-                    std::shared_lock lk(g_config_mtx);
-                    delay = g_cfg.transition_delay;
-                }
-                if (item_timer >= delay) {
-                    transitioning = true;
-                    advance_playlist(current_twin_data ? 2 : 1);
-                }
+                std::shared_lock lock(g_config_mtx);
+                delay = g_cfg.transition_delay;
+            }
+            if (!paused && (photo_retry_at != std::chrono::steady_clock::time_point{} ?
+                            now >= photo_retry_at : item_timer >= delay)) {
+                photo_retry_at = {};
+                advance(shown_twin ? 2 : 1);
             }
         }
 
-        // Splash-to-first-photo fade-out
-        if (first_photo_fade && (g_eligible.empty() || g_eligible[current_idx].type != "video")) {
-            if (fade_start_time == 0) fade_start_time = SDL_GetTicks();
-            Uint64 fade_elapsed = SDL_GetTicks() - fade_start_time;
-            float fade_alpha = 1.0f - std::min(1.0f, fade_elapsed / 500.0f);
-            if (fade_alpha > 0.0f) {
-                SDL_SetRenderDrawBlendMode(g_renderer.sdl_renderer, SDL_BLENDMODE_BLEND);
-                SDL_SetRenderDrawColor(g_renderer.sdl_renderer, 0, 0, 0, (Uint8)(fade_alpha * 255.0f));
-                SDL_FRect fade_rect = {0, 0, (float)g_renderer.screen_w, (float)g_renderer.screen_h};
-                SDL_RenderFillRect(g_renderer.sdl_renderer, &fade_rect);
-                g_renderer.present();
-            }
-            if (fade_alpha <= 0.0f) {
-                first_photo_fade = false;
-                g_renderer.cleanup_splash();
-            }
-        }
-
-        const bool is_video_active = !g_eligible.empty() && g_eligible[current_idx].type == "video";
-        playlist_lock.unlock(); // Unlock before frame sleep throttling
-
-        if (is_video_active) {
-            // Video pacing is handled precisely by the PTS presentation clock (due_ms).
-            // Yield 1ms to allow background decode threads to run without double-delay.
-            SDL_Delay(1);
-        } else {
+        {
             int target_fps = 60;
             if (!transitioning && !first_photo_fade) {
                 std::shared_lock lk(g_config_mtx);
@@ -3528,7 +3108,9 @@ int main(int argc, char** argv) {
     set_display_power(true);
     
     // Signal thermal monitor early so it exits in parallel with other threads
-    thermal_running.store(false);
+    thermal_thread.request_stop();
+
+    stop_video();
 
     // Stop background HTTP server
     g_watchman_thread.request_stop();
@@ -3564,9 +3146,8 @@ int main(int argc, char** argv) {
     // joined before cache and playlist teardown, even on an unresponsive NAS.
     if (g_watchman_thread.joinable()) g_watchman_thread.join();
 
-    g_video_decoder.stop(); // EOF workers can still own audio and queued frames.
-    if (g_video_tex) { SDL_DestroyTexture(g_video_tex); g_video_tex = nullptr; g_video_tex_w = 0; g_video_tex_h = 0; g_video_tex_fmt = SDL_PIXELFORMAT_UNKNOWN; }
     if (g_transition) { g_transition->reset(); delete g_transition; }
+    g_renderer.set_caption_font(nullptr, {});
     if (g_overlay) { delete g_overlay; g_overlay = nullptr; }
     if (g_preload) {
         g_preload->shutdown();

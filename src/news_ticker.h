@@ -2,6 +2,7 @@
 #define PITROVE_NEWS_TICKER_H
 
 #include <SDL3/SDL.h>
+#include <cstdint>
 #include <string>
 #include <vector>
 #include <shared_mutex>
@@ -34,15 +35,21 @@ private:
     std::vector<NewsItem> m_local_items;
     std::vector<NewsItem> m_global_items;
     mutable std::shared_mutex m_items_mtx;
+    uint64_t m_items_generation = 0;
     std::jthread m_worker_thread;
     std::mutex m_lifecycle_mtx;
     std::atomic<bool> m_running{false};
     std::atomic<bool> m_allow_io{true};
-    std::atomic<bool> m_fetching{false};
+    std::mutex m_fetch_mtx;
+    uint64_t m_fetch_generation = 0;
+    bool m_fetching = false;
+    void refresh(bool requested);
+    void fetch_once(uint64_t generation);
     std::atomic<int> m_last_error{0};
     std::atomic<time_t> m_last_fetch_time{0};
 
     std::atomic<bool> m_reset_scroll{false};
+    // The render thread owns scroll state and measured headline spans.
     float m_local_scroll_offset{0.0f};
     float m_global_scroll_offset{0.0f};
     uint64_t m_last_render_ticks{0};
@@ -51,6 +58,8 @@ private:
     int m_cached_local_total_w{0};
     int m_cached_global_total_w{0};
     int m_cached_font_size{0};
+    std::string m_cached_font_path;
+    uint64_t m_cached_items_generation = 0;
 
     struct FeedState {
         std::string url;
@@ -58,9 +67,12 @@ private:
         std::chrono::steady_clock::time_point retry_after{};
         int backoff_seconds = 30;
     };
-    FeedState local_feed, global_feed;
-    std::string execute_http_get(const std::string& url, FeedState& feed, bool& unchanged);
-    std::vector<NewsItem> parse_rss(const std::string& xml_data);
+    FeedState m_local_feed, m_global_feed;
+    std::vector<std::string> m_feed_blacklist;
+    std::string m_feed_timezone;
+    std::string execute_http_get(const std::string& url, FeedState& feed, bool& unchanged, uint64_t generation);
+    std::vector<NewsItem> parse_rss(const std::string& xml_data, const std::string& timezone,
+                                    const std::vector<std::string>& blacklist);
 
 public:
     NewsTicker();

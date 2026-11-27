@@ -4,9 +4,11 @@
 #include "util.h"
 
 #include <algorithm>
+#include <cstdint>
 #include <cstdio>
 #include <map>
 #include <optional>
+#include <shared_mutex>
 #include <poll.h>
 #include <sys/ioctl.h>
 #include <termios.h>
@@ -68,10 +70,48 @@ int read_key() {
 void row(std::string_view text, size_t width, const char* style = "") {
     std::fputs(style, stdout);
     size_t used = 0;
-    for (unsigned char c : text) {
-        if (used++ >= width) break;
-        // Render controls and untrusted terminal sequences as inert text.
-        std::fputc(c < 32 || c >= 127 ? '?' : c, stdout);
+    for (size_t i = 0; i < text.size() && used < width; ) {
+        const unsigned char c = static_cast<unsigned char>(text[i]);
+        if (c < 0x80) {
+            // Strip ASCII control characters (including ESC 0x1b) and DEL.
+            std::fputc((c < 0x20 || c == 0x7f) ? '?' : c, stdout);
+            ++i;
+            ++used;
+            continue;
+        }
+        size_t len = 0;
+        uint32_t cp = 0;
+        if ((c & 0xe0) == 0xc0 && i + 1 < text.size()) {
+            const unsigned char c1 = static_cast<unsigned char>(text[i + 1]);
+            if ((c1 & 0xc0) == 0x80) {
+                cp = ((c & 0x1fu) << 6) | (c1 & 0x3fu);
+                if (cp >= 0x80) len = 2;
+            }
+        } else if ((c & 0xf0) == 0xe0 && i + 2 < text.size()) {
+            const unsigned char c1 = static_cast<unsigned char>(text[i + 1]);
+            const unsigned char c2 = static_cast<unsigned char>(text[i + 2]);
+            if ((c1 & 0xc0) == 0x80 && (c2 & 0xc0) == 0x80) {
+                cp = ((c & 0x0fu) << 12) | ((c1 & 0x3fu) << 6) | (c2 & 0x3fu);
+                if (cp >= 0x800 && !(cp >= 0xd800 && cp <= 0xdfff)) len = 3;
+            }
+        } else if ((c & 0xf8) == 0xf0 && i + 3 < text.size()) {
+            const unsigned char c1 = static_cast<unsigned char>(text[i + 1]);
+            const unsigned char c2 = static_cast<unsigned char>(text[i + 2]);
+            const unsigned char c3 = static_cast<unsigned char>(text[i + 3]);
+            if ((c1 & 0xc0) == 0x80 && (c2 & 0xc0) == 0x80 && (c3 & 0xc0) == 0x80) {
+                cp = ((c & 0x07u) << 18) | ((c1 & 0x3fu) << 12) | ((c2 & 0x3fu) << 6) | (c3 & 0x3fu);
+                if (cp >= 0x10000 && cp <= 0x10ffff) len = 4;
+            }
+        }
+        // Reject invalid UTF-8 sequences and C1 control codes (U+0080..U+009F, incl. 8-bit CSI).
+        if (len > 0 && !(cp >= 0x80 && cp <= 0x9f)) {
+            std::fwrite(text.data() + i, 1, len, stdout);
+            i += len;
+        } else {
+            std::fputc('?', stdout);
+            ++i;
+        }
+        ++used;
     }
     std::fputs("\033[0m\033[K\n", stdout);
 }
@@ -79,16 +119,23 @@ void row(std::string_view text, size_t width, const char* style = "") {
 } // namespace
 
 void config_wizard(const std::string& path) {
+    bool saved_changes = false;
+    {
     Terminal terminal;
     if (!terminal.active) {
         std::fputs("The configuration editor requires an interactive terminal.\n", stderr);
         return;
     }
 
-    auto entries = config_editor::fields(g_cfg);
+    std::vector<config_editor::FieldView> entries;
+    std::string original_revision;
+    {
+        std::shared_lock lock(g_config_mtx);
+        entries = config_editor::fields(g_cfg);
+        original_revision = config_editor::revision(g_cfg);
+    }
     if (entries.empty()) return;
     const auto defaults = config_editor::fields(Config{});
-    const auto original_revision = config_editor::revision(g_cfg);
     std::map<std::string, std::string> edits;
     std::optional<std::string> input;
     std::string message;
@@ -130,7 +177,7 @@ void config_wizard(const std::string& path) {
             row("Enter sets value   Esc cancels", width);
         } else {
             row("Up/Down   PgUp/PgDn   Left/Right section   Enter edit   Space next value", width);
-            row("S save   Q quit   R reset section   X clear secret", width);
+            row("S save (run 'pitrove restart' to apply)   Q quit   R reset section   X clear secret", width);
         }
         row(message, width);
         std::fflush(stdout);
@@ -197,13 +244,19 @@ void config_wizard(const std::string& path) {
             const auto result = config_editor::apply(g_cfg, edits, path);
             edits.erase("revision");
             if (result.status == 200) {
-                g_config_changed.store(!result.changed.empty());
-                return;
+                saved_changes = !result.changed.empty();
+                g_config_changed.store(saved_changes);
+                break;
             }
             const auto quote = result.body.find(':');
             message = quote != result.body.npos && result.body.ends_with('}')
                 ? config_text::decode(std::string_view(result.body).substr(quote + 1, result.body.size() - quote - 2)).value_or(result.body)
                 : result.body;
         }
+    }
+    }
+    if (saved_changes) {
+        std::fputs("Configuration saved. Run 'pitrove restart' to apply changes to the running frame.\n", stdout);
+        std::fflush(stdout);
     }
 }

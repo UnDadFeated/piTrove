@@ -18,18 +18,24 @@
 #include "calendar.h"
 #include "stock_streamer.h"
 #include "renderer.h"
+#include <SDL3_image/SDL_image.h>
+extern std::mutex g_sdl_image_mutex;
 
 #include <iostream>
 #include <sstream>
 #include <vector>
 #include <string>
+#include <memory>
 #include <mutex>
+#include <optional>
 #include <shared_mutex>
 #include <atomic>
 #include <chrono>
+#include <condition_variable>
 #include <cctype>
 #include <format>
 #include <thread>
+#include <utility>
 #include <functional>
 #include <fstream>
 #include <cstring>
@@ -54,10 +60,47 @@ extern int current_idx;
 extern std::mutex g_playlist_mtx;
 
 static OAuthState g_oauth_state;
+static std::mutex g_oauth_flow_mtx;
+static std::string g_oauth_authority;
 static std::jthread g_server_thread;
 static std::atomic<bool> g_server_running{false};
 static std::atomic<int> g_listen_fd{-1};
-static std::atomic<int> g_active_connections{0};
+static std::mutex g_connections_mtx;
+static int g_active_connections = 0;
+static std::unordered_map<uint32_t, int> g_peer_connections;
+
+static bool reserve_connection(uint32_t peer_ip) {
+    std::lock_guard lock(g_connections_mtx);
+    if (g_active_connections >= 32) return false;
+    auto& count = g_peer_connections[peer_ip];
+    if (count >= 8) return false;
+    ++count;
+    ++g_active_connections;
+    return true;
+}
+
+static void release_connection(uint32_t peer_ip) {
+    std::lock_guard lock(g_connections_mtx);
+    auto peer = g_peer_connections.find(peer_ip);
+    if (--peer->second == 0) g_peer_connections.erase(peer);
+    --g_active_connections;
+}
+
+static bool allow_unverified_request_log() {
+    using Clock = std::chrono::steady_clock;
+    static std::mutex mutex;
+    static auto last = Clock::now();
+    static int tokens = 8;
+    std::lock_guard lock(mutex);
+    const auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(Clock::now() - last);
+    if (elapsed.count() > 0) {
+        tokens = std::min<int64_t>(8, tokens + elapsed.count());
+        last += elapsed;
+    }
+    if (!tokens) return false;
+    --tokens;
+    return true;
+}
 
 struct TrackedThreadInfo {
     std::jthread thread;
@@ -558,7 +601,8 @@ static bool valid_screenshot_name(std::string_view name) {
 }
 
 static bool stream_regular_file(int fd, const std::string& path, std::string_view mime, const char* not_found_msg) {
-    const int file_fd = ::open(path.c_str(), O_RDONLY | O_NOFOLLOW | O_CLOEXEC);
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(response_timeout_ms);
+    const int file_fd = ::open(path.c_str(), O_RDONLY | O_NOFOLLOW | O_CLOEXEC | O_NONBLOCK);
     if (file_fd < 0) {
         send_response(fd, "HTTP/1.1 404 Not Found", "text/plain", not_found_msg);
         return false;
@@ -578,7 +622,6 @@ static bool stream_regular_file(int fd, const std::string& path, std::string_vie
         "HTTP/1.1 200 OK\r\nContent-Type: {}\r\nContent-Length: {}\r\n"
         "Cache-Control: no-store\r\nX-Content-Type-Options: nosniff\r\nConnection: close\r\n\r\n",
         mime, remaining);
-    const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(response_timeout_ms);
     if (!http_protocol::send_until(fd, headers, deadline)) return false;
 
     char buffer[8192];
@@ -587,6 +630,8 @@ static bool stream_regular_file(int fd, const std::string& path, std::string_vie
         const ssize_t bytes = ::read(file_fd, buffer, want);
         if (bytes < 0) {
             if (errno == EINTR) continue;
+            // A regular file normally ignores O_NONBLOCK. Close on EAGAIN
+            // instead of spinning on a file descriptor that always polls ready.
             break;
         }
         if (bytes == 0) break;
@@ -615,29 +660,55 @@ static void handle_screenshot(int fd) {
     std::string shot_filename = std::string("screenshot_") + time_str + "_" + std::to_string(SDL_GetTicks()) + ".png";
     std::string shot_path = dir + "/" + shot_filename;
 
+    auto req = std::make_shared<ScreenshotRequest>();
     {
         std::lock_guard lk(g_screenshot_mtx);
-        g_screenshot_ready.store(false, std::memory_order_release);
-        g_screenshot_ok.store(false, std::memory_order_release);
-        g_screenshot_out_path = shot_path;
+        g_pending_screenshot = req;
+        g_screenshot_pending.store(true, std::memory_order_release);
     }
-    g_screenshot_requested.store(true, std::memory_order_release);
 
-    std::unique_lock lk(g_screenshot_mtx);
-    bool ready = g_screenshot_cv.wait_for(lk, std::chrono::milliseconds(5000), []{
-        return g_screenshot_ready.load(std::memory_order_acquire);
-    });
-
-    if (!ready) {
-        g_screenshot_requested.store(false, std::memory_order_release);
-        lk.unlock();
-        send_response(fd, "HTTP/1.1 504 Gateway Timeout", "text/plain", "Screenshot capture timed out");
-        return;
+    SDL_Surface* surf = nullptr;
+    bool ok = false;
+    {
+        std::unique_lock rlk(req->mtx);
+        const bool ready = req->cv.wait_for(rlk, std::chrono::milliseconds(5000), [&] {
+            return req->ready;
+        });
+        if (!ready) {
+            req->cancelled = true;
+            rlk.unlock();
+            {
+                std::lock_guard lk(g_screenshot_mtx);
+                if (g_pending_screenshot == req) {
+                    g_pending_screenshot.reset();
+                    g_screenshot_pending.store(false, std::memory_order_release);
+                }
+            }
+            send_response(fd, "HTTP/1.1 504 Gateway Timeout", "text/plain", "Screenshot capture timed out");
+            return;
+        }
+        ok = req->ok;
+        surf = req->surface;
+        req->surface = nullptr;
     }
-    const bool ok = g_screenshot_ok.load(std::memory_order_acquire);
-    lk.unlock(); // File I/O and socket writes must not hold the renderer's state mutex.
 
-    if (!ok) {
+    bool saved = false;
+    if (ok && surf) {
+        std::unique_ptr<SDL_Surface, decltype(&SDL_DestroySurface)> surf_guard(surf, SDL_DestroySurface);
+        const std::string tmp_p = shot_path + ".tmp";
+        bool wrote = false;
+        {
+            std::lock_guard lock(g_sdl_image_mutex);
+            wrote = IMG_SavePNG(surf_guard.get(), tmp_p.c_str());
+        }
+        if (wrote && std::rename(tmp_p.c_str(), shot_path.c_str()) == 0) {
+            saved = true;
+        } else {
+            std::remove(tmp_p.c_str());
+        }
+    }
+
+    if (!saved) {
         send_response(fd, "HTTP/1.1 500 Internal Server Error", "text/plain", "Failed to capture screenshot");
         return;
     }
@@ -734,7 +805,57 @@ static void handle_preview(int fd) {
     else if (ext == ".webp") mime = "image/webp";
     else if (ext == ".gif") mime = "image/gif";
 
-    stream_regular_file(fd, path, mime, "File not found on disk");
+    // CIFS can block inside open/fstat/read even with O_NONBLOCK. Keep those
+    // calls off joinable HTTP workers and let the active I/O retain its slot
+    // until it actually exits, including after a client timeout.
+    struct Transfer {
+        std::shared_ptr<std::atomic<int>> slots;
+        int socket = -1;
+        std::mutex mutex;
+        std::condition_variable ready;
+        bool finished = false;
+        ~Transfer() {
+            if (socket >= 0) close(socket);
+            if (slots) slots->fetch_sub(1);
+        }
+    };
+    static const auto slots = std::make_shared<std::atomic<int>>(0);
+    auto transfer = std::make_shared<Transfer>();
+    if (slots->fetch_add(1) >= 2) {
+        slots->fetch_sub(1);
+        send_response(fd, "HTTP/1.1 503 Service Unavailable", "text/plain", "Preview transfers are busy");
+        return;
+    }
+    transfer->slots = slots;
+    transfer->socket = fcntl(fd, F_DUPFD_CLOEXEC, 0);
+    if (transfer->socket < 0) {
+        send_response(fd, "HTTP/1.1 503 Service Unavailable", "text/plain", "Could not open the preview transfer");
+        return;
+    }
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(response_timeout_ms);
+    try {
+        std::thread worker([transfer, path = std::move(path), mime = std::move(mime), timeout = response_timeout_ms] {
+            response_timeout_ms = timeout;
+            try {
+                stream_regular_file(transfer->socket, path, mime, "File not found on disk");
+            } catch (...) {}
+            {
+                std::lock_guard lock(transfer->mutex);
+                transfer->finished = true;
+            }
+            transfer->ready.notify_one();
+        });
+        worker.detach();
+    } catch (const std::system_error&) {
+        send_response(fd, "HTTP/1.1 503 Service Unavailable", "text/plain", "Could not start the preview transfer");
+        return;
+    }
+    using namespace std::chrono_literals;
+    std::unique_lock lock(transfer->mutex);
+    while (!transfer->finished && g_server_running.load() && std::chrono::steady_clock::now() < deadline) {
+        transfer->ready.wait_until(lock, std::min(deadline, std::chrono::steady_clock::now() + 100ms));
+    }
+    if (!transfer->finished) shutdown(fd, SHUT_RDWR);
 }
 
 static void handle_client(int client_fd, uint32_t peer_ip) {
@@ -744,6 +865,7 @@ static void handle_client(int client_fd, uint32_t peer_ip) {
         ~ClientFdGuard() { unregister_client_fd(fd); close(fd); }
     };
     ClientFdGuard guard(client_fd);
+    if (!g_server_running.load()) return;
 
     int socket_timeout_secs = 5;
     { std::shared_lock lk(g_config_mtx); socket_timeout_secs = g_cfg.http_socket_timeout; }
@@ -770,6 +892,26 @@ static void handle_client(int client_fd, uint32_t peer_ip) {
     };
 
     if (!request.empty()) {
+        struct RequestLog {
+            const http_protocol::Request& request;
+            bool verified = false;
+            bool written = false;
+            ~RequestLog() { write(); }
+            void write() noexcept {
+                if (std::exchange(written, true)) return;
+                try {
+                    if (verified || allow_unverified_request_log())
+                        g_logger.info("HTTP: Request: {} {}", std::string_view(request.method).substr(0, 16),
+                                      std::string_view(request.path).substr(0, 128));
+                } catch (...) {}
+            }
+        } request_log{parsed_request};
+        const auto oauth_loopback = [&] {
+            const auto hostname = host->second.substr(0, host->second.find(':'));
+            // The current listener is IPv4. Require the actual local peer as well as a loopback Host.
+            return peer_ip == htonl(INADDR_LOOPBACK) &&
+                   (strcasecmp(hostname.c_str(), "localhost") == 0 || hostname == "127.0.0.1");
+        };
         // Each source has its own bounded failed-attempt window.
         using Clock = std::chrono::steady_clock;
         struct AuthAttempts {
@@ -826,6 +968,7 @@ static void handle_client(int client_fd, uint32_t peer_ip) {
                     limited = true;
                 } else if (valid_key(api_key)) {
                     if (previous != attempts.end()) attempts.erase(previous);
+                    request_log.verified = true;
                     return true;
                 } else if (previous != attempts.end()) {
                     if (++previous->second.failures == max_failures) previous->second.expires = now + lockout;
@@ -839,9 +982,6 @@ static void handle_client(int client_fd, uint32_t peer_ip) {
                           "text/plain", limited ? "Too many failed attempts" : "Invalid API key");
             return false;
         };
-
-        // Query parameters can contain OAuth codes or credentials. Log only the route.
-        g_logger.info("HTTP: Request: {} {}", parsed_request.method, parsed_request.path);
 
         // Very simple router
         if (matches_route("GET", "/") || matches_route("GET", "/dashboard")) {
@@ -872,7 +1012,7 @@ static void handle_client(int client_fd, uint32_t peer_ip) {
                 };
                 const bool master_changed = std::find(result.changed.begin(), result.changed.end(),
                                                        "infopanels.enabled") != result.changed.end();
-                const bool update_news = master_changed || touched("news.");
+                const bool update_news = master_changed || touched("news.") || touched("mqtt.timezone");
                 const bool update_calendar = master_changed || touched("gcalendar.") || touched("mqtt.timezone");
                 const bool update_stocks = master_changed || touched("stockstreamer.");
                 const bool update_photos = touched("google_photos.");
@@ -919,21 +1059,25 @@ static void handle_client(int client_fd, uint32_t peer_ip) {
             if (!chores::valid_date(today)) today = format_epoch_tz(time(nullptr), "UTC", "%Y-%m-%d");
             const auto response = chores::handle_http(chores::g_store, parsed_request.method,
                                                      parsed_request.path, request, today, timezone);
+            if (response.status == 404) request_log.verified = false;
             send_response(client_fd, "HTTP/1.1 " + std::to_string(response.status) +
                           (response.status == 200 ? " OK" : " Error"), "application/json; charset=utf-8", response.body);
         }
         else if (matches_route("GET", "/google_photos_setup")) {
+            if (!oauth_loopback()) {
+                send_response(client_fd, "HTTP/1.1 400 Bad Request", "text/plain",
+                              "Open Google Photos through the localhost controller.");
+                return;
+            }
             send_response(client_fd, "HTTP/1.1 200 OK", "text/html; charset=utf-8", get_setup_html());
         }
         else if (matches_route("POST", "/google_photos_setup")) {
-            if (!is_authorized()) return;
-            const auto hostname = std::string_view(host->second).substr(0, host->second.find(':'));
-            if ((hostname != "localhost" && hostname != "127.0.0.1") ||
-                parsed_request.target != parsed_request.path) {
+            if (!oauth_loopback() || parsed_request.target != parsed_request.path) {
                 send_response(client_fd, "HTTP/1.1 400 Bad Request", "text/plain",
                               "Use the localhost controller to link Google Photos.");
                 return;
             }
+            if (!is_authorized()) return;
             const auto client_id = get_query_param(request, "client_id");
             const auto client_secret = get_query_param(request, "client_secret");
             if (client_id.empty() || client_id.size() > 512 || client_secret.empty() || client_secret.size() > 512) {
@@ -941,7 +1085,12 @@ static void handle_client(int client_fd, uint32_t peer_ip) {
                 return;
             }
             const std::string redirect_uri = "http://" + host->second + "/google_photos_callback";
-            const auto state = g_oauth_state.begin(client_id, client_secret, redirect_uri);
+            std::string state;
+            {
+                std::lock_guard lock(g_oauth_flow_mtx);
+                state = g_oauth_state.begin(client_id, client_secret, redirect_uri);
+                if (!state.empty()) g_oauth_authority = host->second;
+            }
             if (state.empty()) {
                 send_response(client_fd, "HTTP/1.1 500 Internal Server Error", "text/plain", "Failed to initialize authorization");
                 return;
@@ -956,8 +1105,15 @@ static void handle_client(int client_fd, uint32_t peer_ip) {
             const auto response = parsed_request.method == "POST" ? g_google_photos.create_picker() : g_google_photos.picker_status();
             send_response(client_fd, "HTTP/1.1 200 OK", "application/json", response);
         }
-        else if (matches_route("GET", "/google_photos_callback")) {
-            auto flow = g_oauth_state.consume(get_query_param(request, "state"));
+        else if (matches_route("GET", "/google_photos_callback") || matches_route("GET", "/oauth2callback")) {
+            std::optional<OAuthState::Flow> flow;
+            const auto photos_generation = g_google_photos.generation();
+            if (oauth_loopback()) {
+                std::lock_guard lock(g_oauth_flow_mtx);
+                if (strcasecmp(host->second.c_str(), g_oauth_authority.c_str()) == 0)
+                    flow = g_oauth_state.consume(get_query_param(request, "state"));
+                if (flow) g_oauth_authority.clear();
+            }
             if (!flow) {
                 send_response(client_fd, "HTTP/1.1 400 Bad Request", "text/plain", "Invalid or expired authorization state; restart setup");
                 return;
@@ -988,28 +1144,19 @@ static void handle_client(int client_fd, uint32_t peer_ip) {
                     
                     send_response(client_fd, "HTTP/1.1 200 OK", "text/html", get_error_html(err_desc));
                 } else {
-                    // Preserve the previous live settings if persistence fails.
-                    {
-                        std::lock_guard lock(g_config_mtx);
-                        Config previous = g_cfg;
-                        g_cfg.google_photos_client_id = flow->client_id;
-                        g_cfg.google_photos_client_secret = flow->client_secret;
-                        g_cfg.google_photos_refresh_token = refresh_token;
-                        g_cfg.google_photos_enabled = true;
-                        std::string save_path = g_cfg.loaded_path.empty() ? "/app/config/config.toml" : g_cfg.loaded_path;
-                        if (!g_cfg.save(save_path)) {
-                            g_cfg = std::move(previous);
-                            send_response(client_fd, "HTTP/1.1 500 Internal Server Error", "text/plain", "Failed to save configuration");
-                            return;
-                        }
+                    const auto result = g_google_photos.link_account(photos_generation, flow->client_id,
+                                                                    flow->client_secret, refresh_token);
+                    if (result == GooglePhotosManager::LinkResult::stale) {
+                        send_response(client_fd, "HTTP/1.1 409 Conflict", "text/html",
+                                      get_error_html("Google Photos settings changed. Start setup again."));
+                        return;
                     }
-
-                    // Clear error and restart background sync thread safely
+                    if (result == GooglePhotosManager::LinkResult::save_failed) {
+                        send_response(client_fd, "HTTP/1.1 500 Internal Server Error", "text/plain", "Failed to save configuration");
+                        return;
+                    }
                     for (int code = 301; code <= 318; ++code) clear_error(code);
-                    
-                    g_google_photos.stop();
-                    g_google_photos.start();
-                    
+
                     send_response(client_fd, "HTTP/1.1 200 OK", "text/html", get_success_html());
                 }
             }
@@ -1024,6 +1171,7 @@ static void handle_client(int client_fd, uint32_t peer_ip) {
             // (std::shared_mutex is not recursive), stalling every subsystem that
             // needs a shared lock. Defer it until the lock has been released.
             bool refetch_news = false;
+            bool refetch_calendar = false;
             bool reconfigure_panels = false;
             
             {
@@ -1223,7 +1371,10 @@ static void handle_client(int client_fd, uint32_t peer_ip) {
                     }
                     if (has_query_param(request, "timezone")) {
                         std::string val = get_query_param(request, "timezone");
-                        if (!val.empty() && g_cfg.timezone != val) { g_cfg.timezone = val; changed = true; }
+                        if (!val.empty() && g_cfg.timezone != val) {
+                            g_cfg.timezone = val;
+                            changed = refetch_news = refetch_calendar = true;
+                        }
                     }
                     if (has_query_param(request, "left_panel_enabled")) {
                         const auto value = get_query_param(request, "left_panel_enabled");
@@ -1311,7 +1462,7 @@ static void handle_client(int client_fd, uint32_t peer_ip) {
                     }
                     if (has_query_param(request, "gcalendar_name")) {
                         std::string val = get_query_param(request, "gcalendar_name");
-                        if (!val.empty() && g_cfg.gcalendar_name != val) { g_cfg.gcalendar_name = val; changed = true; }
+                        if (!val.empty() && g_cfg.gcalendar_name != val) { g_cfg.gcalendar_name = val; changed = refetch_calendar = true; }
                     }
                     if (has_query_param(request, "geotag_offset_x")) {
                         std::string val = get_query_param(request, "geotag_offset_x");
@@ -1404,7 +1555,10 @@ static void handle_client(int client_fd, uint32_t peer_ip) {
             if (!validation_failed && refetch_news) {
                 g_news_ticker.fetch_sync();
             }
-            
+            if (!validation_failed && refetch_calendar && g_calendar.is_running()) {
+                g_calendar.sync();
+            }
+
             if (validation_failed) {
                 trigger_error(807); // E807: HTTP_SETTINGS_CLAMP_VIOLATION
                 g_logger.error("HTTP settings clamp violation: {}", err_msg);
@@ -1589,6 +1743,7 @@ static void handle_client(int client_fd, uint32_t peer_ip) {
                 return;
             }
             last_restart_ms.store(now_ms);
+            request_log.write();
             g_running.store(false);
             send_response(client_fd, "HTTP/1.1 200 OK", "application/json", "{\"status\":\"ok\"}");
         } 
@@ -1774,20 +1929,22 @@ static void server_loop(int port) {
             g_logger.warn("HTTP: Failed to set SO_SNDTIMEO on client socket.");
         }
 
-        int prev = g_active_connections.fetch_add(1);
-        if (prev >= 32) {
-            g_active_connections.fetch_sub(1);
+        const auto peer_ip = client_addr.sin_addr.s_addr;
+        if (!reserve_connection(peer_ip)) {
             constexpr std::string_view busy =
                 "HTTP/1.1 503 Service Unavailable\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
             send(client_fd, busy.data(), busy.size(), MSG_DONTWAIT | MSG_NOSIGNAL);
             close(client_fd);
             continue;
         }
-        if (!spawn_tracked_thread([client_fd, peer_ip = client_addr.sin_addr.s_addr]() {
-            struct ConnectionCountGuard { ~ConnectionCountGuard() { g_active_connections.fetch_sub(1); } } count_guard;
+        if (!spawn_tracked_thread([client_fd, peer_ip]() {
+            struct ConnectionCountGuard {
+                uint32_t peer;
+                ~ConnectionCountGuard() { release_connection(peer); }
+            } count_guard{peer_ip};
             handle_client(client_fd, peer_ip);
         })) {
-            g_active_connections.fetch_sub(1);
+            release_connection(peer_ip);
             close(client_fd);
         }
     }
