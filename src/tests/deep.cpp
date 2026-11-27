@@ -348,7 +348,12 @@ static void test_lifecycles() {
 
     check(!photos.is_running(), "Google Photos worker survived stop");
     { std::unique_lock lock(g_config_mtx); g_cfg.google_photos_enabled = false; }
-    const auto news_status = news.get_status_json();
+    check(news.get_status_json().find("\"last_sync\":0") != std::string::npos,
+          "stopped news feeds reported a successful refresh");
+    // Run one synchronous failed refresh so the error-reporting check does not race stop().
+    NewsTicker failed_news;
+    failed_news.sync();
+    const auto news_status = failed_news.get_status_json();
     check(news_status.find("\"last_sync\":0") != std::string::npos &&
           news_status.find("\"last_error\":537") != std::string::npos,
           "failed news feeds reported a successful refresh");
